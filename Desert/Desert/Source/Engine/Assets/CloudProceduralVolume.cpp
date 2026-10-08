@@ -1466,14 +1466,15 @@ namespace Desert::Assets
                     // THE TURRETS' HEIGHT IS TAKEN OFF THE TOP OF THE BAND FIRST (CLOUD-SHAPE-b): the stack
                     // ends where the turrets' centres stand, so their heads — and nothing else — reach the
                     // band's top. See kTurretsPerCrown.
-                    const float crownRadiusKm = lumpRadiusKm[stackCount - 1];
-                    const float turretRadiusKm = std::max( kTurretRadiusOfCrown * crownRadiusKm, lumpFloorKm );
-                    const float turretVerticalKm =
-                         std::max( std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) * turretRadiusKm,
-                                             0.5f * kTurretShareOfBand * bandFullKm ),
-                                   marchFloorKm );
+                    const float crownRadiusKm    = lumpRadiusKm[stackCount - 1];
+                    const float turretRadiusKm   = std::max( kTurretRadiusOfCrown * crownRadiusKm, lumpFloorKm );
+                    const float turretVerticalKm = std::max(
+                         std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) * turretRadiusKm,
+                                   0.5f * kTurretShareOfBand * bandFullKm ),
+                         marchFloorKm );
                     const float stackBandKm = std::max( bandFullKm - turretVerticalKm, 0.0f );
-                    lumpVerticalKm[stackCount - 1] = std::min( lumpVerticalKm[stackCount - 1], 0.5f * stackBandKm );
+                    lumpVerticalKm[stackCount - 1] =
+                         std::min( lumpVerticalKm[stackCount - 1], 0.5f * stackBandKm );
                     glm::vec3 crownCentreKm( 0.0f );
 
                     // THE BASE LUMP'S CENTRE IS ON THE CLOUD BASE (CLOUD-SHAPE), so its lower half lies
@@ -1588,10 +1589,11 @@ namespace Desert::Assets
                     {
                         const uint32_t turretSeed = HashCombine( clusterSeed, 0x200u + turret );
                         const float    angle =
-                             turretPhase + 6.2831853f * ( static_cast<float>( turret ) +
-                                                          0.3f * HashSigned( HashCombine( turretSeed, 0x1u ) ) ) /
+                             turretPhase + 6.2831853f *
+                                                ( static_cast<float>( turret ) +
+                                                  0.3f * HashSigned( HashCombine( turretSeed, 0x1u ) ) ) /
                                                 static_cast<float>( kTurretsPerCrown );
-                        const float reach  = kTurretShoulderOfCrown * crownRadiusKm *
+                        const float reach = kTurretShoulderOfCrown * crownRadiusKm *
                                             ( 0.8f + 0.4f * HashUnit( HashCombine( turretSeed, 0x2u ) ) );
                         const float wobble = 0.85f + 0.3f * HashUnit( HashCombine( turretSeed, 0x3u ) );
 
@@ -1604,9 +1606,9 @@ namespace Desert::Assets
                              glm::vec3( crownCentreKm.x + along.x * offsetAlong + across.x * offsetAcross,
                                         shape.BaseAltitudeKm + stackBandKm,
                                         crownCentreKm.z + along.y * offsetAlong + across.y * offsetAcross );
-                        blob.RadiiKm = glm::vec3( std::max( turretRadiusKm * wobble * stretch, lumpFloorKm ),
-                                                  turretVerticalKm,
-                                                  std::max( turretRadiusKm * wobble / stretch, lumpFloorKm ) );
+                        blob.RadiiKm      = glm::vec3( std::max( turretRadiusKm * wobble * stretch, lumpFloorKm ),
+                                                       turretVerticalKm,
+                                                       std::max( turretRadiusKm * wobble / stretch, lumpFloorKm ) );
                         blob.RotationDeg  = glm::vec3( 0.0f, yawDeg, 0.0f );
                         blob.Weight       = 1.0f;
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
