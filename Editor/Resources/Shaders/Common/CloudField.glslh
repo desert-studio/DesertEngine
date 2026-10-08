@@ -200,6 +200,24 @@ struct CloudFieldParams
 #define CLOUD_DETAIL_FREQ_Y 0.833f // 25 / 30 — BELOW one: this octave is stretched upward
 #define CLOUD_DETAIL_FREQ_Z 1.333f // 40 / 30
 
+// ---------------------------------------------------------------------------------------------------
+// THE EDGE SHARPENING — the exponent the eroded density is raised to (Nubis Cubed, SIGGRAPH 2023, the
+// up-rez's last line: `pow(density, lerp(0.3, 0.6, density_scale^4))`).
+// ---------------------------------------------------------------------------------------------------
+//
+// The profile is a DEPTH: it rises from the body's surface over the depth of the body's deepest lump,
+// 0.4-0.5 km for a cumulus mediocris (Engine/Assets/CloudProceduralVolume.cpp). Read as a density
+// unchanged, that is a cloud whose edge fades over hundreds of metres — the soft "cotton ball" the owner
+// refused (ACCEPT-CLOUDS, 2026-10-08). A power below one leaves zero and one where they are and lifts
+// everything between toward one, so the density saturates within the first tens of metres inside the
+// eroded surface and the billows the erosion cut read as hard-edged lobes rather than as blur. It is
+// applied AFTER the erosion and not to the profile, because the erosion's frequency blend and its cut
+// both need the depth as a depth.
+//
+// ONE NUMBER, the deck's upper bound: its lower bound belongs to a layer thinned toward haze, which here
+// is the Density Scale slider multiplying the result afterwards, not a second exponent.
+#define CLOUD_EDGE_SHARPEN 0.6f
+
 // THE CEILING ON THE THREE MATERIAL FACTORS, and it is here because a `max(x, 0)` is only half a bound.
 //
 // Detail Factor, Density Factor and Extinction Factor all reach this file as a multiplier on a LAYER

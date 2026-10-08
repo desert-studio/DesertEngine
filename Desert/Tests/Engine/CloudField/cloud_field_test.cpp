@@ -1426,8 +1426,9 @@ namespace
     /// The eroded density from the pair, at an EFFECTIVE depth t = clamp(strength * the type's factor).
     float ErodedDensity( float profile, float erosionNoise, float t )
     {
-        const float erosion = erosionNoise * t * ( 1.0f - profile );
-        return glm::clamp( ( profile - erosion ) / std::max( 1.0f - erosion, 1e-6f ), 0.0f, 1.0f );
+        const float erosion = erosionNoise * t;
+        return std::pow( glm::clamp( ( profile - erosion ) / std::max( 1.0f - erosion, 1e-6f ), 0.0f, 1.0f ),
+                         CLOUD_EDGE_SHARPEN );
     }
 
     /// The finest chord the march is relied on to FIND, metres. Every bound in this section is stated
