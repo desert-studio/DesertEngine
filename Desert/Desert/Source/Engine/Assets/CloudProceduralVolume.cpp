@@ -75,7 +75,7 @@ namespace Desert::Assets
         /// The cauliflower octave's growth at the type's top, in the lump's shape reach; it falls to zero at
         /// the base, so the floor stays flat and calm and the crown boils. The sum with the coarse octave
         /// is clamped to [-1, 1], the range the bake's boxes are grown by.
-        constexpr float kCloudShapeBillowAtTop = 0.6f;
+        constexpr float kCloudShapeBillowAtTop = 1.0f;
 
         /// How many blend radii past the nearest lump a lump may be before it is dropped from the join.
         ///
@@ -226,8 +226,9 @@ namespace Desert::Assets
         /// A billow's size against the turret it grows from.
         constexpr float kBillowOfTurret = 0.55f;
 
-        /// A turret's width against the crown lump it stands on.
-        constexpr float kTurretRadiusOfCrown = 0.45f;
+        /// A turret's width against the crown lump it stands on. 0.55 (CLOUD-SHAPE-c, from 0.45): at the
+        /// shipped mediocris a 0.45 turret was 480 m wide — under three voxels — and read as a ripple.
+        constexpr float kTurretRadiusOfCrown = 0.55f;
 
         /// How far from the crown lump's axis a turret stands, in the crown lump's radius: on its shoulder.
         /// ITS CENTRE IS ON THE CROWN'S SURFACE THERE (CLOUD-SHAPE-c), so its lower half is always inside
@@ -236,8 +237,10 @@ namespace Desert::Assets
         constexpr float kTurretShoulderOfCrown = 0.55f;
 
         /// A turret is at most this share of the band tall (its full height, both halves), so a thin type's
-        /// crown stays a ripple on a sheet and a congestus's turrets stand a kilometre over the cap.
-        constexpr float kTurretShareOfBand = 0.3f;
+        /// crown stays a ripple on a sheet and a congestus's turrets stand a kilometre over the cap. 0.7
+        /// (CLOUD-SHAPE-c, from 0.3): at 0.3 the shipped mediocris' 1 km band clamped its turrets to 150 m
+        /// half-height under a 290 m half-width — flat discs on the cap, not heads.
+        constexpr float kTurretShareOfBand = 0.7f;
 
         /// HOW FAR A FULL ANVIL SPREADS BEYOND THE TOWER IT CAPS, per unit of `AnvilStrength`. It is the
         /// authored meaning of that slider: at 1.0 the canopy is 1.8 times the cluster's radius.
