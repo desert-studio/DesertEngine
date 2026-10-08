@@ -170,11 +170,10 @@ namespace Desert::Editor
 
     // One context-menu row: a button, its label, and the accelerator it displays on the right.
     //
-    // THE ACCELERATOR IS A LABEL AND NOT A BINDING, and that is a limit of the input layer rather than a
-    // shortcut taken here: UI::UIInput carries typed text, Backspace, Tab, Enter and Escape and no key
-    // codes at all, so nothing in this engine can express "Ctrl+S happened" for a menu item to answer.
+    // THE ACCELERATOR IS A LABEL AND NOT A BINDING. UI::UIInput carries every key press with its modifiers
+    // (UIKeyEvent), so "Ctrl+S happened" is expressible, but nothing routes a chord to a menu item yet.
     // Displaying the accelerator is what a context menu owes the reader; making it fire belongs to the task
-    // that gives the input layer key chords.
+    // that adds accelerator routing.
     inline entt::entity AddMenuItem( ::Desert::Core::Scene& scene, entt::entity parent, const char* label,
                                      const char* accelerator, bool disabled )
     {

@@ -108,12 +108,8 @@ namespace Desert::Editor::Render
                 input.MouseDown      = pv.Down;
                 input.MouseReleased  = pv.Released;
                 input.MouseRightDown = pv.RightDown;
-                input.Escape         = pv.Escape;
                 input.ScrollDelta   = pv.Scroll;
-                input.Tab           = pv.Tab;
-                input.Submit        = pv.Submit;
-                input.Navigate       = pv.Navigate;
-                input.Backspace     = pv.Backspace;
+                input.Keys           = pv.Keys;
                 input.TypedText     = pv.TypedText;
             }
 

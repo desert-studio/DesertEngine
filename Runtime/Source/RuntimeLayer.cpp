@@ -459,11 +459,7 @@ namespace Desert::Player
         m_PrevMouseDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
         m_ScrollAccum   = 0.0f;
         m_TypedText.clear();
-        m_Backspace     = false;
-        m_TabPressed    = false;
-        m_SubmitPressed = false;
-        m_EscapePressed = false;
-        m_Navigate      = 0;
+        m_UIKeys.clear();
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -1082,21 +1078,13 @@ namespace Desert::Player
                     // UIViewContext::PrevRightDown, exactly as it does for the left one, so the press a context
                     // menu opens on is computed in one place.
                     input.MouseRightDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right );
-                    input.Escape         = m_EscapePressed;
                     input.ScrollDelta    = m_ScrollAccum;
                     input.TypedText      = m_TypedText;
-                    input.Backspace      = m_Backspace;
-                    input.Tab            = m_TabPressed;
-                    input.Submit         = m_SubmitPressed;
-                    input.Navigate       = m_Navigate;
+                    input.Keys           = m_UIKeys;
                     m_PrevMouseDown      = down;
                     m_ScrollAccum        = 0.0f;
                     m_TypedText.clear();
-                    m_Backspace     = false;
-                    m_TabPressed    = false;
-                    m_SubmitPressed = false;
-                    m_EscapePressed = false;
-                    m_Navigate      = 0;
+                    m_UIKeys.clear();
 
                     // Pointer events / drops can fire several times in one frame, so they come back in their
                     // own list; a button action still arrives through `clicked`.
@@ -1393,31 +1381,23 @@ namespace Desert::Player
             m_SkipStartupMovie = true;
             return true;
         }
-        switch ( key.GetKeyCode() )
-        {
-            case Common::KeyCode::Backspace:
-                m_Backspace = true;
-                break;
-            case Common::KeyCode::Tab:
-                m_TabPressed = true;
-                break;
-            case Common::KeyCode::Enter:
-                m_SubmitPressed = true;
-                break;
-            case Common::KeyCode::Down:
-            case Common::KeyCode::S:
-                m_Navigate = 1;
-                break;
-            case Common::KeyCode::Up:
-            case Common::KeyCode::W:
-                m_Navigate = -1;
-                break;
-            case Common::KeyCode::Escape:
-                m_EscapePressed = true;
-                break;
-            default:
-                break;
-        }
+        // Every key goes to the UI as it happened — key, modifiers, repeat — in arrival order; what a key
+        // means to a menu is the UI's decision (UIInput::Keys), not this host's.
+        using Common::KeyCode;
+        UI::UIKeyMods mods = UI::UIKeyMods::None;
+        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftShift ) ||
+             Input::Keyboard::IsKeyPressed( KeyCode::RightShift ) )
+            mods = mods | UI::UIKeyMods::Shift;
+        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftControl ) ||
+             Input::Keyboard::IsKeyPressed( KeyCode::RightControl ) )
+            mods = mods | UI::UIKeyMods::Ctrl;
+        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftAlt ) ||
+             Input::Keyboard::IsKeyPressed( KeyCode::RightAlt ) )
+            mods = mods | UI::UIKeyMods::Alt;
+        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftSuper ) ||
+             Input::Keyboard::IsKeyPressed( KeyCode::RightSuper ) )
+            mods = mods | UI::UIKeyMods::Super;
+        m_UIKeys.push_back( { key.GetKeyCode(), mods, key.GetRepeatCount() > 0 } );
         return false;
     }
 } // namespace Desert::Player

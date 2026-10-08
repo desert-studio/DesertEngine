@@ -998,11 +998,11 @@ namespace
         entt::entity    focused = entt::null;
 
         UIInput tab = At( 900.0f, 900.0f, /*down=*/false );
-        tab.Tab     = true;
+        tab.Keys.push_back( { Common::KeyCode::Tab } );
         Draw( ctx, n.Registry, n.Canvas, a, &tab, nullptr, &focused );
 
         UIInput enter = At( 900.0f, 900.0f, /*down=*/false );
-        enter.Submit  = true;
+        enter.Keys.push_back( { Common::KeyCode::Enter } );
         std::string clicked;
         Draw( ctx, n.Registry, n.Canvas, b, &enter, &clicked, &focused );
         return clicked == kFired;
@@ -1020,7 +1020,7 @@ namespace
         R2D::DrawList2D dl;
         entt::entity    focused = entt::null;
         UIInput         tab     = At( 900.0f, 900.0f, /*down=*/false );
-        tab.Tab                 = true;
+        tab.Keys.push_back( { Common::KeyCode::Tab } );
         Draw( ctx, n.Registry, n.Canvas, dl, &tab, nullptr, &focused );
         return focused;
     }
@@ -1085,7 +1085,7 @@ TEST( UICanvasHitTest, EnterOnAFocusHeldFromBeforeDoesNotFireAnUnreachableButton
         R2D::DrawList2D dl;
         std::string     clicked;
         UIInput         enter = At( 900.0f, 900.0f, /*down=*/false );
-        enter.Submit          = true;
+        enter.Keys.push_back( { Common::KeyCode::Enter } );
         Draw( ctx, n.Registry, n.Canvas, dl, &enter, &clicked, &focused );
         return clicked == kFired;
     };

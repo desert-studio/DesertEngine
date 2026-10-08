@@ -58,11 +58,13 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <utility>
 #include <limits>
 #include <random>
 
 #include <cmath>
 #include <algorithm>
+#include <utility>
 #include <cstdio>
 #include <string_view>
 
@@ -1600,19 +1602,43 @@ namespace Desert::Editor
                 pv.Released     = pv.Down && !down; // down->up edge
                 pv.Down         = down;
                 pv.RightDown    = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Right );
-                pv.Escape       = ImGui::IsKeyPressed( ImGuiKey_Escape, false );
                 pv.Scroll       = m_ViewportData.IsHovered ? ImGui::GetIO().MouseWheel : 0.0f;
-                pv.Tab          = ImGui::IsKeyPressed( ImGuiKey_Tab, false );
-                pv.Submit       = ImGui::IsKeyPressed( ImGuiKey_Enter, false );
-                // Down/S wins over Up/W when both are pressed on one frame.
-                if ( ImGui::IsKeyPressed( ImGuiKey_DownArrow, false ) || ImGui::IsKeyPressed( ImGuiKey_S, false ) )
-                    pv.Navigate = 1;
-                else if ( ImGui::IsKeyPressed( ImGuiKey_UpArrow, false ) ||
-                          ImGui::IsKeyPressed( ImGuiKey_W, false ) )
-                    pv.Navigate = -1;
-                else
-                    pv.Navigate = 0;
-                pv.Backspace    = ImGui::IsKeyPressed( ImGuiKey_Backspace, false );
+                // The keys the UI listens to, as events (UIInput::Keys). Fresh presses only — the same edge
+                // ImGui::IsKeyPressed( key, false ) gave the old per-meaning flags. Down/S come after Up/W, so
+                // when both arrive on one frame the last-event-wins rule (UI NavigateStep) picks Down/S, as
+                // before.
+                pv.Keys.clear();
+                {
+                    const ImGuiIO& io   = ImGui::GetIO();
+                    UI::UIKeyMods  mods = UI::UIKeyMods::None;
+                    if ( io.KeyShift )
+                        mods = mods | UI::UIKeyMods::Shift;
+                    if ( io.KeyCtrl )
+                        mods = mods | UI::UIKeyMods::Ctrl;
+                    if ( io.KeyAlt )
+                        mods = mods | UI::UIKeyMods::Alt;
+                    if ( io.KeySuper )
+                        mods = mods | UI::UIKeyMods::Super;
+                    using Common::KeyCode;
+                    static constexpr std::pair<ImGuiKey, KeyCode> kUIKeys[] = {
+                         { ImGuiKey_Tab, KeyCode::Tab },
+                         { ImGuiKey_Enter, KeyCode::Enter },
+                         { ImGuiKey_Escape, KeyCode::Escape },
+                         { ImGuiKey_Backspace, KeyCode::Backspace },
+                         { ImGuiKey_Delete, KeyCode::Delete },
+                         { ImGuiKey_Home, KeyCode::Home },
+                         { ImGuiKey_End, KeyCode::End },
+                         { ImGuiKey_LeftArrow, KeyCode::Left },
+                         { ImGuiKey_RightArrow, KeyCode::Right },
+                         { ImGuiKey_UpArrow, KeyCode::Up },
+                         { ImGuiKey_W, KeyCode::W },
+                         { ImGuiKey_DownArrow, KeyCode::Down },
+                         { ImGuiKey_S, KeyCode::S },
+                    };
+                    for ( const auto& [imguiKey, key] : kUIKeys )
+                        if ( ImGui::IsKeyPressed( imguiKey, false ) )
+                            pv.Keys.push_back( { key, mods, false } );
+                }
                 pv.TypedText.clear();
                 for ( ImWchar c : ImGui::GetIO().InputQueueCharacters )
                     if ( c >= 32 && c < 128 ) // ASCII typed chars (matches the default font atlas)

@@ -485,7 +485,7 @@ namespace Desert::UI
         view.PrevRightDown              = input.MouseRightDown;
 
         // --- Escape closes the innermost capturing overlay that allows it ------------------------------
-        if ( input.Escape && !view.OverlayStack.empty() )
+        if ( input.Pressed( Common::KeyCode::Escape ) && !view.OverlayStack.empty() )
         {
             const std::size_t         top = view.OverlayStack.size() - 1;
             const ECS::UIOverlayData* d   = OverlayDataOf( reg, view.OverlayStack[top] );

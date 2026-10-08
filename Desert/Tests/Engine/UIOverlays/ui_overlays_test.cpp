@@ -470,7 +470,7 @@ TEST( OverlayContextMenu, ItOpensOnTheRightButtonAndClosesOnEscape )
     ASSERT_EQ( view.OverlayStack.size(), 1u );
 
     UIInput esc = At( 50.0f, 50.0f );
-    esc.Escape  = true;
+    esc.Keys.push_back( { Common::KeyCode::Escape } );
     w.Frame( view, esc );
     EXPECT_FALSE( view.CanvasState( menu ).OverlayOpen ) << "Escape did not close the context menu";
     EXPECT_TRUE( view.OverlayStack.empty() );
@@ -530,7 +530,7 @@ TEST( OverlayContextMenu, ASubmenuIsAnotherOverlayOpenedFromAnItemAndClosesWithI
     EXPECT_EQ( view.OverlayStack.size(), 2u ) << "the submenu replaced its parent instead of stacking on it";
 
     UIInput esc = At( box.X + box.W * 0.5f, box.Y + box.H * 0.5f );
-    esc.Escape  = true;
+    esc.Keys.push_back( { Common::KeyCode::Escape } );
     w.Frame( view, esc );
     EXPECT_FALSE( view.CanvasState( sub ).OverlayOpen ) << "Escape closed the parent instead of the innermost";
     EXPECT_TRUE( view.CanvasState( menu ).OverlayOpen );

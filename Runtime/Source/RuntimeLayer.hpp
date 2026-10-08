@@ -10,6 +10,7 @@
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
+#include <Engine/UI/UICanvasRenderer2D.hpp>
 
 #include <entt/entt.hpp>
 
@@ -121,11 +122,7 @@ namespace Desert::Player
         bool                                         m_PrevMouseDown = false; // for the click (down->up) edge
         float                                        m_ScrollAccum   = 0.0f;  // wheel delta since last present
         std::string                                  m_TypedText;             // chars typed since last present
-        bool                                         m_Backspace     = false; // backspace pressed since present
-        bool                                         m_TabPressed    = false; // Tab pressed since present
-        bool                                         m_SubmitPressed = false; // Enter pressed since present
-        int m_Navigate = 0; // Up/W = -1, Down/S = +1 since present (UIInput::Navigate)
-        bool                                         m_EscapePressed = false; // Escape pressed since present
+        std::vector<UI::UIKeyEvent> m_UIKeys; // key presses since last present, in order (UIInput::Keys)
         entt::entity                                 m_FocusedUI     = entt::null; // the focused control (or null)
 
         // The player's one view: hover and tween clocks, the elected hot element, the drag, and one screen
