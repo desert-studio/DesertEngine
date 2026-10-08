@@ -727,7 +727,7 @@ TEST_F( ShaderRootFixture, TheDistantSkyLightDeclaresFourDescriptorsInSetZero )
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // multi-scatter LUT
 }
 
-TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresElevenDescriptorsInSetZero )
+TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresThirteenDescriptorsInSetZero )
 {
     // THE PRODUCER OF THE CLOUD SHADOW MAP, and the reason it is pinned here rather than trusted: its
     // inputs are bound by NUMBER and not by reflection (ComputePipeline::SetInput takes the binding
@@ -755,9 +755,13 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresElevenDescriptorsInSetZero )
     // or the ground is shaded by a sky that is not the one drawn. Both are sampled images, so the stage now
     // holds eleven sampled images at most — inside Vulkan's guaranteed maxPerStageDescriptorSampledImages
     // and maxPerStageDescriptorSamplers (16 on every conformant device), so no device budget is spent.
+    //
+    // THIRTEEN SINCE WX-PAINT. The two that arrived are the LAYOUT PATTERN (17) and MASK (18), the march's
+    // own slots: the painted W multiplies the local cover per species, so the shadow cut must read the same
+    // painting the view cut does. Thirteen sampled images, still inside the guaranteed 16.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudShadowMap.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 11u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 13u );
     EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
     EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout pattern
@@ -784,7 +788,7 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresElevenDescriptorsInSetZero )
                              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the sculpted body
 }
 
-TEST_F( ShaderRootFixture, TheCloudMarchDeclaresSeventeenDescriptorsInSetZero )
+TEST_F( ShaderRootFixture, TheCloudMarchDeclaresNineteenDescriptorsInSetZero )
 {
     // THE VIEW MARCH, pinned on the same terms and for the same reason, and it was NOT pinned before slot
     // A landed — which is precisely why it is worth doing now: two of its ten descriptors are new, both
@@ -815,11 +819,16 @@ TEST_F( ShaderRootFixture, TheCloudMarchDeclaresSeventeenDescriptorsInSetZero )
     // storage buffer and images, and the sampled ones stay at or under the 16 that Vulkan guarantees per
     // stage (maxPerStageDescriptorSamplers / SampledImages); every device this engine targets reports
     // far more, so the count is pinned as the binding contract, not as a limit being approached.
+    //
+    // NINETEEN SINCE WX-PAINT: the LAYOUT PATTERN (17) and MASK (18), the painted W per species and the
+    // signed mask, read by CloudLocalCover in every cloud pass.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
 
     EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 19u );
     EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
+    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout pattern
+    EXPECT_TRUE( HasBinding( bindings, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout mask
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {

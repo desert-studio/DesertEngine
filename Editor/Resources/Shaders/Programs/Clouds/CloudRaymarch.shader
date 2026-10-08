@@ -524,12 +524,24 @@ Shader "CloudRaymarch"
                 {
                     vec3  entryKm = originKm + rayDir * segment.x;
                     vec3  windPos = entryKm - params.WindOffsetKm;
-                    float cover   = CloudLocalCover(params.Weather, windPos.xz);
+                    // The cover is per species (WX-PAINT): each height asks its own winner's cover, and
+                    // R is the cover at the height whose rank is the lowest.
+                    float cover   = 0.0f;
                     float lowest  = 1.0f;
                     for (int k = 0; k < 8; ++k)
                     {
-                        vec3 uvw = CloudProceduralVolumeUvw(params, (float(k) + 0.5f) / 8.0f, windPos);
-                        lowest   = min(lowest, CLOUD_SAMPLE_MODELLING_RANK(uvw));
+                        vec3  uvw    = CloudProceduralVolumeUvw(params, (float(k) + 0.5f) / 8.0f, windPos);
+                        float rank   = CLOUD_SAMPLE_MODELLING_RANK(uvw);
+                        vec4  volume = CLOUD_SAMPLE_MODELLING(uvw);
+                        int   winner = 0;
+                        for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
+                            winner = volume[slot] > volume[winner] ? slot : winner;
+                        if (k == 0 || rank < lowest)
+                        {
+                            lowest = rank;
+                            cover  = CloudLocalCover(params.Weather, params.LayoutPlace, params.LayoutStrength,
+                                                     winner, windPos.xz);
+                        }
                     }
                     shown = vec3(cover, lowest, lowest + 0.5f / 255.0f < cover ? 1.0f : 0.0f);
                 }
@@ -544,9 +556,13 @@ Shader "CloudRaymarch"
                         vec3  windPos = vec3(p.x, length(p) - layer.BottomRadiusKm, p.z) - params.WindOffsetKm;
                         vec3  uvw     = CloudProceduralVolumeUvw(params, hf, windPos);
                         float rank    = CLOUD_SAMPLE_MODELLING_RANK(uvw);
-                        float cover   = CloudLocalCover(params.Weather, windPos.xz);
                         vec4  volume  = CLOUD_SAMPLE_MODELLING(uvw);
-                        float profile = max(max(volume.x, volume.y), max(volume.z, volume.w));
+                        int   winner  = 0;
+                        for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
+                            winner = volume[slot] > volume[winner] ? slot : winner;
+                        float profile = volume[winner];
+                        float cover   = CloudLocalCover(params.Weather, params.LayoutPlace, params.LayoutStrength,
+                                                        winner, windPos.xz);
                         kept += CloudCoverProfile(profile, rank, cover, params.Weather.z) > 0.0f ? 1.0f : 0.0f;
                         body += profile > 0.0f ? 1.0f : 0.0f;
                         if (previous >= 0.0f)

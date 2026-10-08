@@ -139,7 +139,7 @@ struct CloudFieldParams
     // as macros; every block value arrives here through CloudUnpackFieldParams.
     vec4 Weather;
     vec4 LayoutPlace;    // Assets::CloudLayoutPlaceUniform: xy offset km, zw (cos, sin) * repeats / region
-    vec4 LayoutStrength; // Assets::CloudLayoutStrengthUniform: x pattern, y mask (0 = not read)
+    vec2 LayoutStrength; // Assets::CloudLayoutStrengthUniform: x pattern, y mask (0 = not read)
 
     vec3 WindOffsetKm; // accumulated wind displacement, subtracted from the sample position
 
@@ -341,7 +341,7 @@ vec2 CloudLayoutUv( vec4 place, vec2 windPosXz )
 // GPU (WX-NUBIS, WX-PAINT): Nubis' localCover = Coverage * W, W the slot's PAINTED W = 1 - PatternStrength *
 // (1 - painted) when a pattern is bound (Unreal's Layout, per pixel), else the world weather map W =
 // saturate(1 - 2 s Phi(w)) with true zeros (Assets::CloudWeatherPresence); plus the mask, which adds.
-float CloudLocalCover( vec4 weather, vec4 layoutPlace, vec4 layoutStrength, int slot, vec2 windPosXz )
+float CloudLocalCover( vec4 weather, vec4 layoutPlace, vec2 layoutStrength, int slot, vec2 windPosXz )
 {
     float cover     = clamp( weather.x, 0.0f, 1.0f );
     float modulated = cover;

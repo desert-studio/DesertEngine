@@ -659,7 +659,7 @@ namespace Desert::Graphic
         /// Assets::CloudLayoutPlaceUniform / CloudLayoutStrengthUniform of the same parameters. Zero strength
         /// (the default) reads no painting.
         glm::vec4 LayoutPlace{ 0.0f };
-        glm::vec4 LayoutStrength{ 0.0f };
+        glm::vec2 LayoutStrength{ 0.0f };
     };
 
     /**
@@ -1028,7 +1028,7 @@ namespace Desert::Graphic
         // mapping.
         p.Weather        = region.Weather;
         p.LayoutPlace    = region.LayoutPlace;
-        p.LayoutStrength = region.LayoutStrength;
+        p.LayoutStrength = glm::vec4( region.LayoutStrength, 0.0f, 0.0f );
 
         p.Aerial = glm::vec3( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                               atmosphere.AerialPerspectiveVolume != nullptr ? 1.0f : 0.0f );

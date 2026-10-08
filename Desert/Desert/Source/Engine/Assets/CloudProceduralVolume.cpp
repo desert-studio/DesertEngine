@@ -2090,7 +2090,7 @@ namespace Desert::Assets
         return glm::vec4( params.LayoutPlacement.OffsetKm.x, params.LayoutPlacement.OffsetKm.y, c * k, s * k );
     }
 
-    glm::vec4 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params )
+    glm::vec2 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params )
     {
         const CloudLayoutData* patternSource = params.PatternSource.get();
         const CloudLayoutData* maskSource    = params.MaskSource.get();
@@ -2098,7 +2098,7 @@ namespace Desert::Assets
         const float            mask          = std::clamp( params.LayoutPlacement.MaskStrength, 0.0f, 1.0f );
         const bool patternLive = patternSource != nullptr && patternSource->HasPattern() && pattern > 1e-4f;
         const bool maskLive    = maskSource != nullptr && maskSource->HasMask() && mask > 1e-4f;
-        return glm::vec4( patternLive ? pattern : 0.0f, maskLive ? mask : 0.0f, 0.0f, 0.0f );
+        return glm::vec2( patternLive ? pattern : 0.0f, maskLive ? mask : 0.0f );
     }
 
     float CloudWeatherPresence( float strength, float weather )

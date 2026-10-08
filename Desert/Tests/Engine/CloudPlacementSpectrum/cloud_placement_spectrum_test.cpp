@@ -2353,18 +2353,21 @@ namespace
     /// A painting carrying one vertical bar @p width texels wide whose left edge is at @p firstColumn,
     /// wrapping past the right edge. The fixture the stroke measure is asked about, because a bar has
     /// exactly one width and it is known before the measurement runs.
+    ///
+    /// DRAWN AS THE PANEL DRAWS (WX-PAINT): a canvas starts WHITE (full cover, MakeCloudLayoutCanvas) and the
+    /// brush carves clear sky in BLACK, so the stroke is the dark bar on a white field.
     CloudLayoutData BarLayout( uint32_t resolution, uint32_t firstColumn, uint32_t width )
     {
-        std::vector<unsigned char> pixels( static_cast<size_t>( resolution ) * resolution * 4u, 0u );
+        std::vector<unsigned char> pixels( static_cast<size_t>( resolution ) * resolution * 4u, 255u );
 
         for ( uint32_t y = 0; y < resolution; ++y )
             for ( uint32_t k = 0; k < width; ++k )
             {
                 const uint32_t x  = ( firstColumn + k ) % resolution;
                 const size_t   at = ( static_cast<size_t>( y ) * resolution + x ) * 4u;
-                pixels[at + 0]    = 255u;
-                pixels[at + 1]    = 255u;
-                pixels[at + 2]    = 255u;
+                pixels[at + 0]    = 0u;
+                pixels[at + 1]    = 0u;
+                pixels[at + 2]    = 0u;
                 pixels[at + 3]    = 128u;
             }
 
@@ -2799,8 +2802,9 @@ TEST( CloudPlacementSpectrum, ABrushStrokeOnTheSeamComesOutOfTheOtherEdge )
          surface.Pattern, kSide, 0u, kCloudLayoutChannels,
          { glm::vec2( 0.0f, -4.0f ), glm::vec2( 0.0f, static_cast<float>( kSide ) + 4.0f ) }, brush ) );
 
-    EXPECT_GT( surface.Pattern[( 32u * kSide + 0u ) * 4u], 200u ) << "the seam column itself was not painted";
-    EXPECT_GT( surface.Pattern[( 32u * kSide + ( kSide - 1u ) ) * 4u], 200u )
+    // The brush carves clear sky (Ink 0) into a white canvas, so a painted texel is a DARK one.
+    EXPECT_LT( surface.Pattern[( 32u * kSide + 0u ) * 4u], 55u ) << "the seam column itself was not painted";
+    EXPECT_LT( surface.Pattern[( 32u * kSide + ( kSide - 1u ) ) * 4u], 55u )
          << "the stroke stopped at the edge instead of wrapping, so a figure on the seam is cut in half at "
             "every region face";
 

@@ -810,8 +810,9 @@ namespace Desert::Assets
 
     /// HOW STRONGLY IT ACTS (CloudGpuPayload::LayoutStrength): x the PatternStrength when a pattern is
     /// bound and 0 otherwise, y the MaskStrength when a mask is bound and 0 otherwise — the same live tests
-    /// CloudProceduralLocalCover makes. z and w are not read (Graphic::kCloudUnreadSlots).
-    glm::vec4 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params );
+    /// CloudProceduralLocalCover makes. Two numbers: the payload's vec4 slot carries them in xy and its z
+    /// and w are not read (Graphic::kCloudUnreadSlots).
+    glm::vec2 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params );
 
     /// How far the local cover runs past a cluster's core rank before the cluster stands at its full profile.
     inline float CloudProceduralRankSoftness( const CloudProceduralFieldParams& params )
