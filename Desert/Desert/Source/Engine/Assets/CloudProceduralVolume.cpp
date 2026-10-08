@@ -288,10 +288,13 @@ namespace Desert::Assets
         /// the march at every column of a region.
         constexpr uint32_t kCloudFarWeatherWaves = 96u;
 
-        float CloudCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
-                                 const glm::vec2& centreKm )
+        /// The one expression both covers state: @p base times the slot's W (painted, else the world
+        /// weather's), plus the mask, clamped. CloudProceduralCellCoverage passes the Coverage slider (the
+        /// panels' map of how busy the sky is); CloudProceduralLocalWeather passes one (what the march
+        /// remaps the baked profile by, CUT-AT-BAKE).
+        float CloudCellCover( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec2& centreKm,
+                              float base )
         {
-            const float base = std::clamp( params.Coverage, 0.0f, 1.0f );
 
             const CloudLayoutData* patternSource = params.PatternSource.get();
             const CloudLayoutData* maskSource    = params.MaskSource.get();
@@ -721,32 +724,24 @@ namespace Desert::Assets
 
         if ( auto hit = Common::DDC::Get( kCloudModellingDeriver, result.Key ); hit.has_value() )
         {
-            const uint64_t voxelBytes = CloudProceduralVoxelBytes( params.VolumeSideVoxels );
-            const uint64_t rankBytes  = CloudProceduralRankBytes( params.VolumeSideVoxels );
-            const uint64_t expected   = voxelBytes + rankBytes;
+            const uint64_t expected = CloudProceduralVoxelBytes( params.VolumeSideVoxels );
             if ( hit->size() != expected )
                 return Common::MakeFormattedError<CloudProceduralCachedBake>(
                      "the cached modelling volume '{}' holds {} bytes where a {}-voxel grid is {} — the entry is "
                      "damaged; delete it to re-bake",
                      Common::DDC::PathFor( kCloudModellingDeriver, result.Key ).string(), hit->size(),
                      params.VolumeSideVoxels, expected );
-            // ONE ENTRY, PROFILE THEN RANK: one bake, never served from two keys.
-            const auto ranksAt = hit->begin() + static_cast<std::ptrdiff_t>( voxelBytes );
-            result.Voxels.assign( hit->begin(), ranksAt );
-            result.Ranks.assign( ranksAt, hit->end() );
+            result.Voxels.assign( hit->begin(), hit->end() );
             result.FromCache = true;
             return Common::MakeSuccess( std::move( result ) );
         }
 
-        auto baked = BakeCloudProceduralVolumeRanked( params, regionOriginKm, onProgress );
+        auto baked = BakeCloudProceduralVolume( params, regionOriginKm, onProgress );
         if ( !baked.IsSuccess() )
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
         // A copy: Result hands out a const reference only (ResultWithCodes.hpp), so a move would be one in name.
-        result.Voxels = baked.GetValue().Voxels;
-        result.Ranks  = baked.GetValue().Ranks;
-
-        std::vector<unsigned char> entry( result.Voxels );
-        entry.insert( entry.end(), result.Ranks.begin(), result.Ranks.end() );
+        result.Voxels = baked.GetValue();
+        const std::vector<unsigned char>& entry = result.Voxels;
 
         // The DDC stores bytes as chars; viewing uint8_t voxels through char is the one aliasing the language
         // permits, and a copy into a std::string would double an 8 MiB payload for nothing.
@@ -1155,26 +1150,24 @@ namespace Desert::Assets
                 const uint32_t cellSeed =
                      HashCombine( HashCombine( speciesSeed, IndexWord( iu ) ), IndexWord( iv ) );
 
-                // EVERY CELL IS BAKED, AND THE SLIDER IS APPLIED AT THE MARCH (FARWX-a). The cell keeps its
-                // hash as a RANK, and the march keeps the cloud whose rank falls under the local cover —
-                // CloudProceduralKeep against CloudProceduralLocalCover, the weather read in WORLD space.
-                // The rank is the CLUSTER's (CUT-CORE): a cluster exists whole or not at all, and its form
-                // is its profile, which no cover moves. KeptCells asks the cover at the cluster's centre —
-                // the march asks it per column, which differs only across a weather gradient inside one
-                // cluster (the weather's waves are tens of kilometres). A painted pattern or mask still
-                // enters the same cut, per column, as one more term of the local cover (WX-PAINT): the rank
-                // is the bare draw, and no painting removes a cluster from the bake.
+                // THE CLUSTER IS CHOSEN HERE, BY THE SLIDER (CUT-AT-BAKE). The cell keeps its hash as a RANK
+                // and exists when the rank is under Coverage — one decision per cluster, made where the
+                // cluster is whole, so no voxel grid ever interpolates it (the march's trilinear read of an
+                // R8 rank drew the live/dead seam as a comb of voxel columns). The weather and the painting
+                // stay the march's, as a continuous remap of the profile per column (Nubis's weather map),
+                // which is what keeps the region's repeats at the horizon from being one sky.
                 const float cellRank = HashUnit( cellSeed );
                 if ( set == CloudProceduralLumpSet::KeptCells &&
-                     !( cellRank < CloudProceduralLocalCover( params, slot, centre ) ) )
+                     CloudProceduralClusterReach( cellRank, params.Coverage, CloudProceduralRankSoftness( params ) ) <=
+                          0.0f )
                     continue;
 
                 // EDGE TOP FRACTION IS WHAT A SMALL CLUSTER LOSES. The type says how tall the smallest
                 // cluster of the size law is, and the cluster's own size draw says how far from it this one
                 // is — so a small cloud is low and flat and a large one is a tower (decision D-13). The
-                // shrink near the slider's threshold is no longer a radius: it is the rank rising toward the
-                // edge of the body (BakeCloudProceduralVolumeRanked), so the march erodes a marginal cloud
-                // to its core instead of switching it off whole.
+                // shrink near the slider's threshold is no longer a radius: it is the cluster's reach past the
+                // slider (CloudProceduralClusterReach), the remap threshold the bake cuts each cluster by, so a
+                // marginal cloud erodes to its core instead of switching off whole.
 
                 // EVERY CLUSTER GETS THE WHOLE STACK, and `fullness` shrinks the BAND it is spread over
                 // rather than the number of lobes in it. Cutting the count instead was measured and was
@@ -1513,28 +1506,29 @@ namespace Desert::Assets
         return total;
     }
 
-    bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x, uint32_t z,
-                                    const glm::vec4& slotCover )
+    bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x, uint32_t z,
+                                    const glm::vec4& slotWeather )
     {
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
         {
-            const size_t voxel = ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x;
-            const size_t at    = voxel * kCloudProceduralBytesPerVoxel;
-            if ( voxel >= bake.Ranks.size() || at + kCloudProceduralBytesPerVoxel > bake.Voxels.size() )
+            const size_t at =
+                 ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x ) *
+                 kCloudProceduralBytesPerVoxel;
+            if ( at + kCloudProceduralBytesPerVoxel > voxels.size() )
                 continue;
-            // A BODY voxel of a kept cluster: the rank alone also names the air beside a body.
-            // THE WINNER'S COVER, as the march takes it: the deepest species owns the voxel (strictly
+            // THE WINNER'S WEATHER, as the march takes it: the deepest species owns the voxel (strictly
             // deeper, so a tie stays with the earlier slot — CloudSampleProceduralField's loop), and its
-            // slot's painted W is the one the cut reads.
+            // slot's W remaps its profile.
             int           winner = -1;
             unsigned char best   = 0u;
             for ( uint32_t slot = 0; slot < kCloudProceduralBytesPerVoxel; ++slot )
-                if ( bake.Voxels[at + slot] > best )
+                if ( voxels[at + slot] > best )
                 {
-                    best   = bake.Voxels[at + slot];
+                    best   = voxels[at + slot];
                     winner = static_cast<int>( slot );
                 }
-            if ( winner >= 0 && CloudProceduralKeep( bake.Ranks[voxel], slotCover[winner] ) )
+            if ( winner >= 0 &&
+                 CloudProceduralCoverRemap( static_cast<float>( best ) / 255.0f, slotWeather[winner] ) > 0.0f )
                 return true;
         }
         return false;
@@ -1550,19 +1544,9 @@ namespace Desert::Assets
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                const CloudProceduralBakeProgressFn& onProgress )
     {
-        auto baked = BakeCloudProceduralVolumeRanked( params, regionOriginKm, onProgress );
-        if ( !baked.IsSuccess() )
-            return Common::MakeError<std::vector<unsigned char>>( baked.GetError() );
-        return Common::MakeSuccess( std::move( baked.GetValue().Voxels ) );
-    }
-
-    Common::ResultStr<CloudProceduralVolumeBake>
-    BakeCloudProceduralVolumeRanked( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
-                                     const CloudProceduralBakeProgressFn& onProgress )
-    {
         if ( auto valid = ValidateCloudProceduralParams( params ); !valid )
-            return Common::MakeFormattedError<CloudProceduralVolumeBake>( "parameters are not usable: {}",
-                                                                          valid.GetError() );
+            return Common::MakeFormattedError<std::vector<unsigned char>>( "parameters are not usable: {}",
+                                                                               valid.GetError() );
 
         const uint32_t width  = params.VolumeSideVoxels;
         const uint32_t height = kCloudProceduralVolumeHeight;
@@ -1571,14 +1555,6 @@ namespace Desert::Assets
         std::vector<unsigned char> voxels(
              static_cast<size_t>( CloudProceduralVoxelBytes( params.VolumeSideVoxels ) ), 0u );
 
-        // THE CORE RANK OF THE CLUSTER EACH VOXEL BELONGS TO (CUT-CORE): the cell rank of the cluster whose
-        // profile wins the voxel — max over the clusters of a species, then over species, the join the march
-        // takes. The rank says only WHETHER that cluster exists at a cover; the form is the profile channels.
-        // Air within a lump's reach takes its nearest cluster's rank too, so the device's trilinear read of
-        // the rank at a body's surface blends the body's own rank and not "no cloud"; air never becomes cloud,
-        // because its profile is zero. Infinity is "no cluster reaches here".
-        std::vector<float> coreField( static_cast<size_t>( width ) * height * depth,
-                                      std::numeric_limits<float>::infinity() );
 
         // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
         // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
@@ -1621,7 +1597,8 @@ namespace Desert::Assets
         for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
         {
             const std::vector<CloudProceduralLump> blobs =
-                 GenerateCloudProceduralLumps( params, slot, regionOriginKm, CloudProceduralLumpSet::EveryCell );
+                 GenerateCloudProceduralLumps( params, slot, regionOriginKm, CloudProceduralLumpSet::KeptCells );
+            const float softness = CloudProceduralRankSoftness( params );
 
             if ( blobs.empty() )
             {
@@ -1637,7 +1614,8 @@ namespace Desert::Assets
                 CloudModellingPreparedBlob Blob;
                 glm::vec3                  MinKm;
                 glm::vec3                  MaxKm;
-                float                      Rank = 0.0f;
+                /// The cluster's reach past the slider (CloudProceduralClusterReach): its own remap threshold.
+                float Reach = 0.0f;
                 /// The cluster this copy belongs to — the lumps' cluster site at this wrap. The smooth
                 /// minimum joins only lumps of one cluster (JOIN-PER-CLUSTER).
                 uint32_t Cluster = 0u;
@@ -1663,6 +1641,7 @@ namespace Desert::Assets
             for ( const CloudProceduralLump& lump : blobs )
             {
                 const CloudModellingBlob& blob   = lump.Blob;
+                const float reach = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
                 const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
 
                 for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
@@ -1686,7 +1665,7 @@ namespace Desert::Assets
                              minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
                             continue;
 
-                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, lump.Rank,
+                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, reach,
                                                   clusterOf( lump.ClusterKm, wx, wz ) } );
                     }
                 }
@@ -1825,11 +1804,14 @@ namespace Desert::Assets
                                                : CloudModellingBlobDistanceKm( item.Blob, point ) );
                                  }
 
-                                 float joined   = 0.0f;
-                                 float bodyRank = 1.0f;
-                                 bool  body     = false;
-                                 float airNear  = std::numeric_limits<float>::infinity();
-                                 float airRank  = std::numeric_limits<float>::infinity();
+                                 // EACH CLUSTER IS CUT BEFORE THE JOIN (CUT-AT-BAKE): Nubis's remap
+                                 // threshold 1 - g on the cluster's own profile, g its reach past the
+                                 // slider, so a marginal cluster shows its core and the max over clusters
+                                 // joins finished forms. A threshold applied after the max would cut every
+                                 // cluster of a voxel by the winner's g.
+                                 float cut = 0.0f;
+                                 const float density =
+                                      CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY );
 
                                  for ( size_t k = 0; k < column.size(); ++k )
                                  {
@@ -1857,57 +1839,19 @@ namespace Desert::Assets
 
                                      const float clusterJoined =
                                           CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
-                                     if ( clusterJoined < 0.0f )
-                                     {
-                                         if ( !body || clusterJoined < joined )
-                                         {
-                                             joined   = clusterJoined;
-                                             bodyRank = placed[column[k]].Rank;
-                                         }
-                                         body = true;
-                                     }
-                                     else if ( nearest < airNear )
-                                     {
-                                         airNear = nearest;
-                                         airRank = placed[column[k]].Rank;
-                                     }
+                                     if ( clusterJoined >= 0.0f )
+                                         continue;
+                                     const float profile = std::clamp( -clusterJoined * invProfile, 0.0f, 1.0f ) *
+                                                           density;
+                                     cut = std::max( cut, CloudProceduralCoverRemap( profile, placed[column[k]].Reach ) );
                                  }
 
-                                 const size_t voxel = ( static_cast<size_t>( z ) * height + y ) * width + x;
-                                 if ( !body )
-                                 {
-                                     // Air beside a body: its nearest cluster's rank, unless a body of an
-                                     // earlier species or a nearer cluster already named one.
-                                     if ( std::isfinite( airRank ) && !std::isfinite( coreField[voxel] ) )
-                                         coreField[voxel] = airRank;
+                                 if ( cut <= 0.0f )
                                      continue;
-                                 }
-
-                                 // The Dimensional Profile: 0 at the surface and 1 at ProfileDepth inside, which
-                                 // is Guerrilla's own quantity (deck p.85) obtained analytically rather than by a
-                                 // distance transform — and the normalised distance field variant C §3 point 2
-                                 // asks the profile to BE.
-                                 //
-                                 // TIMES THE TYPE'S ALTITUDE DENSITY H (H-BASE), here and not in the march: the
-                                 // form the remap cuts is profile * H, so a base where H rises from zero is eaten
-                                 // first and rounds off rather than standing as the flat floor of the band.
-                                 const float profile =
-                                      std::clamp( -joined * invProfile, 0.0f, 1.0f ) *
-                                      CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY );
 
                                  const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
                                                    kCloudProceduralBytesPerVoxel;
-
-                                 const unsigned char byte = Common::Math::QuantiseUnitToByte( profile );
-                                 voxels[at + slot]        = byte;
-
-                                 // THE WINNER SO FAR is the largest profile of the slots already written
-                                 // (they run in order, and each voxel is one thread's within a slot).
-                                 unsigned char best = 0u;
-                                 for ( uint32_t earlier = 0; earlier < slot; ++earlier )
-                                     best = std::max( best, voxels[at + earlier] );
-                                 if ( byte > best )
-                                     coreField[voxel] = bodyRank;
+                                 voxels[at + slot] = Common::Math::QuantiseUnitToByte( cut );
                              }
                          }
                      }
@@ -1917,30 +1861,20 @@ namespace Desert::Assets
             // has finished, so this is the first moment at which "somebody said stop" is a settled fact
             // rather than a value another participant is still deciding.
             if ( cancelled )
-                return Common::MakeError<CloudProceduralVolumeBake>(
+                return Common::MakeError<std::vector<unsigned char>>(
                      "the procedural modelling bake was cancelled before it finished" );
         }
 
         if ( onProgress )
             onProgress( 1.0f );
 
-        CloudProceduralVolumeBake out;
-        out.Voxels = std::move( voxels );
-        // THE R8 CORE RANK: the cell rank in byte steps, floor so that a rank under one never reads as
-        // kCloudProceduralNoRank — CloudProceduralKeep keeps byte b at a cover above (b + 0.5) / 255.
-        out.Ranks.resize( coreField.size() );
-        for ( size_t at = 0; at < coreField.size(); ++at )
-            out.Ranks[at] = std::isfinite( coreField[at] )
-                                 ? static_cast<unsigned char>(
-                                        std::clamp( std::floor( coreField[at] * 255.0f ), 0.0f, 254.0f ) )
-                                 : kCloudProceduralNoRank;
-        return Common::MakeSuccess( std::move( out ) );
+        return Common::MakeSuccess( std::move( voxels ) );
     }
 
     float CloudProceduralCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
                                        const glm::vec2& centreKm )
     {
-        return CloudCellCoverage( params, slot, centreKm );
+        return CloudCellCover( params, slot, centreKm, std::clamp( params.Coverage, 0.0f, 1.0f ) );
     }
 
     uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params )
@@ -2052,17 +1986,15 @@ namespace Desert::Assets
 
     glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params )
     {
-        const float cover = std::clamp( params.Coverage, 0.0f, 1.0f );
-
-        // THE SAME STAND-DOWN CloudProceduralLocalCover makes, read as a strength of 0: W is then one
-        // everywhere and the march keeps against Coverage itself.
+        // THE SAME STAND-DOWN CloudProceduralLocalWeather makes, read as a strength of 0: W is then one
+        // everywhere and the march draws the baked profile as it is.
         const CloudLayoutData* patternSource = params.PatternSource.get();
         const bool             painted       = patternSource != nullptr && patternSource->HasPattern() &&
                              params.LayoutPlacement.PatternStrength > 1e-4f;
         const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
         const float live     = ( painted || strength <= 1e-4f ) ? 0.0f : strength;
 
-        return glm::vec4( cover, live, CloudProceduralRankSoftness( params ), 1.0f / kCloudFarWeatherPeriodKm );
+        return glm::vec4( 0.0f, live, 0.0f, 1.0f / kCloudFarWeatherPeriodKm );
     }
 
     glm::vec4 CloudLayoutPlaceUniform( const CloudProceduralFieldParams& params )
@@ -2111,24 +2043,21 @@ namespace Desert::Assets
         return std::clamp( 1.0f - 2.0f * s * u, 0.0f, 1.0f );
     }
 
-    float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, uint32_t slot,
-                                     const glm::vec2& worldKm )
+    float CloudProceduralLocalWeather( const CloudProceduralFieldParams& params, uint32_t slot,
+                                       const glm::vec2& worldKm )
     {
         // PER COLUMN, AND THE PAINTING IS ONE OF ITS TERMS (WX-PAINT) — Unreal's Layout and Nubis' weather
-        // map both multiply the coverage per PIXEL of the map, never per cloud. The painted W of this slot,
-        // or the world weather's W when nothing is painted, times Coverage, plus the mask: the one
-        // expression CloudCellCoverage states, read here at the column the march asks about. The rank it is
-        // compared with is the cluster's bare draw (the bake), so a painted edge cuts a cluster the way a
-        // weather edge does — through the column, not by deleting the cluster whole at its centre.
-        return CloudCellCoverage( params, slot, worldKm );
+        // map both act per PIXEL of the map, never per cloud. The Coverage slider is not in it: the bake
+        // chose the clusters by it (CUT-AT-BAKE), and a second multiplication here would spend it twice.
+        return CloudCellCover( params, slot, worldKm, 1.0f );
     }
 
-    glm::vec4 CloudProceduralLocalCovers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
+    glm::vec4 CloudProceduralLocalWeathers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
     {
-        glm::vec4 covers( 0.0f );
+        glm::vec4 weathers( 0.0f );
         for ( uint32_t slot = 0; slot < 4u; ++slot )
-            covers[static_cast<int>( slot )] = CloudCellCoverage( params, slot, worldKm );
-        return covers;
+            weathers[static_cast<int>( slot )] = CloudCellCover( params, slot, worldKm, 1.0f );
+        return weathers;
     }
 
     Common::ResultStr<CloudLayoutPreview> BuildCloudLayoutPreview( const CloudProceduralFieldParams& params,

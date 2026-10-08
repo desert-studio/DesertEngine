@@ -113,7 +113,6 @@ namespace Desert::Graphic
     inline constexpr uint32_t kCloudShadowParamsBinding  = kCloudParamsBinding;
     inline constexpr uint32_t kCloudShadowNoiseBinding     = kCloudNoiseBinding;
     inline constexpr uint32_t kCloudShadowModellingBinding = kCloudModellingBinding;
-    inline constexpr uint32_t kCloudShadowModellingRankBinding = kCloudModellingRankBinding;
     inline constexpr uint32_t kCloudShadowLayoutPatternBinding = kCloudLayoutPatternBinding;
     inline constexpr uint32_t kCloudShadowLayoutMaskBinding    = kCloudLayoutMaskBinding;
     inline constexpr uint32_t kCloudShadowFarWeatherBinding    = kCloudFarWeatherBinding;

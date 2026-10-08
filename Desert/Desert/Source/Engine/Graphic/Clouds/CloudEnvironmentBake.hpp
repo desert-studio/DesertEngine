@@ -55,13 +55,12 @@ namespace Desert::Graphic
     inline constexpr uint32_t kSkyBakeCloudAuthoredBinding                   = 11;
     inline constexpr uint32_t kSkyBakeDistantSkyLightBinding                 = 12;
     inline constexpr uint32_t kSkyBakeCloudSkyOcclusionBinding               = 13;
-    // The modelling volume's R8 rank and the world weather map — the march's cut (CloudGpuPayload::
-    // Weather), applied to the panorama exactly as to the screen.
-    inline constexpr uint32_t kSkyBakeCloudModellingRankBinding = 14;
-    inline constexpr uint32_t kSkyBakeCloudFarWeatherBinding    = 15;
+    // The world weather map — the march's remap of the baked profile (CloudGpuPayload::Weather), applied
+    // to the panorama exactly as to the screen.
+    inline constexpr uint32_t kSkyBakeCloudFarWeatherBinding    = 14;
     // The painted layout's two textures (Graphic::kCloudLayoutPatternBinding's note).
-    inline constexpr uint32_t kSkyBakeCloudLayoutPatternBinding = 16;
-    inline constexpr uint32_t kSkyBakeCloudLayoutMaskBinding    = 17;
+    inline constexpr uint32_t kSkyBakeCloudLayoutPatternBinding = 15;
+    inline constexpr uint32_t kSkyBakeCloudLayoutMaskBinding    = 16;
 
     // ---------------------------------------------------------------------------------------------------
     // What the cloud renderer hands over
@@ -110,8 +109,7 @@ namespace Desert::Graphic
 
         Image3D* Noise[kCloudSpeciesSlots] = {};
         Image3D* Modelling                 = nullptr;
-        Image3D* ModellingRank             = nullptr; // the R8 rank beside Modelling, same bake
-        Image2D* FarWeather                = nullptr; // the world weather map the cut reads
+        Image2D* FarWeather                = nullptr; // the world weather map the remap reads
         Image2D* LayoutPattern             = nullptr; // the painted layout the cut reads (WX-PAINT)
         Image2D* LayoutMask                = nullptr;
         Image3D* AuthoredAtlas             = nullptr; // null in every scene with no hero cloud
@@ -174,7 +172,6 @@ namespace Desert::Graphic
 
         Image3D* Noise[kCloudSpeciesSlots] = {};
         Image3D* Modelling                 = nullptr;
-        Image3D* ModellingRank             = nullptr;
         Image2D* FarWeather                = nullptr;
         Image2D* LayoutPattern             = nullptr;
         Image2D* LayoutMask                = nullptr;

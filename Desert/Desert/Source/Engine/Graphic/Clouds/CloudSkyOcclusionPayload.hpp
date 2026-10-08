@@ -48,7 +48,6 @@ namespace Desert::Graphic
     inline constexpr uint32_t kCloudSkyOcclusionOutputBinding        = 0; // the RGBA16F volume this pass writes
     inline constexpr uint32_t kCloudSkyOcclusionParamsBinding        = kCloudParamsBinding;
     inline constexpr uint32_t kCloudSkyOcclusionModellingBinding     = kCloudModellingBinding;
-    inline constexpr uint32_t kCloudSkyOcclusionModellingRankBinding = kCloudModellingRankBinding;
     inline constexpr uint32_t kCloudSkyOcclusionLayoutPatternBinding = kCloudLayoutPatternBinding;
     inline constexpr uint32_t kCloudSkyOcclusionLayoutMaskBinding    = kCloudLayoutMaskBinding;
     inline constexpr uint32_t kCloudSkyOcclusionFarWeatherBinding    = kCloudFarWeatherBinding;

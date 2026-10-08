@@ -727,7 +727,7 @@ TEST_F( ShaderRootFixture, TheDistantSkyLightDeclaresFourDescriptorsInSetZero )
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // multi-scatter LUT
 }
 
-TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresThirteenDescriptorsInSetZero )
+TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresTwelveDescriptorsInSetZero )
 {
     // THE PRODUCER OF THE CLOUD SHADOW MAP, and the reason it is pinned here rather than trusted: its
     // inputs are bound by NUMBER and not by reflection (ComputePipeline::SetInput takes the binding
@@ -749,8 +749,8 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresThirteenDescriptorsInSetZero
     // relation worth pinning here rather than the count: a cirrus eroded by the fine volume for the eye
     // and by the default one for the shadow map would be two different clouds in one frame.
     //
-    // ELEVEN SINCE FARWX-b2. The two that arrived are the march's own: the modelling volume's R8 RANK
-    // (kCloudShadowModellingRankBinding, 15) and the WORLD WEATHER map (kCloudShadowFarWeatherBinding, 16).
+    // The modelling volume's R8 RANK (FARWX-b2) left again with CUT-AT-BAKE; the WORLD WEATHER map
+    // (kCloudShadowFarWeatherBinding) is binding 15 since.
     // The shadow map must cut the field by the same rank against the same local cover the view march does,
     // or the ground is shaded by a sky that is not the one drawn. Both are sampled images, so the stage now
     // holds eleven sampled images at most — inside Vulkan's guaranteed maxPerStageDescriptorSampledImages
@@ -761,11 +761,10 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresThirteenDescriptorsInSetZero
     // painting the view cut does. Thirteen sampled images, still inside the guaranteed 16.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudShadowMap.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 13u );
-    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
-    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
-    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout pattern
-    EXPECT_TRUE( HasBinding( bindings, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout mask
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 12u );
+    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
+    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout pattern
+    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout mask
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {
@@ -788,7 +787,7 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresThirteenDescriptorsInSetZero
                              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the sculpted body
 }
 
-TEST_F( ShaderRootFixture, TheCloudMarchDeclaresNineteenDescriptorsInSetZero )
+TEST_F( ShaderRootFixture, TheCloudMarchDeclaresEighteenDescriptorsInSetZero )
 {
     // THE VIEW MARCH, pinned on the same terms and for the same reason, and it was NOT pinned before slot
     // A landed — which is precisely why it is worth doing now: two of its ten descriptors are new, both
@@ -824,11 +823,10 @@ TEST_F( ShaderRootFixture, TheCloudMarchDeclaresNineteenDescriptorsInSetZero )
     // signed mask, read by CloudLocalCover in every cloud pass.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 19u );
-    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
-    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
-    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout pattern
-    EXPECT_TRUE( HasBinding( bindings, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout mask
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 18u );
+    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
+    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout pattern
+    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout mask
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {

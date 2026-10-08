@@ -816,7 +816,6 @@ namespace Desert::Graphic::System
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
             cloudBinding.Noise[slot] = clouds.Noise[slot];
         cloudBinding.Modelling          = clouds.Modelling;
-        cloudBinding.ModellingRank      = clouds.ModellingRank;
         cloudBinding.FarWeather         = clouds.FarWeather;
         cloudBinding.LayoutPattern      = clouds.LayoutPattern;
         cloudBinding.LayoutMask         = clouds.LayoutMask;

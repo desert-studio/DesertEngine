@@ -121,11 +121,10 @@ namespace Desert::Graphic
         // static_assert.
         glm::vec4 Albedo;
 
-        // THE WORLD WEATHER'S CUT, as Assets::CloudFarWeatherUniform packs it: x the slider's Coverage, y the
-        // weather strength = PatchStrength (ZERO when a painted pattern is the weather or the strength is nil), z
-        // the cover's softness past a cluster's core rank, w 1 / kCloudFarWeatherPeriodKm. The march keeps a
-        // cluster where its R8 core rank is under the local cover this decides — Assets::CloudProceduralKeep is
-        // the CPU half of the same comparison. Before the trailing vec3 for the reason Albedo is.
+        // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
+        // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
+        // x and z unread (kCloudUnreadSlots). The march remaps the baked profile by the W this decides —
+        // Assets::CloudProceduralCoverRemap is the CPU half of the same remap. Before the trailing vec3 for the reason Albedo is.
         glm::vec4 Weather;
 
         // THE WISPY BASE, PER SPECIES (x species 0 .. w species 3), in the LAYER's height fraction (the
@@ -235,7 +234,7 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 4> kCloudUnreadSlots = {
+    inline constexpr std::array<CloudUnreadSlot, 6> kCloudUnreadSlots = {
          { { "u_CloudDetail", 'z',
              "held the scalar scattering albedo until the albedo became a colour and moved to "
              "u_CloudAlbedo; not reused, because a slot repurposed without a schema parameter behind it is "
@@ -247,7 +246,11 @@ namespace Desert::Graphic
            { "u_CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
-           { "u_CloudLayoutStrength", 'w', "as z" } } };
+           { "u_CloudLayoutStrength", 'w', "as z" },
+           { "u_CloudWeather", 'x',
+             "held the Coverage slider while the march cut clusters by rank; the bake chooses them now "
+             "(CUT-AT-BAKE), and the weather's two numbers keep their own slots y and w" },
+           { "u_CloudWeather", 'z', "held the cover's softness past a rank; the bake's since CUT-AT-BAKE" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
     /// claim — the layout and the exceptions — cannot be adjusted independently.
@@ -306,22 +309,17 @@ namespace Desert::Graphic
     // (Graphic::kSkyTransmittanceLutBinding), so it applies this feature through that descriptor and only
     // its gate travels — see CloudBakeBinding::PerSampleSunTransmittance.
     inline constexpr uint32_t kCloudSunTransmittanceLutBinding = 14;
-    // THE R8 CORE RANK beside the modelling volume (Assets::CloudProceduralVolumeBake::Ranks), same extent and
-    // region: the cell rank of the cluster each voxel belongs to. The march keeps a voxel where this is
-    // under the local cover (CloudGpuPayload::Weather), which is where the Coverage slider and the world
-    // weather act now that the bake keeps every cell.
-    inline constexpr uint32_t kCloudModellingRankBinding = 15;
     // THE WORLD WEATHER MAP (Assets::BakeCloudFarWeatherMap): 512^2 over one kCloudFarWeatherPeriodKm torus,
     // W in .r, sampled with REPEAT at `windPosKm.xz * Weather.w`. Bound always; a strength of 0 stops it being
     // read.
-    inline constexpr uint32_t kCloudFarWeatherBinding = 16;
+    inline constexpr uint32_t kCloudFarWeatherBinding = 15;
     // THE PAINTED LAYOUT (WX-PAINT): the bound pattern as RGBA8, channel k species slot k, and the mask in .r
     // of a second RGBA8 — each at its own resolution, REPEAT, linear, addressed by CloudGpuPayload::
     // LayoutPlace. Bound always: a 1x1 white pattern and a 1x1 neutral mask when nothing is painted, and a
     // LayoutStrength of 0 stops them being read. Its own textures, because the 48 km painting cannot ride
     // the 997 km weather map (~2 km texels).
-    inline constexpr uint32_t kCloudLayoutPatternBinding = 17;
-    inline constexpr uint32_t kCloudLayoutMaskBinding    = 18;
+    inline constexpr uint32_t kCloudLayoutPatternBinding = 16;
+    inline constexpr uint32_t kCloudLayoutMaskBinding    = 17;
 
     /**
      * @brief The FOUR noise volumes a layer can bind, by descriptor number, in the order CloudGpuPayload::

@@ -37,8 +37,6 @@
 //     CLOUD_SAMPLE_MODELLING( vec3 uvw )           ->  vec4, the procedural MODELLING VOLUME — ONE CHANNEL
 //                                                      PER SPECIES, in the order of the layer's slots,
 //                                                      each of them that species' Dimensional Profile
-//     CLOUD_SAMPLE_MODELLING_RANK( vec3 uvw )      ->  float, the R8 CORE RANK of the same bake (unorm):
-//                                                      the cell rank of the cluster that owns the voxel
 //     CLOUD_SAMPLE_WEATHER( vec2 uv )              ->  float, the world weather W (standard normal) at
 //                                                      uv = windPos.xz / its period, REPEAT
 //     CLOUD_SAMPLE_AUTHORED( vec3 uvw )            ->  vec4, four channels of the sculpted-body ATLAS
@@ -131,8 +129,8 @@ struct CloudFieldParams
     vec2  RegionOriginKm;
     float InvRegionSizeKm;
 
-    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y the weather strength, z the cover's softness
-    // past a cluster's core rank (Assets::CloudProceduralRankSoftness), w 1 / the weather's period in km. A MEMBER AND NOT A MACRO, because
+    // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather): y the weather strength, w 1 / the weather's period
+    // in km; x and z unread (Graphic::kCloudUnreadSlots) — the Coverage slider is the bake's (CUT-AT-BAKE). A MEMBER AND NOT A MACRO, because
     // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
     // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
     // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
@@ -305,11 +303,11 @@ vec3 CloudProceduralVolumeUvw( CloudFieldParams params, float heightFraction, ve
 }
 
 #if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED ) && \
-     defined( CLOUD_SAMPLE_MODELLING_RANK ) && defined( CLOUD_SAMPLE_WEATHER ) &&                                   \
+     defined( CLOUD_SAMPLE_WEATHER ) &&                                                                          \
      defined( CLOUD_SAMPLE_LAYOUT_PATTERN ) && defined( CLOUD_SAMPLE_LAYOUT_MASK )
 
 // ---------------------------------------------------------------------------------------------------
-// THE CUT — the GPU half of Assets::CloudProceduralKeep against Assets::CloudProceduralLocalCover
+// THE WEATHER — the GPU half of Assets::CloudProceduralCoverRemap by Assets::CloudProceduralLocalWeather
 // ---------------------------------------------------------------------------------------------------
 
 // The standard normal's CDF, Abramowitz & Stegun 7.1.26 for erf (absolute error 1.5e-7). The CPU's is
@@ -337,25 +335,25 @@ vec2 CloudLayoutUv( vec4 place, vec2 windPosXz )
 
 #define CLOUD_LAYOUT_MASK_NEUTRAL 128.0f
 
-// THE LOCAL COVER at a world column for species @p slot — Assets::CloudProceduralLocalCover, written for the
-// GPU (WX-NUBIS, WX-PAINT): Nubis' localCover = Coverage * W, W the slot's PAINTED W = 1 - PatternStrength *
-// (1 - painted) when a pattern is bound (Unreal's Layout, per pixel), else the world weather map W =
-// saturate(1 - 2 s Phi(w)) with true zeros (Assets::CloudWeatherPresence); plus the mask, which adds.
-float CloudLocalCover( vec4 weather, vec4 layoutPlace, vec2 layoutStrength, int slot, vec2 windPosXz )
+// THE LOCAL WEATHER at a world column for species @p slot — Assets::CloudProceduralLocalWeather, written for the
+// GPU (WX-NUBIS, WX-PAINT, CUT-AT-BAKE): Nubis' weather map W = 1 - PatternStrength * (1 - painted) when a
+// pattern is bound (Unreal's Layout, per pixel), else the world weather map W = saturate(1 - 2 s Phi(w)) with
+// true zeros (Assets::CloudWeatherPresence); plus the mask, which adds. The Coverage slider is not in it: the
+// bake chose the clusters by it.
+float CloudLocalWeather( vec4 weather, vec4 layoutPlace, vec2 layoutStrength, int slot, vec2 windPosXz )
 {
-    float cover     = clamp( weather.x, 0.0f, 1.0f );
-    float modulated = cover;
+    float modulated = 1.0f;
     vec2  uv        = CloudLayoutUv( layoutPlace, windPosXz );
 
     if ( layoutStrength.x > 1e-4f )
     {
         float painted = clamp( CLOUD_SAMPLE_LAYOUT_PATTERN( uv )[slot], 0.0f, 1.0f );
-        modulated     = cover * ( 1.0f - layoutStrength.x * ( 1.0f - painted ) );
+        modulated     = 1.0f - layoutStrength.x * ( 1.0f - painted );
     }
     else if ( weather.y > 1e-4f )
     {
         float w   = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.w, windPosXz.y * weather.w ) );
-        modulated = cover * clamp( 1.0f - 2.0f * weather.y * CloudNormalCdf( w ), 0.0f, 1.0f );
+        modulated = clamp( 1.0f - 2.0f * weather.y * CloudNormalCdf( w ), 0.0f, 1.0f );
     }
 
     if ( layoutStrength.y > 1e-4f )
@@ -370,19 +368,16 @@ float CloudLocalCover( vec4 weather, vec4 layoutPlace, vec2 layoutStrength, int 
     return clamp( modulated, 0.0f, 1.0f );
 }
 
-// THE CUT ITSELF (CUT-CORE) — Assets::CloudProceduralCoverProfile, written for the GPU. The coverage remap of
-// Nubis (Schneider, "Nubis, Evolved", SIGGRAPH 2022 — ValueRemap(profile, 1 - coverage, 1, 0, 1)) on the
-// cluster's own Dimensional Profile, with the coverage term taken per CLUSTER: g = saturate((cover - core) /
-// softness), how far the local cover has run past the core rank of the cluster that owns the point. A
-// cluster whose core is over the cover does not exist (Assets::CloudProceduralKeep); one just under it shows
-// its core; one the cover has overrun by a softness stands whole with its own edge. Air (profile 0) never
-// becomes cloud at any cover, and the form under the erosion does not move with the weather.
-float CloudCoverProfile( float profile, float core, float localCover, float softness )
+// NUBIS'S COVERAGE REMAP — Assets::CloudProceduralCoverRemap, written for the GPU: ValueRemap(profile,
+// 1 - reach, 1, 0, 1) (Schneider, "Nubis, Evolved", SIGGRAPH 2022). The bake makes it per cluster with the
+// cluster's reach past the Coverage slider; the march makes it here with the column's weather W, a continuous
+// 2D field, so nothing discrete is ever interpolated across the voxel grid. Air (profile 0) never becomes
+// cloud at any weather.
+float CloudCoverRemap( float profile, float reach )
 {
-    float run = localCover - core - 0.5f / 255.0f;
-    if ( run <= 0.0f || profile <= 0.0f )
+    if ( reach <= 0.0f || profile <= 0.0f )
         return 0.0f;
-    float g = clamp( run / max( softness, 1e-4f ), 0.0f, 1.0f );
+    float g = min( reach, 1.0f );
     return clamp( ( profile - ( 1.0f - g ) ) / g, 0.0f, 1.0f );
 }
 
@@ -444,16 +439,13 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
         winner = slot;
     }
 
-    // THE BAKE KEEPS EVERY CLUSTER; THE CUT IS MADE HERE. The winning species' profile is the form; the
-    // core rank of the cluster that owns the point, against the cover the world weather leaves this column
-    // (the comparison Assets::CloudProceduralKeep makes on the CPU), decides whether that cluster exists
-    // and how far into its form the remap's threshold has moved.
+    // THE BAKE CHOSE THE CLUSTERS; THE WEATHER IS APPLIED HERE (CUT-AT-BAKE). The winning species' profile is
+    // the form, already cut per cluster by the Coverage slider; the weather the world (or the painting) leaves
+    // this column remaps it, as Nubis's weather map does — continuous in both factors, so the seam between a
+    // live and an absent cloud is the profile's own surface and never a voxel column.
     vec4  weather    = params.Weather;
-    float cutProfile =
-         CloudCoverProfile( best, CLOUD_SAMPLE_MODELLING_RANK( uvw ),
-                            CloudLocalCover( weather, params.LayoutPlace, params.LayoutStrength, winner,
-                                             vec2( windPos.x, windPos.z ) ),
-                            weather.z );
+    float cutProfile = CloudCoverRemap(
+         best, CloudLocalWeather( weather, params.LayoutPlace, params.LayoutStrength, winner, vec2( windPos.x, windPos.z ) ) );
     if ( cutProfile <= 0.0f )
         return result;
 

@@ -47,7 +47,7 @@ Shader "CloudRaymarch"
         CloudType CloudType3 ("Cloud Type 3", Category("Cloud Types"), Timing(Rebake), Tooltip("A third kind of cloud. Costs one noise fetch per sample only at altitudes its own base and top actually reach - a cirrus at eight kilometres is free everywhere a cumulus lives."))
         CloudType CloudType4 ("Cloud Type 4", Category("Cloud Types"), Timing(Rebake), Tooltip("The fourth and last kind. Four is the ceiling because a type owns one channel of the vertical profile table, which is how Unreal arranges it too."))
 
-        Float Coverage ("Coverage", Range(0.0, 1.0), Category("Weather"), Timing(Rebake), Tooltip("How busy the weather is where there is weather. A cloud exists where its rank is under Coverage times the weather map, so 0 is a clear sky and raising it fills the weather systems - but never the clear gaps between them, which stay open even at 1. An overcast sky is its own cloud type (a stratus deck), not Coverage 1.")) = 0.45
+        Float Coverage ("Coverage", Range(0.0, 1.0), Category("Weather"), Timing(Rebake), Tooltip("How busy the weather is where there is weather. A cloud exists where its rank is under Coverage, so 0 is a clear sky and 1 bakes every cloud; the weather map then thins the clouds toward its clear gaps, which stay open even at 1. An overcast sky is its own cloud type (a stratus deck), not Coverage 1.")) = 0.45
         Float CoverageContrast ("Coverage Contrast", Range(0.1, 4.0), Category("Weather"), Timing(Rebake), Tooltip("Sharpness of the transition from clear to cloudy, as the WIDTH of the ramp from an empty cell to a full one. Above 1 the ramp narrows and the sky is decisively cloud or decisively clear; below 1 it widens and the cloud sizes spread out, which is what a broken deck looks like.")) = 1.0
         Float WeatherTileSize ("Weather Tile Size (cm)", Range(200000.0, 8000000.0), Category("Weather"), Timing(Rebake), Tooltip("World size the cloud lattice is measured against, in centimetres (1200000 = 12 km). One cell is a QUARTER of it, and a cell carries Cloud Density clouds on average - which is also what decides whether there is any cloud overhead at all: a cell much larger than the layer altitude cannot fit one above the camera, and the zenith comes out empty however high the coverage is set.")) = 1200000.0
         Int Seed ("Seed", Range(0, 65535), Category("Weather"), Timing(Rebake), Tooltip("Which sky. Two layers with different seeds have unrelated clouds; the same seed always gives the same sky, in the same places, for the same settings.")) = 1
@@ -228,13 +228,12 @@ Shader "CloudRaymarch"
         // rather than tolerated: the bake splats every lump at its wrapped positions, so the volume is
         // exactly periodic and sampling past the region is the degenerate far path rather than a seam.
         Uniform(7) sampler3D u_CloudModelling;
-        // The R8 RANK of the same bake (Graphic::kCloudModellingRankBinding) and the WORLD WEATHER map
-        // (Graphic::kCloudFarWeatherBinding): the cut Common/CloudField.glslh makes against u_CloudWeather.
+        // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
+        // of the baked profile by u_CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) sampler3D u_CloudModellingRank;
-        Uniform(16) sampler2D u_CloudFarWeather;
-        Uniform(17) sampler2D u_CloudLayoutPattern;
-        Uniform(18) sampler2D u_CloudLayoutMask;
+        Uniform(15) sampler2D u_CloudFarWeather;
+        Uniform(16) sampler2D u_CloudLayoutPattern;
+        Uniform(17) sampler2D u_CloudLayoutMask;
 
         // THE SCULPTED HERO-CLOUD BODY — slot A of the seam. 128 x 64 x 128 RGBA8 of dimensional
         // profile, detail type, density scale and cutout envelope, loaded from a `.dcmv` and uploaded by
@@ -281,7 +280,6 @@ Shader "CloudRaymarch"
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         // textureLod for the reason the authored atlas gives below, and for the same reason.
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
         #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
         #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
@@ -511,9 +509,9 @@ Shader "CloudRaymarch"
 
             // THE DIAGNOSTIC VIEW (--cloud-visualize). Draws what the cut decided instead of the cloud, at
             // full opacity, so a frame says WHICH term made the sky look the way it does.
-            //   1: at the ray's entry into the layer — R the local cover, G the lowest rank over eight
-            //      heights of the column, B 1 where that column is kept (rank under cover).
-            //   2: along the ray, 32 samples — R the share the cut keeps, G the largest rank step between
+            //   1: at the ray's entry into the layer — R the local weather W, G the deepest profile over eight
+            //      heights of the column, B 1 where the weather's remap keeps it.
+            //   2: along the ray, 32 samples — R the share the remap keeps, G the largest weather step between
             //      neighbours x 8 (a seam reads bright), B the share inside a baked body (species profile
             //      > 0); R is at most B, since air is never cloud (CUT-CORE).
             int visualize = int(u_CloudVisualize.x + 0.5f);
@@ -524,26 +522,26 @@ Shader "CloudRaymarch"
                 {
                     vec3  entryKm = originKm + rayDir * segment.x;
                     vec3  windPos = entryKm - params.WindOffsetKm;
-                    // The cover is per species (WX-PAINT): each height asks its own winner's cover, and
-                    // R is the cover at the height whose rank is the lowest.
-                    float cover   = 0.0f;
-                    float lowest  = 1.0f;
+                    // The weather is per species (WX-PAINT): each height asks its own winner's W, and
+                    // R is the W at the height whose profile is the deepest; G that profile; B whether the
+                    // remap keeps it.
+                    float shownWeather = 0.0f;
+                    float deepest      = 0.0f;
                     for (int k = 0; k < 8; ++k)
                     {
                         vec3  uvw    = CloudProceduralVolumeUvw(params, (float(k) + 0.5f) / 8.0f, windPos);
-                        float rank   = CLOUD_SAMPLE_MODELLING_RANK(uvw);
                         vec4  volume = CLOUD_SAMPLE_MODELLING(uvw);
                         int   winner = 0;
                         for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
                             winner = volume[slot] > volume[winner] ? slot : winner;
-                        if (k == 0 || rank < lowest)
+                        if (k == 0 || volume[winner] > deepest)
                         {
-                            lowest = rank;
-                            cover  = CloudLocalCover(params.Weather, params.LayoutPlace, params.LayoutStrength,
-                                                     winner, windPos.xz);
+                            deepest      = volume[winner];
+                            shownWeather = CloudLocalWeather(params.Weather, params.LayoutPlace, params.LayoutStrength,
+                                                             winner, windPos.xz);
                         }
                     }
-                    shown = vec3(cover, lowest, lowest + 0.5f / 255.0f < cover ? 1.0f : 0.0f);
+                    shown = vec3(shownWeather, deepest, CloudCoverRemap(deepest, shownWeather) > 0.0f ? 1.0f : 0.0f);
                 }
                 else
                 {
@@ -555,19 +553,18 @@ Shader "CloudRaymarch"
                         float hf      = CloudHeightFraction(layer, p);
                         vec3  windPos = vec3(p.x, length(p) - layer.BottomRadiusKm, p.z) - params.WindOffsetKm;
                         vec3  uvw     = CloudProceduralVolumeUvw(params, hf, windPos);
-                        float rank    = CLOUD_SAMPLE_MODELLING_RANK(uvw);
                         vec4  volume  = CLOUD_SAMPLE_MODELLING(uvw);
                         int   winner  = 0;
                         for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
                             winner = volume[slot] > volume[winner] ? slot : winner;
                         float profile = volume[winner];
-                        float cover   = CloudLocalCover(params.Weather, params.LayoutPlace, params.LayoutStrength,
-                                                        winner, windPos.xz);
-                        kept += CloudCoverProfile(profile, rank, cover, params.Weather.z) > 0.0f ? 1.0f : 0.0f;
+                        float w       = CloudLocalWeather(params.Weather, params.LayoutPlace, params.LayoutStrength,
+                                                          winner, windPos.xz);
+                        kept += CloudCoverRemap(profile, w) > 0.0f ? 1.0f : 0.0f;
                         body += profile > 0.0f ? 1.0f : 0.0f;
                         if (previous >= 0.0f)
-                            seam = max(seam, abs(rank - previous));
-                        previous = rank;
+                            seam = max(seam, abs(w - previous));
+                        previous = w;
                     }
                     shown = vec3(kept / 32.0f, min(seam * 8.0f, 1.0f), body / 32.0f);
                 }

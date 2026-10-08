@@ -52,13 +52,12 @@ Shader "CloudShadowMap"
         Uniform(11) sampler3D u_CloudNoise2;
         Uniform(12) sampler3D u_CloudNoise3;
         Uniform(7) sampler3D u_CloudModelling;
-        // The R8 RANK of the same bake (Graphic::kCloudModellingRankBinding) and the WORLD WEATHER map
-        // (Graphic::kCloudFarWeatherBinding): the cut Common/CloudField.glslh makes against u_CloudWeather.
+        // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
+        // of the baked profile by u_CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) sampler3D u_CloudModellingRank;
-        Uniform(16) sampler2D u_CloudFarWeather;
-        Uniform(17) sampler2D u_CloudLayoutPattern;
-        Uniform(18) sampler2D u_CloudLayoutMask;
+        Uniform(15) sampler2D u_CloudFarWeather;
+        Uniform(16) sampler2D u_CloudLayoutPattern;
+        Uniform(17) sampler2D u_CloudLayoutMask;
 
         // The same four-way select the march declares, for the same reason and at the same cost. Repeated
         // rather than shared because Common/CloudField.glslh must stay free of samplers to remain
@@ -85,7 +84,6 @@ Shader "CloudShadowMap"
         // must stay free of samplers to remain compilable as C++ by its tests.
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
         #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
         #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r

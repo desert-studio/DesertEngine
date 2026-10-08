@@ -553,21 +553,6 @@ namespace Desert::Graphic::System
 
             m_ModellingVolume = Image3D::Create( spec );
 
-            // THE RANK BESIDE IT, one byte a voxel over the same extent: what the march compares against
-            // the local cover (CloudGpuPayload::Weather). Without it the bake's every-cell profile would be
-            // drawn whole, which is a solid sky.
-            const Core::Formats::Image3DSpecification rankSpec{
-                 .Tag        = "CloudModellingRank",
-                 .Width      = bakedSide,
-                 .Height     = Assets::kCloudProceduralVolumeHeight,
-                 .Depth      = bakedSide,
-                 .Format     = Core::Formats::ImageFormat::R8_UNORM,
-                 .Data       = baked.GetValue().Ranks,
-                 .Properties = Core::Formats::Sample,
-            };
-            m_ModellingRank = m_ModellingVolume ? Image3D::Create( rankSpec ) : nullptr;
-            if ( !m_ModellingRank )
-                m_ModellingVolume.reset();
 
             if ( !m_ModellingVolume )
             {
@@ -1163,7 +1148,6 @@ namespace Desert::Graphic::System
             bake.Noise[slot] = m_NoiseVolume[slot].get();
 
         bake.Modelling     = m_ModellingVolume.get();
-        bake.ModellingRank = m_ModellingRank.get();
         bake.FarWeather    = m_FarWeatherMap.get();
         bake.LayoutPattern = m_LayoutPatternTexture.get();
         bake.LayoutMask    = m_LayoutMaskTexture.get();
@@ -1301,8 +1285,6 @@ namespace Desert::Graphic::System
                 m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot].get(),
                                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_ShadowMapPipeline->SetInput( kCloudShadowModellingBinding, m_ModellingVolume.get(),
-                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            m_ShadowMapPipeline->SetInput( kCloudShadowModellingRankBinding, m_ModellingRank.get(),
                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_ShadowMapPipeline->SetInput( kCloudShadowFarWeatherBinding, m_FarWeatherMap.get(),
                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
@@ -2021,8 +2003,6 @@ namespace Desert::Graphic::System
                                                       RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingBinding, m_ModellingVolume.get(),
                                                   RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingRankBinding, m_ModellingRank.get(),
-                                                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionFarWeatherBinding, m_FarWeatherMap.get(),
                                                   RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionLayoutPatternBinding,
@@ -2137,8 +2117,6 @@ namespace Desert::Graphic::System
                 m_MarchPipeline->SetInput( kCloudNoiseBindings[slot], m_NoiseVolume[slot].get(),
                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_MarchPipeline->SetInput( kCloudModellingBinding, m_ModellingVolume.get(),
-                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            m_MarchPipeline->SetInput( kCloudModellingRankBinding, m_ModellingRank.get(),
                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_MarchPipeline->SetInput( kCloudFarWeatherBinding, m_FarWeatherMap.get(), RDG::Access::SampledCompute,
                                        RDG::SubresourceRange::All() );
@@ -2340,7 +2318,6 @@ namespace Desert::Graphic::System
     void VolumetricCloudRenderer::DeclareVolumeReads( RenderPassDeclaration& declared ) const
     {
         declared.Read( m_ModellingVolume, RDG::Access::SampledCompute, "Clouds.Modelling" );
-        declared.Read( m_ModellingRank, RDG::Access::SampledCompute, "Clouds.ModellingRank" );
         declared.Read( m_FarWeatherMap, RDG::Access::SampledCompute, "Clouds.FarWeather" );
         declared.Read( m_LayoutPatternTexture, RDG::Access::SampledCompute, "Clouds.LayoutPattern" );
         declared.Read( m_LayoutMaskTexture, RDG::Access::SampledCompute, "Clouds.LayoutMask" );
