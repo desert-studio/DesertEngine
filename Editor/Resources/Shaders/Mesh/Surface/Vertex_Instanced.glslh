@@ -60,5 +60,7 @@ void main()
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
 #endif
-    gl_Position = cameraUB.Projection * cameraUB.View * vec4( worldPosition, 1.0 );
+    // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
+    // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
+    gl_Position = cameraUB.JitteredViewProjection * vec4( worldPosition, 1.0 );
 }

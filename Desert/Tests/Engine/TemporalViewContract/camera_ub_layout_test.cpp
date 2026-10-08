@@ -233,3 +233,60 @@ TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
     }
     EXPECT_GT( scanned, 100u ) << "the scan found too few sources to mean anything";
 }
+
+// RASTER GEOMETRY IS JITTERED (CameraUB.glslh: "Raster geometry: JitteredViewProjection"). A scene shader that
+// writes gl_Position from the camera's unjittered Projection / View rasterises the same samples every frame, so
+// TAA has nothing to accumulate and TAAU upscales a staircase: exactly what the TAA1-B frame check showed at
+// 604794520 (TAA at 100 % aliased like no AA, TAAU 50 % blocky). Only passes drawn AFTER the temporal resolve may
+// stay unjittered, each named here with the reason. The terrain projects through its push matrix, so its two
+// camera calls are held too.
+TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
+{
+    namespace fs        = std::filesystem;
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
+    const fs::path shaders = root / "Editor" / "Resources" / "Shaders";
+    // Not resolved by the temporal pass: drawn after it (Debug phase into TAA.Output) or into a mask TAA never reads.
+    const std::map<std::string, std::string> postTemporal = {
+         { "Programs/Debug/DebugLine.shader", "editor debug lines: Debug phase, after TAA" },
+         { "Programs/Silhouette/Silhouette.shader", "selection mask for the Jump Flood outline: never temporally resolved, unjittered keeps the outline still" },
+         { "Programs/Silhouette/Silhouette_Skinned.shader", "selection mask for the Jump Flood outline: never temporally resolved, unjittered keeps the outline still" },
+    };
+    const std::regex unjittered(
+         R"(gl_Position\s*=\s*cameraUB\s*\.\s*(Projection\s*\*\s*cameraUB\s*\.\s*View|ViewProjection)\b)" );
+    const std::regex particleOffset( R"(gl_Position\s*\.\s*xy\s*\+=\s*cameraUB\s*\.\s*JitterNdc)" );
+
+    size_t scanned = 0, jittered = 0;
+    for ( const auto& entry : fs::recursive_directory_iterator( shaders ) )
+    {
+        const std::string ext = entry.path().extension().string();
+        if ( !entry.is_regular_file() || ( ext != ".shader" && ext != ".glslh" ) )
+            continue;
+        ++scanned;
+        const std::string rel    = fs::relative( entry.path(), shaders ).generic_string();
+        const std::string source = CameraUBLayoutTest::ReadText( entry.path() );
+        if ( source.find( "cameraUB.JitteredViewProjection" ) != std::string::npos &&
+             source.find( "gl_Position" ) != std::string::npos )
+            ++jittered;
+        if ( postTemporal.count( rel ) != 0 )
+            continue;
+        if ( rel == "Programs/Particles/ParticleBillboard.shader" )
+        {
+            // View-space billboard: Projection * viewPos, then the jitter added in clip space (ApplyJitter).
+            EXPECT_TRUE( std::regex_search( source, particleOffset ) )
+                 << rel << " projects its billboards without adding cameraUB.JitterNdc";
+            continue;
+        }
+        EXPECT_FALSE( std::regex_search( source, unjittered ) )
+             << rel << " rasterises with the unjittered camera matrix; scene raster uses "
+             << "cameraUB.JitteredViewProjection (only post-temporal overlays are exempt, listed in this test)";
+    }
+    EXPECT_GT( scanned, 50u ) << "the scan found too few shaders to mean anything";
+    EXPECT_GE( jittered, 5u ) << "Vertex_Static/Skinned/Instanced, TextSDF and Overdraw raster jittered";
+
+    const std::string terrain = CameraUBLayoutTest::ReadText(
+         root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" / "Terrain" /
+         "TerrainRenderer.cpp" );
+    EXPECT_EQ( terrain.find( "GetProjectionMatrix() * camera->GetViewMatrix()" ), std::string::npos )
+         << "the terrain pushes the unjittered camera matrix; push the view's JitteredViewProjection";
+    EXPECT_NE( terrain.find( "->JitteredViewProjection" ), std::string::npos );
+}

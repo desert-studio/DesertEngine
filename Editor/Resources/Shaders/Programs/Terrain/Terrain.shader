@@ -47,7 +47,7 @@ Shader "Terrain"
     // The vertex stage is TerrainVertex.glslh, shared with TerrainGBuffer.shader and TerrainShadow.shader:
     // one statement of the grid, its LOD and its displacement, so the surface the cascades see is the
     // surface the camera sees. The vertex stage projects with the push-constant
-    // matrix (m_PushConstants.Transform): camera Projection * View here, the cascade's matrix in the shadow
+    // matrix (m_PushConstants.Transform): the view's JitteredViewProjection here (raster geometry is jittered for TAA), the cascade's matrix in the shadow
     // pass — per draw, snapshotted at record, so one material serves every cascade.
     //
     // THIS PROGRAM IS THE FORWARD RENDER PATH'S. In Deferred the terrain writes the G-buffer instead
