@@ -9,6 +9,7 @@
 
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailOutdated.hpp>
+#include <Editor/Widgets/ThumbnailPool.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
 #include <gtest/gtest.h>
@@ -337,7 +338,15 @@ TEST( ThumbnailPrefetch, LoadingASceneAsksForNoThumbnail )
     }
     const std::string gate = ReadFile( std::format( "{}Editor/Source/Editor/Splash/RevealGate.hpp", root ) );
     ASSERT_FALSE( gate.empty() );
-    EXPECT_EQ( gate.find( "Thumbnail" ), gate.find( "ThumbnailDiskDecodeAllowed" ) )
+    // The hand-over is RevealState and MayReveal; the two thumbnail predicates after them gate the thumbnail
+    // pump, not the reveal (their comments name ThumbnailPrefetch, so the whole file cannot be searched).
+    const std::size_t from = gate.find( "struct RevealState" );
+    const std::size_t call = gate.find( "MayReveal(" );
+    ASSERT_NE( from, std::string::npos );
+    ASSERT_NE( call, std::string::npos );
+    const std::size_t to = gate.find( "\n    }", call );
+    ASSERT_NE( to, std::string::npos );
+    EXPECT_EQ( gate.substr( from, to - from ).find( "Thumbnail" ), std::string::npos )
          << "a thumbnail condition is part of the hand-over again";
 }
 
@@ -471,4 +480,56 @@ TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
     EXPECT_EQ( cache.find( "kMaxEntries" ), std::string::npos ) << "the thumbnail cache is capped again";
     EXPECT_EQ( panel.find( "m_Thumbnails->Clear()" ), std::string::npos )
          << "the browser wipes its resident pictures again (a rescan)";
+}
+
+// THUMB-POOL (UE FAssetThumbnailPool): a project with more pictures than the pool holds keeps at most the
+// limit as textures, the least recently drawn leave first, a picture drawn this frame is never the one
+// released, and a released one comes back as a fresh admission (ThumbnailCache decodes it from disk).
+TEST( ThumbnailPool, ResidentPicturesStayWithinTheLimit )
+{
+    using Desert::Editor::ThumbnailPool;
+    constexpr std::size_t    kLimit = 16;
+    ThumbnailPool            pool( kLimit );
+    std::vector<std::string> released;
+    // 100 tiles scrolled past, four per frame.
+    for ( std::size_t i = 0; i < 100; ++i )
+    {
+        for ( std::string& key : pool.Admit( std::format( "tile{}", i ), i / 4 ) )
+            released.push_back( std::move( key ) );
+        EXPECT_LE( pool.Size(), kLimit ) << "after tile " << i;
+    }
+    EXPECT_EQ( pool.Size(), kLimit );
+    EXPECT_EQ( released.size(), 100 - kLimit );
+    EXPECT_EQ( released.front(), "tile0" ) << "the least recently drawn picture leaves first";
+    EXPECT_TRUE( pool.Contains( "tile99" ) );
+    EXPECT_FALSE( pool.Contains( "tile0" ) );
+
+    // A picture drawn again moves to the back: the next admission releases another.
+    pool.Touch( "tile84", 30 );
+    const auto next = pool.Admit( "tile100", 30 );
+    ASSERT_EQ( next.size(), 1u );
+    EXPECT_EQ( next.front(), "tile85" );
+    EXPECT_TRUE( pool.Contains( "tile84" ) );
+
+    // Shown again after it left: an ordinary admission.
+    EXPECT_EQ( pool.Admit( "tile0", 31 ).size(), 1u );
+    EXPECT_TRUE( pool.Contains( "tile0" ) );
+    EXPECT_EQ( pool.Size(), kLimit );
+}
+
+TEST( ThumbnailPool, APictureDrawnThisFrameIsNeverReleased )
+{
+    Desert::Editor::ThumbnailPool pool( 4 );
+    for ( int i = 0; i < 6; ++i )
+        EXPECT_TRUE( pool.Admit( std::format( "shown{}", i ), 7 ).empty() ) << "all six are on screen in frame 7";
+    EXPECT_EQ( pool.Size(), 6u );
+    // The next frame draws only one new tile: the four oldest of frame 7 leave together, down to the limit.
+    EXPECT_EQ( pool.Admit( "later", 8 ).size(), 3u );
+    EXPECT_EQ( pool.Size(), 4u );
+    // Lowering the limit releases at once; zero is not a pool.
+    EXPECT_EQ( pool.SetLimit( 2, 9 ).size(), 2u );
+    EXPECT_EQ( pool.SetLimit( 0, 9 ).size(), 1u );
+    EXPECT_EQ( pool.Limit(), 1u );
+    pool.Forget( "later" );
+    EXPECT_EQ( pool.Size(), 0u );
 }

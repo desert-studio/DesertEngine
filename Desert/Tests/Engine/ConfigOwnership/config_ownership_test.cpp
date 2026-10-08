@@ -259,6 +259,7 @@ namespace
     constexpr const char* kPhotogrammetry = "Editor/Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp";
     constexpr const char* kPreviewEnvironment = "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp";
     constexpr const char* kBuildPanel     = "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp";
+    constexpr const char* kThumbnailCache     = "Editor/Source/Editor/Widgets/ThumbnailCache.cpp";
 
     constexpr Row kEditorPrefsRows[] = {
          // Applied to the editor camera once a camera exists.
@@ -276,6 +277,8 @@ namespace
 
          { "AutosaveMinutes", Owner::Machine, kEditorLayer },
          { "ShowPerfHud", Owner::Machine, kViewportPanel },
+         // How many thumbnails stay GPU textures: this machine's video memory, read on every upload.
+         { "ThumbnailPoolSize", Owner::Machine, kThumbnailCache },
 
          // Which generation of the default dock layout this user has been reset to. It looks like a
          // version and is not FileMeta: it does not describe editor.json's format, it records a one-time
