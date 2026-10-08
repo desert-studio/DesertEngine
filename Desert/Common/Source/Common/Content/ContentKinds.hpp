@@ -79,6 +79,8 @@ namespace Common::Content
         LevelSequence,
         VFXSystem,
         Fracture,
+        InputAction,
+        InputMappingContext,
         COUNT,
     };
 
@@ -168,6 +170,9 @@ namespace Common::Content
              // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope
              // (Destruction/FractureFormat.hpp).
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
+             // UE's UInputAction and UInputMappingContext (Engine/Assets/Serialization/InputAssets.hpp).
+             /* InputAction          */ { "InputAction", ".deinputaction", &P::INPUT_PATH },
+             /* InputMappingContext  */ { "InputMappingContext", ".deinputcontext", &P::INPUT_PATH },
         } };
     }
 

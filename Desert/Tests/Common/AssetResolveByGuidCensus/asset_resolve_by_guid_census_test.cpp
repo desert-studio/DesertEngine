@@ -97,6 +97,12 @@ namespace
                       "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
          PathOnlyRow{ ContentKind::Fracture,
                       "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
+         PathOnlyRow{ ContentKind::InputAction,
+                      "header states a GUID but no component names an input action yet (GP1b: the player's "
+                      "input component)" },
+         PathOnlyRow{ ContentKind::InputMappingContext,
+                      "header states a GUID but no component names a mapping context yet (GP1b: the player's "
+                      "input component)" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -276,6 +282,21 @@ namespace
                      R"({{"Header":{{"Kind":"VFXSystem","Guid":"{}","Versions":{{"VFXS":1}},"Dependencies":[]}}}})"
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::InputAction:
+            case ContentKind::InputMappingContext:
+            {
+                // No input asset ships with the corpus yet; the least header the scan reads.
+                const bool        action = kind == ContentKind::InputAction;
+                const std::string text   = std::format(
+                     R"({{"Header":{{"Kind":"{}","Guid":"{}","Versions":{{"{}":1}},"Dependencies":[]}}}})"
+                       "
+                       ",
+                          action
+                          ? "InputAction"
+                          : "InputMappingContext",
+                     Common::Content::AssetGuidToText( guid ), action ? "INAC" : "INMC" );
                 return { text.begin(), text.end() };
             }
             case ContentKind::LevelSequence:
