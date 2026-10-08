@@ -8,6 +8,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <chrono>
 
 namespace Desert::Runtime
@@ -281,6 +282,13 @@ namespace Desert::Runtime
     std::size_t TextureService::PendingUploads() const
     {
         return m_Uploads->Pending();
+    }
+
+    std::size_t TextureService::InFlight() const
+    {
+        return static_cast<std::size_t>(
+             std::count_if( m_Entries.begin(), m_Entries.end(), []( const auto& row )
+                            { return row.second.Request.IsValid() || row.second.Cooking; } ) );
     }
 
     void TextureService::Clear()

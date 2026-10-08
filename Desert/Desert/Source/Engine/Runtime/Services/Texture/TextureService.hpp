@@ -96,6 +96,14 @@ namespace Desert::Runtime
         /// Cooked results still waiting for their upload (tests, diagnostics).
         std::size_t PendingUploads() const;
 
+        /// TEXTURES ASKED FOR AND NOT YET SETTLED: a read in flight, a cook on a worker, or a cooked result
+        /// waiting for its upload — every entry that `Require` answers Pending. The one source of truth for
+        /// "the pictures the scene asked for are still arriving" (UE
+        /// IStreamingManager::BlockTillAllRequestsFinished before a HighResShot): the loader's Outstanding sees
+        /// only the read, not the cook or the upload, so a gate on it alone opened while two thirds of Bistro's
+        /// textures still drew the white slot default.
+        std::size_t InFlight() const;
+
         void Clear();
 
     private:

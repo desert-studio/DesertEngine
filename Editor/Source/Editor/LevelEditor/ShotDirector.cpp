@@ -103,7 +103,8 @@ namespace Desert::Editor
                 }
             }
             LOG_INFO( "[Shot] recording from this frame on at {}x{}: the splash is gone, the content has settled "
-                      "and the viewport held its size {} frame(s); temporal history reset on {} view(s)",
+                      "(no texture read, cook or upload in flight) and the viewport held its size {} frame(s); "
+                      "temporal history reset on {} view(s)",
                       m_Gate.RecordWidth(), m_Gate.RecordHeight(), ShotRecordGate::kStableFrames, views );
         }
         return recorded;

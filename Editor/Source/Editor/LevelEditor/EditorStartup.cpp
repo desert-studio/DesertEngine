@@ -25,6 +25,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
 
@@ -346,6 +347,7 @@ namespace Desert::Editor
         state.ContentSettling     = ContentSettling();
         state.RealFrameDrawn      = m_RealFrameDrawn;
         state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
+        state.TexturesStreaming   = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
         return state;
     }
 

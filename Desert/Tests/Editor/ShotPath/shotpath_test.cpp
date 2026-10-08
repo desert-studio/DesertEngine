@@ -3,6 +3,7 @@
 #include <Editor/Core/ShotOptions.hpp>
 #include <Editor/Core/ShotRecordGate.hpp>
 #include <Editor/Core/ViewportCameraProperties.hpp>
+#include <Editor/Splash/RevealGate.hpp>
 
 #include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>
@@ -493,6 +494,37 @@ TEST( ShotRecordGate, CompilingAssetsHoldTheStartButNotTheMiddle )
     EXPECT_TRUE( gate.Admit( ReadyAt( 1280, 720 ) ) ) << "the cook landed and the size held: recording starts";
 
     EXPECT_TRUE( gate.Admit( compiling ) ) << "a cook landing mid-capture is part of what is recorded";
+}
+
+// SHOT-SETTLE: Bistro's night_street_a started at 78 of 229 textures and photographed white foliage cards.
+// While any texture is still read, cooked or uploaded the capture does not START, however long the rest has
+// been settled; once recording, a texture landing is part of what is recorded.
+TEST( ShotRecordGate, TexturesInFlightHoldTheStartButNotTheMiddle )
+{
+    ShotRecordGate gate;
+    auto           streaming    = ReadyAt( 1280, 720 );
+    streaming.TexturesStreaming = true;
+    for ( int i = 0; i < 10 * ShotRecordGate::kStableFrames; ++i )
+        EXPECT_FALSE( gate.Admit( streaming ) ) << "frame " << i << " recorded while a texture was in flight";
+    EXPECT_FALSE( gate.Recording() );
+
+    for ( int i = 1; i < ShotRecordGate::kStableFrames; ++i )
+        EXPECT_FALSE( gate.Admit( ReadyAt( 1280, 720 ) ) ) << "the last texture landed: the size count restarts";
+    EXPECT_TRUE( gate.Admit( ReadyAt( 1280, 720 ) ) );
+
+    EXPECT_TRUE( gate.Admit( streaming ) ) << "a texture landing mid-capture is part of what is recorded";
+}
+
+// The window is not handed over while a texture the drawn scene asked for is still arriving.
+TEST( ShotRecordGate, TexturesInFlightHoldTheReveal )
+{
+    Splash::RevealState state;
+    state.HasSplash         = true;
+    state.RealFrameDrawn    = true;
+    state.TexturesStreaming = true;
+    EXPECT_FALSE( Splash::MayReveal( state ) );
+    state.TexturesStreaming = false;
+    EXPECT_TRUE( Splash::MayReveal( state ) );
 }
 
 // ── No --camera / --look: the shot frames the scene (FrameBox, UE FocusViewportOnBox) ────────────────
