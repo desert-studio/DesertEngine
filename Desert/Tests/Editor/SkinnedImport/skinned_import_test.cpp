@@ -21,6 +21,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
@@ -33,6 +34,7 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/Serialization/TextureBinary.hpp>
 
 #include "../../TestSupport/assets_sandbox.hpp"
 #include "../../TestSupport/derived_data_sandbox.hpp"
@@ -959,6 +961,97 @@ TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
     EXPECT_NEAR( glm::length( edge[0] ), 100.0f, 0.05f );
     EXPECT_NEAR( glm::dot( edge[0], edge[1] ), 100.0f * 100.0f, 0.5f ) << "LampB is not turned";
     EXPECT_NEAR( glm::dot( edge[0], edge[2] ), 0.0f, 0.5f ) << "LampC is turned a quarter about Y";
+}
+
+// IMP-DDS-BLOCKS: THE MATERIAL SLOT SAYS WHAT ITS IMAGE IS FOR. A mesh import whose material binds an image to the
+// StandardSurface normal slot (`Intent(NormalMap)`) creates that image's texture asset as a NormalMap, so it cooks
+// as BC5 — UE FbxMaterialImport sets TC_Normalmap the same way. glTF and FBX reach the slot through the same
+// ImportManager::SerializeMaterialAsset. Mutation: ImportManager.cpp drop the ImportSourceAsset(image, it->second)
+// block => the asset is Unspecified and the flat image cooks BC7 => red.
+namespace
+{
+    // 8x8 24-bit BMP, one flat colour: the image every gate passes, so only the intent decides BC5 over BC7.
+    std::string FlatBmp()
+    {
+        std::vector<unsigned char> b   = { 'B', 'M' };
+        const auto                 u32 = [&]( uint32_t v ) { Put( b, v ); };
+        const auto                 u16 = [&]( uint16_t v ) { Put( b, v ); };
+        u32( 14 + 40 + 8 * 8 * 3 );
+        u16( 0 );
+        u16( 0 );
+        u32( 14 + 40 );
+        u32( 40 );
+        u32( 8 );
+        u32( 8 );
+        u16( 1 );
+        u16( 24 );
+        for ( const uint32_t v : { 0u, 8u * 8u * 3u, 2835u, 2835u, 0u, 0u } )
+            u32( v );
+        for ( int i = 0; i < 8 * 8; ++i )
+            for ( const unsigned char c : std::array<unsigned char, 3>{ 0xFF, 0x80, 0x80 } ) // B G R: a flat +Z normal
+                b.push_back( c );
+        return { b.begin(), b.end() };
+    }
+
+    std::string NormalMappedQuadGltf()
+    {
+        std::vector<unsigned char> b;
+        for ( const float f : { -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f } )
+            Put( b, f );
+        for ( const float f : { 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f } )
+            Put( b, f );
+        const std::string uri = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
+        return std::format(
+             R"({{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],
+"nodes":[{{"name":"Panel","mesh":0}}],
+"meshes":[{{"name":"Panel","primitives":[{{"attributes":{{"POSITION":0,"TEXCOORD_0":1}},"material":0}}]}}],
+"materials":[{{"name":"Bumpy","normalTexture":{{"index":0}}}}],
+"textures":[{{"source":0}}],
+"images":[{{"uri":"Panel_nrm.bmp"}}],
+"accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[-0.5,0,0],"max":[0.5,1,0]}},
+ {{"bufferView":1,"componentType":5126,"count":3,"type":"VEC2"}}],
+"bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":24}}],
+"buffers":[{{"byteLength":60,"uri":"{}"}}]}})",
+             uri );
+    }
+
+    class NormalSlotImport : public SkinnedImport
+    {
+    protected:
+        void SetUp() override
+        {
+            Assets::ContentRegistry::ResetForTest();
+            const std::filesystem::path onDisk = Common::Constants::Path::FullPath( m_Panel );
+            std::filesystem::create_directories( onDisk.parent_path() );
+            std::ofstream( onDisk, std::ios::binary ) << NormalMappedQuadGltf();
+            std::ofstream( onDisk.parent_path() / "Panel_nrm.bmp", std::ios::binary ) << FlatBmp();
+        }
+
+        std::filesystem::path m_Panel = "Resources/Assets/Mock/Panel.gltf";
+    };
+} // namespace
+
+TEST_F( NormalSlotImport, TheNormalSlotsImageIsANormalMapAssetAndCooksAsBC5 )
+{
+    const Editor::ImportOutcome outcome = ImportManager().ImportWithSettings( m_Panel, {} );
+    ASSERT_EQ( outcome.Verdict, Editor::CookVerdict::Cooked );
+
+    const std::filesystem::path asset =
+         Common::Constants::Path::FullPath( m_Panel.parent_path() / "Panel_nrm.detex" );
+    const auto read = Assets::ReadTextureSourceAssetFile( asset );
+    ASSERT_TRUE( read.IsSuccess() ) << asset.string() << ": " << ( read.IsSuccess() ? "" : read.GetError() );
+    EXPECT_EQ( read.GetValue().Import.Settings.Intent, Core::Formats::TextureIntent::NormalMap )
+         << "the normal slot's Intent(NormalMap) did not reach the asset it created";
+
+    const auto key = Assets::ReadTextureAssetKey( asset );
+    ASSERT_TRUE( key.IsSuccess() ) << key.GetError();
+    const std::filesystem::path platform =
+         Common::DDC::PathFor( Assets::kTextureDeriver, key.GetValue().DerivedDataKey );
+    const auto bytes = Common::Utils::FileSystem::ReadFileContent( platform );
+    ASSERT_TRUE( bytes.IsSuccess() ) << platform.string() << ": the import cooked no platform data";
+    const auto header = Ser::DecodeTextureHeader( bytes.GetValue(), platform.string() );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    EXPECT_EQ( header.GetValue().Format, Core::Formats::ImageFormat::BC5_UNORM );
 }
 
 namespace

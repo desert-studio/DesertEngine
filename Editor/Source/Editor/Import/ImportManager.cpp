@@ -698,8 +698,11 @@ namespace Desert::Editor
             }
             // THE SLOT SAYS WHAT THE IMAGE IS FOR (IMP-DDS-BLOCKS): a FIRST import writes the template Property's
             // `Intent(...)` into the asset, so the normal slot's image cooks as BC5 (UE FbxMaterialImport sets
-            // TC_Normalmap the same way). An existing asset keeps its own settings, as on any reimport.
-            if ( const auto it = chosen.TextureIntents.find( slot.Slot ); it != chosen.TextureIntents.end() )
+            // TC_Normalmap the same way). An existing asset keeps its own settings, as on any reimport. A slot
+            // whose image is ALREADY an asset (a packed ORM, an embedded texture) is not a source: handing the
+            // `.detex` to ImportSourceAsset would re-take the asset's own file as its SRCE.
+            if ( const auto it = chosen.TextureIntents.find( slot.Slot );
+                 it != chosen.TextureIntents.end() && image.extension() != Assets::kTextureAssetExtension )
             {
                 if ( const auto created = TextureImporter::ImportSourceAsset( image, it->second ); !created )
                     return Common::MakeError<bool>(
