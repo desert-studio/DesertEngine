@@ -956,7 +956,8 @@ namespace Desert::Assets
     {
         CloudModellingBlob Blob;
         float              Rank = 0.0f;
-        /// Where the cluster this lump belongs to was placed — its lattice site plus the scatter — so the
+        /// Where the cluster this lump belongs to was placed — its MASSIF's centre (FIELD-GRAIN-c: a lobe on a
+        /// massif's rim carries the massif's site, so the bake joins and cuts the two as one cloud) — so the
         /// placement can be measured apart from the shape drawn around it.
         glm::vec2 ClusterKm{ 0.0f };
     };

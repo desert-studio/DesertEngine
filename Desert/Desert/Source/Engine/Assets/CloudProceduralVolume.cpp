@@ -424,6 +424,36 @@ namespace Desert::Assets
             const uint32_t base = static_cast<uint32_t>( whole );
             return base + ( ( HashUnit( HashCombine( cellSeed, 0x0c0u ) ) < frac ) ? 1u : 0u );
         }
+
+        /// ONE BODY OF A PATCH between its draw and its emission (FIELD-GRAIN-c).
+        struct CloudPatchBody
+        {
+            uint32_t  Seed     = 0u;
+            float     Size     = 1.0f; // CloudBodyDiameterDraw, over the type's mean
+            float     Rank     = 0.0f; // against the Coverage slider; a lobe carries its massif's
+            float     RadiusKm = 0.0f;
+            glm::vec2 CentreKm{ 0.0f };
+            glm::vec2 MassifKm{ 0.0f }; // the cluster's site: the body's own for a massif
+            bool      IsLobe = false;
+        };
+
+        /// WHERE ON ITS MASSIF A LOBE STANDS, in the massif's half-extents from its centre: inside the rim,
+        /// so the two overlap and the join makes them one cloud — a turret on the flank, not a neighbour.
+        constexpr float kLobeRimNear = 0.45f;
+        constexpr float kLobeRimFar  = 0.95f;
+
+        /// IS A BODY OF THIS SIZE A LOBE OF A LARGER ONE RATHER THAN A CLOUD OF ITS OWN (FIELD-GRAIN-c)?
+        ///
+        /// THE HIERARCHY OF A CUMULUS FIELD: the small members of the size law are not scattered over the
+        /// clear sky as independent cells, they are the young turrets and the decaying fragments on the
+        /// flanks of the large ones (Nubis builds a cloud as a large shape eroded and lobed at its edge; a
+        /// field of independent smooth bodies drawn from Plank's law is a swarm of peas, which is what the
+        /// Demo showed). A body under the type's mean is a lobe with probability `variety`: at zero every body
+        /// is the mean size and its own cloud, exactly as before; at one every sub-mean body hangs on a massif.
+        bool CloudBodyIsLobe( float variety, float size, float unit )
+        {
+            return size < 1.0f && unit < std::clamp( variety, 0.0f, 1.0f );
+        }
     } // namespace
 
     float CloudProceduralLumpFloorKm( const CloudProceduralFieldParams& params )
@@ -1215,35 +1245,90 @@ namespace Desert::Assets
                      kBodyFillOfPatch * baseRadiusKm * baseRadiusKm / std::max( meanBodyRadiusSqKm, 1e-6f );
                 const uint32_t bodies = CloudBodyCount( cellSeed, meanBodies );
 
+                // THE PATCH IS DRAWN BEFORE IT IS EMITTED, BECAUSE A SMALL BODY IS PLACED BY A LARGE ONE
+                // (FIELD-GRAIN-c). Every body draws its size and rank from its own seed; then the patch is
+                // walked largest first, and a body smaller than the type's mean becomes a LOBE of a larger
+                // body with probability `variety` instead of a cloud of its own. See CloudBodyIsLobe.
+                std::vector<CloudPatchBody> patch( bodies );
                 for ( uint32_t index = 0; index < bodies; ++index )
                 {
-                    // EACH BODY IS ITS OWN CLOUD. Everything below hangs off this seed rather than off the
-                    // cell's, so two bodies in one patch differ in place, in size, in rank and in which way
-                    // their lobes spiral.
-                    const uint32_t clusterSeed = HashCombine( cellSeed, 0x51u + index );
+                    CloudPatchBody& body = patch[index];
+                    body.Seed            = HashCombine( cellSeed, 0x51u + index );
+                    body.Size = CloudBodyDiameterDraw( variety, HashUnit( HashCombine( body.Seed, 0x4u ) ) );
+                    body.Rank = HashUnit( HashCombine( body.Seed, 0x5u ) );
+                }
+                std::vector<uint32_t> order( bodies );
+                for ( uint32_t index = 0; index < bodies; ++index )
+                    order[index] = index;
+                std::sort( order.begin(), order.end(), [&patch]( uint32_t a, uint32_t b ) {
+                    return patch[a].Size > patch[b].Size || ( patch[a].Size == patch[b].Size && a < b );
+                } );
 
-                    // ITS OWN RANK AGAINST THE SLIDER — see the note above the loop.
-                    const float bodyRank = HashUnit( HashCombine( clusterSeed, 0x5u ) );
+                std::vector<uint32_t> massifs;
+                for ( const uint32_t index : order )
+                {
+                    CloudPatchBody& body = patch[index];
+                    body.RadiusKm        = 0.5f * bodyMeanKm * body.Size / std::sqrt( densityShrinkSq );
+
+                    if ( massifs.empty() ||
+                         !CloudBodyIsLobe( variety, body.Size, HashUnit( HashCombine( body.Seed, 0x6u ) ) ) )
+                    {
+                        // A MASSIF: uniform over the patch's disc, drawn out along the wind by the cell's own
+                        // stretch, so the patch covers the same fraction of its cell at every anisotropy.
+                        const float discR = baseRadiusKm * std::sqrt( HashUnit( HashCombine( body.Seed, 0x1u ) ) );
+                        const float discAngle = HashUnit( HashCombine( body.Seed, 0x2u ) ) * 6.2831853f;
+                        body.CentreKm = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
+                                        across * ( std::sin( discAngle ) * discR / stretch );
+                        body.MassifKm = body.CentreKm;
+                        body.IsLobe   = false;
+                        massifs.push_back( index );
+                        continue;
+                    }
+
+                    // A LOBE: on the rim of a massif already placed (so of one at least as large), inside its
+                    // half-extent so the two overlap. It takes the massif's SITE, which is what makes it the
+                    // same cluster for the bake — joined with the massif's lumps, normalised by the massif's
+                    // body depth and cut with the massif's rank — so it lives and dies with its massif
+                    // instead of being a pea of its own in clear sky.
+                    const CloudPatchBody& massif =
+                         patch[massifs[std::min( static_cast<size_t>( HashUnit( HashCombine( body.Seed, 0x7u ) ) *
+                                                                       static_cast<float>( massifs.size() ) ),
+                                                 massifs.size() - 1u )]];
+                    const float rimKm =
+                         massif.RadiusKm * ( kLobeRimNear + ( kLobeRimFar - kLobeRimNear ) *
+                                                                HashUnit( HashCombine( body.Seed, 0x1u ) ) );
+                    const float rimAngle = HashUnit( HashCombine( body.Seed, 0x2u ) ) * 6.2831853f;
+                    body.CentreKm        = massif.CentreKm + along * ( std::cos( rimAngle ) * rimKm * stretch ) +
+                                    across * ( std::sin( rimAngle ) * rimKm / stretch );
+                    body.MassifKm = massif.MassifKm;
+                    body.Rank     = massif.Rank;
+                    body.IsLobe   = true;
+                }
+
+                for ( const CloudPatchBody& body : patch )
+                {
+                    // EACH BODY IS ITS OWN SHAPE. Everything below hangs off this seed rather than off the
+                    // cell's, so two bodies in one patch differ in size and in which way their lobes spiral.
+                    const uint32_t clusterSeed = body.Seed;
+
+                    // ITS RANK AGAINST THE SLIDER — its own for a massif, its massif's for a lobe.
+                    const float bodyRank = body.Rank;
                     if ( set == CloudProceduralLumpSet::KeptCells &&
                          CloudProceduralClusterReach( bodyRank, params.Coverage,
                                                       CloudProceduralRankSoftness( params ) ) <= 0.0f )
                         continue;
 
-                    // UNIFORM OVER THE PATCH'S DISC, drawn out along the wind by the cell's own stretch, so
-                    // the patch covers the same fraction of its cell at every anisotropy.
-                    const float discR = baseRadiusKm * std::sqrt( HashUnit( HashCombine( clusterSeed, 0x1u ) ) );
-                    const float discAngle     = HashUnit( HashCombine( clusterSeed, 0x2u ) ) * 6.2831853f;
-                    const glm::vec2 clusterXZ = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
-                                                across * ( std::sin( discAngle ) * discR / stretch );
+                    // WHERE THE BODY STANDS, and the cluster it belongs to: its massif's site.
+                    const glm::vec2 clusterXZ = body.CentreKm;
+                    const glm::vec2 massifXZ  = body.MassifKm;
 
                     // HOW BIG THIS PARTICULAR CLOUD IS — drawn from the EXPONENTIAL law around the type's
                     // Body Diameter (FIELD-GRAIN). See CloudBodyDiameterDraw. `size` is the draw over the
                     // mean, so 1 is the type's typical body.
-                    const float size =
-                         CloudBodyDiameterDraw( variety, HashUnit( HashCombine( clusterSeed, 0x4u ) ) );
+                    const float size = body.Size;
 
                     // THE BODY'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
-                    const float clusterRadiusKm = 0.5f * bodyMeanKm * size / std::sqrt( densityShrinkSq );
+                    const float clusterRadiusKm = body.RadiusKm;
 
                     // A SMALL CLOUD IS ALSO A FLAT ONE, which is what a cumulus field looks like and what
                     // keeps a quarter-width cluster from being a full-height tower on a narrow base. The
@@ -1437,7 +1522,7 @@ namespace Desert::Assets
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
                         blob.DensityScale = 1.0f;
 
-                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, clusterXZ } );
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ } );
                     }
 
                     // THE ANVIL, and it is the shape no vertical curve could express: a lobe of cloud at the
@@ -1452,7 +1537,8 @@ namespace Desert::Assets
                     // the symptom is a shell kilometres taller than anything in it, with the vertical
                     // resolution and the march's search step paying for it silently. See the note above
                     // that predicate.
-                    if ( Graphic::CloudTypeHasAnvil( shape ) )
+                    // ONE ANVIL PER MASSIF: a lobe is the massif's flank, not a second storm.
+                    if ( !body.IsLobe && Graphic::CloudTypeHasAnvil( shape ) )
                     {
                         CloudModellingBlob anvil;
                         anvil.Primitive = CloudModellingPrimitive::Ellipsoid;
@@ -1486,7 +1572,7 @@ namespace Desert::Assets
                         // per-voxel field over the crease between the anvil and the body.
                         anvil.DensityScale = std::clamp( shape.AnvilStrength, 0.0f, 1.0f );
 
-                        blobs.push_back( CloudProceduralLump{ anvil, bodyRank, clusterXZ } );
+                        blobs.push_back( CloudProceduralLump{ anvil, bodyRank, massifXZ } );
                     }
                 }
             }

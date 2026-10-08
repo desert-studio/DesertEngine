@@ -281,10 +281,39 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
     const float voxelXKm = params.RegionSizeKm / static_cast<float>( kCloudProceduralVolumeSide );
     const float voxelYKm = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
 
-    size_t kept = 0, orphaned = 0;
-    for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; z += 3u )
+    // THE SAME CHECK ON A QUARTER OF THE REGION, AND EACH VOXEL ASKED ONLY OF THE CLUSTERS THAT CAN REACH IT
+    // (FIELD-GRAIN-c). Over the whole region against every living cluster it ran 847 s once the bodies
+    // became many to a cell. The bound is conservative: a cluster contributes nothing at a point further
+    // (periodically) from its lumps than their widest radius plus the silhouette noise's reach plus the
+    // join's cutoff, so the verdict is the one the full gather would give.
+    struct Reach
+    {
+        glm::vec2 CentreKm{ 0.0f };
+        float     RadiusKm = 0.0f;
+    };
+    std::vector<Reach> reaches;
+    for ( const std::vector<CloudModellingBlob>& cluster : living )
+    {
+        Reach reach;
+        for ( const CloudModellingBlob& blob : cluster )
+            reach.CentreKm += glm::vec2( blob.CentreKm.x, blob.CentreKm.z ) / static_cast<float>( cluster.size() );
+        for ( const CloudModellingBlob& blob : cluster )
+            reach.RadiusKm = std::max( reach.RadiusKm, glm::length( glm::vec2( blob.CentreKm.x, blob.CentreKm.z ) -
+                                                                    reach.CentreKm ) +
+                                                            std::max( blob.RadiiKm.x, blob.RadiiKm.z ) +
+                                                            CloudProceduralShapeReachKm( blob ) );
+        reach.RadiusKm += 16.0f * params.BlendRadiusKm + 2.0f * voxelXKm;
+        reaches.push_back( reach );
+    }
+    const auto wrapped = [&params]( float d ) {
+        return d - params.RegionSizeKm * std::round( d / params.RegionSizeKm );
+    };
+
+    const uint32_t window = kCloudProceduralVolumeSide / 2u;
+    size_t         kept = 0, orphaned = 0;
+    for ( uint32_t z = 0; z < window; z += 3u )
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; x += 3u )
+            for ( uint32_t x = 0; x < window; x += 3u )
             {
                 const size_t        at      = VoxelIndex( x, y, z );
                 const unsigned char profile = baked.GetValue()[at];
@@ -294,7 +323,13 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
                 const glm::vec3 point( origin.x + ( static_cast<float>( x ) + 0.5f ) * voxelXKm,
                                        params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm,
                                        origin.y + ( static_cast<float>( z ) + 0.5f ) * voxelXKm );
-                if ( ClusteredProfile( living, point, params ) <= 0.0f )
+                std::vector<std::vector<CloudModellingBlob>> near;
+                for ( size_t c = 0; c < living.size(); ++c )
+                    if ( glm::length( glm::vec2( wrapped( point.x - reaches[c].CentreKm.x ),
+                                                 wrapped( point.z - reaches[c].CentreKm.y ) ) ) <=
+                         reaches[c].RadiusKm )
+                        near.push_back( living[c] );
+                if ( ClusteredProfile( near, point, params ) <= 0.0f )
                     ++orphaned;
             }
 
