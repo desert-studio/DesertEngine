@@ -90,9 +90,14 @@ namespace Desert::Destruction
 
     DestructionWorld::~DestructionWorld()
     {
+        // Teardown hands the bodies back to physics and nothing more: the node/body bookkeeping that
+        // Remove keeps consistent (and allocates for) dies with this object, so a destructor that ran it
+        // could throw out of a noexcept context for state nobody will read.
         m_Physics.SetStepCallback( {} );
-        for ( uint32_t i = 0; i < m_Objects.size(); ++i )
-            Remove( i );
+        for ( const Object& object : m_Objects )
+            for ( const BodyState& body : object.Bodies )
+                if ( body.Handle != Physics::kInvalidBody )
+                    m_Physics.RemoveBody( body.Handle );
     }
 
     Common::ResultStr<DestructibleHandle> DestructionWorld::Add( std::shared_ptr<const FractureData> data,

@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -811,12 +812,10 @@ TEST( VolumetricCloudPayload, TheSunColourAndThePerSampleGateAgreeOnEveryCombina
     // Empty-owner aliases: non-null handles that own nothing, so the stand-in addresses are never deleted.
     int                                             lutToken      = 0;
     int                                             skyLightToken = 0;
-    const std::shared_ptr<Desert::Graphic::Image2D> lut(
-         std::shared_ptr<Desert::Graphic::Image2D>{},
-         static_cast<Desert::Graphic::Image2D*>( static_cast<void*>( &lutToken ) ) );
+    const std::shared_ptr<Desert::Graphic::Image2D> lut( std::shared_ptr<Desert::Graphic::Image2D>{},
+                                                         std::bit_cast<Desert::Graphic::Image2D*>( &lutToken ) );
     const std::shared_ptr<Desert::Graphic::Image2D> skyLight(
-         std::shared_ptr<Desert::Graphic::Image2D>{},
-         static_cast<Desert::Graphic::Image2D*>( static_cast<void*>( &skyLightToken ) ) );
+         std::shared_ptr<Desert::Graphic::Image2D>{}, std::bit_cast<Desert::Graphic::Image2D*>( &skyLightToken ) );
 
     // Three visibly different sun quantities, so an assertion below cannot pass by two of them colliding.
     const glm::vec3 outerSpace( 8.0f, 7.0f, 6.0f );

@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 
@@ -435,8 +436,7 @@ TEST( FogPayload, PhysicalAtmosphereMovesTheAmbientOntoTheDistantSkyLight )
     // An empty-owner alias: non-null, owns nothing, so the stand-in address is never deleted.
     int                                             standInToken = 0;
     const std::shared_ptr<Desert::Graphic::Image2D> distantSkyLight(
-         std::shared_ptr<Desert::Graphic::Image2D>{},
-         static_cast<Desert::Graphic::Image2D*>( static_cast<void*>( &standInToken ) ) );
+         std::shared_ptr<Desert::Graphic::Image2D>{}, std::bit_cast<Desert::Graphic::Image2D*>( &standInToken ) );
 
     Desert::Graphic::AtmosphereEnv atmosphere;
     atmosphere.Valid                  = true;
@@ -470,8 +470,7 @@ TEST( FogPayload, PhysicalAtmosphereLobeIsTheLightOnTheGroundNotTheSkysSun )
     // An empty-owner alias: non-null, owns nothing, so the stand-in address is never deleted.
     int                                             standInToken = 0;
     const std::shared_ptr<Desert::Graphic::Image2D> distantSkyLight(
-         std::shared_ptr<Desert::Graphic::Image2D>{},
-         static_cast<Desert::Graphic::Image2D*>( static_cast<void*>( &standInToken ) ) );
+         std::shared_ptr<Desert::Graphic::Image2D>{}, std::bit_cast<Desert::Graphic::Image2D*>( &standInToken ) );
 
     Desert::Graphic::AtmosphereEnv physical;
     physical.Valid                  = true;

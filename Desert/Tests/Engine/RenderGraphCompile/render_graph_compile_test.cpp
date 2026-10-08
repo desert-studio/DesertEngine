@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <filesystem>
 #include <memory>
@@ -653,8 +654,8 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
 {
     // Never dereferenced: the declaration only carries the image to the import (aliasing, non-owning).
     int                                           lutToken = 0;
-    const std::shared_ptr<Desert::Graphic::Image> lut(
-         std::shared_ptr<void>(), static_cast<Desert::Graphic::Image*>( static_cast<void*>( &lutToken ) ) );
+    const std::shared_ptr<Desert::Graphic::Image> lut( std::shared_ptr<void>(),
+                                                       std::bit_cast<Desert::Graphic::Image*>( &lutToken ) );
 
     ExternalTexture  lutImport( Tex2D( 64, 32, ImageFormat::RGBA16F ), Access::None );
     ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
@@ -707,7 +708,7 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
 {
     int                                           fallbackToken = 0;
     const std::shared_ptr<Desert::Graphic::Image> fallback(
-         std::shared_ptr<void>(), static_cast<Desert::Graphic::Image*>( static_cast<void*>( &fallbackToken ) ) );
+         std::shared_ptr<void>(), std::bit_cast<Desert::Graphic::Image*>( &fallbackToken ) );
 
     ExternalTexture  fallbackImport( Tex2D( 4, 4, ImageFormat::RGBA8F ), Access::None );
     ExternalTexture  reconstructed( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
@@ -3090,8 +3091,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              // The sky's three images are entries of the march with the sampler each carried as its own.
              R"(.Sampled("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
              ".Sampled(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
-             ".Sampled(\"u_CloudSunTransmittanceLut\",sunTransmittanceLut,RDG::Access::SampledCompute,"
-             "GlobalTextureFilterSampler()",
+             R"(.Sampled("u_CloudSunTransmittanceLut",sunTransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
              // The trace pair: block entries of the march (written) and of the resolve (sampled).
              ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
              ".Sampled(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
