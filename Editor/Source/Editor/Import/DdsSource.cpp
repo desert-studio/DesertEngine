@@ -485,6 +485,7 @@ namespace Desert::Editor
         const std::size_t dataAt  = parsed.DataAt;
         const std::size_t texels  = static_cast<std::size_t>( width ) * height;
         const std::size_t blocksX = ( width + 3u ) / 4u;
+        const std::size_t blocksY = ( height + 3u ) / 4u;
 
         DdsSourceImage out;
         out.Width  = width;
