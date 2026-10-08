@@ -31,6 +31,7 @@ namespace Desert::Editor
 {
     class PanelRegistry;
     class ViewportPanel;
+    class PlaySession;
 
     class SceneWorkspace
     {
@@ -92,6 +93,13 @@ namespace Desert::Editor
         }
         // Old registry FIRST: its destructor unregisters the editor passes by name, and an assignment would run it
         // after the new registry had already registered them again.
+        // THE WORLDS' FRAME (UE: UEditorEngine::Tick, the loop over the WorldContexts): the primary scene, then
+        // every document, each a full independent render. @p shotCounting is this frame's ShotRecordGate verdict.
+        [[nodiscard]] Common::BoolResultStr TickWorlds( const Common::Timestep& ts, PlaySession& play,
+                                                        bool shotCounting );
+        // The worlds inside UI render-texture elements, of the primary scene and of every document, recorded
+        // before any pass of the frame opens (Vulkan has no nested render pass).
+        void TickRenderTextures( const Common::Timestep& ts );
         void RebuildRenderRegistry();
 
         // THE ACTIVE SCENE'S WORLD WAS REPLACED (Open, New, Stop's snapshot restore): its entities were torn down
@@ -161,6 +169,11 @@ namespace Desert::Editor
         void AppendViewLayoutCommands( std::vector<PaletteCommand>& commands ); // Four-Up, presets, closes
 
     private:
+        Common::BoolResultStr TickWorld( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
+                                         const Common::Timestep& ts, PlaySession& play, bool shotCounting );
+        // EditorPreferences::CameraSpeed reaches the editor camera once, on the first tick: Scene::Init makes the
+        // camera and the first Init is deferred to the first scene load (SceneInitDeferral).
+        void ApplyCameraSpeedOnce();
         void AddSceneView();
         void AddSceneViewport();
         void BuildViewportGrid();
@@ -186,5 +199,6 @@ namespace Desert::Editor
         bool m_AddSceneViewRequested     = false;
         bool m_AddSceneViewportRequested = false;
         bool m_ViewportGridRequested     = false;
+        bool m_CameraSpeedApplied        = false;
     };
 } // namespace Desert::Editor

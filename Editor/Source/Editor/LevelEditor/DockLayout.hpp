@@ -9,6 +9,7 @@
 // stay owned by EditorLayer's PanelRegistry; this module draws them and decides where they sit.
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/Events/EventTree.hpp>
 #include <Editor/Core/CommandPalette.hpp>
 #include <Editor/Core/PanelMaximize.hpp>
 #include <ImGui/imgui.h>
@@ -88,6 +89,9 @@ namespace Desert::Editor
         void        BeginHost();
         void        DrawDockSpace();
         void        DrawPanels();
+        // AFTER DrawPanels: the event tree's focus and hover follow the panel ImGui gave them to this frame;
+        // @p fallback (the layer's own node) when no panel holds them. No-op without a tree.
+        void RouteEvents( Common::EventTree* events, Common::EventNodeId fallback );
         static void EndHost();
 
         // After an unclean exit, offers to reopen the newest autosave. No-op unless one was found.

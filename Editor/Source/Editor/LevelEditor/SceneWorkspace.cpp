@@ -2,6 +2,11 @@
 
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
+#include "Editor/Core/EditorPreferences.hpp"
+#include "Editor/Core/ShotOptions.hpp"
+#include "Editor/LevelEditor/PlaySession.hpp"
+#include <Common/Core/Profiler.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 #include "Editor/Panels/ViewportPanel/ViewportCameraPreset.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include <Editor/Core/Selection/SelectionManager.hpp>
@@ -475,4 +480,128 @@ namespace Desert::Editor
                    } } );
         }
     }
+    void SceneWorkspace::ApplyCameraSpeedOnce()
+    {
+        if ( m_CameraSpeedApplied || !m_ActiveScene )
+            return;
+        if ( auto cam = m_ActiveScene->GetMainCamera().lock() )
+            if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
+            {
+                editorCam->SetMovementSpeed( EditorPreferences::Get().CameraSpeed );
+                m_CameraSpeedApplied = true;
+            }
+    }
+
+    void SceneWorkspace::TickRenderTextures( const Common::Timestep& ts )
+    {
+        if ( !m_Assets )
+            return;
+        if ( m_RenderRegistry )
+            m_RenderRegistry->TickRenderTextures( *m_Assets, ts );
+        for ( const auto& doc : m_ExtraScenes )
+            if ( doc->Registry )
+                doc->Registry->TickRenderTextures( *m_Assets, ts );
+    }
+
+    Common::BoolResultStr SceneWorkspace::TickWorlds( const Common::Timestep& ts, PlaySession& play,
+                                                      bool shotCounting )
+    {
+        ApplyCameraSpeedOnce();
+        if ( auto r = TickWorld( *m_PrimaryScene, m_RenderRegistry.get(), ts, play, shotCounting ); !r )
+            return r;
+        for ( const auto& doc : m_ExtraScenes )
+            if ( auto r = TickWorld( *doc->Scene, doc->Registry.get(), ts, play, shotCounting ); !r )
+                return r;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SceneWorkspace::TickWorld( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
+                                                     const Common::Timestep& ts, PlaySession& play,
+                                                     bool shotCounting )
+    {
+        // Editor-only VIEW state (from EditorPreferences, not scene data) pushed per scene before it
+        // records this frame: the selection outline, and — since К2 — the debug/show flags that used to be
+        // serialized into the level. Both must land BEFORE BeginScene, which is where the renderer hands
+        // them on to its systems.
+        //
+        // Only scenes that reach this function are pushed to, and that is the point: the asset-thumbnail,
+        // inspector-preview and photogrammetry renderers own their own SceneRenderer, are never fed here,
+        // and therefore keep DebugViewState's all-off defaults. They used to have to remember to switch the
+        // grid off by hand on a scene they owned.
+        //
+        // ONCE PER VIEW, not once per scene. These reach the renderer's systems from BeginScene, and a
+        // scene has a LIST of renderers now — pushing only to view 0 left every second viewport with
+        // DebugViewState's all-off defaults, i.e. no grid, no collider wireframes, and the machine
+        // quality schema defaults instead of this machine's.
+        for ( size_t viewIndex = 0; viewIndex < scene.GetViewCount(); ++viewIndex )
+        {
+            auto* sr = scene.GetViewRenderer( viewIndex );
+            if ( sr == nullptr )
+                continue;
+            const auto& prefs = EditorPreferences::Get();
+            sr->SetOutlineSettings( prefs.OutlineColor, prefs.OutlineWidth, prefs.OutlineSmoothness,
+                                    prefs.EnableOutline );
+            // THE USER'S ANSWER, MINUS WHAT THIS SCENE'S VIEWPORTS ARE HIDING RIGHT NOW. `prefs.DebugView`
+            // is what the user chose and what editor.json holds; a viewport MODE (2D UI editing hides the
+            // ground grid) suppresses a flag in the COPY that reaches the renderer and never in the store.
+            // Before К10 the mode wrote the store directly and every unrelated EditorPreferences::Save()
+            // could make the suppression permanent — see Editor/Core/ViewportModes.hpp.
+            sr->SetDebugView( ViewportPanel::EffectiveDebugView( prefs.DebugView, scene ) );
+            // AND WHAT THIS MACHINE CAN AFFORD, on the same terms and for the same reason: post AA, mesh
+            // LOD, the sampler's filter and anisotropy, the cloud tier. It was scene data until К3, so a
+            // weak machine could not turn the picture down without editing a file that goes to everybody.
+            // The offscreen preview renderers are not fed here either — the inspector preview pushes its
+            // own copy with a cheaper cloud tier, and the other two keep the schema defaults.
+            sr->SetQuality( Common::Scalability::QualityState::Resolved() );
+        }
+
+        // THE WORLD'S CLOCK, set up for this frame before the scene ticks it (Core::WorldTime).
+        //
+        // A HEADLESS CAPTURE holds the preview clock at zero on every frame it does not RECORD (this frame's
+        // ShotRecordGate verdict: a load pending, the splash up, content settling, the viewport size not yet
+        // held), because how many such frames there are depends on the machine, and a world that moved during them
+        // (the cloud wind accumulates) would make two captures of one scene differ. Without `--play` the counted
+        // frames then step by a FIXED step from zero; under `--play` the preview never runs — Play resets the
+        // clock and `ts` is already the fixed step (ShotOptions::FrameSeconds), so the clock just follows it.
+        // Outside a capture the measured step drives it, and the viewport's Realtime toggle decides whether
+        // preview time moves while editing.
+        if ( const auto& shot = ShotOptions::Get(); shot.Active() )
+        {
+            const bool counting = shotCounting;
+            scene.GetWorldTime().SetFixedStep( shot.PlayActive() ? std::nullopt
+                                                                 : std::optional( ShotOptions::PlayStepSeconds ) );
+            if ( !counting && scene.GetState() == ::Desert::Core::Scene::SceneState::Edit )
+            {
+                scene.GetWorldTime().Reset();
+            }
+            scene.SetPreviewRealtime( counting && !shot.PlayActive() );
+        }
+        else
+        {
+            scene.GetWorldTime().SetFixedStep( std::nullopt );
+            scene.SetPreviewRealtime( EditorPreferences::Get().ViewportRealtime );
+        }
+
+        // BEFORE the scene's frame, not between its phases: the scene opens and closes each view's
+        // renderer itself now (Scene::OnUpdate), and nothing may sit between a renderer's open and its
+        // close. Today this records nothing into the graph anyway — the editor's injected passes execute
+        // inside the renderer's own update — so moving it costs the frame nothing.
+        if ( registry != nullptr )
+        {
+            registry->BeginFrame( ts );
+            registry->Render();
+        }
+
+        {
+            DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
+            // Play's time stops while streaming waits for the cell under the camera (WP12, decision O2); the
+            // streamer's Tick above goes on, so the loader keeps reading and the wait ends by itself.
+            const bool streamingWaits = play.TickStreaming( scene, ts );
+            if ( auto frame = scene.OnUpdate( streamingWaits ? Common::Timestep( 0.0f ) : ts ); !frame )
+                return Common::MakeError( frame.GetError() );
+        }
+
+        return BOOLSUCCESS;
+    }
+
 } // namespace Desert::Editor

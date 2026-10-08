@@ -163,45 +163,6 @@
 
 namespace Desert::Editor
 {
-    namespace
-    {
-        // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
-        // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
-        // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
-        // naming them, because a re-cook is what makes the read unnecessary.
-        void NoteBoundsOfMeshesCookedWithoutThem( const std::vector<std::string>& keys )
-        {
-            if ( keys.empty() )
-                return;
-            std::string named;
-            for ( const std::string& key : keys )
-            {
-                named += named.empty() ? key : ", " + key;
-                const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
-                // The render-form bytes through the DDC, not the file at the key: an imported mesh has no
-                // `.stmesh` of its own since AF4h (its row comes from the import record, FIX8), and the
-                // DDC answers for it and for an authored `.stmesh` alike.
-                const auto bytes = Assets::LoadMeshPlatformData( file );
-                if ( !bytes )
-                {
-                    LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
-                    continue;
-                }
-                const auto mesh = Assets::Serialization::ReadMeshAssetData( bytes.GetValue(), file.string() );
-                if ( !mesh )
-                {
-                    LOG_ERROR( "[ContentRegistry] '{}' could not be decoded for its box: {}", key,
-                               mesh.GetError() );
-                    continue;
-                }
-                Assets::ContentRegistry::NoteBounds( file,
-                                                     Assets::Serialization::MeshDataBounds( mesh.GetValue() ) );
-            }
-            LOG_WARN( "[ContentRegistry] {} mesh(es) state no box in their header, so their bodies were read once "
-                      "(the local cache keeps the boxes); re-cook them to drop the read: {}",
-                      keys.size(), named );
-        }
-    } // namespace
 
     // A tool panel that only makes sense for a particular selection or mode opens itself when that
     // context appears and steps aside when it goes away — so the tab strip carries what the current work
@@ -260,39 +221,9 @@ namespace Desert::Editor
         // apply immediately; the camera speed is applied on the first frame (the camera exists by then).
         EditorPreferences::Load();
 
-        // Launched with --project (Project Hub): adopt the project's name and queue its default scene
-        // (loaded through the normal deferred path on the first frame, when the renderer is ready).
-        // Startup content is DATA: a template's DefaultScene ships in its Payload (Templates/Starter), and the
-        // launcher refuses a template that names a scene it does not carry. A DefaultScene that is not on disk
-        // is therefore an error naming the path, never a scene built in code. With no scene to open, the
-        // editor opens the Basic level template as an untitled scene (UE: EditorStartupMap / TemplateMapInfos).
-        // Screenshot mode names its own scene; it is the whole point of the flag.
-        if ( ShotDirector::NamesScene() )
-        {
-            if ( const auto refused = m_Shots.QueueScene() )
-                m_Application->Close( *refused );
-        }
-        else if ( ProjectContext::HasProject() )
-        {
-            m_Workspace.ActiveScene()->SetSceneName( ProjectContext::Current().Name );
-            if ( const auto scenePath = ProjectContext::DefaultScenePath(); !scenePath.empty() )
-            {
-                if ( std::filesystem::exists( scenePath ) )
-                    m_SceneFiles.RequestLoad( scenePath );
-                else
-                {
-                    LOG_ERROR( "[Editor] The project's DefaultScene '{}' does not exist — opening an untitled "
-                               "scene instead. Restore the file or point DefaultScene in the .deproj at a scene "
-                               "that is there.",
-                               scenePath );
-                    Editor::ToastManager::Push( "The project's default scene is missing (see the log)",
-                                                Editor::ToastLevel::Error );
-                }
-            }
-        }
-        // Nothing to open: the Basic level template, as an untitled scene (SceneFiles::NewSceneInternal).
-        if ( !m_SceneFiles.HasPendingLoad() )
-            m_SceneFiles.RequestNew();
+        // THE FIRST LEVEL (EditorStartup::ChooseInitialLevel; UE: UEditorEngine::InitEditor's EditorStartupMap):
+        // the capture's own scene, the project's DefaultScene, or the Basic level template as an untitled scene.
+        m_Startup.ChooseInitialLevel( m_Shots );
 
         BuiltinMeshRegistry::Init( nullptr );
 
@@ -394,46 +325,10 @@ namespace Desert::Editor
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;
         }
 
-        // THE COOKED ASSET REGISTRY, BEFORE ANY CONTENT IS ASKED FOR, including the engine shaders a few
-        // lines down, the earliest content this host creates. Every kind resolves its references through
-        // the registry rows, so anything asked before the file was read would come back empty; and
-        // the boot's cook stages call `ContentRegistry::NoteFile` as they write, which would be writing
-        // into rows that `Load` was about to replace.
-        //
-        // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
-        // could not parse is an editor showing an empty Content Browser over a project full of files,
-        // and "looks almost right" is the failure mode that costs the most to find.
-        std::vector<std::string> unboxedMeshes;
-        const auto               registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
-        if ( !registry )
-            return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
-        LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
-                  Assets::ContentRegistry::Get().Count(), registry.GetValue() );
-        NoteBoundsOfMeshesCookedWithoutThem( unboxedMeshes );
-
-        // The committed registry file is gone (AF9): nothing reads it, and a developer tree may still hold
-        // the last copy, untracked. It is harmless — said once so nobody mistakes it for the live registry.
-        if ( const std::filesystem::path stale = Common::Constants::Path::CurrentProjectRoot().ProjectDir /
-                                                 Common::Constants::Path::COOKED_DIR_NAME / "AssetRegistry.dreg";
-             Common::Utils::FileSystem::Exists( stale ) )
-            LOG_WARN( "[ContentRegistry] '{}' is a stale file from before the registry was gathered at start; "
-                      "nothing reads it and it can be deleted",
-                      stale.string() );
-
-        // Shaders must exist BEFORE the render systems below are constructed (their default materials
-        // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
-        // start, and one call: the splash says what it is before it begins, and cannot say more during it.
-        m_Startup.BeginShaderStage();
-        // The splash's close button, pressed during this one long call, stops it between programs.
-        if ( const auto shaders = Assets::CompileEngineShaders( m_AssetManager, m_Startup.SplashItems(),
-                                                                [this]() { return m_Startup.CloseRequested(); } );
-             !shaders )
-            return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
-        // The imported materials choose among these shaders' Import blocks; every cook below comes after.
-        LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
-                  ImportManager::PublishImportTemplates( *m_AssetManager ) );
-
-        m_Workspace.BuildSceneSystems( *m_Workspace.ActiveScene() );
+        // THE COOKED ASSET REGISTRY, THE ENGINE SHADERS AND THE SCENE SYSTEMS (EditorStartup::BootContent; UE:
+        // FLevelEditorModule::StartupModule). A refusal ends the run.
+        if ( auto booted = m_Startup.BootContent(); !booted )
+            return booted;
 
         // THE ANIMATION LIBRARY IS NOT FILLED HERE, and its absence is the fix rather than an omission: a fill
         // loop in OnAttach once ran before the clips were known and reported only the procedural ones, and the
@@ -632,21 +527,8 @@ namespace Desert::Editor
         // command buffer that references them is in flight — see PlaySession::RequestStop.
         m_Play.ServiceRequests();
 
-        // First-frame prefs application (needs a live camera) + autosave timer (SessionRecovery::Tick).
-        {
-            static bool s_CameraSpeedApplied = false;
-            if ( !s_CameraSpeedApplied )
-            {
-                if ( auto cam = m_Workspace.ActiveScene()->GetMainCamera().lock() )
-                    if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
-                    {
-                        editorCam->SetMovementSpeed( EditorPreferences::Get().CameraSpeed );
-                        s_CameraSpeedApplied = true;
-                    }
-            }
-
-            m_Recovery.Tick( ts.GetSeconds() );
-        }
+        // The autosave timer (SessionRecovery::Tick).
+        m_Recovery.Tick( ts.GetSeconds() );
 
         // Apply any deferred panel state (e.g. viewport resize) before scene rendering.
         // Panels defer GPU-side resize from OnUIRender to here so descriptor set pools are
@@ -684,20 +566,7 @@ namespace Desert::Editor
         // Every open document, not only the focused one, for the same reason UpdateSceneFrame below runs
         // for every one: a secondary viewport showing a canvas is a live view, and a render-texture
         // element in it that stopped being advanced would show a frozen world with nothing in the log.
-        if ( m_AssetManager )
-        {
-            if ( m_Workspace.PrimaryRegistry() != nullptr )
-            {
-                m_Workspace.PrimaryRegistry()->TickRenderTextures( *m_AssetManager, frameTs );
-            }
-            for ( const auto& doc : m_Workspace.Documents() )
-            {
-                if ( doc->Registry )
-                {
-                    doc->Registry->TickRenderTextures( *m_AssetManager, frameTs );
-                }
-            }
-        }
+        m_Workspace.TickRenderTextures( frameTs );
 
         // The one thumbnail pump, gated by the reveal (EditorStartup::TickThumbnails).
         m_Startup.TickThumbnails();
@@ -737,51 +606,23 @@ namespace Desert::Editor
         m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
 
         // Multi-scene editing: drive EVERY open document each frame so all viewports render live. The active
-        // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder / F9 below act on it only. The
+        // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder below acts on it only. The
         // outline aid + Begin/RegistryRender/OnUpdate/End are folded into UpdateSceneFrame (see below), applied
         // per scene so a secondary viewport is a full, independent render — not a static snapshot.
-        if ( auto r = UpdateSceneFrame( *m_Workspace.PrimaryScene(), m_Workspace.PrimaryRegistry(), frameTs ); !r )
-            return Common::MakeError( r.GetError() );
-        for ( const auto& doc : m_Workspace.Documents() )
-            if ( auto r = UpdateSceneFrame( *doc->Scene, doc->Registry.get(), frameTs ); !r )
-                return Common::MakeError( r.GetError() );
+        // (SceneWorkspace::TickWorlds; UE: UEditorEngine::Tick's loop over the WorldContexts.)
+        if ( auto ticked = m_Workspace.TickWorlds( frameTs, m_Play, m_Shots.RecordingThisFrame() ); !ticked )
+            return ticked;
 
         // Runs a queued "Convert to Skinned" (rig builder) here, outside ImGui component iteration — the swap
         // removes the StaticMeshComponent the Details panel is drawing, so it must not happen mid-render.
         if ( m_Workspace.ActiveScene() && m_AssetManager )
             RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
 
-        if ( const auto& shot = ShotOptions::Get();
-             shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() &&
-             !m_Startup.StartupLoading() &&
-             m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
-            m_Profiler.RecordFlightFrame( !m_Startup.ContentSettling() );
-
-        // Screenshot mode, SECOND HALF (ShotDirector::CountRenderedFrame). On the capture's last frame the layer
-        // adds its own records — the profiler dump, the --flight CSV — and closes with the capture's status.
-        if ( m_Shots.CountRenderedFrame( shotRecorded ) )
-        {
-            const auto& shot = ShotOptions::Get();
-            if ( shot.GpuProfile )
-                ProfilerWindow::DumpProfilerToLog();
-            if ( shot.FlightRoute && !m_Profiler.FinishFlight() )
-                m_Shots.MarkFailed();
-            m_Application->Close( m_Shots.Finish() );
-        }
-
-        // DEBUG: press F9 to dump the final rendered viewport image to F:/DesertEngine/frame_dump.png. Useful
-        // because external GDI/PrintWindow capture returns white for the Vulkan surface — this reads the actual
-        // rendered frame back from the GPU. Edge-detected so one press = one dump.
-        {
-            static bool s_f9Prev = false;
-            const bool  f9       = Input::Keyboard::IsKeyPressed( Common::KeyCode::F9 );
-            if ( f9 && !s_f9Prev )
-            {
-                if ( !m_Capture.WriteViewportPng( "F:/DesertEngine/frame_dump.png" ) )
-                    LOG_ERROR( "[Dump] final frame could not be written" );
-            }
-            s_f9Prev = f9;
-        }
+        // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the --flight sample, and on the capture's last
+        // frame the profiler dump, the --flight CSV and the capture's status to close with.
+        if ( const auto finished = m_Shots.EndFrame( shotRecorded, m_Startup.StartupLoading(),
+                                                     m_Startup.ContentSettling(), m_Profiler ) )
+            m_Application->Close( *finished );
 
         return BOOLSUCCESS;
     }
@@ -813,95 +654,6 @@ namespace Desert::Editor
             m_Application->Close( *quit );
     }
 
-    Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
-                                                         Render::RenderRegistry* registry,
-                                                         const Common::Timestep& ts )
-    {
-        // Editor-only VIEW state (from EditorPreferences, not scene data) pushed per scene before it
-        // records this frame: the selection outline, and — since К2 — the debug/show flags that used to be
-        // serialized into the level. Both must land BEFORE BeginScene, which is where the renderer hands
-        // them on to its systems.
-        //
-        // Only scenes that reach this function are pushed to, and that is the point: the asset-thumbnail,
-        // inspector-preview and photogrammetry renderers own their own SceneRenderer, are never fed here,
-        // and therefore keep DebugViewState's all-off defaults. They used to have to remember to switch the
-        // grid off by hand on a scene they owned.
-        //
-        // ONCE PER VIEW, not once per scene. These reach the renderer's systems from BeginScene, and a
-        // scene has a LIST of renderers now — pushing only to view 0 left every second viewport with
-        // DebugViewState's all-off defaults, i.e. no grid, no collider wireframes, and the machine
-        // quality schema defaults instead of this machine's.
-        for ( size_t viewIndex = 0; viewIndex < scene.GetViewCount(); ++viewIndex )
-        {
-            auto* sr = scene.GetViewRenderer( viewIndex );
-            if ( sr == nullptr )
-                continue;
-            const auto& prefs = EditorPreferences::Get();
-            sr->SetOutlineSettings( prefs.OutlineColor, prefs.OutlineWidth, prefs.OutlineSmoothness,
-                                    prefs.EnableOutline );
-            // THE USER'S ANSWER, MINUS WHAT THIS SCENE'S VIEWPORTS ARE HIDING RIGHT NOW. `prefs.DebugView`
-            // is what the user chose and what editor.json holds; a viewport MODE (2D UI editing hides the
-            // ground grid) suppresses a flag in the COPY that reaches the renderer and never in the store.
-            // Before К10 the mode wrote the store directly and every unrelated EditorPreferences::Save()
-            // could make the suppression permanent — see Editor/Core/ViewportModes.hpp.
-            sr->SetDebugView( ViewportPanel::EffectiveDebugView( prefs.DebugView, scene ) );
-            // AND WHAT THIS MACHINE CAN AFFORD, on the same terms and for the same reason: post AA, mesh
-            // LOD, the sampler's filter and anisotropy, the cloud tier. It was scene data until К3, so a
-            // weak machine could not turn the picture down without editing a file that goes to everybody.
-            // The offscreen preview renderers are not fed here either — the inspector preview pushes its
-            // own copy with a cheaper cloud tier, and the other two keep the schema defaults.
-            sr->SetQuality( Common::Scalability::QualityState::Resolved() );
-        }
-
-        // THE WORLD'S CLOCK, set up for this frame before the scene ticks it (Core::WorldTime).
-        //
-        // A HEADLESS CAPTURE holds the preview clock at zero on every frame it does not RECORD (this frame's
-        // ShotRecordGate verdict: a load pending, the splash up, content settling, the viewport size not yet
-        // held), because how many such frames there are depends on the machine, and a world that moved during them
-        // (the cloud wind accumulates) would make two captures of one scene differ. Without `--play` the counted
-        // frames then step by a FIXED step from zero; under `--play` the preview never runs — Play resets the
-        // clock and `ts` is already the fixed step (ShotOptions::FrameSeconds), so the clock just follows it.
-        // Outside a capture the measured step drives it, and the viewport's Realtime toggle decides whether
-        // preview time moves while editing.
-        if ( const auto& shot = ShotOptions::Get(); shot.Active() )
-        {
-            const bool counting = m_Shots.RecordingThisFrame();
-            scene.GetWorldTime().SetFixedStep( shot.PlayActive() ? std::nullopt
-                                                                 : std::optional( ShotOptions::PlayStepSeconds ) );
-            if ( !counting && scene.GetState() == ::Desert::Core::Scene::SceneState::Edit )
-            {
-                scene.GetWorldTime().Reset();
-            }
-            scene.SetPreviewRealtime( counting && !shot.PlayActive() );
-        }
-        else
-        {
-            scene.GetWorldTime().SetFixedStep( std::nullopt );
-            scene.SetPreviewRealtime( EditorPreferences::Get().ViewportRealtime );
-        }
-
-        // BEFORE the scene's frame, not between its phases: the scene opens and closes each view's
-        // renderer itself now (Scene::OnUpdate), and nothing may sit between a renderer's open and its
-        // close. Today this records nothing into the graph anyway — the editor's injected passes execute
-        // inside the renderer's own update — so moving it costs the frame nothing.
-        if ( registry != nullptr )
-        {
-            registry->BeginFrame( ts );
-            registry->Render();
-        }
-
-        {
-            DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
-            // Play's time stops while streaming waits for the cell under the camera (WP12, decision O2); the
-            // streamer's Tick above goes on, so the loader keeps reading and the wait ends by itself.
-            const bool streamingWaits = m_Play.TickStreaming( scene, ts );
-            if ( auto frame = scene.OnUpdate( streamingWaits ? Common::Timestep( 0.0f ) : ts ); !frame )
-                return Common::MakeError( frame.GetError() );
-        }
-
-        return BOOLSUCCESS;
-    }
-
     Common::BoolResultStr EditorLayer::ShowFolderInBrowser( const std::string& folder )
     {
         if ( m_FileExplorerPanel == nullptr )
@@ -926,7 +678,7 @@ namespace Desert::Editor
         // Manipulate(). The viewport's object gizmo relies on this.
         ImGuizmo::BeginFrame();
 
-        SyncWindowTitle();
+        SyncEditorWindowTitle( *m_Application, m_Workspace.ActiveScene().get() );
 
         // LOADING FRAMES DRAW NOTHING. They go to a window that is still hidden — the splash is what a
         // person sees until the start is over — and there is no dockspace or panel to draw yet (the
@@ -948,10 +700,8 @@ namespace Desert::Editor
         // iterates the scene. See Editor/LevelEditor/LevelEditorCommands.hpp.
         m_LevelCommands.HandleShortcuts( ::ImGui::GetIO() );
 
-        // Menu Bar
-        ::ImGui::PushStyleVar( ImGuiStyleVar_WindowBorderSize, 0.0f );
-        DrawMenuBar();
-        ::ImGui::PopStyleVar();
+        // The menu bar, which is the window's title bar (MainMenu::DrawBar).
+        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, m_WindowChrome ? &*m_WindowChrome : nullptr );
 
         m_Dock.BeginHost();
 
@@ -962,7 +712,7 @@ namespace Desert::Editor
         m_Dock.DrawDockSpace();
 
         m_Dock.DrawPanels();
-        FollowImGuiWithEvents();
+        m_Dock.RouteEvents( Events(), EventNode() );
 
         // The well BEFORE the documents: it reads back the dock node id the documents are about to be
         // docked into, and a document opened this frame would otherwise float once and settle next frame.
@@ -1007,84 +757,6 @@ namespace Desert::Editor
         m_Control.RecordWindowCaptureIfDue();
 
         return BOOLSUCCESS;
-    }
-
-    void EditorLayer::DrawMenuBar()
-    {
-        namespace ImGui = ::ImGui;
-
-        if ( !ImGui::BeginMainMenuBar() )
-            return;
-
-        m_MainMenu.DrawMenus();
-
-        LevelToolbar::DrawProjectSection();
-        m_Toolbar.DrawSceneRenameSection();
-        // Play/Pause/Stop now live in the toolbar strip (LevelToolbar::Draw), not the menu bar.
-        //
-        // THIS BAR IS THE WINDOW'S TITLE BAR NOW. It already carried the project, the level, the menus and
-        // the stats while the system frame sat above it drawing a second one; the editor asks for a window
-        // without a frame (Sandbox.hpp), so the three window commands and the bar's own gestures come here.
-        // Both are conditional on the window actually being frameless — with a system frame they would be a
-        // second set of buttons for the same three actions.
-        const float chromeWidth = m_WindowChrome ? UI::WindowChrome::WindowButtonsWidth() : 0.0f;
-        m_Profiler.DrawEngineStats( chromeWidth );
-        if ( m_WindowChrome )
-        {
-            m_WindowChrome->DrawWindowButtons();
-            // LAST inside the bar, after every item: "over the bar and over nothing on it" is only a
-            // question with an answer once everything on it has been submitted.
-            m_WindowChrome->HandleTitleBarGestures();
-        }
-
-        ImGui::EndMainMenuBar();
-
-        DrawPopups();
-    }
-
-    // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no
-    // longer painted anywhere on screen, but the Dock, Mission Control, the taskbar and every window
-    // switcher still read it — and the window's own name was "Desert Engine — <project>" for the whole
-    // session, so those lists could not tell two editors on two levels apart.
-    //
-    // Compared against Window::GetTitle rather than against a copy of what was last pushed here: the window
-    // owns that string, and a second copy in this file would be the same one-fact-two-owners shape as a
-    // remembered "is it maximized". The comparison is what keeps this to one glfwSetWindowTitle per change
-    // rather than sixty a second.
-    void EditorLayer::SyncWindowTitle()
-    {
-        const auto& window = m_Application->GetWindow();
-        if ( !window || !m_Workspace.ActiveScene() )
-            return;
-
-        const std::string title = std::format( "Desert Engine — {} — {}", Editor::ProjectContext::Current().Name,
-                                               m_Workspace.ActiveScene()->GetSceneName() );
-        if ( window->GetTitle() != title )
-            window->SetTitle( title );
-    }
-
-    void EditorLayer::DrawPopups()
-    {
-        m_SceneFiles.DrawDialogs();
-        m_Preferences.Draw();
-    }
-
-    void EditorLayer::FollowImGuiWithEvents()
-    {
-        Common::EventTree* events = Events();
-        if ( events == nullptr )
-            return;
-        Common::EventNodeId focus   = EventNode();
-        Common::EventNodeId pointer = EventNode();
-        for ( const auto& panel : m_Panels )
-        {
-            if ( panel->HoldsKeyboardFocus() )
-                focus = panel->EventNode();
-            if ( panel->IsUnderPointer() )
-                pointer = panel->EventNode();
-        }
-        events->SetFocus( focus );
-        events->SetHovered( pointer );
     }
 
     Common::BoolResultStr EditorLayer::OnDetach()

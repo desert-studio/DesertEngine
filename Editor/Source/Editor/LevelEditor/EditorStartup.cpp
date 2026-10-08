@@ -7,6 +7,15 @@
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
+#include "Editor/LevelEditor/ShotDirector.hpp"
+#include "Editor/Core/ProjectContext.hpp"
+#include "Editor/Core/ToastManager.hpp"
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Core/Application.hpp>
+#include <filesystem>
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Widgets/ThumbnailService.hpp"
@@ -30,6 +39,128 @@
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
+        // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
+        // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
+        // naming them, because a re-cook is what makes the read unnecessary.
+        void NoteBoundsOfMeshesCookedWithoutThem( const std::vector<std::string>& keys )
+        {
+            if ( keys.empty() )
+                return;
+            std::string named;
+            for ( const std::string& key : keys )
+            {
+                named += named.empty() ? key : ", " + key;
+                const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
+                // The render-form bytes through the DDC, not the file at the key: an imported mesh has no
+                // `.stmesh` of its own since AF4h (its row comes from the import record, FIX8), and the
+                // DDC answers for it and for an authored `.stmesh` alike.
+                const auto bytes = Assets::LoadMeshPlatformData( file );
+                if ( !bytes )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
+                    continue;
+                }
+                const auto mesh = Assets::Serialization::ReadMeshAssetData( bytes.GetValue(), file.string() );
+                if ( !mesh )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be decoded for its box: {}", key,
+                               mesh.GetError() );
+                    continue;
+                }
+                Assets::ContentRegistry::NoteBounds( file,
+                                                     Assets::Serialization::MeshDataBounds( mesh.GetValue() ) );
+            }
+            LOG_WARN( "[ContentRegistry] {} mesh(es) state no box in their header, so their bodies were read once "
+                      "(the local cache keeps the boxes); re-cook them to drop the read: {}",
+                      keys.size(), named );
+        }
+    } // namespace
+
+    void EditorStartup::ChooseInitialLevel( ShotDirector& shots )
+    {
+        // Launched with --project (Project Hub): adopt the project's name and queue its default scene
+        // (loaded through the normal deferred path on the first frame, when the renderer is ready).
+        // Startup content is DATA: a template's DefaultScene ships in its Payload (Templates/Starter), and the
+        // launcher refuses a template that names a scene it does not carry. A DefaultScene that is not on disk
+        // is therefore an error naming the path, never a scene built in code. With no scene to open, the
+        // editor opens the Basic level template as an untitled scene (UE: EditorStartupMap / TemplateMapInfos).
+        // Screenshot mode names its own scene; it is the whole point of the flag.
+        if ( ShotDirector::NamesScene() )
+        {
+            if ( const auto refused = shots.QueueScene() )
+                m_Application->Close( *refused );
+        }
+        else if ( ProjectContext::HasProject() )
+        {
+            m_Workspace.ActiveScene()->SetSceneName( ProjectContext::Current().Name );
+            if ( const auto scenePath = ProjectContext::DefaultScenePath(); !scenePath.empty() )
+            {
+                if ( std::filesystem::exists( scenePath ) )
+                    m_SceneFiles.RequestLoad( scenePath );
+                else
+                {
+                    LOG_ERROR( "[Editor] The project's DefaultScene '{}' does not exist — opening an untitled "
+                               "scene instead. Restore the file or point DefaultScene in the .deproj at a scene "
+                               "that is there.",
+                               scenePath );
+                    Editor::ToastManager::Push( "The project's default scene is missing (see the log)",
+                                                Editor::ToastLevel::Error );
+                }
+            }
+        }
+        // Nothing to open: the Basic level template, as an untitled scene (SceneFiles::NewSceneInternal).
+        if ( !m_SceneFiles.HasPendingLoad() )
+            m_SceneFiles.RequestNew();
+    }
+
+    Common::BoolResultStr EditorStartup::BootContent()
+    {
+        // THE COOKED ASSET REGISTRY, BEFORE ANY CONTENT IS ASKED FOR, including the engine shaders a few
+        // lines down, the earliest content this host creates. Every kind resolves its references through
+        // the registry rows, so anything asked before the file was read would come back empty; and
+        // the boot's cook stages call `ContentRegistry::NoteFile` as they write, which would be writing
+        // into rows that `Load` was about to replace.
+        //
+        // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
+        // could not parse is an editor showing an empty Content Browser over a project full of files,
+        // and "looks almost right" is the failure mode that costs the most to find.
+        std::vector<std::string> unboxedMeshes;
+        const auto               registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
+        if ( !registry )
+            return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
+        LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
+                  Assets::ContentRegistry::Get().Count(), registry.GetValue() );
+        NoteBoundsOfMeshesCookedWithoutThem( unboxedMeshes );
+
+        // The committed registry file is gone (AF9): nothing reads it, and a developer tree may still hold
+        // the last copy, untracked. It is harmless — said once so nobody mistakes it for the live registry.
+        if ( const std::filesystem::path stale = Common::Constants::Path::CurrentProjectRoot().ProjectDir /
+                                                 Common::Constants::Path::COOKED_DIR_NAME / "AssetRegistry.dreg";
+             Common::Utils::FileSystem::Exists( stale ) )
+            LOG_WARN( "[ContentRegistry] '{}' is a stale file from before the registry was gathered at start; "
+                      "nothing reads it and it can be deleted",
+                      stale.string() );
+
+        // Shaders must exist BEFORE the render systems below are constructed (their default materials
+        // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
+        // start, and one call: the splash says what it is before it begins, and cannot say more during it.
+        BeginShaderStage();
+        // The splash's close button, pressed during this one long call, stops it between programs.
+        if ( const auto shaders = Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
+                                                                [this]() { return CloseRequested(); } );
+             !shaders )
+            return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
+        // The imported materials choose among these shaders' Import blocks; every cook below comes after.
+        LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
+                  ImportManager::PublishImportTemplates( *m_AssetManager ) );
+
+        m_Workspace.BuildSceneSystems( *m_Workspace.ActiveScene() );
+        return BOOLSUCCESS;
+    }
+
     namespace
     {
         // The splash's cost per item of each weighed stage (EditorStartup::MakeSplashPlan), read off the

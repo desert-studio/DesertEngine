@@ -80,11 +80,8 @@ namespace Desert::Editor
         void OnFramePresented() override;
 
     private:
-        void DrawMenuBar();
 
         // ===== Popups =====
-        void DrawPopups();
-        void FollowImGuiWithEvents();
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
         Common::BoolResultStr ShowFolderInBrowser( const std::string& folder );
@@ -99,8 +96,6 @@ namespace Desert::Editor
 
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.
-        Common::BoolResultStr UpdateSceneFrame( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
-                                                const Common::Timestep& ts );
 
         // Startup content is DATA, not code — these build entities into m_Workspace.ActiveScene() so the result
         // can be serialized to a .desce ONCE and loaded like any scene afterwards.
@@ -116,7 +111,6 @@ namespace Desert::Editor
         std::optional<UI::WindowChrome> m_WindowChrome;
         // The last title pushed to the window is NOT stored here: Window::GetTitle owns it, and
         // SyncWindowTitle compares against that. See Window.hpp.
-        void SyncWindowTitle();
 
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
         // The library the boot's "Indexing animation clips" stage fills (Assets::IndexAnimationClips).
