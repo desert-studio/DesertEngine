@@ -156,8 +156,8 @@ namespace Desert::Assets::Serialization
     /// unreadable.
     Common::ResultStr<std::optional<ImportRecordData>> ReadImportRecord( const std::filesystem::path& source );
 
-    /// Rewrites the record's `Nodes` (THM1j): the nodes a split import wrote (name and placement), nullopt for a combined import.
-    /// The record must exist (EnsureImportRecord runs first); written only when the list changes.
+    /// Rewrites the record's `Nodes` (THM1j): the nodes a split import wrote (name and placement), nullopt for a
+    /// combined import. The record must exist (EnsureImportRecord runs first); written only when the list changes.
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                        source,
                                                 const std::optional<std::vector<ImportRecordNode>>& nodes );
 

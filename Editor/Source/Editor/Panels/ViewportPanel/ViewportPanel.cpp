@@ -2583,12 +2583,12 @@ namespace Desert::Editor
         const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
         if ( !record || !record.GetValue() || !record.GetValue()->Bounds )
             return;
-        const auto& box     = *record.GetValue()->Bounds;
-        transform.Translation = ActorDrop::PlacedOrigin(
-             *dropTarget,
-             ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
-                                 glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
-             transform.Scale );
+        const auto& box = *record.GetValue()->Bounds;
+        transform.Translation =
+             ActorDrop::PlacedOrigin( *dropTarget,
+                                      ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
+                                                            glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
+                                      transform.Scale );
     }
 
     void ViewportPanel::ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath )

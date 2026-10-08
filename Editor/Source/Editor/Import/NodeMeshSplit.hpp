@@ -46,7 +46,8 @@ namespace Desert::Editor
     // Where @p node stands under the placed source's root: its pivot under the import options (SourceToEngine) -
     // the record's `Placement` (ImportRecord.hpp `Nodes`). The node mesh's derived vertices are
     // SourceToEngine(v - pivot), so the node placed here draws every vertex where the combined mesh drew it.
-    [[nodiscard]] std::array<float, 3> NodePlacement( const NodeMesh& node, const Assets::MeshImportSettings& settings );
+    [[nodiscard]] std::array<float, 3> NodePlacement( const NodeMesh&                   node,
+                                                      const Assets::MeshImportSettings& settings );
 
     // The submeshes of @p combined grouped by the node that placed them (@p submeshNodes: one name per submesh),
     // in order of first appearance; each group rebased onto its own bottom-centre pivot. Refused, by name, when
@@ -91,10 +92,11 @@ namespace Desert::Editor
 
     // THE STATIC MESH IMPORT'S WRITE, BOTH MODES (THM1j; UE: UFbxStaticMeshImportData::bCombineMeshes). The record
     // first (identity, box). Split (Combine Meshes off, more than one node): each node's mesh beside the source
-    // and the nodes (name, NodePlacement) in the record - and NO combined mesh, exactly as UE imports no combined asset then.
-    // Combined: the one mesh (WriteImportedMeshAsset) and no node list. Returns the node meshes written (empty
-    // when combined); the first failure otherwise, after every node was attempted. @p settings are the options
-    // the import runs with (THM1l): written into the record first, and every mesh written reads them there.
+    // and the nodes (name, NodePlacement) in the record - and NO combined mesh, exactly as UE imports no combined
+    // asset then. Combined: the one mesh (WriteImportedMeshAsset) and no node list. Returns the node meshes
+    // written (empty when combined); the first failure otherwise, after every node was attempted. @p settings are
+    // the options the import runs with (THM1l): written into the record first, and every mesh written reads them
+    // there.
     [[nodiscard]] Common::ResultStr<std::vector<std::pair<NodeMesh, std::filesystem::path>>>
     WriteStaticMeshImport( const Assets::Serialization::MeshAssetData& imported,
                            std::span<const std::string>                submeshNodes,

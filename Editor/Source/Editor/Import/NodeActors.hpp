@@ -29,6 +29,6 @@ namespace Desert::Editor
     // One child of @p root per entry of @p nodes, in order: named by the node, a StaticMeshComponent naming its
     // mesh, translated to its placement (no rotation or scale: the node's are in its mesh). Returns the entities
     // created.
-    std::vector<ECS::Entity> PlaceNodeActors( Core::Scene& scene, ECS::Entity root,
+    std::vector<ECS::Entity> PlaceNodeActors( ::Desert::Core::Scene& scene, ECS::Entity root,
                                               std::span<const PlacedNodeMesh> nodes );
 } // namespace Desert::Editor

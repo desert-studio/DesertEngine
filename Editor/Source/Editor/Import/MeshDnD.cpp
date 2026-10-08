@@ -199,8 +199,9 @@ namespace Desert::Editor::MeshDnD
                     asset = mgr.CreateAsset<Assets::StaticMeshAsset>( path, /*loadAfterCreate=*/false );
                 if ( !asset )
                 {
-                    LOG_ERROR( "[MeshDnD] '{}': node mesh '{}' could not be registered, so node '{}' is not placed",
-                               sourcePath.generic_string(), path, node.Name );
+                    LOG_ERROR(
+                         "[MeshDnD] '{}': node mesh '{}' could not be registered, so node '{}' is not placed",
+                         sourcePath.generic_string(), path, node.Name );
                     continue;
                 }
                 Runtime::EnsureMeshRegistered( asset, mgr ); // read by the loader, drawn when it lands

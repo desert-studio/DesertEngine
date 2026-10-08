@@ -4,7 +4,7 @@
 
 namespace Desert::Editor
 {
-    std::vector<ECS::Entity> PlaceNodeActors( Core::Scene& scene, ECS::Entity root,
+    std::vector<ECS::Entity> PlaceNodeActors( ::Desert::Core::Scene& scene, ECS::Entity root,
                                               std::span<const PlacedNodeMesh> nodes )
     {
         std::vector<ECS::Entity> placed;
@@ -12,7 +12,7 @@ namespace Desert::Editor
         for ( const PlacedNodeMesh& node : nodes )
         {
             ECS::Entity child = scene.CreateNewEntity( std::string( node.Name ) );
-            child.AddComponent<ECS::StaticMeshComponent>().MeshHandle   = node.Mesh;
+            child.AddComponent<ECS::StaticMeshComponent>().MeshHandle = node.Mesh;
             child.GetComponent<ECS::TransformComponent>().Translation = node.Placement;
             scene.Attach( root, child );
             placed.push_back( child );

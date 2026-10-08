@@ -117,7 +117,8 @@ namespace Desert::Assets::Serialization
             for ( const ImportRecordNode& node : *data.Nodes )
             {
                 if ( node.Name.empty() )
-                    return Common::MakeFormattedError<ImportRecordData>( "import record names a node with no Name" );
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record names a node with no Name" );
                 if ( !std::isfinite( node.Placement[0] ) || !std::isfinite( node.Placement[1] ) ||
                      !std::isfinite( node.Placement[2] ) )
                     return Common::MakeFormattedError<ImportRecordData>(
