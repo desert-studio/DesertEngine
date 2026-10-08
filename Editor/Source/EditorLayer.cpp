@@ -72,8 +72,6 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 // 2. Editor Base & Infrastructure
-#include "Editor/Core/EditorResources.hpp"
-#include "Editor/Core/ThemeManager.hpp"
 #include "Editor/Core/GizmoState.hpp"
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
@@ -92,7 +90,6 @@
 
 #include <array>
 #include <format>
-#include <ImGuizmo.h>
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
@@ -257,53 +254,9 @@ namespace Desert::Editor
                 return Common::MakeFormattedError( "control channel: {}", listening.GetError() );
         }
 
-        // THE WINDOW FRAME, IF THIS EDITOR OWNS IT. Asked of the window rather than assumed from the
-        // ApplicationInfo that requested it: a fullscreen-over-the-taskbar window is frameless whatever was
-        // asked for, and the window is the one that knows what actually happened (Window::IsDecorated).
-        if ( const auto& window = m_Application->GetWindow(); window && !window->IsDecorated() )
-        {
-            m_WindowChrome.emplace(
-                 *window,
-                 // The same ordered close the control channel's `quit` takes: Run() leaves its loop, every
-                 // layer is detached, the device goes idle. Two ways to end a session would drift.
-                 [this]() { RequestEditorExit(); } );
-        }
-
-        // THE OS FRAME'S CLOSE ASKS WHAT File -> Exit ASKS. The application no longer stops on the event
-        // itself: RequestEditorExit either closes at once (nothing dirty) or raises the Save / Don't Save /
-        // Cancel questions and closes after the last one; Cancel leaves the editor running, so the
-        // platform's should-close flag is cleared here rather than left set behind a live window.
-        m_Application->GetCloseGate().Install(
-             [this]()
-             {
-                 RequestEditorExit();
-                 if ( const auto& window = m_Application->GetWindow() )
-                 {
-                     // GLFW takes back the handle Window hands out as const void*.
-                     // NOLINTNEXTLINE(bugprone-casting-through-void,cppcoreguidelines-pro-type-const-cast)
-                     auto* native = static_cast<GLFWwindow*>( const_cast<void*>( window->GetNativeWindow() ) );
-                     glfwSetWindowShouldClose( native, GLFW_FALSE );
-                 }
-                 return false;
-             } );
-
-        // 1. Create ImGui Context first
-        ::ImGui::CreateContext();
-
-        // 2. Initialize Editor Resources (Adds fonts to the atlas)
-        Editor::EditorResources::Initialize( UI::IconFontFile().string() );
-
-        // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
-        m_ImGuiLayer = ImGui::ImGuiLayer::Create();
-        if ( const auto attached = m_ImGuiLayer->OnAttach(); !attached.IsSuccess() )
-            return Common::MakeFormattedError( "ImGui layer failed to attach: {}", attached.GetError() );
-
-        ImGuiIO& io = ::ImGui::GetIO();
-        (void)io;
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Enable Multi-Viewport / Platform Windows
+        // THE WINDOW, THE CLOSE GATE AND THE IMGUI CONTEXT (EditorImGuiHost; UE: FSlateApplication::Create).
+        if ( auto hosted = m_ImGuiHost.Attach( *m_Application, [this]() { RequestEditorExit(); } ); !hosted )
+            return hosted;
 
         // THE DOCKING LAYOUT FILE, OFF THE PROJECT (DockLayout::BindLayoutFile).
         if ( const auto bound = DockLayout::BindLayoutFile(); !bound.IsSuccess() )
@@ -312,18 +265,6 @@ namespace Desert::Editor
         // Before the first frame, which is when ImGui reads the layout file.
         m_Documents.RegisterDocumentWellLayoutHandler();
         m_Documents.RegisterDocumentPlacementHandler();
-
-        // Setup ImGui style
-        ThemeManager::SetDarkTheme();
-
-        // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to
-        // regular ones
-        ImGuiStyle& style = ::ImGui::GetStyle();
-        if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
-        {
-            style.WindowRounding              = 0.0f;
-            style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-        }
 
         // THE COOKED ASSET REGISTRY, THE ENGINE SHADERS AND THE SCENE SYSTEMS (EditorStartup::BootContent; UE:
         // FLevelEditorModule::StartupModule). A refusal ends the run.
@@ -672,11 +613,8 @@ namespace Desert::Editor
 
     Common::BoolResultStr EditorLayer::OnUIRender()
     {
-        m_ImGuiLayer->Begin();
-
-        // ImGuizmo is a single global per-frame state — begin it ONCE here, before any panel issues a
-        // Manipulate(). The viewport's object gizmo relies on this.
-        ImGuizmo::BeginFrame();
+        // The ImGui frame and ImGuizmo's (EditorImGuiHost::BeginFrame).
+        m_ImGuiHost.BeginFrame();
 
         SyncEditorWindowTitle( *m_Application, m_Workspace.ActiveScene().get() );
 
@@ -686,7 +624,7 @@ namespace Desert::Editor
         // stood here was replaced by the splash, and deleted with the same change.
         if ( m_Startup.StartupLoading() || m_Startup.ContentSettling() )
         {
-            m_ImGuiLayer->End();
+            m_ImGuiHost.EndFrame();
             return BOOLSUCCESS;
         }
         // NOT YET REAL WHILE A SCENE LOAD IS STILL QUEUED. The frame right after the last stage draws the
@@ -701,7 +639,7 @@ namespace Desert::Editor
         m_LevelCommands.HandleShortcuts( ::ImGui::GetIO() );
 
         // The menu bar, which is the window's title bar (MainMenu::DrawBar).
-        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, m_WindowChrome ? &*m_WindowChrome : nullptr );
+        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, m_ImGuiHost.Chrome() ? &*m_ImGuiHost.Chrome() : nullptr );
 
         m_Dock.BeginHost();
 
@@ -746,10 +684,9 @@ namespace Desert::Editor
         // 6px windows of their own, and submitting them here is what puts them above the panels that reach
         // the screen edge. A no-op while the window is maximized, and absent entirely when the OS draws
         // the frame.
-        if ( m_WindowChrome )
-            m_WindowChrome->DrawResizeBorders();
+        m_ImGuiHost.DrawResizeBorders();
 
-        m_ImGuiLayer->End();
+        m_ImGuiHost.EndFrame();
 
         // AFTER the interface has been recorded into the swapchain pass and BEFORE the frame is submitted:
         // the only window in which the presented image is legally ours to copy out of. A no-op unless a
@@ -762,7 +699,7 @@ namespace Desert::Editor
     Common::BoolResultStr EditorLayer::OnDetach()
     {
         m_Subsystems.reset();
-        m_Application->GetCloseGate().Uninstall();
+        m_ImGuiHost.UninstallCloseGate();
         // The socket goes first, and its file with it (ControlService::Close).
         m_Control.Close();
         if ( const auto kept = m_Dock.KeepLayoutAcrossQuit(); !kept.IsSuccess() )
@@ -833,9 +770,7 @@ namespace Desert::Editor
         m_WorldPartitionPanel = nullptr;
         // Reported and not returned even though OnDetach has a channel: everything below this line still
         // has to run, and an early return would leave the extra documents and their render slots alive.
-        if ( const auto detached = m_ImGuiLayer->OnDetach(); !detached.IsSuccess() )
-            LOG_ERROR( "[EditorLayer] ImGui layer failed to detach: {}", detached.GetError() );
-        m_ImGuiLayer.reset();
+        m_ImGuiHost.Detach();
 
         // A scene names its views' renderers by raw pointer and owns none of them, so every renderer dies
         // after the scene that names it (FIX6) — the order is SceneWorkspace::Teardown's.

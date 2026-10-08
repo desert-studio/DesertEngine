@@ -6,7 +6,6 @@
 #include <Engine/Desert.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <ImGui/imgui.h>
-#include "Editor/ImGuiIntegration/ImGuiLayer.hpp"
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 #include "Editor/Panels/IPanel.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
@@ -31,7 +30,7 @@
 #include "Editor/LevelEditor/EditorStartup.hpp"
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/DockLayout.hpp"
-#include "Editor/Widgets/WindowChrome.hpp"
+#include "Editor/LevelEditor/EditorImGuiHost.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
 #include <chrono>
@@ -102,12 +101,9 @@ namespace Desert::Editor
     private:
         Engine::Application* m_Application;
 
-        // The window frame the OS no longer draws, because the editor asked for a window without one
-        // (Sandbox.hpp: ApplicationInfo::Decorated). Held as an optional rather than a value because it
-        // binds a reference to the Application's window, which does not exist at construction time — and
-        // it stays EMPTY when the window is decorated, which is what keeps "the editor draws the frame"
-        // and "the OS draws the frame" one code path with one condition instead of two builds.
-        std::optional<UI::WindowChrome> m_WindowChrome;
+        // The window frame, the close gate, the ImGui context and its backend (UE: FSlateApplication). BEFORE
+        // m_LevelCommands, which binds its window chrome slot. See Editor/LevelEditor/EditorImGuiHost.hpp.
+        EditorImGuiHost m_ImGuiHost;
         // The last title pushed to the window is NOT stored here: Window::GetTitle owns it, and
         // SyncWindowTitle compares against that. See Window.hpp.
 
@@ -144,7 +140,6 @@ namespace Desert::Editor
         DocumentHost m_Documents{ m_Workspace, m_AssetManager, m_Dock.FocusSlot(),
                                   [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } };
 
-        std::shared_ptr<ImGui::ImGuiLayer> m_ImGuiLayer;
         // THE TOOLS. A container that cannot hold a document — see Editor/Core/PanelRegistry.hpp. That is
         // what makes "the View menu lists exactly the tools" true by construction rather than by a predicate
         // the menu, the command palette and --open-panel would each have had to remember.
@@ -209,7 +204,7 @@ namespace Desert::Editor
                .FileExplorer   = m_FileExplorerPanel,
                .WorldPartition = m_WorldPartitionPanel,
                .App            = m_Application,
-               .Chrome         = m_WindowChrome,
+               .Chrome         = m_ImGuiHost.Chrome(),
                .ShowFolder     = [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } } };
         // The control channel (UE: Remote Control), after every module it reads. See
         // Editor/LevelEditor/ControlService.hpp.
