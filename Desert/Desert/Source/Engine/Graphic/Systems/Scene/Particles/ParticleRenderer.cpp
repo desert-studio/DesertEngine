@@ -371,9 +371,18 @@ namespace Desert::Graphic::System
         return ve.Declared && ve.Material != nullptr;
     }
 
+    // INTERIM until VFX-08 step R (REMAINDER-VFX-08.md) draws each emitter through its material's
+    // ParticleSprite.Forward cell and reads the blend off the template: the v42 migration put exactly the
+    // formerly Additive emitters on a material (M_ParticleAdditive) and left the AlphaBlend ones empty, so
+    // "names a material" is "was Additive" for every scene of the corpus.
+    bool ParticleRenderer::DrawsAdditive( const ViewEmitter& ve )
+    {
+        return ve.Frame->Material != Common::AssetHandle::Null();
+    }
+
     GraphicsPipeline* ParticleRenderer::BillboardPipeline( const ViewEmitter& ve ) const
     {
-        return ve.Frame->Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
+        return DrawsAdditive( ve ) ? m_AddPipeline.get() : m_AlphaPipeline.get();
     }
 
     SystemRasterPass ParticleRenderer::DrawPass()
@@ -424,7 +433,7 @@ namespace Desert::Graphic::System
                 if ( pipeline == nullptr )
                     continue; // the exec refuses the emitter by name before it opens a block
                 ve.Material->Update( *view );
-                ShaderBindingLayoutCache& layout = ve.Frame->Additive ? m_AddLayout : m_AlphaLayout;
+                ShaderBindingLayoutCache& layout = DrawsAdditive( ve ) ? m_AddLayout : m_AlphaLayout;
                 declared
                      .Bindings( layout.Get( pipeline->GetSpecification().Shader ),
                                 ve.Material->GetMaterialExecutor()->GetRouteFill() )

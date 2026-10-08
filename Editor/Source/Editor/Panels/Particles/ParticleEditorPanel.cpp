@@ -19,8 +19,7 @@ namespace Desert::Editor
 
     namespace
     {
-        using Data  = ECS::ParticleEmitterData;
-        using Blend = ECS::ParticleBlendMode;
+        using Data = ECS::ParticleEmitterData;
 
         struct Preset
         {
@@ -30,7 +29,6 @@ namespace Desert::Editor
 
         void Fire( Data& d )
         {
-            d.Blend          = Blend::Additive;
             d.SpawnRate      = 300.0f;
             d.Lifetime       = 1.2f;
             d.StartSpeed     = 1.5f;
@@ -48,7 +46,6 @@ namespace Desert::Editor
         }
         void Smoke( Data& d )
         {
-            d.Blend          = Blend::AlphaBlend;
             d.SpawnRate      = 60.0f;
             d.Lifetime       = 3.0f;
             d.StartSpeed     = 0.6f;
@@ -66,7 +63,6 @@ namespace Desert::Editor
         }
         void Sparks( Data& d )
         {
-            d.Blend          = Blend::Additive;
             d.SpawnRate      = 220.0f;
             d.Lifetime       = 0.8f;
             d.StartSpeed     = 6.0f;
@@ -84,7 +80,6 @@ namespace Desert::Editor
         }
         void Magic( Data& d )
         {
-            d.Blend          = Blend::Additive;
             d.SpawnRate      = 150.0f;
             d.Lifetime       = 2.0f;
             d.StartSpeed     = 1.0f;
@@ -102,7 +97,6 @@ namespace Desert::Editor
         }
         void Explosion( Data& d )
         {
-            d.Blend          = Blend::Additive;
             d.SpawnRate      = 500.0f;
             d.Lifetime       = 0.6f;
             d.StartSpeed     = 8.0f;
@@ -233,9 +227,6 @@ namespace Desert::Editor
             d.EndColor = glm::vec3( end );
             d.EndAlpha = end.a;
         }
-        int blend = ( d.Blend == Blend::Additive ) ? 0 : 1;
-        if ( ImGui::Combo( "Blend", &blend, "Additive (glow)\0Alpha (soft)\0" ) )
-            d.Blend = ( blend == 0 ) ? Blend::Additive : Blend::AlphaBlend;
         ImGui::Separator();
 
         // Size over life.

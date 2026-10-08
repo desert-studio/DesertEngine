@@ -22,6 +22,7 @@ namespace Desert::Graphic
              { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth" },
              { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth" },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth" },
+             { "ParticleSprite.Forward", nullptr, nullptr, nullptr },
         };
     } // namespace
 
@@ -95,6 +96,8 @@ namespace Desert::Graphic
                 return 1; // Bones
             case MeshVertexPath::Instanced:
                 return 17; // InstanceTransforms
+            case MeshVertexPath::ParticleSprite:
+                return 9; // Particles (the pool); the alive list at 10 is bound beside it by ParticleRenderer
             case MeshVertexPath::Static:
                 break; // reads its model matrix from the push constant; adds no descriptor
         }
@@ -111,6 +114,8 @@ namespace Desert::Graphic
                 return "Skinned";
             case MeshVertexPath::Instanced:
                 return "Instanced";
+            case MeshVertexPath::ParticleSprite:
+                return "ParticleSprite";
         }
         return "?";
     }

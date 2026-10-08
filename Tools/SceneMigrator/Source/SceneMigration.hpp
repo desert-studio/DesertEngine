@@ -175,7 +175,22 @@ namespace Desert::Migration
     //       refused by name: an override that restates a clip has no v40 whole to lift. Scenes and prefabs alike.
     inline constexpr int kSceneVersionUIAnimationSequences = 41;
 
-    static_assert( kSceneVersionUIAnimationSequences == kSceneVersion,
+    //  42 - A PARTICLE SPRITE COMPOSITES BY ITS MATERIAL (VFX-08). ParticleEmitter.Blend (0 Additive, 1
+    //  AlphaBlend,
+    //       missing = AlphaBlend) is removed: how a sprite composites is the blend mode of the material it draws
+    //       with (UE BLEND_Additive), and ParticleEmitter.Material names that material (empty = the engine's
+    //       translucent sprite template ParticleSpriteDefault). MigrateParticleSpriteMaterialsV41ToV42: an
+    //       Additive emitter that names no material gets the shipped additive one (kParticleAdditiveMaterial*);
+    //       an AlphaBlend one stays empty. Prefab overrides alike (an override stating AlphaBlend just loses the
+    //       key, counted). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionParticleSpriteMaterial = 42;
+
+    // The engine's additive particle sprite material: Editor/Resources/Engine/Materials/M_ParticleAdditive.demat.
+    inline constexpr const char* kParticleAdditiveMaterialGuid = "6f2b9c41d8e04a57b3a1c0e9f5d27b86";
+    inline constexpr const char* kParticleAdditiveMaterialPath =
+         "engine:Engine/Materials/M_ParticleAdditive.demat";
+
+    static_assert( kSceneVersionParticleSpriteMaterial == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -273,6 +288,19 @@ namespace Desert::Migration
     // Lifts every record's v40 UIAnim block into the v41 {Sequence, Loop, AutoPlay} form under the rule
     // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateParticleSpriteMaterialsV41ToV42 did to one file.
+    struct ParticleSpriteMaterialsReport
+    {
+        std::size_t Emitters          = 0; // ParticleEmitter blocks on the file's own records
+        std::size_t MovedToAdditive   = 0; // Blend Additive -> Material = the shipped additive material
+        std::size_t OverridesAdditive = 0; // the same, in prefab overrides
+        std::size_t OverridesDropped  = 0; // prefab overrides that stated Blend AlphaBlend: the key goes
+    };
+
+    // Removes ParticleEmitter.Blend under the rule kSceneVersionParticleSpriteMaterial states. PURE.
+    ParticleSpriteMaterialsReport
+    MigrateParticleSpriteMaterialsV41ToV42( std::vector<Assets::EntityData>& entities );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -461,6 +489,9 @@ namespace Desert::Migration
         UIAnimationsReport UIAnimations;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
+        bool ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
+        ParticleSpriteMaterialsReport ParticleSpriteMaterials;
+
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
 
@@ -469,7 +500,7 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || UIAnimationTimelinesRaised;
+                   UIAnimationsRaised || UIAnimationTimelinesRaised || ParticleSpriteMaterialsRaised;
         }
     };
 

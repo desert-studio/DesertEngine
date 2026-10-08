@@ -139,6 +139,8 @@ namespace Desert::Graphic::System
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
         // The billboard pipeline of @p ve's blend (null when that pipeline failed to build).
         GraphicsPipeline* BillboardPipeline( const ViewEmitter& ve ) const;
+        // Interim (VFX-08 step R replaces it): whether @p ve composites additively.
+        static bool DrawsAdditive( const ViewEmitter& ve );
 
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<ComputePipeline>  m_CompactPipeline;

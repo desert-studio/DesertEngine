@@ -1401,9 +1401,8 @@ namespace Desert::Core::Preprocess
             const std::string defines  = std::format(
                  "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}#define {} {}\n", pass,
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
-                 blend == SurfaceBlendMode::Translucent
-                       ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
-                       : std::string(),
+                 Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
+                                                       : std::string(),
                  particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
@@ -1523,7 +1522,7 @@ namespace Desert::Core::Preprocess
 
     bool SurfaceBlendHasPass( const SurfaceBlendMode blend, const std::string_view pass )
     {
-        return blend != SurfaceBlendMode::Translucent || pass == "Forward";
+        return !Formats::IsTranslucentBlend( blend ) || pass == "Forward";
     }
 
     std::string SurfacePassInclude( const std::string_view pass, const SurfaceBlendMode blend )
@@ -1531,7 +1530,7 @@ namespace Desert::Core::Preprocess
         // A translucent surface is shaded and composited over the scene by the translucency pass header (UE's
         // translucency base pass). The shading model picks no header: every model is lit by the same pass, which
         // dispatches on DESERT_SHADING_MODEL_INDEX.
-        if ( blend == SurfaceBlendMode::Translucent && pass == "Forward" )
+        if ( Formats::IsTranslucentBlend( blend ) && pass == "Forward" )
             return std::string( kSurfaceTranslucentPassInclude );
         return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
     }
@@ -1808,9 +1807,12 @@ namespace Desert::Core::Preprocess
                     result.Surface.Blend = SurfaceBlendMode::Masked;
                 else if ( v == "translucent" )
                     result.Surface.Blend = SurfaceBlendMode::Translucent;
+                else if ( v == "additive" )
+                    result.Surface.Blend = SurfaceBlendMode::Additive;
                 else
                 {
-                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked | Translucent)", v ) };
+                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked | Translucent | Additive)",
+                                               v ) };
                     return fail();
                 }
                 surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;

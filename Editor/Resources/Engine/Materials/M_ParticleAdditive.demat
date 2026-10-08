@@ -1,0 +1,20 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "6f2b9c41d8e04a57b3a1c0e9f5d27b86",
+        "Versions": {
+            "MATL": 4
+        },
+        "Dependencies": ["a3e81f6c07d24b5c9e1f40b8d26c7a13"]
+    },
+    "Shader": {
+        "Guid": "a3e81f6c07d24b5c9e1f40b8d26c7a13",
+        "Path": "engine:Shaders/Programs/Particles/ParticleSpriteAdditive.shader"
+    },
+    "Params": [
+        {
+            "Name": "Tint",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        }
+    ]
+}
