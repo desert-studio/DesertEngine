@@ -451,7 +451,15 @@ namespace Desert::Graphic::RDG
                                       consumes } );
                     continue;
                 }
-                RdgSubUse& existing = uses[static_cast<size_t>( slot[sub] )];
+                RdgSubUse&     existing = uses[static_cast<size_t>( slot[sub] )];
+                const uint32_t mask     = existing.AccessMask | ( 1u << static_cast<uint32_t>( use.Usage ) );
+                if ( IsDepthReadSampledPair( mask ) )
+                {
+                    existing.State        = MergeReadStates( existing.State, state );
+                    existing.State.Layout = ImageLayout::DepthStencilReadOnly;
+                    existing.AccessMask   = mask;
+                    continue;
+                }
                 if ( !existing.State.IsReadOnly() || !state.IsReadOnly() || existing.State.Layout != state.Layout )
                 {
                     error = fmt::format( "graph '{}' pass '{}' declares {} as both {} and {}; one pass may hold a "

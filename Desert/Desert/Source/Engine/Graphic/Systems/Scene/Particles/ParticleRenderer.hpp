@@ -4,7 +4,9 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
-#include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
+#include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -14,6 +16,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -28,40 +31,50 @@ namespace Desert::Graphic::RDG
     class PassContext;
 } // namespace Desert::Graphic::RDG
 
+namespace Desert::Graphic
+{
+    class DataDrivenMaterial;
+}
+
 namespace Desert::Graphic::System
 {
     // One VIEW's side of the scene's GPU particle system (VFX-07b). The pool, the per-emitter step tables,
     // counters and dispatch arguments are the scene's (ParticleWorldGpu, owned by its VFXWorld); this system holds
-    // what is per view: the billboard material per emitter (its camera block), the pipelines and this view's graph
-    // imports. Per frame: PrepareFrame asks the scene's state to prepare the VFXWorld tick - the first view of
-    // the tick simulates (ClaimsSimulation), every other view of it only draws. The simulating view's frame build
-    // adds "Particles: Compact 0", then per fixed step "Particles: Dispatch Args {s}", "Particles: Spawn+Update
-    // {s}" and "Particles: Compact {s+1}"; Spawn+Update and the later compacts are dispatched INDIRECT from the
-    // arguments Dispatch Args wrote from the GPU counts (UE: indirect dispatch from the GPU instance counts).
-    // Every view's billboard draw (DrawPass, translucency) reads the alive list and draws INDIRECT from the last
-    // compact's slot of the emitter's Counters - six vertices per particle the compact found alive.
+    // what is per view: one sprite draw per material CELL (its pipeline, its cell material with the camera block
+    // and the Materials rows), each emitter's runtime material instance, the simulation pipelines and this view's
+    // graph imports. Per frame: PrepareFrame asks the scene's state to prepare the VFXWorld tick - the first view
+    // of the tick simulates (ClaimsSimulation), every other view of it only draws. The simulating view's frame
+    // build adds "Particles: Compact 0", then per fixed step "Particles: Dispatch Args {s}", "Particles:
+    // Spawn+Update {s}" and "Particles: Compact {s+1}"; Spawn+Update and the later compacts are dispatched
+    // INDIRECT from the arguments Dispatch Args wrote from the GPU counts (UE: indirect dispatch from the GPU
+    // instance counts). Every view's sprite draw (DrawPass, translucency) draws each emitter through its
+    // material's ParticleSprite.Forward cell (UE: the sprite renderer drawing with the emitter's material), the
+    // blend from the cell's template (ApplySurfaceBlendMode), depth-TESTED against the scene depth it holds
+    // read-only (and samples for the depth fade where the cell does), INDIRECT from the last compact's slot of
+    // the emitter's Counters - six vertices per particle the compact found alive.
     class ParticleRenderer final : public RenderSystem
     {
     public:
         using RenderSystem::RenderSystem;
-        ~ParticleRenderer() override; // defined in the .cpp so the per-emitter
-                                      // unique_ptr<MaterialParticleBillboard> sees the complete type
+        ~ParticleRenderer() override; // defined in the .cpp so unique_ptr<SpriteDraw> sees DataDrivenMaterial
 
         Common::BoolResultStr Initialize() override;
 
-        // The billboard draw over the lit scene target (LOAD), added by SceneRenderer::AddFrameTranslucency after
-        // the fog apply and the cloud composite - by EVERY view, simulating or not. Empty (no TargetFramebuffer)
-        // without a target or pipeline.
+        // The sprite draw over the lit scene target (LOAD, depth read-only), added by
+        // SceneRenderer::AddFrameTranslucency after the fog apply and the cloud composite - by EVERY view,
+        // simulating or not. Empty (no TargetFramebuffer) without a target.
         [[nodiscard]] SystemRasterPass DrawPass();
 
-        // Drops this view's materials and imports (IRenderSystem::OnSceneReplaced, kind 2). m_Materials is keyed
-        // by the raw entt entity value, which a fresh registry hands out from zero again. The GPU particle state
-        // itself is the scene's and goes with it.
+        // Drops this view's emitter instances and imports (IRenderSystem::OnSceneReplaced, kind 2). m_Materials is
+        // keyed by the raw entt entity value, which a fresh registry hands out from zero again. The GPU particle
+        // state itself is the scene's and goes with it.
         void OnSceneReplaced() override;
 
-        // Prepares the scene's VFXWorld tick (ParticleWorldGpu::PrepareTick) and this view's per-emitter
-        // materials. Call once per frame in BeginScene. The simulation's time is the VFXWorld's fixed step; this
-        // system reads no clock and no frame timestep.
+        // Prepares the scene's VFXWorld tick (ParticleWorldGpu::PrepareTick) and resolves each emitter's material
+        // to its sprite draw: the emitter's ParticleSprite cell, or - for no material, a material without a
+        // ParticleSprite cell, or one whose cell cannot draw - the ParticleSpriteDefault cell, the refusal logged
+        // ONCE per (emitter, material) naming both. Call once per frame in BeginScene. The simulation's time is
+        // the VFXWorld's fixed step; this system reads no clock and no frame timestep.
         void PrepareFrame( const ::Desert::Core::Scene& scene );
 
         // Whether this view simulates the scene's particles this frame: it was the first view to prepare the
@@ -102,6 +115,30 @@ namespace Desert::Graphic::System
         void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step ) const;
 
     private:
+        // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor
+        // sets from the cell's reflection; the camera block and the Materials rows are written once per frame,
+        // before the blocks are declared), the pipeline the cell's template blend built, and the layout cache.
+        struct SpriteDraw
+        {
+            std::shared_ptr<GraphicsPipeline>   Pipeline;
+            std::shared_ptr<DataDrivenMaterial> Material;
+            MaterialInstancePtr                 Instance; // the cell's defaults: the row of an emitter without one
+            Core::Formats::SurfaceBlendMode     Blend = Core::Formats::SurfaceBlendMode::Opaque;
+            mutable ShaderBindingLayoutCache    Layout;
+            std::vector<glm::vec4>              Rows; // this frame's Materials rows, one per drawn emitter
+        };
+
+        // One emitter's material in this view: the asset its instance was built from, the runtime instance of
+        // that asset's ParticleSprite cell (null = the cell's defaults), and the asset last refused (the refusal
+        // is said once per (emitter, material)).
+        struct EmitterMaterial
+        {
+            Common::AssetHandle Handle;
+            MaterialInstancePtr Instance;
+            Common::AssetHandle Refused;
+            bool                HasRefused = false;
+        };
+
         // This view's imports of the scene's pool.
         struct ViewPool
         {
@@ -119,7 +156,9 @@ namespace Desert::Graphic::System
         struct ViewEmitter
         {
             const ParticleFrameEmitter* Frame    = nullptr;
-            MaterialParticleBillboard*  Material = nullptr;
+            SpriteDraw*                 Sprite   = nullptr;
+            MaterialInstance*           Instance = nullptr; // the emitter's own (null = the cell's defaults)
+            uint32_t                    Row      = 0;       // the emitter's row in Sprite->Rows this frame
             RDG::ExternalBuffer         StepsImport;
             RDG::ExternalBuffer         CountersImport;
             RDG::ExternalBuffer         ArgsImport;
@@ -137,28 +176,30 @@ namespace Desert::Graphic::System
         bool RunsStep( const ViewEmitter& ve, uint32_t step ) const;
         // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
-        // The billboard pipeline of @p ve's blend (null when that pipeline failed to build).
-        GraphicsPipeline* BillboardPipeline( const ViewEmitter& ve ) const;
-        // Interim (VFX-08 step R replaces it): whether @p ve composites additively.
-        static bool DrawsAdditive( const ViewEmitter& ve );
+        // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
+        SpriteDraw* SpriteDrawFor( const std::string& cellShader );
+        // The sprite draw emitter @p entityId draws with this frame (its material @p handle's ParticleSprite cell,
+        // or the default cell with the refusal logged once), its runtime instance kept in @p material.
+        SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
+                                   EmitterMaterial& material );
 
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<ComputePipeline>  m_CompactPipeline;
         std::shared_ptr<ComputePipeline>  m_ArgsPipeline;
-        std::shared_ptr<GraphicsPipeline> m_AddPipeline;   // additive blend
-        std::shared_ptr<GraphicsPipeline> m_AlphaPipeline; // alpha blend
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         mutable ShaderBindingLayoutCache m_SimLayout;
         mutable ShaderBindingLayoutCache m_CompactLayout;
         mutable ShaderBindingLayoutCache m_ArgsLayout;
-        mutable ShaderBindingLayoutCache m_AddLayout;
-        mutable ShaderBindingLayoutCache m_AlphaLayout;
 
-        // The billboard material is PER EMITTER and PER VIEW (its camera block per draw), never shared.
-        std::unordered_map<uint32_t, std::unique_ptr<MaterialParticleBillboard>> m_Materials;
-        const ParticleWorldGpu*                                                  m_World     = nullptr;
-        bool                                                                     m_Simulates = false;
-        std::vector<ViewEmitter>                                                 m_ViewEmitters;
-        ViewPool                                                                 m_Pool;
+        // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
+        std::string m_DefaultCell;
+        // Per cell shader, per view (a draw's camera block is the view's). Null = that cell was refused.
+        std::unordered_map<std::string, std::unique_ptr<SpriteDraw>> m_Sprites;
+        // Per emitter (raw entt entity value), per view.
+        std::unordered_map<uint32_t, EmitterMaterial> m_Materials;
+        const ParticleWorldGpu*                       m_World     = nullptr;
+        bool                                          m_Simulates = false;
+        std::vector<ViewEmitter>                      m_ViewEmitters;
+        ViewPool                                      m_Pool;
     };
 } // namespace Desert::Graphic::System

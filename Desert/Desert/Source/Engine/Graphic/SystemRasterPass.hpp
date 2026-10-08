@@ -31,5 +31,11 @@ namespace Desert::Graphic
         // clearing sequence on that framebuffer); unset = the RenderPassSpecification defaults.
         std::optional<glm::vec4> ClearColor;
         std::optional<float>     ClearDepth;
+
+        // The pass depth-TESTS against its target's depth and never writes it, so the node binds the depth as a
+        // READ-ONLY attachment (RDG::Access::DepthRead, DEPTH_STENCIL_READ_ONLY_OPTIMAL) and its Declare may also
+        // sample that same depth (UE: FExclusiveDepthStencil::DepthRead with the SceneDepth SRV - the particle
+        // depth fade). A read-only depth cannot be cleared: the node must LOAD it.
+        bool DepthReadOnly = false;
     };
 } // namespace Desert::Graphic

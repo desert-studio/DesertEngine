@@ -341,6 +341,24 @@ namespace
     }
 } // namespace
 
+// VFX-08e. The particle sprites draw through their material's ParticleSprite cell, so the renderer names no
+// shader of its own but the default sprite template and the three simulation programs; the old billboard
+// program and its hand-written material are gone. Red when a hard-wired sprite shader comes back.
+TEST( RenderGraphCompile, TheParticleRendererNamesNoSpriteShaderButTheDefaultTemplate )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const fs::path engine = root / "Desert/Desert/Source/Engine/Graphic";
+    std::ifstream  file( ( engine / "Systems/Scene/Particles/ParticleRenderer.cpp" ).string() );
+    ASSERT_TRUE( file.good() );
+    const std::string source( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+    for ( const char* gone : { "ParticleBillboard", ".shader", "DrawsAdditive" } )
+        EXPECT_EQ( source.find( gone ), std::string::npos ) << "ParticleRenderer.cpp names " << gone;
+    EXPECT_NE( source.find( "\"ParticleSpriteDefault\"" ), std::string::npos );
+    EXPECT_FALSE( fs::exists( engine / "Materials/Particles/MaterialParticleBillboard.hpp" ) );
+    EXPECT_FALSE( fs::exists( root / "Editor/Resources/Shaders/Programs/Particles/ParticleBillboard.shader" ) );
+}
+
 // ── Vulkan-free ─────────────────────────────────────────────────────────────────────────────────────────
 
 // The graph core must compile and be tested without a device. The suite already builds with no Vulkan
@@ -2554,6 +2572,74 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
     EXPECT_EQ( colorBack, std::vector<ImageLayout>{ ImageLayout::ColorAttachment } );
     EXPECT_EQ( depthBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilReadOnly } );
     EXPECT_EQ( color.SubresourceStates[0], GetAccessState( Access::ColorTarget ) );
+}
+
+// VFX-08e. Depth-tested sprites that fade against the scene depth hold the depth as a READ-ONLY attachment and
+// sample it in the same pass (UE: FExclusiveDepthStencil::DepthRead + the SceneDepth SRV). Both accesses fold into
+// one use in DEPTH_STENCIL_READ_ONLY_OPTIMAL; a WRITTEN depth attachment that is also sampled stays refused.
+TEST( RenderGraphCompile, AReadOnlyDepthAttachmentSampledInTheSamePassHoldsTheDepthReadOnlyLayout )
+{
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "depth read sampled" );
+    const TextureRef depth = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::DEPTH32F ), "SceneDepth" );
+    const TextureRef back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Opaque", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+             pass.DepthTarget( depth, LoadOp::ClearDepth( 1.0f ) );
+         },
+         Ok );
+    graph.AddPass(
+         "Particles", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( depth, Access::SampledGraphics );
+             pass.ColorTarget( 0, back, LoadOp::Load() );
+             pass.DepthTarget( depth, LoadOp::Load(), false );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    const CompiledPass* particles = result.FindPass( "Particles" );
+    ASSERT_NE( particles, nullptr );
+
+    // The attachment is the read-only one (depth test, no write).
+    const auto attachment = std::find_if( particles->Attachments.begin(), particles->Attachments.end(),
+                                          []( const AttachmentDecision& decision ) { return decision.IsDepth; } );
+    ASSERT_NE( attachment, particles->Attachments.end() );
+    EXPECT_EQ( attachment->Usage, Access::DepthRead );
+
+    // One barrier into the read-only layout, covering the depth test AND the fragment sample.
+    const std::vector<Barrier> onDepth = BarriersOn( particles, depth.Index );
+    ASSERT_EQ( onDepth.size(), 1u );
+    EXPECT_EQ( onDepth[0].Before, GetAccessState( Access::DepthWrite ) );
+    EXPECT_EQ( onDepth[0].After.Layout, ImageLayout::DepthStencilReadOnly );
+    const AccessState sampled = GetAccessState( Access::SampledGraphics );
+    const AccessState tested  = GetAccessState( Access::DepthRead );
+    EXPECT_EQ( onDepth[0].After.Stages & sampled.Stages, sampled.Stages );
+    EXPECT_EQ( onDepth[0].After.Stages & tested.Stages, tested.Stages );
+    EXPECT_EQ( onDepth[0].After.Memory & sampled.Memory, sampled.Memory );
+    EXPECT_EQ( onDepth[0].After.Memory & tested.Memory, tested.Memory );
+
+    // Writing the depth while sampling it is a feedback loop: still one subresource in two states.
+    Builder          written( "depth write sampled" );
+    const TextureRef writtenDepth = written.CreateTexture( Tex2D( 64, 64, ImageFormat::DEPTH32F ), "SceneDepth" );
+    const TextureRef writtenBack  = written.RegisterExternal( backbuffer, "Backbuffer" );
+    written.AddPass(
+         "WritesAndSamples", PassFlags::Raster | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, writtenBack, LoadOp::DontCare() );
+             pass.DepthTarget( writtenDepth, LoadOp::ClearDepth( 1.0f ) );
+             pass.Read( writtenDepth, Access::SampledGraphics );
+         },
+         Ok );
+    const std::string fault = OnlyDeclarationFault( written );
+    ASSERT_FALSE( fault.empty() );
+    EXPECT_NE( fault.find( "WritesAndSamples" ), std::string::npos ) << fault;
+    EXPECT_NE( fault.find( "SceneDepth" ), std::string::npos ) << fault;
 }
 
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )

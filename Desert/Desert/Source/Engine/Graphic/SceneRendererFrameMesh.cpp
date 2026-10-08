@@ -266,7 +266,7 @@ namespace Desert::Graphic
                  for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
                      node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
                  if ( targets->Depth.IsValid() )
-                     node.DepthTarget( targets->Depth, depth );
+                     node.DepthTarget( targets->Depth, depth, !pass.DepthReadOnly );
                  DeclareResolves( node, targets->Resolves );
              },
              [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](

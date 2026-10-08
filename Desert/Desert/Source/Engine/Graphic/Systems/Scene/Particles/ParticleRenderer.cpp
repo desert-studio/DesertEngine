@@ -4,7 +4,14 @@
 #include "ParticleEmitterRetire.hpp"
 #include "ParticleGpuLayout.hpp"
 
-#include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
+#include <Engine/Graphic/Materials/SurfaceBlendPipeline.hpp>
+#include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -27,6 +34,16 @@ namespace Desert::Graphic::System
     {
         if ( !CreatePipelines() )
             return Common::MakeError( "ParticleRenderer: failed to create pipelines (missing shaders?)" );
+        // The cell every emitter without a drawable material falls back to: no default, no particles.
+        const auto cell = TemplateCellShader(
+             "ParticleSpriteDefault", MeshVertexPath::ParticleSprite, MeshPass::Forward,
+             []( std::string_view name ) {
+                 return Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) ) != nullptr;
+             } );
+        if ( !cell )
+            return Common::MakeError( "ParticleRenderer: the ParticleSpriteDefault template has no registered "
+                                      "ParticleSprite.Forward cell" );
+        m_DefaultCell = *cell;
         return BOOLSUCCESS;
     }
 
@@ -35,13 +52,6 @@ namespace Desert::Graphic::System
         auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return false;
-
-        auto billShader = shaderService->GetByName( "ParticleBillboard" );
-        if ( !billShader )
-        {
-            LOG_ERROR( "ParticleRenderer: missing ParticleBillboard shader" );
-            return false;
-        }
 
         // The three compute programs of the simulation: Spawn+Update, Compact and Dispatch Args.
         for ( const auto& [name, into] : { std::pair{ "ParticleSimulate", &m_SimPipeline },
@@ -63,54 +73,7 @@ namespace Desert::Graphic::System
             *into = made.GetValue();
         }
 
-        const auto& target = m_TargetFramebuffer.lock();
-        if ( !target )
-            return false;
-
-        GraphicsPipelineSpecification base;
-        base.Shader      = billShader;
-        base.TargetLayout = SceneTargetLayout();
-        // Additive FX read as "always visible": depth-testing billboards against the scene made them vanish
-        // when the camera looked DOWN at particles sitting near a surface (the surface occluded them), while
-        // they showed when looking up (nothing behind). Draw them without a depth test (never write depth
-        // either), in the translucency (AddFrameTranslucency) — the common default for glow/fire/sparks. (A
-        // per-emitter "occlude" toggle can bring depth testing back for smoke/dust that should hide behind walls.)
-        base.DepthTestEnabled  = false;
-        base.DepthWriteEnabled = false;
-        base.CullMode          = CullMode::None;
-        base.Topology          = PrimitiveTopology::Triangles;
-        base.BlendEnable       = true;
-
-        GraphicsPipelineSpecification addSpec = base;
-        addSpec.DebugName                     = "ParticleAdd";
-        addSpec.SrcColorBlendFactor           = BlendFactor::SrcAlpha;
-        addSpec.DstColorBlendFactor           = BlendFactor::One; // additive glow
-        const auto add                        = GraphicsPipeline::Create( addSpec );
-        if ( !add )
-        {
-            LOG_ERROR( "ParticleRenderer: {}", add.GetError() );
-            return false;
-        }
-        m_AddPipeline = add.GetValue();
-
-        GraphicsPipelineSpecification alphaSpec = base;
-        alphaSpec.DebugName                     = "ParticleAlpha";
-        alphaSpec.SrcColorBlendFactor           = BlendFactor::SrcAlpha;
-        alphaSpec.DstColorBlendFactor           = BlendFactor::OneMinusSrcAlpha; // soft over
-        const auto alpha                        = GraphicsPipeline::Create( alphaSpec );
-        if ( !alpha )
-        {
-            LOG_ERROR( "ParticleRenderer: {}", alpha.GetError() );
-            return false;
-        }
-        m_AlphaPipeline = alpha.GetValue();
-
-        // No shared billboard material here — each emitter owns one (created in GetOrCreate). The
-        // particle SSBO is a descriptor, and one material can hold exactly one per frame.
-
-        // `return m_SimPipeline && m_AddPipeline && m_AlphaPipeline;` stood here and could not be false:
-        // every one of the three was assigned from a factory that could not fail. Each is refused above,
-        // at the point that knows which one it was.
+        // The sprite pipelines are per material cell, built on first use (SpriteDrawFor).
         return true;
     }
 
@@ -121,7 +84,7 @@ namespace Desert::Graphic::System
         m_Simulates = false;
         if ( m_Materials.empty() )
             return;
-        LOG_INFO( "[Particles] Released {} emitter material(s) belonging to the previous scene.",
+        LOG_INFO( "[Particles] Released {} emitter material instance(s) belonging to the previous scene.",
                   m_Materials.size() );
         m_Materials.clear();
     }
@@ -140,12 +103,11 @@ namespace Desert::Graphic::System
         m_ViewEmitters.reserve( world.FrameEmitters().size() );
         for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
         {
-            std::unique_ptr<MaterialParticleBillboard>& material = m_Materials[fe.EntityId];
-            if ( !material )
-                material = std::make_unique<MaterialParticleBillboard>();
-            ViewEmitter ve;
+            EmitterMaterial& material = m_Materials[fe.EntityId];
+            ViewEmitter      ve;
             ve.Frame    = &fe;
-            ve.Material = material.get();
+            ve.Sprite   = ResolveSprite( fe.EntityId, fe.Material, material );
+            ve.Instance = ve.Sprite != nullptr ? material.Instance.get() : nullptr;
             m_ViewEmitters.push_back( ve );
         }
     }
@@ -368,27 +330,96 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        return ve.Declared && ve.Material != nullptr;
+        return ve.Declared && ve.Sprite != nullptr;
     }
 
-    // INTERIM until VFX-08 step R (REMAINDER-VFX-08.md) draws each emitter through its material's
-    // ParticleSprite.Forward cell and reads the blend off the template: the v42 migration put exactly the
-    // formerly Additive emitters on a material (M_ParticleAdditive) and left the AlphaBlend ones empty, so
-    // "names a material" is "was Additive" for every scene of the corpus.
-    bool ParticleRenderer::DrawsAdditive( const ViewEmitter& ve )
+    ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
     {
-        return ve.Frame->Material != Common::AssetHandle::Null();
+        if ( const auto found = m_Sprites.find( cellShader ); found != m_Sprites.end() )
+            return found->second.get(); // null = refused before (said once, below)
+        auto& slot = m_Sprites[cellShader];
+
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        if ( !shader || m_SceneRenderer == nullptr )
+        {
+            LOG_ERROR( "[Particles] sprite cell '{}' will not draw: {}", cellShader,
+                       !shader ? "no such shader is registered" : "the view has no scene renderer" );
+            return nullptr;
+        }
+        auto draw      = std::make_unique<SpriteDraw>();
+        draw->Material = std::make_shared<DataDrivenMaterial>( cellShader );
+        draw->Instance = draw->Material->CreateInstance();
+        if ( !draw->Instance )
+        {
+            LOG_ERROR( "[Particles] sprite cell '{}' will not draw: its material has no instance", cellShader );
+            return nullptr;
+        }
+        draw->Blend = draw->Material->GetSchema().Blend;
+
+        // Depth-TESTED against the scene (read-only attachment, DrawPass), never written by a blended sprite;
+        // the cell's template decides over / added / opaque - the one rule the translucent meshes use too.
+        GraphicsPipelineSpecification spec;
+        spec.DebugName        = cellShader;
+        spec.Shader           = shader;
+        spec.TargetLayout     = SceneTargetLayout();
+        spec.DepthTestEnabled = true;
+        spec.DepthCompareOp   = DepthCompare::CloserOrEqual;
+        spec.CullMode         = CullMode::None;
+        spec.Topology         = PrimitiveTopology::Triangles;
+        ApplySurfaceBlendMode( spec, draw->Blend );
+        // The pass holds the depth READ-ONLY (SystemRasterPass::DepthReadOnly): no cell writes it.
+        spec.DepthWriteEnabled = false;
+
+        const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            LOG_ERROR( "[Particles] sprite cell '{}' will not draw: {}", cellShader, pipeline.GetError() );
+            return nullptr;
+        }
+        draw->Pipeline = pipeline.GetValue();
+        slot           = std::move( draw );
+        return slot.get();
     }
 
-    GraphicsPipeline* ParticleRenderer::BillboardPipeline( const ViewEmitter& ve ) const
+    ParticleRenderer::SpriteDraw* ParticleRenderer::ResolveSprite( const uint32_t             entityId,
+                                                                   const Common::AssetHandle& handle,
+                                                                   EmitterMaterial&           material )
     {
-        return DrawsAdditive( ve ) ? m_AddPipeline.get() : m_AlphaPipeline.get();
+        // A named material draws through its own ParticleSprite.Forward cell (UE: the sprite renderer's material).
+        if ( handle != Common::AssetHandle::Null() )
+        {
+            auto*       service = Runtime::ResourceRegistry::GetMaterialService();
+            const auto* cell    = dynamic_cast<const DataDrivenMaterial*>(
+                 service->Get( handle, MeshVertexPath::ParticleSprite, MeshPass::Forward ) );
+            SpriteDraw* sprite = cell != nullptr ? SpriteDrawFor( cell->GetShaderName() ) : nullptr;
+            if ( sprite != nullptr )
+            {
+                if ( !material.Instance || material.Handle != handle )
+                {
+                    material.Handle   = handle;
+                    material.Instance = service->CreateRuntimeInstance( handle, MeshVertexPath::ParticleSprite );
+                }
+                return sprite;
+            }
+            if ( !material.HasRefused || material.Refused != handle )
+            {
+                LOG_ERROR( "[Particles] emitter {} draws with ParticleSpriteDefault: its material {} {}", entityId,
+                           static_cast<uint64_t>( handle ),
+                           cell == nullptr ? "is missing or its template has no `Usage ParticleSprites` cell"
+                                           : "has a ParticleSprite cell that cannot draw (logged above)" );
+                material.Refused    = handle;
+                material.HasRefused = true;
+            }
+        }
+        material.Handle   = Common::AssetHandle::Null();
+        material.Instance = nullptr; // the default cell's own defaults
+        return SpriteDrawFor( m_DefaultCell );
     }
 
     SystemRasterPass ParticleRenderer::DrawPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
-        if ( !targetFb || !m_AddPipeline )
+        if ( !targetFb )
             return {};
 
         SystemRasterPass pass{
@@ -405,40 +436,70 @@ namespace Desert::Graphic::System
                  {
                      if ( !IsDrawn( ve ) )
                          continue;
-                     GraphicsPipeline* pipeline = BillboardPipeline( ve );
-                     if ( pipeline == nullptr )
-                         return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
+                     SpriteDraw&             sprite = *ve.Sprite;
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+                     sprite.Material->SetMaterialIndex( ve.Row );
+                     sprite.Material->Bind( sprite.Instance.get() );
                      // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
                      // particle of alive half StepCount & 1 (the slot's FirstVertex).
                      const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
-                     if ( auto drawn = Renderer::DrawProceduralIndirect(
-                               bindings, *pipeline, ve.Material->GetMaterialExecutor(), ve.CountersRef, slot );
+                     if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *sprite.Pipeline,
+                                                                         sprite.Material->GetMaterialExecutor(),
+                                                                         ve.CountersRef, slot );
                           !drawn.IsSuccess() )
                          return drawn;
                  }
                  return BOOLSUCCESS;
              },
              .TargetFramebuffer = targetFb };
-        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+        // Depth-tested, never written, and sampled for the depth fade in the same pass: the node holds the scene
+        // depth READ-ONLY (UE: FExclusiveDepthStencil::DepthRead with the SceneDepth SRV).
+        pass.DepthReadOnly = true;
+        pass.Declare       = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             const ViewFrame* view = m_SceneRenderer->GetViewFrame();
             if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
                 return; // the exec draws nothing either
+
+            // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws and
+            // the view's camera block, so the route fill is what the draws read.
+            for ( auto& [cell, sprite] : m_Sprites )
+                if ( sprite )
+                    sprite->Rows.clear();
+            for ( ViewEmitter& ve : m_ViewEmitters )
+            {
+                if ( !IsDrawn( ve ) )
+                    continue;
+                MaterialInstance* instance = ve.Instance != nullptr ? ve.Instance : ve.Sprite->Instance.get();
+                ve.Row                     = MeshRendererDetail::AppendRow(
+                     ve.Sprite->Rows, MeshRendererDetail::EffectiveRow( ve.Sprite->Material.get(), instance ) );
+            }
+            for ( auto& [cell, sprite] : m_Sprites )
+            {
+                if ( !sprite || sprite->Rows.empty() )
+                    continue;
+                if ( auto* sb = sprite->Material->Get<StorageBufferProperty>( "Materials" ) )
+                    sb->SetRawData( sprite->Rows.data(),
+                                    static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
+                SceneCameraBind( sprite->Material.get(), *view );
+            }
+
+            // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
+            // read-only in this node), bound only where the cell's layout samples it.
+            const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
             for ( const ViewEmitter& ve : m_ViewEmitters )
             {
                 if ( !IsDrawn( ve ) )
                     continue;
-                GraphicsPipeline* pipeline = BillboardPipeline( ve );
-                if ( pipeline == nullptr )
-                    continue; // the exec refuses the emitter by name before it opens a block
-                ve.Material->Update( *view );
-                ShaderBindingLayoutCache& layout = DrawsAdditive( ve ) ? m_AddLayout : m_AlphaLayout;
-                declared
-                     .Bindings( layout.Get( pipeline->GetSpecification().Shader ),
-                                ve.Material->GetMaterialExecutor()->GetRouteFill() )
-                     .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageRead )
-                     .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead );
+                const RDG::ShaderBindingLayout& layout =
+                     ve.Sprite->Layout.Get( ve.Sprite->Pipeline->GetSpecification().Shader );
+                auto& block =
+                     declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
+                          .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageRead )
+                          .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead );
+                if ( SceneViewDetail::LayoutSamples( layout, "u_SceneDepth" ) && depth )
+                    block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
+                                   RDG::SamplerDesc::LinearRepeat(), "SceneDepth.Compute" );
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };
