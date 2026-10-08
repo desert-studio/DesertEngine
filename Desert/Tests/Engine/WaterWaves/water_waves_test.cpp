@@ -16,6 +16,7 @@
 
 #include <Common/Content/ContentKinds.hpp>
 
+#include <glm/geometric.hpp>
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
 
