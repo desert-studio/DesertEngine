@@ -9,6 +9,7 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Panels/Clouds/CloudDocumentOpen.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserImport.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserUtils.hpp>
 #include <Editor/Panels/FileExplorer/FileTypeInfo.hpp>
 #include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
@@ -99,21 +100,61 @@ namespace Desert::Editor
                         .OnBack              = [this] { GoBack(); },
                         .OnForward           = [this] { GoForward(); },
                         .OnRefresh           = [this] { QueueRefresh(); },
-                        .OnNewFolder         = [this] { CreateNewFolder(); },
-                        .OnImport            = [this] { ImportExternalTexture(); } } ),
-           m_AssetView(
-                { .OnDrawTile = [this]( int dirIndex, bool folder, int shownIndex, bool gridView )
-                  { return RenderFile( dirIndex, folder, shownIndex, gridView ); },
-                  .IsSelected = [this]( const DirectoryInformation* entry ) { return IsSelected( entry ); },
-                  .OnBackgroundContextMenu = [this] { DrawBackgroundContextMenu(); },
-                  .OnClearSelection =
-                       [this]
-                  {
-                      m_Selection.clear();
-                      m_CurrentSelected = nullptr;
-                  } } ),
+                        .OnNewFolder =
+                             [this]
+                        {
+                            if ( m_CurrentDir )
+                                m_NewAssetMenu.CreateNewFolder( *m_CurrentDir );
+                        },
+                        .OnImport =
+                             [this]
+                        {
+                            if ( ContentBrowserImport::ImportTextureFromDialog( m_AssetManager, m_CurrentDir ) )
+                                QueueRefresh();
+                        } } ),
+           m_AssetView( { .OnDrawTile = [this]( int dirIndex, bool folder, int shownIndex, bool gridView )
+                          { return RenderFile( dirIndex, folder, shownIndex, gridView ); },
+                          .IsSelected = [this]( const DirectoryInformation* entry )
+                          { return m_Selection.Contains( entry ); },
+                          .OnBackgroundContextMenu = [this] { DrawBackgroundContextMenu(); },
+                          .OnClearSelection        = [this] { m_Selection.Deselect(); } } ),
            m_Model( rootPath.string() ), m_AssetManager( assetManager ), m_SubjectEditors( subjectEditors ),
-           m_ViewportScene( std::move( viewportScene ) )
+           m_ViewportScene( std::move( viewportScene ) ),
+           m_ThumbnailEdit(
+                m_AssetManager, m_ViewportScene,
+                { .CookedPictureOf = [this]( const std::string& path, FileType type ) -> std::optional<std::string>
+                  {
+                      if ( const std::optional<MeshPicture> picture = MeshPictureFor( path, type ) )
+                          return picture->Cooked;
+                      return std::nullopt;
+                  },
+                  .MeshSourceOf = [this]( const DirectoryInformation& entry ) { return MeshSourceFor( entry ); },
+                  .TextureOf    = [this]( const std::string& png ) -> ImTextureID
+                  {
+                      if ( !m_Thumbnails || !m_UIHelper )
+                          return nullptr;
+                      const auto img = m_Thumbnails->Get( png );
+                      return img ? m_UIHelper->GetTextureID( img ) : nullptr;
+                  },
+                  .OnCaptured =
+                       [this]( const std::string& png, const std::string& assetPath )
+                  {
+                      if ( m_Thumbnails )
+                          m_Thumbnails->Invalidate( png ); // drop the cached decode: the grid reloads
+                      m_FailedThumbs.erase( assetPath );   // a refused tile shows the captured picture
+                  } } ),
+           m_NewAssetMenu(
+                m_AssetManager, m_ViewportScene,
+                { .OnRefresh            = [this] { QueueRefresh(); },
+                  .OnSelectAfterRefresh = [this]( const std::string& path ) { m_SelectAfterRefresh = path; },
+                  .OnStatus             = [this]( const std::string& line ) { m_FileOpStatus = line; } } ),
+           m_ItemMenu( m_Selection, m_ThumbnailEdit,
+                       { .OnRefresh     = [this] { QueueRefresh(); },
+                         .OnOpenFolder  = [this]( DirectoryInformation* dir ) { ChangeDirectory( dir ); },
+                         .OnStatus      = [this]( const std::string& line ) { m_FileOpStatus = line; },
+                         .CanAddToScene = [this] { return m_NewAssetMenu.CanAddPrefabToScene(); },
+                         .OnAddToScene  = [this]( const std::string& path )
+                         { m_NewAssetMenu.AddPrefabToScene( path ); } } )
     {
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
@@ -139,29 +180,15 @@ namespace Desert::Editor
         m_RestoringFolder = false;
     }
 
-    FileExplorerPanel::~FileExplorerPanel()
-    {
-        // CANCEL, THEN WAIT. The worker writes into m_CloudBakeProgress and into a path this object owns,
-        // so the panel must outlive it; waiting rather than detaching is the difference between a slow
-        // editor shutdown and a use-after-free. The same discipline CloudModellingVolumePanel keeps, for
-        // the same reason.
-        //
-        // The cancel bounds the wait for a `.dcmv` (the bake asks the callback whether to carry on between
-        // slabs). A `.dcnv` cannot be cancelled — Assets::GenerateCloudNoiseVolume takes a progress
-        // pointer and no stop condition — so closing the editor during one waits out the remainder of a
-        // bake measured at 8.7 s in Debug. That is the existing CloudNoiseVolumePanel's behaviour too, and
-        // fixing it means a stop hook on an engine function this task does not own.
-        m_CloudBakeCancelled.store( true );
-        if ( m_CloudBake.valid() )
-            m_CloudBake.wait();
-    }
+    // The cloud bake's worker is NewAssetMenu's, and its destructor cancels and waits for it.
+    FileExplorerPanel::~FileExplorerPanel() = default;
 
     void FileExplorerPanel::OnPreUpdate()
     {
         // BEFORE the throttle and before the early return on a null directory: a generation that has
         // finished must be collected on the frame it finished, whatever the browser is looking at. A
         // future nobody polls is a thread whose result is thrown away at shutdown.
-        PollCloudAssetBake();
+        m_NewAssetMenu.Poll();
 
         if ( m_CurrentDir != nullptr && m_Watcher.Poll( m_CurrentDir->AssetPath ) )
         {
@@ -174,7 +201,7 @@ namespace Desert::Editor
     {
         if ( !directory )
             return;
-        LeaveThumbnailEdit(); // the edited tile is not in the folder being opened
+        m_ThumbnailEdit.Leave(); // the edited tile is not in the folder being opened
 
         m_CurrentDir = directory;
         m_Toolbar.InvalidateBreadcrumbs();
@@ -491,276 +518,9 @@ namespace Desert::Editor
         m_History.Step( +1, [this]( const std::string& path ) { (void)NavigateToPath( path ); } );
     }
 
-    void FileExplorerPanel::AddPrefabToScene( const std::string& prefabPath )
-    {
-        auto scene = m_ViewportScene.lock();
-        if ( !scene || !m_AssetManager )
-            return;
-
-        auto prefab = m_AssetManager->FindByPath<Assets::PrefabAsset>( prefabPath );
-        if ( !prefab )
-            prefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>( prefabPath );
-        if ( !prefab )
-            return;
-        if ( !prefab->IsReadyForUse() )
-            prefab->Load();
-
-        // Same instantiate path the viewport-drop uses (undoable, selects the new root). Under the
-        // SELECTED entity when there is one, so a UI prefab inserted from here lands inside the canvas
-        // the author is working in rather than at the scene root, where it would draw nothing.
-        ECS::Entity parentEntity;
-        if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
-        {
-            if ( auto ref = scene->FindEntityByID( *sel ) )
-            {
-                parentEntity = ref->get();
-            }
-        }
-
-        const auto placed = prefab->Instantiate( scene.get(), *m_AssetManager, parentEntity, nullptr );
-        if ( !placed )
-        {
-            LOG_ERROR( "{}", placed.GetError() );
-            return;
-        }
-        const ECS::Entity root = placed.GetValue();
-        if ( root )
-        {
-            const auto uuid = root.GetComponent<ECS::UUIDComponent>().UUID;
-            Core::SelectionManager::SetSelected( uuid );
-            Commands::NotifyCreated( { uuid } );
-        }
-    }
-
-    void FileExplorerPanel::CreateNewMaterial()
-    {
-        if ( !m_CurrentDir )
-            return;
-        const std::string ext( Common::Constants::Extensions::MATERIAL_EXTENSION );
-        const std::string name = AssetFileOps::UniqueName(
-             "NewMaterial", ext, [&]( const std::string& n )
-             { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
-        const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
-        // A new material states the project's default surface template (never a default by absence);
-        // no params, no textures. The refresh below is what puts the new material in front of the user, so it runs
-        // only when there is a file to show: a refresh over a failed write just redraws the old listing and the
-        // user is left believing the "New Material" menu item did nothing at all.
-        Assets::MaterialData data;
-        if ( m_AssetManager == nullptr )
-        {
-            LOG_ERROR( "[Content] '{}' was not created: no asset manager is bound", path.generic_string() );
-            return;
-        }
-        if ( const auto stated = MaterialAssetUtils::StateDefaultSurface( data, *m_AssetManager ); !stated )
-        {
-            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), stated.GetError() );
-            return;
-        }
-        if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
-        {
-            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), written.GetError() );
-            return;
-        }
-        QueueRefresh();
-    }
-
     Common::BoolResultStr FileExplorerPanel::CreateNewLevelSequence()
     {
-        if ( m_CurrentDir == nullptr )
-            return Common::MakeError( "New Level Sequence: the Assets window has no folder open" );
-        const std::string ext( ::Desert::Animation::Timeline::kLevelSequenceExtension );
-        const std::string name = AssetFileOps::UniqueName(
-             "NewLevelSequence", ext, [&]( const std::string& n )
-             { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
-        const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
-        // UE's new ULevelSequence: no bindings, no tracks, a five-second playback range on the project's
-        // tick rate. The range is stated, never implied by an empty 0..0 a player would clamp to one frame.
-        ::Desert::Animation::Timeline::Sequence sequence;
-        sequence.Host = ::Desert::Animation::Timeline::SequenceHost::LevelSequence;
-        sequence.End  = ::Desert::Animation::SecondsToFrameTime( 5.0, sequence.TickRate ).Frame;
-        if ( const auto saved =
-                  Assets::LevelSequenceAsset::Save( path, sequence, Common::Content::AssetGuid::Generate() );
-             !saved )
-            return Common::MakeFormattedError( "New Level Sequence: {}", saved.GetError() );
-        // Selected once the refresh lists it (UE selects the new asset in the Content Browser).
-        m_SelectAfterRefresh = path.generic_string();
-        QueueRefresh();
-        return Common::MakeSuccess( true );
-    }
-
-    void FileExplorerPanel::CreateNewCloudAsset( CloudAssetKind kind )
-    {
-        if ( !m_CurrentDir )
-            return;
-
-        // The menu items are disabled while a generation is in flight; this is the second lock and it is
-        // not redundant, because overwriting m_CloudBake would detach a thread still storing into
-        // m_CloudBakeProgress.
-        if ( m_CloudBakeRunning )
-            return;
-
-        const char* stem = nullptr;
-        const char* ext  = nullptr;
-        switch ( kind )
-        {
-            case CloudAssetKind::Type:
-                stem = "NewCloudType";
-                ext  = Assets::kCloudTypeExtension;
-                break;
-            case CloudAssetKind::Layout:
-                stem = "NewCloudLayout";
-                ext  = Assets::kCloudLayoutExtension;
-                break;
-            case CloudAssetKind::NoiseVolume:
-                stem = "NewCloudNoise";
-                ext  = Assets::kCloudNoiseVolumeExtension;
-                break;
-            case CloudAssetKind::ModellingVolume:
-                stem = "NewCloudBody";
-                ext  = Assets::kCloudModellingVolumeExtension;
-                break;
-        }
-
-        // The same uniquifier the material item uses, so creating a second one never silently overwrites
-        // somebody's file.
-        const std::string name = AssetFileOps::UniqueName(
-             stem, ext, [&]( const std::string& n )
-             { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
-
-        // THE DIRECTORY IS THE ONE THE ARTIST IS LOOKING AT, not Constants::Path::CLOUD_*_PATH. Those name
-        // where the SHIPPED library lives and are what a scene resolves a preset against; where somebody
-        // puts their own asset is their business, and the same choice the material item already makes.
-        const std::filesystem::path path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
-
-        m_CloudBakePath  = path.string();
-        m_CloudBakeLabel = name;
-
-        // ── The two that are numbers, and are written where they were asked for ────────────────────────
-        //
-        // Through the format's own `Save` and NOT through a literal, which is what CreateNewMaterial above
-        // does: it writes `{"Params":[],"Textures":[]}` straight out, past the serialiser that every other
-        // writer of a `.demat` goes through. That is a second statement of a file format, and a second
-        // statement drifts — the material the editor saves after touching one already carries parameter
-        // entries (`AOStrength` among them) that this literal has never heard of. All four cloud formats
-        // have a real `Save`, so there is exactly one statement of each of them and this is not the place
-        // to add a fifth.
-        if ( kind == CloudAssetKind::Type )
-        {
-            FinishCloudAsset(
-                 Assets::CloudTypeAsset::Save( path, NewCloudAsset::DefaultType( path.stem().string() ) ) );
-            return;
-        }
-
-        if ( kind == CloudAssetKind::Layout )
-        {
-            auto layout = NewCloudAsset::DefaultLayout();
-            if ( !layout )
-            {
-                FinishCloudAsset( Common::MakeFormattedError<bool>( "{}", layout.GetError() ) );
-                return;
-            }
-
-            FinishCloudAsset( Assets::CloudLayoutAsset::Save( path, layout.GetValue() ) );
-            return;
-        }
-
-        // ── The two that are voxels, and cost seconds ──────────────────────────────────────────────────
-        //
-        // MEASURED, NOT REASONED (Debug, this machine, minimum of three interleaved runs): the default
-        // 128^3 noise volume takes 8 730 ms to generate (spread 255 ms) and the shipped modelling recipe
-        // 1 585 ms (spread 9 ms). Both are three orders of magnitude past a frame, so neither can run in
-        // this handler — an editor that stops answering for nine seconds is indistinguishable from one
-        // that has hung, and the artist's next move is to click the item again.
-        //
-        // std::async, matching CloudNoiseVolumePanel and CloudModellingVolumePanel, which run these same
-        // two bakes this same way: copying how the neighbouring systems do it rather than inventing a
-        // third way. The JobSystem would buy nothing here either — GenerateCloudNoiseVolume already splits
-        // itself across one thread per hardware thread, so a pool worker would only nest two pools.
-        m_CloudBakeProgress.store( 0.0f );
-        m_CloudBakeCancelled.store( false );
-        m_CloudBakeRunning = true;
-
-        m_CloudBake = std::async( std::launch::async,
-                                  [this, path, kind]() -> Common::BoolResultStr
-                                  {
-                                      // SAVED ON THE WORKER, and it is safe for a reason worth stating: all four
-                                      // `Save`s are pure file I/O plus a log line — no AssetManager, no ECS, no
-                                      // GPU — which is exactly the set a job is forbidden to touch. Handing 8 MiB
-                                      // back to the main thread to write there would only move the disk stall into
-                                      // the frame.
-                                      if ( kind == CloudAssetKind::NoiseVolume )
-                                      {
-                                          auto volume = NewCloudAsset::DefaultNoiseVolume( &m_CloudBakeProgress );
-                                          if ( !volume )
-                                              return Common::MakeFormattedError<bool>( "{}", volume.GetError() );
-
-                                          return Assets::CloudNoiseVolumeAsset::Save( path, volume.GetValue() );
-                                      }
-
-                                      auto body = NewCloudAsset::DefaultModellingVolume(
-                                           [this]( float fraction )
-                                           {
-                                               m_CloudBakeProgress.store( fraction );
-                                               return !m_CloudBakeCancelled.load();
-                                           } );
-                                      if ( !body )
-                                          return Common::MakeFormattedError<bool>( "{}", body.GetError() );
-
-                                      return Assets::CloudModellingVolumeAsset::Save( path, body.GetValue() );
-                                  } );
-    }
-
-    void FileExplorerPanel::PollCloudAssetBake()
-    {
-        if ( !m_CloudBakeRunning || !m_CloudBake.valid() )
-            return;
-
-        if ( m_CloudBake.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
-            return;
-
-        const Common::BoolResultStr written = m_CloudBake.get();
-        m_CloudBakeRunning                  = false;
-        FinishCloudAsset( written );
-    }
-
-    void FileExplorerPanel::FinishCloudAsset( const Common::BoolResultStr& written )
-    {
-        if ( !written )
-        {
-            // NEVER SILENT (contract §1.4). `Save` refuses an unwritable directory, a full disk and data
-            // that would not load back, each with the reason; a "New ..." item that sometimes produces no
-            // file and says nothing is worse than no item at all.
-            LOG_ERROR( "[Assets] '{}' could not be created: {}", m_CloudBakePath, written.GetError() );
-            m_FileOpStatus = "Could not create '" + m_CloudBakeLabel + "': " + written.GetError();
-            return;
-        }
-
-        QueueRefresh();
-
-        // OPENED STRAIGHT AWAY, because creating one of these is the only way to reach its editor at all:
-        // the four cloud documents are contextual, keyed on an asset handle, and have no View-menu entry,
-        // so until a file exists there is nothing for the double-click seam to open. RequestCloudDocument
-        // logs its own failures with the path.
-        if ( m_AssetManager &&
-             RequestCloudDocument( m_AssetManager, m_CloudBakePath ) != CloudDocumentRequest::Requested )
-        {
-            m_FileOpStatus = "Created '" + m_CloudBakeLabel + "' but it would not open — the log says why.";
-            return;
-        }
-
-        // The status line is the RED error line; a success has the file, the opened document and Save's own
-        // log entry to show for itself, so it clears rather than colours one.
-        m_FileOpStatus.clear();
-    }
-
-    void FileExplorerPanel::DrawCloudAssetBakeStatus()
-    {
-        if ( !m_CloudBakeRunning )
-            return;
-
-        const std::string line = "Creating '" + m_CloudBakeLabel + "' - this takes a few seconds.";
-        ImGui::TextUnformatted( line.c_str() );
-        ImGui::ProgressBar( m_CloudBakeProgress.load(), ImVec2( -1.0f, 0.0f ) );
+        return m_NewAssetMenu.CreateNewLevelSequence( m_CurrentDir );
     }
 
     ImVec2 GetAspectCorrectedSize( const ImVec2& originalSize, float maxSize )
@@ -774,12 +534,12 @@ namespace Desert::Editor
 
     void FileExplorerPanel::OnUIRender()
     {
-        HandleSelectionShortcuts();
+        m_ItemMenu.HandleShortcuts( m_CurrentDir );
 
         // File-op modals (rename / delete) + last error line.
-        DrawFileOpsPopups();
+        m_ItemMenu.DrawPopups();
         DrawFileOpStatus();
-        DrawCloudAssetBakeStatus();
+        m_NewAssetMenu.DrawBakeStatus();
         ApplyPendingRefresh();
 
         // ── Content Browser (UE SContentBrowser): two panes split by a draggable vertical splitter. LEFT = the
@@ -824,40 +584,6 @@ namespace Desert::Editor
         m_PathView.AcceptMoveDropOnLastItem();
     }
 
-    // Keyboard shortcuts on the selected item (panel focused, no text field active): F2 rename, Del delete,
-    // Ctrl/Cmd + C / X / V.
-    void FileExplorerPanel::HandleSelectionShortcuts()
-    {
-        if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) && m_CurrentSelected &&
-             !ImGui::GetIO().WantTextInput )
-        {
-            if ( ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
-            {
-                static_cast<void>( RenameSelected() );
-            }
-            if ( ImGui::IsKeyPressed( ImGuiKey_Delete, false ) )
-            {
-                m_PendingDeleteList = SelectionPaths();
-                m_DeleteReferencers.clear();
-                m_ShowDeleteConfirm = true;
-            }
-            // Clipboard: Ctrl/Cmd + C / X / V.
-            const bool mod = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper;
-            if ( mod && ImGui::IsKeyPressed( ImGuiKey_C, false ) )
-            {
-                m_Clipboard    = SelectionPaths();
-                m_ClipboardCut = false;
-            }
-            if ( mod && ImGui::IsKeyPressed( ImGuiKey_X, false ) )
-            {
-                m_Clipboard    = SelectionPaths();
-                m_ClipboardCut = true;
-            }
-            if ( mod && ImGui::IsKeyPressed( ImGuiKey_V, false ) )
-                PasteClipboard();
-        }
-    }
-
     void FileExplorerPanel::DrawFileOpStatus()
     {
         if ( m_FileOpStatus.empty() )
@@ -882,114 +608,24 @@ namespace Desert::Editor
         }
     }
 
-    void FileExplorerPanel::CreateNewFolder()
-    {
-        std::string fullPath = m_CurrentDir->AssetPath + "/NewFolder";
-        std::filesystem::create_directory( fullPath );
-        QueueRefresh();
-    }
-
     void FileExplorerPanel::DrawBackgroundContextMenu()
     {
-        if ( !m_Clipboard.empty() && ImGui::Selectable( m_ClipboardCut ? "Paste (move)" : "Paste (copy)" ) )
-        {
-            PasteClipboard();
-        }
+        const auto& clipboard = m_Selection.Clipboard();
+        if ( !clipboard.empty() &&
+             ImGui::Selectable( m_Selection.ClipboardIsCut() ? "Paste (move)" : "Paste (copy)" ) )
+            m_ItemMenu.Paste( m_CurrentDir );
 
         ImGui::Separator();
 
         if ( ImGui::Selectable( "Import Texture..." ) )
-        {
-            ImportExternalTexture();
-        }
+            if ( ContentBrowserImport::ImportTextureFromDialog( m_AssetManager, m_CurrentDir ) )
+                QueueRefresh();
 
         if ( ImGui::Selectable( "Refresh" ) )
-        {
             QueueRefresh();
-        }
 
-        if ( ImGui::Selectable( "New folder" ) )
-            CreateNewFolder();
-
-        if ( ImGui::Selectable( "New Material" ) )
-            CreateNewMaterial();
-
-        if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
-            if ( const auto created = CreateNewLevelSequence(); !created )
-                LOG_ERROR( "[Content] {}", created.GetError() );
-
-        // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
-        // it decides the output node, vertex contract and palette of the new graph.
-        if ( ImGui::BeginMenu( "New Shader Graph" ) )
-        {
-            auto createGraph = [&]( ShaderGraph::Domain domain )
-            {
-                const auto path = NodeGraphPanel::CreateNewGraphFile( m_CurrentDir->AssetPath, domain );
-                if ( path.empty() ) // not written — nothing to open, nothing new to list
-                    return;
-                // Through the SAME opener the double-click uses, so a graph created
-                // here and a graph opened from the tile reach one window by one route.
-                if ( RequestShaderGraphDocument( m_AssetManager, path ) != ShaderGraphDocumentRequest::Requested )
-                {
-                    LOG_ERROR( "[ShaderGraph] '{}' was created but would not open.", path );
-                }
-                QueueRefresh();
-            };
-            if ( ImGui::MenuItem( "Surface" ) )
-                createGraph( ShaderGraph::Domain::Surface );
-            if ( ImGui::MenuItem( "Post Process" ) )
-                createGraph( ShaderGraph::Domain::PostProcess );
-            // The cloud medium. Named for what an artist is authoring rather than
-            // for the engine's domain token: "Volume" is the word in the `.shader`
-            // and in ShaderDomain, and it means nothing beside "Surface" and "Post
-            // Process" until you already know what it is.
-            if ( ImGui::MenuItem( "Cloud Medium" ) )
-                createGraph( ShaderGraph::Domain::Volume );
-            ImGui::EndMenu();
-        }
-
-        // THE FOUR CLOUD FORMATS. Until this menu existed not one of them could be
-        // created: all four editors are contextual documents keyed on an asset handle,
-        // so the double-click seam had nothing to open and an artist could edit the
-        // twenty-one shipped assets and author none of their own.
-        //
-        // A submenu for the reason "New Shader Graph" is one — four more top-level
-        // items would be half the menu.
-        if ( ImGui::BeginMenu( "New Cloud Asset" ) )
-        {
-            // Disabled while a volume is being generated: only one creation is tracked
-            // at a time, and a second click would detach the first bake's thread.
-            ImGui::BeginDisabled( m_CloudBakeRunning );
-
-            if ( ImGui::MenuItem( "Cloud Type" ) )
-                CreateNewCloudAsset( CloudAssetKind::Type );
-            if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "A kind of cloud: altitudes, silhouette curve, "
-                                   "density. Starts from the built-in congestus." );
-
-            if ( ImGui::MenuItem( "Cloud Layout" ) )
-                CreateNewCloudAsset( CloudAssetKind::Layout );
-            if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "A blank 512x512 painting of where clouds are. "
-                                   "Draw on it in the layout document." );
-
-            if ( ImGui::MenuItem( "Cloud Noise Volume" ) )
-                CreateNewCloudAsset( CloudAssetKind::NoiseVolume );
-            if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "The 3D noise cloud edges are eroded with, 128^3 "
-                                   "RGBA8. Generated in the background - it takes "
-                                   "several seconds and a progress bar appears above." );
-
-            if ( ImGui::MenuItem( "Cloud Modelling Volume" ) )
-                CreateNewCloudAsset( CloudAssetKind::ModellingVolume );
-            if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "A hero cloud's sculpted body, 128x64x128. Starts "
-                                   "from the shipped congestus and is baked in the "
-                                   "background." );
-
-            ImGui::EndDisabled();
-            ImGui::EndMenu();
-        }
+        if ( m_CurrentDir )
+            m_NewAssetMenu.Draw( *m_CurrentDir );
     }
 
     // Emit the drag-drop payloads a dragged asset can be dropped as. Target widgets accept exactly the
@@ -1427,334 +1063,19 @@ namespace Desert::Editor
         return false;
     }
 
-    void FileExplorerPanel::ImportExternalTexture()
-    {
-        const auto picked =
-             DesktopPlatform::OpenFileDialog( "Images\0*.png;*.tga;*.jpg;*.jpeg;*.bmp;*.hdr\0All\0*.*\0" );
-        if ( !picked.empty() )
-            ImportExternalFile( picked );
-    }
-
-    void FileExplorerPanel::ImportExternalFile( const std::filesystem::path& src )
-    {
-        std::error_code ec;
-        if ( !m_AssetManager || src.empty() || !std::filesystem::exists( src, ec ) ||
-             std::filesystem::is_directory( src, ec ) )
-            return;
-
-        // Copy into the current dir (assets must live under Resources/ so the cook paths stay project-relative).
-        const std::filesystem::path texDir = Common::Constants::Path::TEXTUREDIR_PATH;
-        std::filesystem::path       destDir =
-             m_CurrentDir != nullptr ? std::filesystem::path( m_CurrentDir->AssetPath ) : texDir;
-        if ( !std::filesystem::is_directory( destDir ) )
-            destDir = texDir;
-        std::filesystem::create_directories( destDir, ec );
-
-        std::filesystem::path dest = destDir / src.filename();
-        std::filesystem::copy_file( src, dest, std::filesystem::copy_options::overwrite_existing, ec );
-        if ( ec )
-        {
-            LOG_ERROR( "Import: failed to copy '{}' -> '{}': {}", src.string(), dest.string(), ec.message() );
-            return;
-        }
-
-        // Textures cook + register immediately (instantly usable / draggable). Other files just appear in
-        // the panel (meshes cook on next launch / Rebuild Cooked).
-        std::string ext = dest.extension().string();
-        if ( !ext.empty() && ext[0] == '.' )
-            ext = ext.substr( 1 );
-        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-        const FileType type = FileTypeOf( ext );
-        if ( type == FileType::Texture || type == FileType::Cubemap )
-            TextureDnD::ResolveOrImport( *m_AssetManager, dest.generic_string() );
-
-        QueueRefresh();
-    }
-
     bool FileExplorerPanel::OnWindowFileDropped( Common::EventWindowFileDrop& drop )
     {
+        bool landed = false;
         for ( const auto& path : drop.Paths )
-            ImportExternalFile( path );
-        return true;
-    }
-
-    void FileExplorerPanel::DrawItemContextMenu( DirectoryInformation& entry )
-    {
-        if ( !ImGui::BeginPopupContextItem( "##ItemContext" ) )
-            return;
-
-        // UE: a right click on an entry outside the selection selects it, so the menu's commands (which act on
-        // the selection, as the palette's do) act on what was clicked.
-        if ( !m_Selection.contains( entry.AssetPath ) )
-        {
-            m_Selection            = { entry.AssetPath };
-            m_SelectionAnchorShown = -1;
-        }
-        m_CurrentSelected      = &entry;
-        const std::string name = std::filesystem::path( entry.AssetPath ).filename().string();
-        ImGui::TextDisabled( "%s", name.c_str() );
-        ImGui::Separator();
-
-        if ( entry.IsFile )
-        {
-            CommandMenuItem( ContentBrowserCommand::Open ); // default app for this file type
-            CommandMenuItem( ContentBrowserCommand::ShowInExplorer );
-            CommandMenuItem( ContentBrowserCommand::OpenContainingFolder );
-
-            // Quick "Add to Scene" for prefabs (same instantiate path as dragging into the viewport).
-            if ( entry.Type == FileType::Prefab && !m_ViewportScene.expired() && m_AssetManager )
-            {
-                ImGui::Separator();
-                if ( ImGui::MenuItem( "Add to Scene" ) )
-                    AddPrefabToScene( entry.AssetPath );
-            }
-
-            // UE's Asset Actions > Reimport / Reimport with New File, for a mesh asset with an import source.
-            if ( ImportOptions::ImportSourceOfAsset( entry.AssetPath ) )
-            {
-                ImGui::Separator();
-                CommandMenuItem( ContentBrowserCommand::Reimport );
-                CommandMenuItem( ContentBrowserCommand::ReimportWithNewFile );
-            }
-
-            // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
-            if ( ThumbnailProducers::CaptureKeyOf( entry.Type ) && !m_ViewportScene.expired() )
-            {
-                ImGui::Separator();
-                CommandMenuItem( ContentBrowserCommand::CaptureThumbnail );
-            }
-
-            // UE "Edit Thumbnail": the tile itself becomes the orbit control. Offered only when the asset states
-            // an orbit to edit (a model with no import record has none); the item says why when it cannot.
-            if ( ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
-            {
-                ImGui::Separator();
-                const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
-                const auto                       stated =
-                     orbitFile ? ThumbnailEdit::ReadOrbit( *orbitFile )
-                                                     : Common::MakeError<Assets::ThumbnailOrbit>( "not imported: no picture to edit" );
-                CommandMenuItem( ContentBrowserCommand::EditThumbnail, m_EditThumbnailPath == entry.AssetPath,
-                                 stated.IsSuccess() );
-                if ( !stated && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
-                    ImGui::SetTooltip( "%s", stated.GetError().c_str() );
-            }
-        }
-        else
-        {
-            CommandMenuItem( ContentBrowserCommand::Open );
-            CommandMenuItem( ContentBrowserCommand::ShowInExplorer );
-            if ( ImGui::MenuItem( EditorPreferences::IsFavouriteFolder( entry.AssetPath ) ? "Remove from Favorites"
-                                                                                          : "Add to Favorites" ) )
-                EditorPreferences::ToggleFavouriteFolder( entry.AssetPath );
-        }
-
-        ImGui::Separator();
-        if ( ImGui::MenuItem( "Copy Path" ) )
-            ImGui::SetClipboardText(
-                 std::filesystem::absolute( entry.AssetPath ).make_preferred().string().c_str() );
-        if ( ImGui::MenuItem( "Copy Name" ) )
-            ImGui::SetClipboardText( name.c_str() );
-
-        // ---- File operations (cross-platform, selection-aware) ----
-        // Right-clicking an item outside the current multi-selection makes it the selection.
-        if ( !IsSelected( &entry ) )
-        {
-            m_Selection.clear();
-            m_Selection.insert( entry.AssetPath );
-            m_CurrentSelected = &entry;
-        }
-        const std::vector<std::string> sel   = SelectionPaths();
-        const size_t                   count = sel.size();
-
-        ImGui::Separator();
-        if ( count <= 1 && ImGui::MenuItem( "Rename", "F2" ) )
-        {
-            m_CurrentSelected = &entry;
-            static_cast<void>( RenameSelected() );
-        }
-        if ( ImGui::MenuItem( count > 1 ? "Duplicate selection" : "Duplicate" ) )
-        {
-            for ( const auto& p : sel )
-            {
-                std::string np, err;
-                if ( !AssetFileOps::Duplicate( p, np, err ) )
-                    m_FileOpStatus = "Duplicate failed: " + err;
-            }
+            landed = ContentBrowserImport::ImportFile( m_AssetManager, path, m_CurrentDir ) || landed;
+        if ( landed )
             QueueRefresh();
-        }
-        if ( ImGui::MenuItem( "Cut", "Ctrl+X" ) )
-        {
-            m_Clipboard    = sel;
-            m_ClipboardCut = true;
-        }
-        if ( ImGui::MenuItem( "Copy", "Ctrl+C" ) )
-        {
-            m_Clipboard    = sel;
-            m_ClipboardCut = false;
-        }
-        ImGui::Separator();
-        if ( ImGui::MenuItem( count > 1 ? "Delete selection" : "Delete", "Del" ) )
-        {
-            m_PendingDeleteList = sel;
-            m_DeleteReferencers.clear();
-            // Safe delete: warn if any file in the selection is still referenced (best-effort text scan).
-            AssetReferenceIndex idx;
-            BuildProjectAssetReferenceIndex( idx );
-            for ( const auto& p : sel )
-            {
-                std::error_code   ec;
-                const std::string rel =
-                     std::filesystem::relative( p, Common::Constants::Path::ASSETS_PATH, ec ).generic_string();
-                for ( const auto& r : idx.ReferencersOf( rel ) )
-                    m_DeleteReferencers.push_back( r );
-            }
-            m_ShowDeleteConfirm = true;
-        }
-
-        ImGui::EndPopup();
-    }
-
-    void FileExplorerPanel::DrawFileOpsPopups()
-    {
-        // ---- Rename ----
-        if ( m_ShowRenamePopup )
-        {
-            ImGui::OpenPopup( "Rename##assetRename" );
-            m_ShowRenamePopup = false;
-        }
-        if ( ImGui::BeginPopupModal( "Rename##assetRename", nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
-        {
-            ImGui::TextUnformatted( "New name:" );
-            ImGui::SetNextItemWidth( 320.0f );
-            const bool submit =
-                 ImGui::InputText( "##renameField", m_RenameBuf, sizeof( m_RenameBuf ),
-                                   ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll );
-            if ( ImGui::IsWindowAppearing() )
-                ImGui::SetKeyboardFocusHere( -1 );
-
-            if ( !m_RenameReferrers.empty() )
-            {
-                ImGui::Spacing();
-                ImGui::TextColored( ImVec4( 1.0f, 0.8f, 0.3f, 1.0f ),
-                                    "%zu asset(s) reference it and keep loading through a redirector:",
-                                    m_RenameReferrers.size() );
-                ImGui::BeginChild( "##renamerefs", ImVec2( 360.0f, 90.0f ), true );
-                for ( const auto& r : m_RenameReferrers )
-                    ImGui::BulletText( "%s", r.c_str() );
-                ImGui::EndChild();
-            }
-
-            if ( ImGui::Button( "Rename", ImVec2( 110.0f, 0.0f ) ) || submit )
-            {
-                const std::filesystem::path from = m_RenamePath;
-                std::string                 err;
-                if ( m_RenameBuf[0] == '\0' )
-                    m_FileOpStatus = "Rename failed: the name cannot be empty";
-                else if ( from.filename() != std::filesystem::path( m_RenameBuf ) )
-                {
-                    if ( ContentBrowserUtils::MoveOrRename( m_RenamePath, from.parent_path() / m_RenameBuf,
-                                                            "Rename", err ) )
-                        QueueRefresh();
-                    else
-                        m_FileOpStatus = "Rename failed: " + err;
-                }
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if ( ImGui::Button( "Cancel", ImVec2( 110.0f, 0.0f ) ) )
-                ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-
-        // ---- Delete (confirm, with a reference warning) ----
-        if ( m_ShowDeleteConfirm )
-        {
-            ImGui::OpenPopup( "Delete?##assetDelete" );
-            m_ShowDeleteConfirm = false;
-        }
-        if ( ImGui::BeginPopupModal( "Delete?##assetDelete", nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
-        {
-            if ( m_PendingDeleteList.size() == 1 )
-                ImGui::Text( "Delete \"%s\"?",
-                             std::filesystem::path( m_PendingDeleteList.front() ).filename().string().c_str() );
-            else
-                ImGui::Text( "Delete %zu items?", m_PendingDeleteList.size() );
-
-            if ( !m_DeleteReferencers.empty() )
-            {
-                ImGui::Spacing();
-                ImGui::TextColored(
-                     ImVec4( 1.0f, 0.6f, 0.3f, 1.0f ),
-                     "Warning: %zu asset(s) still reference the selection:", m_DeleteReferencers.size() );
-                ImGui::BeginChild( "##delrefs", ImVec2( 360.0f, 90.0f ), true );
-                for ( const auto& r : m_DeleteReferencers )
-                    ImGui::BulletText( "%s", r.c_str() );
-                ImGui::EndChild();
-            }
-            ImGui::Spacing();
-
-            ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.6f, 0.15f, 0.15f, 1.0f ) );
-            if ( ImGui::Button( "Delete", ImVec2( 110.0f, 0.0f ) ) )
-            {
-                for ( const auto& path : m_PendingDeleteList )
-                {
-                    std::string err;
-                    if ( !AssetFileOps::Delete( path, err ) )
-                        m_FileOpStatus = "Delete failed: " + err;
-                }
-                m_Selection.clear();
-                QueueRefresh();
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::PopStyleColor();
-            ImGui::SameLine();
-            if ( ImGui::Button( "Cancel", ImVec2( 110.0f, 0.0f ) ) )
-                ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-    }
-
-    bool FileExplorerPanel::IsSelected( const DirectoryInformation* entry ) const
-    {
-        return entry && m_Selection.count( entry->AssetPath ) != 0;
+        return true;
     }
 
     std::vector<std::string> FileExplorerPanel::SelectionPaths() const
     {
-        if ( !m_Selection.empty() )
-            return std::vector<std::string>( m_Selection.begin(), m_Selection.end() );
-        if ( m_CurrentSelected )
-            return { m_CurrentSelected->AssetPath };
-        return {};
-    }
-
-    void FileExplorerPanel::SelectClick( DirectoryInformation* entry, int shownIndex )
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        if ( io.KeyShift && m_SelectionAnchorShown >= 0 && m_CurrentDir )
-        {
-            const auto order = BuildDisplayOrder( m_CurrentDir, m_ViewState, m_Model.ShowsHiddenFiles() );
-            const int  lo    = m_SelectionAnchorShown < shownIndex ? m_SelectionAnchorShown : shownIndex;
-            const int  hi    = m_SelectionAnchorShown < shownIndex ? shownIndex : m_SelectionAnchorShown;
-            m_Selection.clear();
-            for ( int i = lo; i <= hi && i < static_cast<int>( order.size() ); ++i )
-                m_Selection.insert( m_CurrentDir->Children[order[i]]->AssetPath );
-        }
-        else if ( io.KeyCtrl || io.KeySuper ) // Cmd on macOS
-        {
-            if ( m_Selection.count( entry->AssetPath ) )
-                m_Selection.erase( entry->AssetPath );
-            else
-                m_Selection.insert( entry->AssetPath );
-            m_SelectionAnchorShown = shownIndex;
-        }
-        else
-        {
-            m_Selection.clear();
-            m_Selection.insert( entry->AssetPath );
-            m_SelectionAnchorShown = shownIndex;
-        }
-        m_CurrentSelected = entry;
+        return m_Selection.Paths();
     }
 
     std::vector<std::string> FileExplorerPanel::ShownEntries( bool folders ) const
@@ -1773,9 +1094,7 @@ namespace Desert::Editor
             for ( DirectoryInformation* child : m_CurrentDir->Children )
                 if ( child->AssetPath == path )
                 {
-                    m_Selection            = { path };
-                    m_CurrentSelected      = child;
-                    m_SelectionAnchorShown = -1;
+                    m_Selection.SelectOnly( *child );
                     return Common::MakeSuccess( true );
                 }
         return Common::MakeError( "select: '" + path + "' is not shown in the Assets window's current folder" );
@@ -1783,285 +1102,17 @@ namespace Desert::Editor
 
     Common::BoolResultStr FileExplorerPanel::RenameSelected()
     {
-        if ( m_CurrentSelected == nullptr )
-            return Common::MakeError( "rename: no asset is selected in the Assets window" );
-        m_RenamePath = m_CurrentSelected->AssetPath;
-        std::snprintf( m_RenameBuf, sizeof( m_RenameBuf ), "%s",
-                       std::filesystem::path( m_RenamePath ).filename().string().c_str() );
-        // What the dialog lists before the user confirms: the registry's edges, not a text scan.
-        m_RenameReferrers = Assets::ContentRegistry::Referrers( m_RenamePath );
-        m_ShowRenamePopup = true;
-        return Common::MakeSuccess( true );
-    }
-
-    void FileExplorerPanel::PasteClipboard()
-    {
-        if ( m_Clipboard.empty() || !m_CurrentDir )
-            return;
-        for ( const auto& src : m_Clipboard )
-        {
-            std::string np, err;
-            const bool  ok =
-                 m_ClipboardCut
-                       ? ContentBrowserUtils::MoveOrRename( src,
-                                                            std::filesystem::path( m_CurrentDir->AssetPath ) /
-                                                                 std::filesystem::path( src ).filename(),
-                                                            "Move", err )
-                       : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
-            if ( !ok )
-                m_FileOpStatus = "Paste failed: " + err;
-        }
-        if ( m_ClipboardCut )
-            m_Clipboard.clear(); // a cut is consumed by the paste
-        QueueRefresh();
-    }
-
-    Common::BoolResultStr FileExplorerPanel::CaptureThumbnailFromViewport( const DirectoryInformation& entry )
-    {
-        // WHERE THE PICTURE IS FILED: the key the asset's tile reads and the hash its judge compares. A PNG
-        // written under the asset path alone was not what a model's tile reads (its cooked mesh's key), and a
-        // PNG with no recorded hash is Capture to the judge, so the service shot over it.
-        const std::optional<ThumbnailProducers::CaptureKey> how =
-             entry.IsFile ? ThumbnailProducers::CaptureKeyOf( entry.Type ) : std::nullopt;
-        if ( !how )
-            return Common::MakeError<bool>( "its picture is not shot through a camera (a model, skeletal mesh, "
-                                            "skeleton, animation or material has one)" );
-        ThumbnailService::PictureKey key;
-        switch ( *how )
-        {
-            case ThumbnailProducers::CaptureKey::ImportedMesh:
-            {
-                const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
-                if ( !picture )
-                    return Common::MakeError<bool>(
-                         "not imported: there is no cooked mesh to file a picture under" );
-                key = ThumbnailService::MeshPictureKey( picture->Cooked );
-                break;
-            }
-            case ThumbnailProducers::CaptureKey::PosedFile:
-                key = ThumbnailService::MeshPictureKey( entry.AssetPath );
-                break;
-            case ThumbnailProducers::CaptureKey::MaterialFile:
-                key = ThumbnailService::MaterialPictureKey( entry.AssetPath );
-                break;
-        }
-
-        const auto scene = m_ViewportScene.lock();
-        if ( !scene )
-            return Common::MakeError<bool>( "there is no viewport scene to capture" );
-        const auto img = scene->GetFinalImage(); // the main viewport's post-processed render
-        if ( !img )
-            return Common::MakeError<bool>( "the viewport has not rendered a frame yet" );
-
-        Graphic::Renderer::GetInstance().WaitDeviceIdle(); // readback after the GPU finished the frame
-        // THE REFUSAL IS NOW DISTINGUISHABLE FROM AN EMPTY PICTURE. The size check below was the only
-        // thing standing between "the readback failed" and "the thumbnail is blank", and it answered
-        // both with a silent `return` — so a folder icon that never appeared looked exactly like one the
-        // user had not asked for.
-        const auto read = img->ReadPixelsRGBA8();
-        if ( !read.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "the viewport readback failed: {}", read.GetError() );
-
-        const std::vector<uint8_t>& src = read.GetValue();
-        const uint32_t              W   = img->GetWidth();
-        const uint32_t              H   = img->GetHeight();
-        if ( W == 0 || H == 0 || src.size() != static_cast<size_t>( W ) * H * 4 )
-            return Common::MakeFormattedError<bool>( "the viewport readback returned {} byte(s) for a {}x{} image",
-                                                     src.size(), W, H );
-
-        // Center-crop to a square, then downscale (nearest) to a square thumbnail — frame the asset in the
-        // viewport so the centered square captures it.
-        const uint32_t       side = ( W < H ) ? W : H; // (avoid std::min — windows.h min macro in this TU)
-        const uint32_t       ox   = ( W - side ) / 2;
-        const uint32_t       oy   = ( H - side ) / 2;
-        constexpr uint32_t   kOut = 512; // NOTE: not 'OUT' — that's a windows.h SAL macro in this TU
-        std::vector<uint8_t> out( static_cast<size_t>( kOut ) * kOut * 4 );
-        for ( uint32_t y = 0; y < kOut; ++y )
-            for ( uint32_t x = 0; x < kOut; ++x )
-            {
-                const uint32_t sx = ox + x * side / kOut;
-                const uint32_t sy = oy + y * side / kOut;
-                for ( uint32_t c = 0; c < 4; ++c )
-                    out[( ( y * kOut + x ) * 4 ) + c] = src[( ( sy * W + sx ) * 4 ) + c];
-            }
-
-        const std::string& png = key.Png;
-        std::error_code    ec;
-        std::filesystem::create_directories( std::filesystem::path( png ).parent_path(), ec );
-        stbi_flip_vertically_on_write( 0 ); // viewport readback is already upright (same as the offscreen path)
-        if ( stbi_write_png( png.c_str(), kOut, kOut, 4, out.data(), kOut * 4 ) == 0 )
-            return Common::MakeFormattedError<bool>( "the picture could not be written to '{}'", png );
-        if ( key.Hash )
-        {
-            if ( const Common::BoolResultStr recorded = ThumbnailFreshness::Record( png, *key.Hash ); !recorded )
-                return recorded;
-        }
-        if ( m_Thumbnails )
-            m_Thumbnails->Invalidate( png ); // drop the cached decode so the grid reloads the new image
-        m_FailedThumbs.erase( entry.AssetPath ); // a tile that was refused before shows the captured picture
-        LOG_INFO( "[Thumbnail] Captured from viewport -> {}", png );
-        return Common::MakeSuccess( true );
-    }
-
-    std::vector<DirectoryInformation*> FileExplorerPanel::SelectedEntries() const
-    {
-        std::vector<DirectoryInformation*> entries;
-        if ( m_CurrentDir == nullptr )
-            return entries;
-        const std::vector<std::string> selected = SelectionPaths();
-        for ( DirectoryInformation* child : m_CurrentDir->Children )
-            if ( std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
-                entries.push_back( child );
-        return entries;
-    }
-
-    void FileExplorerPanel::CommandMenuItem( ContentBrowserCommand command, bool selected, bool enabled )
-    {
-        const UICommandInfo& info     = CommandInfo( command );
-        const std::string    label    = std::string( info.Label );
-        const std::string    shortcut = std::string( info.Shortcut );
-        if ( !ImGui::MenuItem( label.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), selected, enabled ) )
-            return;
-        if ( const auto done = RunCommand( command ); !done )
-            LOG_ERROR( "[Content Browser] {}: {}", info.Label, done.GetError() );
+        return m_ItemMenu.Rename();
     }
 
     Common::BoolResultStr FileExplorerPanel::RunCommand( ContentBrowserCommand command )
     {
-        const std::string_view label = CommandInfo( command ).Label;
-        if ( command == ContentBrowserCommand::ClearSelection )
-        {
-            m_Selection.clear();
-            m_CurrentSelected      = nullptr;
-            m_SelectionAnchorShown = -1;
-            return Common::MakeSuccess( true );
-        }
-
-        const std::vector<DirectoryInformation*> entries = SelectedEntries();
-        if ( entries.empty() )
-            return Common::MakeFormattedError<bool>( "'{}': nothing is selected in the Content Browser", label );
-        const auto one = [&]() -> Common::ResultStr<DirectoryInformation*>
-        {
-            if ( entries.size() != 1 )
-                return Common::MakeFormattedError<DirectoryInformation*>(
-                     "'{}' acts on one asset, and {} are selected", label, entries.size() );
-            return Common::MakeSuccess( entries.front() );
-        };
-        // One body over every selected entry; the first refusal is the command's answer, the others still run.
-        const auto overEntries = [&]( const std::function<Common::BoolResultStr( DirectoryInformation& )>& body )
-             -> Common::BoolResultStr
-        {
-            Common::BoolResultStr outcome = Common::MakeSuccess( true );
-            for ( DirectoryInformation* entry : entries )
-                if ( const auto done = body( *entry ); !done && outcome )
-                    outcome = Common::MakeFormattedError<bool>( "'{}': {}", entry->AssetPath, done.GetError() );
-            return outcome;
-        };
-
-        switch ( command )
-        {
-            case ContentBrowserCommand::Open:
-            {
-                if ( entries.size() == 1 && !entries.front()->IsFile )
-                {
-                    ChangeDirectory( entries.front() );
-                    return Common::MakeSuccess( true );
-                }
-                return overEntries(
-                     [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
-                     {
-                         if ( !entry.IsFile )
-                             return Common::MakeError<bool>(
-                                  "a folder opens on its own, not in a multi-selection" );
-                         ContentBrowserUtils::ShellOpenDefault( entry.AssetPath );
-                         return Common::MakeSuccess( true );
-                     } );
-            }
-            case ContentBrowserCommand::ShowInExplorer:
-                return overEntries(
-                     []( DirectoryInformation& entry ) -> Common::BoolResultStr
-                     {
-                         ContentBrowserUtils::ShellRevealInExplorer( entry.AssetPath );
-                         return Common::MakeSuccess( true );
-                     } );
-            case ContentBrowserCommand::OpenContainingFolder:
-                // The selection lives in one folder: one window, not one per entry.
-                ContentBrowserUtils::ShellOpenDefault(
-                     std::filesystem::path( entries.front()->AssetPath ).parent_path().string() );
-                return Common::MakeSuccess( true );
-            case ContentBrowserCommand::Reimport:
-                return overEntries( []( DirectoryInformation& entry )
-                                    { return ImportOptions::Reimport( entry.AssetPath ); } );
-            case ContentBrowserCommand::ReimportWithNewFile:
-            {
-                const auto target = one();
-                if ( !target )
-                    return Common::MakeError<bool>( target.GetError() );
-                const auto chosen =
-                     DesktopPlatform::OpenFileDialog( "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
-                if ( chosen.empty() )
-                    return Common::MakeFormattedError<bool>( "'{}': no file was chosen", label );
-                return ImportOptions::ReimportWithNewFile( target.GetValue()->AssetPath, chosen );
-            }
-            case ContentBrowserCommand::CaptureThumbnail:
-                if ( m_ViewportScene.expired() )
-                    return Common::MakeFormattedError<bool>( "'{}': there is no viewport scene to capture",
-                                                             label );
-                return overEntries( [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
-                                    { return CaptureThumbnailFromViewport( entry ); } );
-            case ContentBrowserCommand::EditThumbnail:
-            {
-                const auto target = one();
-                if ( !target )
-                    return Common::MakeError<bool>( target.GetError() );
-                const DirectoryInformation& entry = *target.GetValue();
-                if ( !entry.IsFile || !ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
-                    return Common::MakeFormattedError<bool>(
-                         "'{}': '{}' has no thumbnail orbit (its picture is not shot through an orbit camera)",
-                         label, entry.AssetPath );
-                const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
-                if ( !orbitFile )
-                    return Common::MakeFormattedError<bool>( "'{}': '{}' has no picture to edit (not imported)",
-                                                             label, entry.AssetPath );
-                if ( const auto stated = ThumbnailEdit::ReadOrbit( *orbitFile ); !stated )
-                    return Common::MakeFormattedError<bool>( "'{}': {}", label, stated.GetError() );
-                if ( m_ThumbnailGesture )
-                    CommitThumbnailGesture();
-                m_EditThumbnailPath      = entry.AssetPath;
-                m_EditThumbnailOrbitFile = *orbitFile;
-                return Common::MakeSuccess( true );
-            }
-            case ContentBrowserCommand::ClearSelection:
-                break; // answered above: it needs no selection
-        }
-        return Common::MakeSuccess( true );
+        return m_ItemMenu.Run( command, m_CurrentDir );
     }
 
     std::vector<FileExplorerPanel::ThumbnailOrbitSubject> FileExplorerPanel::SelectedThumbnailSubjects()
     {
-        std::vector<ThumbnailOrbitSubject> subjects;
-        if ( m_CurrentDir == nullptr )
-            return subjects;
-        const std::vector<std::string> selected = SelectionPaths();
-        for ( const DirectoryInformation* child : m_CurrentDir->Children )
-            if ( std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
-                if ( std::optional<std::string> orbitFile = ThumbnailOrbitFile( *child ) )
-                    subjects.push_back( { child->AssetPath, std::move( *orbitFile ) } );
-        return subjects;
-    }
-
-    std::optional<std::string> FileExplorerPanel::ThumbnailOrbitFile( const DirectoryInformation& entry )
-    {
-        if ( !entry.IsFile || !ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
-            return std::nullopt;
-        const std::optional<ThumbnailProducers::Producer> how = ThumbnailProducers::ProducerOf( entry.Type );
-        if ( how == ThumbnailProducers::Producer::RenderedMaterial ||
-             how == ThumbnailProducers::Producer::RenderedPose )
-            return entry.AssetPath; // filed under itself (a posed kind is its own cooked form)
-        const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
-        if ( !picture )
-            return std::nullopt;
-        return picture->Cooked;
+        return m_ThumbnailEdit.SubjectsOf( m_Selection.EntriesIn( m_CurrentDir ) );
     }
 
     std::vector<std::string> FileExplorerPanel::ContentFolders() const
@@ -2092,130 +1143,6 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "{}: '{}' is not a file in '{}'", kSyncToAssetLabel, path,
                                                      folder );
         return Common::MakeSuccess( true );
-    }
-
-    void FileExplorerPanel::CommitThumbnailGesture()
-    {
-        if ( !m_ThumbnailGesture )
-            return;
-        const Assets::ThumbnailOrbit live = m_ThumbnailGesture->Live;
-        ThumbnailService::Get().EndPreview( m_ThumbnailGesture->PreviewKey );
-        m_ThumbnailGesture.reset();
-        if ( auto edited = ThumbnailEdit::EditOrbit( m_EditThumbnailOrbitFile, live ); !edited )
-            LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", m_EditThumbnailPath, edited.GetError() );
-    }
-
-    void FileExplorerPanel::LeaveThumbnailEdit()
-    {
-        CommitThumbnailGesture();
-        m_EditThumbnailPath.clear();
-        m_EditThumbnailOrbitFile.clear();
-    }
-
-    void FileExplorerPanel::RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture )
-    {
-        if ( m_AssetManager == nullptr )
-            return;
-        if ( entry.Type == FileType::Material )
-        {
-            const auto subject = ThumbnailSubject::ResolveMaterial(
-                 *m_AssetManager, entry.AssetPath, []( const std::string&, const auto& ) {} ); // tile asks again
-            if ( !subject )
-                return;
-            if ( const auto& material = subject.GetValue(); material )
-                gesture.PreviewPng =
-                     ThumbnailService::Get().RequestPreviewMaterial( *material, entry.AssetPath, gesture.Live );
-            return;
-        }
-        // A posed picture (a .skmesh / .skeleton / .anim, or a skinned source's .skmesh: ThumbnailOrbitFile) is
-        // the pose route's: the static route refuses a skinned mesh as "no drawable geometry".
-        if ( CookPaths::IsSkinnedAssetFile( m_EditThumbnailOrbitFile ) )
-        {
-            const auto pose = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, m_EditThumbnailOrbitFile );
-            if ( pose && !pose.GetValue().Pending )
-                gesture.PreviewPng = ThumbnailService::Get().RequestPreviewPose( pose.GetValue(), gesture.Live );
-            return;
-        }
-        const std::optional<std::string> source = MeshSourceFor( entry ); // a model, or a foliage type's mesh
-        if ( !source )
-            return;
-        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, *source );
-        if ( subject && !subject.GetValue().Pending )
-            gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMesh( subject.GetValue(), gesture.Live );
-    }
-
-    void FileExplorerPanel::DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min,
-                                               const ImVec2& max )
-    {
-        const ImGuiIO& io      = ImGui::GetIO();
-        const bool     hovered = ImGui::IsItemHovered();
-        const bool     active  = ImGui::IsItemActive();
-        if ( hovered )
-            ImGui::SetItemUsingMouseWheel(); // the wheel zooms the tile instead of scrolling the browser
-
-        const bool dragging = active && ImGui::IsMouseDragging( ImGuiMouseButton_Left, 0.0f );
-        const bool wheeled  = hovered && io.MouseWheel != 0.0f;
-        if ( ( dragging || wheeled ) && !m_ThumbnailGesture )
-        {
-            // The gesture starts from what the home states NOW (an undo since the last gesture moved it).
-            const auto stated = ThumbnailEdit::ReadOrbit( m_EditThumbnailOrbitFile );
-            if ( !stated )
-            {
-                LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", entry.AssetPath, stated.GetError() );
-                LeaveThumbnailEdit();
-                return;
-            }
-            // The preview is keyed where the tile's picture is (ThumbnailOrbitFile): a skinned source's is its
-            // .skmesh, not the .stmesh an extension swap would name.
-            std::string previewKey = m_EditThumbnailOrbitFile;
-            m_ThumbnailGesture = ThumbnailGesture{ .From       = stated.GetValue(),
-                                                   .Live       = stated.GetValue(),
-                                                   .Drag       = ImVec2( 0.0f, 0.0f ),
-                                                   .Wheel      = 0.0f,
-                                                   .LastWheel  = 0.0,
-                                                   .PreviewKey = std::move( previewKey ),
-                                                   .PreviewPng = {} };
-        }
-        if ( m_ThumbnailGesture )
-        {
-            ThumbnailGesture& g = *m_ThumbnailGesture;
-            if ( dragging )
-                g.Drag = ImGui::GetMouseDragDelta( ImGuiMouseButton_Left, 0.0f );
-            if ( wheeled )
-            {
-                g.Wheel += io.MouseWheel;
-                g.LastWheel = ImGui::GetTime();
-            }
-            g.Live = ThumbnailEdit::Orbited( g.From, g.Drag.x, g.Drag.y, g.Wheel );
-            RequestThumbnailPreview( entry, g ); // the service keeps only the newest orbit
-
-            // THE LIVE PICTURE over the tile, once this gesture's first preview has landed.
-            if ( !g.PreviewPng.empty() && m_Thumbnails && m_UIHelper &&
-                 ThumbnailService::Get().PreviewLanded( g.PreviewKey ) )
-                if ( const auto img = m_Thumbnails->Get( g.PreviewPng ) )
-                    if ( ImTextureID tex = m_UIHelper->GetTextureID( img ); tex != nullptr )
-                        ImGui::GetWindowDrawList()->AddImage( tex, min, max );
-
-            const bool wheelRests = g.Wheel != 0.0f && ImGui::GetTime() - g.LastWheel > kThumbnailWheelRestSeconds;
-            if ( !active && ( ImGui::IsItemDeactivated() || !hovered || wheelRests ) )
-                CommitThumbnailGesture();
-        }
-
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRect( ImVec2( min.x - 2.0f, min.y - 2.0f ), ImVec2( max.x + 2.0f, max.y + 2.0f ),
-                     ImGui::GetColorU32( ImGuiCol_DragDropTarget ), 4.0f, 0, 2.0f );
-        const std::string readout =
-             m_ThumbnailGesture
-                  ? std::format( "yaw {:.0f}  pitch {:.0f}  zoom {:.2f}", m_ThumbnailGesture->Live.Yaw,
-                                 m_ThumbnailGesture->Live.Pitch, m_ThumbnailGesture->Live.Zoom )
-                  : std::string( "drag / wheel" );
-        dl->AddText( ImVec2( min.x + 4.0f, min.y + 2.0f ), IM_COL32( 255, 255, 255, 230 ), readout.c_str() );
-
-        // Leaving: Esc, or a click anywhere outside this tile. A running gesture is committed first.
-        const bool clickedOutside = !hovered && ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ||
-                                                  ImGui::IsMouseClicked( ImGuiMouseButton_Right ) );
-        if ( ImGui::IsKeyPressed( ImGuiKey_Escape, false ) || clickedOutside )
-            LeaveThumbnailEdit();
     }
 
     ContentBrowserAssetView::TileResult FileExplorerPanel::RenderFile( int dirIndex, bool folder, int shownIndex,
@@ -2266,18 +1193,18 @@ namespace Desert::Editor
             const ImVec2 thumbMax = ImGui::GetItemRectMax();
 
             // In Edit Thumbnail mode the tile's drag is the orbit, not an asset drag.
-            const bool editingThumbnail = entry->IsFile && entry->AssetPath == m_EditThumbnailPath;
+            const bool editingThumbnail = entry->IsFile && m_ThumbnailEdit.IsEditing( entry->AssetPath );
             if ( editingThumbnail )
-                DrawThumbnailEdit( *entry, thumbMin, thumbMax );
+                m_ThumbnailEdit.Draw( *entry, thumbMin, thumbMax );
 
             if ( ImGui::IsItemClicked() )
-                SelectClick( entry, shownIndex );
+                m_Selection.Click( *entry, shownIndex, *m_CurrentDir, m_ViewState, m_Model.ShowsHiddenFiles() );
             if ( ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
                 doubleClicked = true;
 
             if ( !editingThumbnail )
                 EmitAssetDragSource( *entry );
-            DrawItemContextMenu( *entry );
+            m_ItemMenu.Draw( *entry, m_CurrentDir );
 
             if ( ImGui::IsItemHovered() && !ImGui::IsDragDropActive() )
                 DrawAssetTooltip( &*entry );
@@ -2333,7 +1260,7 @@ namespace Desert::Editor
             const float  cellLeft = thumbMin.x - indent;
             const ImVec2 cmin( cellLeft - 2.0f, thumbMin.y - 8.0f );
             const ImVec2 cmax( cellLeft + cellW + 2.0f, ImGui::GetItemRectMax().y + 6.0f );
-            const bool   sel   = IsSelected( entry );
+            const bool   sel   = m_Selection.Contains( entry );
             const bool   hover = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect( cmin, cmax );
             if ( hover )
                 hovered = true; // consumed by the asset view's empty-click deselect
@@ -2354,16 +1281,17 @@ namespace Desert::Editor
         else
         {
             const std::string label = std::string( icon ) + "  " + fileName;
-            if ( ImGui::Selectable( label.c_str(), IsSelected( entry ), ImGuiSelectableFlags_AllowDoubleClick ) )
+            if ( ImGui::Selectable( label.c_str(), m_Selection.Contains( entry ),
+                                    ImGuiSelectableFlags_AllowDoubleClick ) )
             {
-                SelectClick( entry, shownIndex );
+                m_Selection.Click( *entry, shownIndex, *m_CurrentDir, m_ViewState, m_Model.ShowsHiddenFiles() );
                 if ( ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
                     doubleClicked = true;
             }
             if ( ImGui::IsItemHovered() )
                 hovered = true;
             EmitAssetDragSource( *entry );
-            DrawItemContextMenu( *entry );
+            m_ItemMenu.Draw( *entry, m_CurrentDir );
         }
 
         if ( doubleClicked && folder )
@@ -2420,15 +1348,14 @@ namespace Desert::Editor
 
         // The rescan frees the child DirectoryInformation entries, so any raw pointer into them (the
         // selection) would dangle. Remember it by its stable path and re-resolve after the rescan.
-        const std::string selectedPath = m_CurrentSelected ? m_CurrentSelected->AssetPath : std::string();
-        m_CurrentSelected              = nullptr;
+        const std::string selectedPath = m_Selection.ReleaseCurrent();
 
         // Re-scan the current directory in place — navigation (m_CurrentDir / the tree) is preserved.
         m_Model.Rescan( m_CurrentDir );
         m_Toolbar.InvalidateBreadcrumbs();
 
         if ( !selectedPath.empty() )
-            m_CurrentSelected = m_Model.Find( selectedPath );
+            m_Selection.Rebind( m_Model.Find( selectedPath ) );
     }
 
     void FileExplorerPanel::DrawAssetTooltip( DirectoryInformation* entry )
