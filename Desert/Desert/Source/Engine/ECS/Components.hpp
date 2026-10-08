@@ -2952,9 +2952,21 @@ namespace Desert::ECS
     // behaviors live as a LIST of slots inside this one component — the same composition UE gets from
     // multiple ActorComponents). Each slot is an independent sandbox (its own env + properties + lifecycle);
     // all slots share the same `self` entity. ScriptSystem ticks every slot; entity:call() broadcasts to all.
+    /// A level sequence Event key's CallScript action (UE: an event endpoint on the bound actor): Lua function
+    /// `Function` is called on every started slot with the key's name, by ScriptSystem in its next update.
+    struct SequenceScriptCall
+    {
+        std::string Function;
+        std::string EventName;
+    };
+
     struct ScriptComponent
     {
         std::vector<ScriptSlot> Scripts;
+
+        // Transient, like AnimationComponent::PendingNotifies: queued by LevelSequenceEntityHost::Fire, drained
+        // (each call once) by ScriptSystem. Not serialized.
+        std::vector<SequenceScriptCall> PendingSequenceCalls;
     };
 
     // UE-style SOCKET attachment: makes this entity follow a BONE of another (skinned) entity, not just its

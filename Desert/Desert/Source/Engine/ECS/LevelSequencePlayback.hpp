@@ -9,6 +9,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -32,6 +34,27 @@ namespace Desert::ECS
      */
     using LevelSequenceClipSource =
          std::function<const Animation::AnimationClip*( const Common::Content::AssetGuid& clip )>;
+
+    /**
+     * @brief Where a Subsequence section's sequence is found (UE: the sub section's UMovieSceneSequence
+     * reference). `Find` returns the loaded sequence (nullptr = not loaded: the section is refused by name) and
+     * must outlive the step; `Name` is what a refusal calls it. LevelSequenceSubsequences (System/
+     * LevelSequenceSystem.hpp) is the one over AssetManager; the suite injects its own sequences.
+     */
+    struct LevelSequenceSubsequenceSource
+    {
+        std::function<const Animation::Timeline::Sequence*( const Common::Content::AssetGuid& sequence )> Find;
+        std::function<std::string( const Common::Content::AssetGuid& sequence )>                          Name;
+    };
+
+    /**
+     * @brief Refuses a sequence that plays itself through its Subsequence sections, directly (A -> A) or
+     * through others (A -> B -> A), naming the loop: "subsequence cycle: A -> B -> A". A section whose
+     * sequence @p source does not have is not followed (the step refuses it by name when it plays).
+     * LevelSequenceSystem checks this before an actor plays; the step refuses a looping section as well.
+     */
+    [[nodiscard]] Common::BoolResultStr CheckSubsequenceCycles( const Common::Content::AssetGuid&     root,
+                                                                const LevelSequenceSubsequenceSource& source );
 
     /// The Property prefix of a Material Parameter track: "Material.<slot>.<Parameter>".
     inline constexpr std::string_view kLevelSequenceMaterialPropertyPrefix = "Material.";
@@ -108,6 +131,15 @@ namespace Desert::ECS
      * (the sequence owns the playhead), `Play(clip, loop)` when another clip is current, `SetTick(time)`,
      * which wraps a looping clip and clamps a finished one. An entity with no Animator, a clip the source
      * does not have, or a section blended below full weight / additively is REFUSED by name.
+     *
+     * EVENTS (UE: the Event track's endpoints): every crossed key's name is recorded (`FiredEvents`); a key's
+     * Action then runs once, on an Instant key or where a ranged key begins:
+     *   PlaySound          the clip path goes to `Sounds()`; LevelSequenceSystem plays it one-shot (this host
+     *                      stays registry-only, so the suite needs no audio device)
+     *   ActivateParticles  the bound entity's Particle Emitter is enabled and restarted
+     *   CallScript         {function, key name} queued on the bound entity's ScriptComponent; ScriptSystem calls
+     *                      the function on every started slot with the key's name
+     * A particle or script action with no bound entity, or one without that component, is REFUSED by name.
      */
     class LevelSequenceEntityHost final : public Animation::Timeline::ITimelineHost
     {
@@ -119,7 +151,8 @@ namespace Desert::ECS
              Resolve( const Animation::Timeline::Binding& binding ) override;
         void Apply( const Animation::Timeline::ResolvedBinding& target, std::string_view property,
                     const Animation::Timeline::EvaluatedValue& value ) override;
-        void Fire( const Animation::Timeline::FiredEvent& event ) override;
+        void Fire( const Animation::Timeline::FiredEvent&                     event,
+                   const std::optional<Animation::Timeline::ResolvedBinding>& target ) override;
         void SetCamera( const std::optional<Animation::Timeline::ResolvedBinding>& camera ) override;
         void PlayAnimation( const Animation::Timeline::ResolvedBinding& target,
                             const Animation::Timeline::AnimationSample& sample ) override;
@@ -137,6 +170,16 @@ namespace Desert::ECS
         {
             return m_Fired;
         }
+        /// The clip paths of the PlaySound actions fired, in firing order.
+        [[nodiscard]] const std::vector<std::string>& Sounds() const
+        {
+            return m_Sounds;
+        }
+        /// A refusal found outside the seam's calls (a Subsequence section the step cannot play).
+        void Refuse( std::string message )
+        {
+            m_Refusals.push_back( std::move( message ) );
+        }
 
     private:
         entt::registry&               m_Registry;
@@ -146,6 +189,7 @@ namespace Desert::ECS
         std::optional<entt::entity>   m_CameraCut;
         std::vector<std::string>      m_Refusals;
         std::vector<std::string>      m_Fired;
+        std::vector<std::string>      m_Sounds;
     };
 
     /// One actor's playback state: the transport and the evaluator over the asset's sequence.
@@ -156,6 +200,11 @@ namespace Desert::ECS
         Animation::Timeline::Player         Player;
         Animation::Timeline::Evaluator      Evaluator;
         Animation::Timeline::EvaluatedFrame Frame;
+        /// The sequence's own asset: the root of the subsequence cycle check (null = not an asset).
+        Common::Content::AssetGuid Asset;
+        /// One child per Subsequence section, by (track, section) index: its own evaluator and resolved
+        /// bindings, re-made when the source hands a different sequence.
+        std::map<std::pair<uint32_t, uint32_t>, std::unique_ptr<LevelSequencePlayback>> Children;
     };
 
     struct LevelSequenceStep
@@ -165,15 +214,25 @@ namespace Desert::ECS
         std::optional<entt::entity> CameraCut;
         std::vector<std::string>    Refusals;
         std::vector<std::string>    FiredEvents;
+        /// The clip paths of the PlaySound actions fired this step, in firing order.
+        std::vector<std::string> Sounds;
     };
 
-    /// Evaluate @p step of @p playback's sequence and apply it to @p registry's entities.
-    [[nodiscard]] LevelSequenceStep StepLevelSequence( entt::registry&                      registry,
-                                                       const LevelSequenceComponent&        component,
-                                                       LevelSequencePlayback&               playback,
-                                                       const Animation::Timeline::TimeStep& step,
-                                                       const LevelSequenceClipSource&       clips     = {},
-                                                       const LevelSequenceMaterialSlots&    materials = {} );
+    /**
+     * @brief Evaluate @p step of @p playback's sequence and apply it to @p registry's entities.
+     *
+     * SUBSEQUENCES (UE: the Subsequences track): each Subsequence section the step passes through plays its
+     * sequence through the SAME host, at `MapSubsequenceTime` of the step's ends: on the leg that ends the step
+     * its values, animations, camera cut and events; on any other leg (a wrap's first half, a section the step
+     * left) its events only, so a key inside a subsequence fires once per forward crossing. Nested sections
+     * recurse. A section whose sequence @p subsequences does not have, or that would play a sequence already
+     * being played (a cycle), is refused by name.
+     */
+    [[nodiscard]] LevelSequenceStep
+    StepLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
+                       LevelSequencePlayback& playback, const Animation::Timeline::TimeStep& step,
+                       const LevelSequenceClipSource& clips = {}, const LevelSequenceMaterialSlots& materials = {},
+                       const LevelSequenceSubsequenceSource& subsequences = {} );
 
     /// The component's Playback Settings (Loop, PlayRate) onto @p player. Called before every advance, so an
     /// edit made while the sequence plays (Details, a script) is the next step's setting.
@@ -185,11 +244,12 @@ namespace Desert::ECS
      * in the packaged runtime: the play settings, the transport advanced by @p seconds of game time (× the
      * component's PlayRate, wrapped or clamped by its Loop), then that step evaluated and applied.
      */
-    [[nodiscard]] LevelSequenceStep AdvanceLevelSequence( entt::registry&               registry,
-                                                          const LevelSequenceComponent& component,
-                                                          LevelSequencePlayback& playback, double seconds,
-                                                          const LevelSequenceClipSource&    clips     = {},
-                                                          const LevelSequenceMaterialSlots& materials = {} );
+    [[nodiscard]] LevelSequenceStep
+    AdvanceLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
+                          LevelSequencePlayback& playback, double seconds,
+                          const LevelSequenceClipSource&        clips        = {},
+                          const LevelSequenceMaterialSlots&     materials    = {},
+                          const LevelSequenceSubsequenceSource& subsequences = {} );
 
     /**
      * @brief What an actor remembers between steps for the Scene half: which errors it already reported

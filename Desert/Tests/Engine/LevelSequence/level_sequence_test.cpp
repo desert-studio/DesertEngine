@@ -1219,3 +1219,264 @@ TEST( LevelSequenceAsset, AnActionWithoutItsTargetAndAStoppedSubsequenceAreRefus
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "time scale" ), std::string::npos ) << refused.GetError();
 }
+
+// ── SEQ1b: event actions, subsequences ─────────────────────────────────────────────────────────────────
+
+namespace
+{
+    T::EventKey EventAt( int32_t tick, const std::string& name,
+                         std::optional<T::EventAction> action = std::nullopt )
+    {
+        T::EventKey key;
+        key.Tick   = A::FrameNumber{ tick };
+        key.Name   = name;
+        key.Action = std::move( action );
+        return key;
+    }
+
+    /// "Door" (entity kDoorUuid) carries one Event track over ticks 0..100 holding @p keys.
+    T::Sequence EventDoor( std::vector<T::EventKey> keys )
+    {
+        T::Sequence sequence;
+        sequence.Host  = T::SequenceHost::LevelSequence;
+        sequence.Start = A::FrameNumber{ 0 };
+        sequence.End   = A::FrameNumber{ 100 };
+        sequence.Bindings.push_back(
+             T::Binding{ Guid( 1 ), T::BindingKind::Entity, std::to_string( kDoorUuid ), "Door", {} } );
+        T::Track events;
+        events.Binding = Guid( 1 );
+        events.Kind    = T::TrackKind::Event;
+        T::Section section;
+        section.Start = A::FrameNumber{ 0 };
+        section.End   = A::FrameNumber{ 100 };
+        T::EventChannel channel;
+        channel.Keys    = std::move( keys );
+        section.Content = T::Channel{ channel };
+        events.Sections.push_back( std::move( section ) );
+        sequence.Tracks.push_back( std::move( events ) );
+        return sequence;
+    }
+
+    /// A sequence whose master binding plays @p sub over parent ticks [start, end].
+    T::Sequence Playing( const AssetGuid& sub, int32_t start, int32_t end, int32_t offset = 0, double scale = 1.0 )
+    {
+        T::Sequence sequence;
+        sequence.Host  = T::SequenceHost::LevelSequence;
+        sequence.Start = A::FrameNumber{ 0 };
+        sequence.End   = A::FrameNumber{ 100 };
+        sequence.Bindings.push_back( T::Binding{ Guid( 3 ), T::BindingKind::Sequence, "", "Master", {} } );
+        T::Track track;
+        track.Binding = Guid( 3 );
+        track.Kind    = T::TrackKind::Subsequence;
+        T::Section section;
+        section.Start   = A::FrameNumber{ start };
+        section.End     = A::FrameNumber{ end };
+        section.Content = T::SubsequenceSectionContent{ sub, A::FrameNumber{ offset }, scale };
+        track.Sections.push_back( std::move( section ) );
+        sequence.Tracks.push_back( std::move( track ) );
+        return sequence;
+    }
+
+    ECS::LevelSequenceSubsequenceSource SourceOf( const std::map<std::string, const T::Sequence*>& byName,
+                                                  const std::map<std::string, AssetGuid>&          guids )
+    {
+        ECS::LevelSequenceSubsequenceSource source;
+        const auto                          nameOf = [guids]( const AssetGuid& guid )
+        {
+            for ( const auto& [name, g] : guids )
+                if ( g == guid )
+                    return name;
+            return std::string( "?" );
+        };
+        source.Find = [byName, nameOf]( const AssetGuid& guid ) -> const T::Sequence*
+        {
+            const auto found = byName.find( nameOf( guid ) );
+            return found != byName.end() ? found->second : nullptr;
+        };
+        source.Name = nameOf;
+        return source;
+    }
+} // namespace
+
+TEST( LevelSequencePlayback, AMaterialScalarInterpolatesBetweenItsKeysAtEveryTick )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  added    = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
+    ASSERT_TRUE( added.IsSuccess() );
+    const ECS::LevelSequenceMaterialParameter glow{ 0, "Emissive" };
+    ASSERT_TRUE(
+         ECS::AddMaterialParameterTrack( sequence, added.GetValue(), glow, T::TrackKind::Float, glm::vec4( 0.0F ) )
+              .IsSuccess() );
+    ASSERT_TRUE(
+         ECS::SetMaterialParameterKey( sequence, added.GetValue(), glow, A::FrameNumber{ 20 }, glm::vec4( 2.0F ) )
+              .IsSuccess() );
+    ASSERT_TRUE(
+         ECS::SetMaterialParameterKey( sequence, added.GetValue(), glow, A::FrameNumber{ 60 }, glm::vec4( 6.0F ) )
+              .IsSuccess() );
+
+    World             world;
+    FakeMaterialSlots slots;
+    slots.Owner = world.door;
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( sequence );
+    for ( const auto [tick, expected] :
+          { std::pair{ 20, 2.0F }, std::pair{ 30, 3.0F }, std::pair{ 50, 5.0F }, std::pair{ 60, 6.0F } } )
+    {
+        const auto step =
+             ECS::StepLevelSequence( world.registry, component, playback, Step( tick ), {}, slots.Access() );
+        EXPECT_TRUE( step.Refusals.empty() );
+        EXPECT_FLOAT_EQ( slots.Overrides.at( { world.door, 0U, std::string( "Emissive" ) } ).x, expected )
+             << "linear keys 2 @20 and 6 @60, sampled at " << tick;
+    }
+}
+
+TEST( LevelSequencePlayback, AnEventFiresOncePerForwardCrossingNoneOnABackwardScrubAndASkipFiresAllInOrder )
+{
+    World             world;
+    const T::Sequence sequence = EventDoor( { EventAt( 20, "A" ), EventAt( 40, "B" ), EventAt( 60, "C" ) } );
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( sequence );
+    const auto                        fired = [&]( const T::TimeStep& step )
+    { return ECS::StepLevelSequence( world.registry, component, playback, step ).FiredEvents; };
+
+    EXPECT_EQ( fired( T::TimeStep{ At( 10 ), At( 20 ) } ), std::vector<std::string>{ "A" } );
+    EXPECT_TRUE( fired( T::TimeStep{ At( 20 ), At( 30 ) } ).empty() )
+         << "A was crossed on the step that reached it";
+    EXPECT_TRUE( fired( Step( 5 ) ).empty() ) << "a scrub back (a jump) crosses nothing";
+    EXPECT_EQ( fired( T::TimeStep{ At( 5 ), At( 95 ) } ), ( std::vector<std::string>{ "A", "B", "C" } ) )
+         << "one large step fires every skipped key, in tick order";
+}
+
+TEST( LevelSequencePlayback, EventActionsPlayTheSoundRestartTheEmitterAndQueueTheScriptCall )
+{
+    World             world;
+    const T::Sequence sequence = EventDoor(
+         { EventAt( 10, "Boom", T::EventAction{ T::EventActionKind::PlaySound, "Assets/Audio/boom.wav" } ),
+           EventAt( 20, "Sparks", T::EventAction{ T::EventActionKind::ActivateParticles, "" } ),
+           EventAt( 30, "Open", T::EventAction{ T::EventActionKind::CallScript, "OnDoorOpen" } ) } );
+    world.registry.emplace<ECS::ParticleEmitterComponent>( world.door ).Data.Enabled = false;
+    world.registry.emplace<ECS::ScriptComponent>( world.door );
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( sequence );
+
+    const auto step =
+         ECS::StepLevelSequence( world.registry, component, playback, T::TimeStep{ At( 0 ), At( 35 ) } );
+    EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
+    EXPECT_EQ( step.Sounds, std::vector<std::string>{ "Assets/Audio/boom.wav" } );
+    const auto& emitter = world.registry.get<ECS::ParticleEmitterComponent>( world.door );
+    EXPECT_TRUE( emitter.Data.Enabled );
+    EXPECT_TRUE( emitter.RequestRestart );
+    const auto& calls = world.registry.get<ECS::ScriptComponent>( world.door ).PendingSequenceCalls;
+    ASSERT_EQ( calls.size(), 1U );
+    EXPECT_EQ( calls[0].Function, "OnDoorOpen" );
+    EXPECT_EQ( calls[0].EventName, "Open" );
+
+    // No emitter, no script: each refused by its key's name, never skipped in silence.
+    world.registry.remove<ECS::ParticleEmitterComponent>( world.door );
+    world.registry.remove<ECS::ScriptComponent>( world.door );
+    ECS::LevelSequencePlayback bare( sequence );
+    const auto                 refused =
+         ECS::StepLevelSequence( world.registry, component, bare, T::TimeStep{ At( 0 ), At( 35 ) } );
+    ASSERT_EQ( refused.Refusals.size(), 2U );
+    EXPECT_NE( refused.Refusals[0].find( "Sparks" ), std::string::npos ) << refused.Refusals[0];
+    EXPECT_NE( refused.Refusals[1].find( "Open" ), std::string::npos ) << refused.Refusals[1];
+}
+
+TEST( LevelSequencePlayback, ASubsequenceTimeIsTheOffsetPlusTheScaledParentTimeInItsOwnTicks )
+{
+    T::Section section;
+    section.Start = A::FrameNumber{ 20 };
+    section.End   = A::FrameNumber{ 80 };
+    const T::SubsequenceSectionContent content{ AssetGuid{ 9, 1 }, A::FrameNumber{ 5 }, 2.0 };
+    EXPECT_DOUBLE_EQ(
+         T::MapSubsequenceTime( section, content, A::FrameRate{ 60, 1 }, A::FrameRate{ 60, 1 }, At( 30 ) )
+              .AsTicks(),
+         25.0 )
+         << "5 + (30 - 20) x 2";
+    EXPECT_DOUBLE_EQ(
+         T::MapSubsequenceTime( section, content, A::FrameRate{ 60, 1 }, A::FrameRate{ 30, 1 }, At( 30 ) )
+              .AsTicks(),
+         15.0 )
+         << "a 30-tick subsequence advances half as many ticks";
+    EXPECT_DOUBLE_EQ(
+         T::MapSubsequenceTime( section, content, A::FrameRate{ 60, 1 }, A::FrameRate{ 60, 1 }, At( 20 ) )
+              .AsTicks(),
+         5.0 )
+         << "the section's first tick is the offset";
+}
+
+TEST( LevelSequencePlayback, ASubsequenceMovesItsActorsAndFiresItsEventsAtTheMappedTime )
+{
+    // Inner (30 ticks/s): Door X 0 -> 100 over its ticks 0..100, an event at its tick 10.
+    T::Sequence inner = DoorAndCut( std::to_string( kDoorUuid ) );
+    inner.TickRate    = A::FrameRate{ 30, 1 };
+    inner.Tracks.pop_back(); // no camera cut
+    T::Track events;
+    events.Binding = Guid( 3 );
+    events.Kind    = T::TrackKind::Event;
+    T::Section keys;
+    keys.Start = A::FrameNumber{ 0 };
+    keys.End   = A::FrameNumber{ 100 };
+    T::EventChannel channel;
+    channel.Keys = { EventAt( 10, "Inner" ) };
+    keys.Content = T::Channel{ channel };
+    events.Sections.push_back( std::move( keys ) );
+    inner.Tracks.push_back( std::move( events ) );
+
+    const AssetGuid   innerGuid{ 9, 1 };
+    const T::Sequence outer  = Playing( innerGuid, 20, 80 ); // 60 ticks/s: inner tick = (parent - 20) / 2
+    const auto        source = SourceOf( { { "Inner", &inner } }, { { "Inner", innerGuid } } );
+
+    World                             world;
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( outer );
+    const auto                        step = [&]( int32_t from, int32_t to )
+    {
+        return ECS::StepLevelSequence( world.registry, component, playback, T::TimeStep{ At( from ), At( to ) },
+                                       {}, {}, source );
+    };
+    EXPECT_TRUE( step( 0, 30 ).FiredEvents.empty() );
+    const auto crossing = step( 30, 60 );
+    EXPECT_TRUE( crossing.Refusals.empty() ) << crossing.Refusals.front();
+    EXPECT_EQ( crossing.FiredEvents, std::vector<std::string>{ "Inner" } ) << "inner tick 10 = parent tick 40";
+    EXPECT_FLOAT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 20.0F )
+         << "parent tick 60 = inner tick 20";
+    EXPECT_TRUE( step( 60, 100 ).FiredEvents.empty() ) << "crossed once";
+
+    // Without the subsequence's sequence the section is refused by its name.
+    ECS::LevelSequencePlayback blind( outer );
+    const auto refused = ECS::StepLevelSequence( world.registry, component, blind, Step( 50 ), {}, {},
+                                                 SourceOf( {}, { { "Inner", innerGuid } } ) );
+    ASSERT_EQ( refused.Refusals.size(), 1U );
+    EXPECT_NE( refused.Refusals[0].find( "Inner" ), std::string::npos ) << refused.Refusals[0];
+}
+
+TEST( LevelSequencePlayback, ASubsequenceCycleIsRefusedByNameBeforeAndDuringPlay )
+{
+    const AssetGuid   a{ 9, 1 };
+    const AssetGuid   b{ 9, 2 };
+    const AssetGuid   c{ 9, 3 };
+    const T::Sequence seqA = Playing( b, 0, 100 );
+    const T::Sequence seqB = Playing( a, 0, 100 );
+    const T::Sequence seqC = Playing( c, 0, 100 );
+    const auto        source =
+         SourceOf( { { "A", &seqA }, { "B", &seqB }, { "C", &seqC } }, { { "A", a }, { "B", b }, { "C", c } } );
+
+    const auto ab = ECS::CheckSubsequenceCycles( a, source );
+    ASSERT_FALSE( ab.IsSuccess() );
+    EXPECT_EQ( ab.GetError(), "subsequence cycle: A -> B -> A" );
+    const auto self = ECS::CheckSubsequenceCycles( c, source );
+    ASSERT_FALSE( self.IsSuccess() );
+    EXPECT_EQ( self.GetError(), "subsequence cycle: C -> C" );
+    EXPECT_TRUE(
+         ECS::CheckSubsequenceCycles( a, SourceOf( { { "A", &seqA } }, { { "A", a }, { "B", b } } ) ).IsSuccess() )
+         << "B not loaded: nothing to follow, no cycle";
+
+    World                             world;
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( seqA );
+    playback.Asset    = a;
+    const auto played = ECS::StepLevelSequence( world.registry, component, playback, Step( 50 ), {}, {}, source );
+    ASSERT_EQ( played.Refusals.size(), 1U );
+    EXPECT_EQ( played.Refusals[0], "subsequence cycle: A -> B -> A" );
+}
