@@ -6,9 +6,9 @@
 // carries everything else, little-endian, with no padding:
 //
 //   source mesh GUID (Hi, Lo u64), settings (seed, levels, auto-cluster, interior UV scale),
-//   interior material ID, node count, then per node: parent, level, kind, damage threshold, volume,
-//   centre of mass, the leaf mesh in the saved mesh form (SavedMeshForm.hpp, the scene's own form), and the
-//   hull (vertices, polygons).
+//   interior material ID, interior material GUID (v2), node count, then per node: parent, level, kind, damage
+//   threshold, volume, centre of mass, the leaf mesh in the saved mesh form (SavedMeshForm.hpp, the scene's own
+//   form), and the hull (vertices, polygons).
 //
 // The settings are stored so a re-bake reproduces the file: the bake is deterministic by seed. A reader of
 // another version, a truncated payload or trailing bytes is refused by name; nothing is guessed.
@@ -25,7 +25,7 @@
 namespace Desert::Destruction
 {
     inline constexpr uint32_t    kFractureSubsystemTag  = Common::Content::FourCC( "DFRC" );
-    inline constexpr uint32_t    kFractureFormatVersion = 1;
+    inline constexpr uint32_t    kFractureFormatVersion = 2; // 2: the interior material GUID
     inline constexpr const char* kFractureExtension     = ".dfrac";
 
     struct FractureData
@@ -34,6 +34,9 @@ namespace Desert::Destruction
         Common::Content::AssetGuid SourceMesh; // the static mesh the bake cut
         FractureSettings           Settings;
         int32_t                    InteriorMaterialId = 0;
+        /// UE's Fracture Mode "Internal Material": the material the interior slot (InteriorMaterialId) draws
+        /// with. Null until one is picked in the Fracture mode; the piece draw (DST-06) binds it to that slot.
+        Common::Content::AssetGuid InteriorMaterial;
         std::vector<FractureNode>  Nodes;
 
         bool operator==( const FractureData& ) const = default;

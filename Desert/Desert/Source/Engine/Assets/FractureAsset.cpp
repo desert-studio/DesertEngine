@@ -4,6 +4,7 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <fstream>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -110,6 +111,62 @@ namespace Desert::Assets
 
         LOG_INFO( "[Destruction] Fracture written: '{}', {} nodes, {} bytes.", filepath.string(),
                   fracture.Nodes.size(), encoded.size() );
+        return BOOLSUCCESS;
+    }
+    namespace
+    {
+        /// The file's bytes as they are on disk; empty when there is no file.
+        Common::ResultStr<std::vector<unsigned char>> CurrentBytes( const Common::Filepath& filepath )
+        {
+            std::error_code ec;
+            if ( !std::filesystem::exists( filepath, ec ) )
+                return Common::MakeSuccess( std::vector<unsigned char>() );
+            std::ifstream in( filepath, std::ios::binary );
+            if ( !in )
+                return Common::MakeFormattedError<std::vector<unsigned char>>( "'{}' cannot be opened",
+                                                                               filepath.string() );
+            std::vector<unsigned char> bytes( ( std::istreambuf_iterator<char>( in ) ),
+                                              std::istreambuf_iterator<char>() );
+            return Common::MakeSuccess( std::move( bytes ) );
+        }
+    } // namespace
+
+    Common::ResultStr<FractureAsset::FileStep>
+    FractureAsset::WriteStep( const Common::Filepath& filepath, const Destruction::FractureData& fracture )
+    {
+        auto before = CurrentBytes( filepath );
+        if ( !before )
+            return Common::MakeFormattedError<FileStep>( "no undo step: {}", before.GetError() );
+        if ( const auto saved = Save( filepath, fracture ); !saved )
+            return Common::MakeFormattedError<FileStep>( "{}", saved.GetError() );
+        auto after = CurrentBytes( filepath );
+        if ( !after )
+            return Common::MakeFormattedError<FileStep>( "written but not readable back: {}", after.GetError() );
+
+        FileStep step;
+        step.File   = filepath;
+        step.Before = std::move( before.GetValue() );
+        step.After  = std::move( after.GetValue() );
+        return Common::MakeSuccess( std::move( step ) );
+    }
+
+    Common::BoolResultStr FractureAsset::RestoreBytes( const Common::Filepath&           filepath,
+                                                       const std::vector<unsigned char>& bytes )
+    {
+        if ( bytes.empty() )
+        {
+            std::error_code ec;
+            std::filesystem::remove( filepath, ec );
+            if ( ec )
+                return Common::MakeFormattedError<bool>( "'{}' could not be removed: {}", filepath.string(),
+                                                         ec.message() );
+            return BOOLSUCCESS;
+        }
+        if ( const auto done = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                  filepath, std::as_bytes( std::span( bytes ) ) );
+             !done )
+            return Common::MakeFormattedError<bool>( "'{}' ({} bytes) could not be restored: {}",
+                                                     filepath.string(), bytes.size(), done.GetError() );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets
