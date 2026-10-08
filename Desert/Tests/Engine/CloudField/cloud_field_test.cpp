@@ -2522,10 +2522,10 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
 // THE SHADER'S CUT IS Assets::CloudProceduralCoverProfile AGAINST Assets::CloudProceduralLocalCover (CUT-CORE).
 // The march reads the core rank, the profile and the world weather through the same macros the GPU defines;
 // the CPU's statement of the same decision is the pair named above. Walked at voxel CENTRES, where the
-// trilinear read is the byte itself, with the weather switched ON so the copula is exercised. A mismatch is
+// trilinear read is the byte itself, with the weather switched ON so the weather map W is exercised. A mismatch is
 // forgiven only within 1e-4 of the threshold — the float-vs-double distance of the two normal CDFs.
 //
-// MUTATION: drop `- rho * w` in CloudLocalCover (Common/CloudField.glslh) and this goes red.
+// MUTATION: drop `2.0f * strength *` in CloudLocalCover (Common/CloudField.glslh) and this goes red.
 TEST( CloudFieldCut, TheShadersCutIsTheCoverProfileAgainstTheLocalCover )
 {
     using namespace Desert::Tests::CloudFieldRef;
@@ -2540,7 +2540,7 @@ TEST( CloudFieldCut, TheShadersCutIsTheCoverProfileAgainstTheLocalCover )
     ASSERT_TRUE( state.Voxels && !state.Voxels->empty() ) << "the bake returned no profile block";
 
     const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params );
-    ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the copula is not under test";
+    ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the weather map is not under test";
     EXPECT_FLOAT_EQ( weather.z, Desert::Assets::CloudProceduralRankSoftness( state.Params ) );
 
     constexpr int side   = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );

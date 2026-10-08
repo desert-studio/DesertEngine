@@ -820,13 +820,13 @@ namespace
 } // namespace
 
 // ---------------------------------------------------------------------------------------------------
-// 6. COVERAGE ADDRESSES A FRACTION OF SKY, EXACTLY, AT BOTH ENDS
+// 6. COVERAGE IS NUBIS' "HOW BUSY THE WEATHER IS" (WX-NUBIS): EMPTY AT ZERO, MONOTONE, THE ZEROS STAY CLEAR
 // ---------------------------------------------------------------------------------------------------
 //
-// The threshold this replaces could not do it: at Coverage 0 forty per cent of columns were still touched,
-// because the smoothstep's band still overlapped the field. Here a cell is alive when its own hash falls
-// below the slider, so both ends are exact by construction — and this is where that stops being a claim.
-TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
+// Owner, 10-08: Coverage is no longer the fraction of sky. localCover = Coverage * W, W >= 0 the weather map
+// with true zeros, so 0 is empty, more Coverage is never less cloud, and a column whose W is zero is clear at
+// every Coverage — an overcast sky is a cloud type, not Coverage 1.
+TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtOne )
 {
     CloudProceduralFieldParams params = MakeParams();
 
@@ -836,23 +836,45 @@ TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
     EXPECT_TRUE( GenerateCloudProceduralBlobs( params, 0u, origin ).empty() )
          << "a coverage of zero put cloud in a sky the artist asked to be empty";
 
-    // THE ENDS ARE THE MARCH'S CUT, since the bake holds every cell (FARWX-a): what the sky shows is the
-    // bake through CloudProceduralKeep at the local cover, so that is what both ends are read from.
     const double emptyCover = KeptCover( params, 4 );
     ASSERT_GE( emptyCover, 0.0 ) << "the ranked bake failed";
     EXPECT_EQ( emptyCover, 0.0 ) << "a coverage of zero kept cloud over " << emptyCover << " of the sky";
 
-    params.Coverage        = 1.0f;
-    const double fullCover = KeptCover( params, 4 );
+    // AT COVERAGE ONE THE WEATHER'S ZEROS ARE STILL CLEAR. Census of the cut itself: every column the
+    // weather map empties keeps nothing, and the sky is short of full by at least half the empty fraction.
+    params.Coverage = 1.0f;
+    {
+        CloudProceduralFieldParams coarse = params;
+        coarse.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
+        const glm::vec2 at                = CloudProceduralRegionOriginKm( coarse, 0.0f, 0.0f );
+        const auto      baked             = BakeCloudProceduralVolumeRanked( coarse, at, {} );
+        ASSERT_TRUE( baked ) << "the ranked bake failed";
+        const uint32_t side  = coarse.VolumeSideVoxels;
+        const float    voxel = coarse.RegionSizeKm / static_cast<float>( side );
+        size_t         zeros = 0, keptInZeros = 0;
+        for ( int shift = 0; shift < 8; ++shift )
+        {
+            const glm::vec2 base = at + RegionShiftKm( coarse, shift );
+            for ( uint32_t z = 0; z < side; ++z )
+                for ( uint32_t x = 0; x < side; ++x )
+                {
+                    const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                              ( static_cast<float>( z ) + 0.5f ) * voxel );
+                    const float     cover = CloudProceduralLocalCover( coarse, world );
+                    if ( cover > 0.0f )
+                        continue;
+                    ++zeros;
+                    keptInZeros += CloudProceduralColumnKept( baked.GetValue(), side, x, z, cover ) ? 1u : 0u;
+                }
+        }
+        EXPECT_GT( zeros, size_t{ 0 } ) << "the shipped weather strength has no true zeros";
+        EXPECT_EQ( keptInZeros, size_t{ 0 } ) << keptInZeros << " columns the weather empties still hold cloud";
+    }
 
-    // FULL IS THE WHOLE SKY, which is what the rank's falloff past the bodies is for: the column CDF can
-    // only hand out the columns that hold a rank, and the bodies alone cover 0.69 of them — the march
-    // grows the clouds into the rest instead of the bake inflating them (FARWX-a3).
-    EXPECT_GE( fullCover, 0.99 ) << "a coverage of one kept cloud over only " << fullCover
-                                 << " of the sky, so the bake of every cell leaves holes no setting can fill";
-
-    std::printf( "[CloudProceduralField] coverage 0 / 1 keeps %.4f / %.4f of the sky\n", emptyCover, fullCover );
-
+    const double fullCover  = KeptCover( params, 16 );
+    const double zeroShare  = 1.0 - 1.0 / ( 2.0 * static_cast<double>( params.PatchStrength ) );
+    EXPECT_LT( fullCover, 1.0 - 0.5 * zeroShare )
+         << "a coverage of one kept cloud over " << fullCover << " of the sky: the weather's gaps were filled";
     const std::vector<CloudModellingBlob> full = GenerateCloudProceduralBlobs( params, 0u, origin );
 
     params.Coverage                            = 0.5f;
@@ -866,6 +888,7 @@ TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
     EXPECT_GT( full.size(), half.size() )
          << "raising the coverage from a half to one did not add cloud to the sky";
 
+    std::printf( "[CloudProceduralField] coverage 0 / 1 keeps %.4f / %.4f of the sky\n", emptyCover, fullCover );
     std::printf( "[CloudProceduralField] coverage 0 / 0.5 / 1 gives %zu / %zu / %zu lumps\n", size_t{ 0 },
                  half.size(), full.size() );
 }
@@ -953,44 +976,56 @@ TEST( CloudProceduralField, TheCostOfRebakingTheRegionIsMeasured )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 6b. COVERAGE MEANS THE FRACTION OF SKY WITH CLOUD IN IT, SEEN FROM BELOW
+// 6b. THE SKY'S COVER RISES WITH COVERAGE, AND ITS GAPS ARE WEATHER-SIZED (WX-NUBIS)
 // ---------------------------------------------------------------------------------------------------
 //
-// THE ENDS BEING EXACT IS NOT ENOUGH, and finding that out cost a frame. The test above proves 0 is empty
-// and 1 is full and that the middle is monotone — and the first sky built on it, at the shipped scene's
-// coverage of 0.24, rendered a horizon with clouds on it and a ZENITH WITH NOTHING. A slider whose two
-// ends are right and whose middle is off by a factor is still a slider that does not mean what it says.
-//
-// What it has to mean is the thing a person looking up would measure: the fraction of the sky that has
-// cloud somewhere in the column. That is the TOP-DOWN PROJECTION of the volume, and it is what this
-// measures — against the slider, at five settings, with the deviation printed so a recalibration is a
-// number rather than an opinion.
-
-TEST( CloudProceduralField, CoverageIsTheFractionOfSkyThatHasCloudInTheColumn )
+// What a person looking up sees is the top-down projection of what the cut keeps. Coverage no longer has to
+// equal it (owner, 10-08); it has to move it one way only. And the clear sky between weather systems has to be
+// GAPS a sight line can see through — runs of empty columns at least a quarter of the weather's shortest
+// wavelength (PatchTileKm) — not a uniform thinning, at every Coverage up to one.
+TEST( CloudProceduralField, TheSkysCoverRisesWithCoverageAndItsGapsAreWeatherSized )
 {
-    double worst = 0.0;
-
-    for ( const float wanted : { 0.15f, 0.24f, 0.35f, 0.50f, 0.75f } )
+    double previous = -1.0;
+    for ( const float coverage : { 0.15f, 0.35f, 0.50f, 0.75f, 1.0f } )
     {
         CloudProceduralFieldParams params = MakeParams();
-        params.Coverage                   = wanted;
+        params.Coverage                   = coverage;
 
-        const double measured = KeptCover( params, 64 );
+        const double measured = KeptCover( params, 16 );
         ASSERT_GE( measured, 0.0 ) << "the ranked bake failed";
-
-        std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column "
-                     "(%+.3f)\n",
-                     wanted, measured, measured - wanted );
-
-        worst = std::max( worst, std::abs( measured - wanted ) );
+        std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column\n",
+                     coverage, measured );
+        EXPECT_GT( measured, previous ) << "raising Coverage to " << coverage << " did not add cloud to the sky";
+        previous = measured;
     }
 
-    // A TENTH OF THE SLIDER'S TRAVEL. Tighter than that is asking a lattice of jittered clusters to hit a
-    // continuous fraction exactly, which it cannot; looser than that is the gap between "a quarter of the
-    // sky" and "an empty zenith" that this test was written after.
-    EXPECT_LT( worst, 0.10 ) << "the coverage slider is out by " << worst
-                             << " of the sky at its worst setting, so what it says and what a person "
-                                "looking up would measure are different numbers";
+    // THE GAPS, by census on the kept map at Coverage one: the longest clear run along a row, over shifts.
+    CloudProceduralFieldParams params = MakeParams();
+    params.Coverage                   = 1.0f;
+    params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
+    const glm::vec2 origin            = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+    const auto      baked             = BakeCloudProceduralVolumeRanked( params, origin, {} );
+    ASSERT_TRUE( baked ) << "the ranked bake failed";
+
+    const uint32_t side    = params.VolumeSideVoxels;
+    const float    voxelKm = params.RegionSizeKm / static_cast<float>( side );
+    float          longest = 0.0f;
+    for ( int shift = 0; shift < 16; ++shift )
+    {
+        const std::vector<float> map = KeptColumns( params, baked.GetValue(), origin, shift );
+        for ( uint32_t z = 0; z < side; ++z )
+        {
+            uint32_t run = 0;
+            for ( uint32_t x = 0; x < side; ++x )
+            {
+                run     = map[static_cast<size_t>( z ) * side + x] > 0.0f ? 0u : run + 1u;
+                longest = std::max( longest, static_cast<float>( run ) * voxelKm );
+            }
+        }
+    }
+    std::printf( "[CloudProceduralField] at coverage 1 the longest clear run is %.1f km\n", longest );
+    EXPECT_GE( longest, 0.25f * params.PatchTileKm )
+         << "at Coverage 1 the longest clear run was " << longest << " km: the weather's zeros were filled in";
 }
 
 // ---------------------------------------------------------------------------------------------------

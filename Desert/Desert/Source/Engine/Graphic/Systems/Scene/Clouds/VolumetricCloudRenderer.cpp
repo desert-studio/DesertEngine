@@ -1030,7 +1030,7 @@ namespace Desert::Graphic::System
 
         const std::vector<float> weather = Assets::BakeCloudFarWeatherMap( seed, tileKm );
 
-        // RGBA16F WITH W IN .r: a half keeps W (|W| < 5) to 2e-3, a thousandth of the copula's sensitivity
+        // RGBA16F WITH W IN .r: a half keeps W (|W| < 5) to 2e-3, a thousandth of the weather map W's sensitivity
         // band, and is filterable on every device this engine targets where R32F is not.
         std::vector<unsigned char> texels( weather.size() * 4u * sizeof( uint16_t ), 0u );
         for ( size_t i = 0; i < weather.size(); ++i )
@@ -1046,7 +1046,7 @@ namespace Desert::Graphic::System
              .Format = Core::Formats::ImageFormat::RGBA16F,
              .Data   = std::move( texels ),
              .Usage  = Core::Formats::Image2DUsage::Image2D,
-             // LINEAR ALWAYS: the copula reads W between texels (1.95 km apart); under the user's "Nearest"
+             // LINEAR ALWAYS: the weather map reads W between texels (1.95 km apart); under the user's "Nearest"
              // the cut would follow texel-block edges — straight walls in the sky.
              .Properties = Core::Formats::Sample | Core::Formats::AlgorithmicLinear,
         };

@@ -121,8 +121,8 @@ namespace Desert::Graphic
         // static_assert.
         glm::vec4 Albedo;
 
-        // THE WORLD WEATHER'S CUT, as Assets::CloudFarWeatherUniform packs it: x the slider's Coverage, y rho
-        // = sqrt(PatchStrength) (ZERO when a painted pattern is the weather or the strength is nil), z the
+        // THE WORLD WEATHER'S CUT, as Assets::CloudFarWeatherUniform packs it: x the slider's Coverage, y the
+        // weather strength = PatchStrength (ZERO when a painted pattern is the weather or the strength is nil), z the
         // cover's softness past a cluster's core rank, w 1 / kCloudFarWeatherPeriodKm. The march keeps a
         // cluster where its R8 core rank is under the local cover this decides — Assets::CloudProceduralKeep is
         // the CPU half of the same comparison. Before the trailing vec3 for the reason Albedo is.
@@ -300,7 +300,7 @@ namespace Desert::Graphic
     // weather act now that the bake keeps every cell.
     inline constexpr uint32_t kCloudModellingRankBinding = 15;
     // THE WORLD WEATHER MAP (Assets::BakeCloudFarWeatherMap): 512^2 over one kCloudFarWeatherPeriodKm torus,
-    // W in .r, sampled with REPEAT at `windPosKm.xz * Weather.w`. Bound always; rho = 0 stops it being read.
+    // W in .r, sampled with REPEAT at `windPosKm.xz * Weather.w`. Bound always; a strength of 0 stops it being read.
     inline constexpr uint32_t kCloudFarWeatherBinding = 16;
 
     /**

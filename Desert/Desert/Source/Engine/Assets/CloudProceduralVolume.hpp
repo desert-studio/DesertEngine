@@ -320,10 +320,11 @@ namespace Desert::Assets
         /// distance field, exactly as in the sculpted volume.
         float ProfileDepthKm = 0.35f;
 
-        /// What fraction of the lattice's cells carry a cluster, 0..1. THE SLIDER NOW ADDRESSES A FRACTION
-        /// OF SKY DIRECTLY, which is what the quantile map it replaces was introduced to fake: a cell is
-        /// alive when its hash falls below this number, so 0 is exactly empty and 1 is exactly full for any
-        /// seed, with no distribution to calibrate against.
+        /// HOW BUSY THE WEATHER IS WHERE THERE IS WEATHER, 0..1 (owner, 10-08; Nubis' coverage). The march
+        /// keeps a cluster where its core rank is under `Coverage * W`, W >= 0 being the weather map
+        /// (CloudWeatherPresence), so 0 is exactly empty, the sky's cover rises monotonically with it, and
+        /// the weather's true zeros stay clear at EVERY setting. It is NOT the fraction of the sky with
+        /// cloud: an overcast sky is its own cloud type (a stratus deck), not Coverage 1.
         float Coverage = 0.24f;
 
         /// How sharply a cell goes from empty to full, > 0. A cell whose hash lands just under the coverage
@@ -413,17 +414,11 @@ namespace Desert::Assets
         /// sky inside the layer, so every gap there was closed by the cloud behind it.
         float PatchTileKm = 30.0f;
 
-        /// How much of the sky's arrangement the weather decides, 0..1 — the fraction of the variance of a
-        /// cell's alive draw that comes from the weather rather than from the cell's own hash (a Gaussian
-        /// copula; WeatherLocalCover in the generator). Zero is a uniformly busy sky, which is what the
-        /// owner described as "the whole sky is cloud"; one is weather alone, with the busy regions solid
-        /// and the gaps between them EMPTY. At every setting the fraction of the sky covered is the
-        /// Coverage slider exactly, in expectation: the weather redistributes cloud, it never adds any.
-        /// 0.70, MEASURED: the gaps test (Coverage 0.5, 8 seeds) needs a block spread of at least 0.292 and
-        /// at least 0.05 of the blocks nearly clear — the owner's gaps tens of kilometres across. 0.35 gave
-        /// 0.231 / 0.029, 0.55 gave 0.271 / 0.080, 0.65 gave 0.290 / 0.107, 0.80 gave 0.320 / 0.152. The
-        /// earlier 0.35 was held down against the body saturating under the march's ramp; the coverage remap
-        /// (CloudRankProfile) removed that saturation, so the strength is set by the gaps alone again.
+        /// How much of the sky the weather map empties, 0..1 (CloudWeatherPresence: W = saturate(1 - 2 s u),
+        /// u the weather's own uniform rank). Zero is W = 1 everywhere, a uniformly busy sky; above one half
+        /// the weather has TRUE ZEROS — a fraction `1 - 1/(2s)` of the sky that no Coverage fills, as wide
+        /// as the weather system (PatchTileKm) — and at one half of the sky is clear. 0.70 leaves 29 per
+        /// cent of the sky empty in gaps fifteen to thirty kilometres across. RECAL calibrates it once.
         float PatchStrength = 0.70f;
 
         /// The horizontal wind direction the lattice's anisotropy is measured against, world XZ. Need not
@@ -802,8 +797,8 @@ namespace Desert::Assets
     std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm );
 
     /// What the march needs to turn a rank and a weather sample into a cut, as the GPU block carries it
-    /// (CloudGpuPayload::Weather / u_CloudWeather): x the slider's Coverage, y rho = sqrt(PatchStrength)
-    /// — ZERO when the weather stands down (no strength, or a painted pattern is the weather, exactly as
+    /// (CloudGpuPayload::Weather / u_CloudWeather): x the slider's Coverage, y the PatchStrength the
+    /// weather map W is drawn at — ZERO when the weather stands down (no strength, or a painted pattern is the weather, exactly as
     /// CloudProceduralLocalCover decides), z the cover's softness past a core
     /// (CloudProceduralRankSoftness), w 1 / kCloudFarWeatherPeriodKm.
     glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
@@ -814,9 +809,14 @@ namespace Desert::Assets
         return kCloudRankSoftness / ( params.CoverageContrast > 1e-2f ? params.CoverageContrast : 1e-2f );
     }
 
-    /// The cover the march compares a rank against at a world column: Coverage redistributed by the world
-    /// weather (the Gaussian copula, mean exactly Coverage), or Coverage itself when a painted pattern is
-    /// the weather.
+    /// THE WEATHER MAP W (WX-NUBIS; Nubis' weather-map coverage, Schneider 2015/2022): the presence of
+    /// weather at a column, 0..1 with TRUE ZEROS, from the standard normal world weather @p weather.
+    /// `saturate(1 - 2 * strength * Phi(weather))`: one everywhere at strength 0, empty over a fraction
+    /// `max(0, 1 - 1/(2 strength))` of the sky. The shader's CloudLocalCover is the same expression.
+    float CloudWeatherPresence( float strength, float weather );
+
+    /// The cover the march compares a rank against at a world column: `Coverage * W` (Nubis'
+    /// localCover), or Coverage itself when a painted pattern is the weather.
     float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
 
     /// One cell's rank: its own hash, scaled by a bound painting so the painting's cover is respected.

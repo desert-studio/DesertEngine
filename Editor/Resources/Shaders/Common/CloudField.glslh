@@ -128,7 +128,7 @@ struct CloudFieldParams
     vec2  RegionOriginKm;
     float InvRegionSizeKm;
 
-    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y rho, z the cover's softness
+    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y the weather strength, z the cover's softness
     // past a cluster's core rank (Assets::CloudProceduralRankSoftness), w 1 / the weather's period in km. A MEMBER AND NOT A MACRO, because
     // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
     // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
@@ -320,62 +320,18 @@ float CloudNormalCdf( float x )
     return x >= 0.0f ? 0.5f * ( 1.0f + erfAbs ) : 0.5f * ( 1.0f - erfAbs );
 }
 
-// The standard normal's quantile — Acklam's rational approximation, the CPU's NormalQuantile without its
-// double-precision polish (relative error 1.15e-9 before it, far below float).
-float CloudNormalQuantile( float p )
-{
-    p = clamp( p, 1e-7f, 1.0f - 1e-7f );
-    if ( p < 0.02425f || p > 1.0f - 0.02425f )
-    {
-        float q   = sqrt( -2.0f * log( p < 0.5f ? p : 1.0f - p ) );
-        float num = ( ( ( ( -7.784894002430293e-03f * q - 3.223964580411365e-01f ) * q - 2.400758277161838e+00f ) *
-                             q -
-                        2.549732539343734e+00f ) *
-                           q +
-                      4.374664141464968e+00f ) *
-                         q +
-                    2.938163982698783e+00f;
-        float den = ( ( ( 7.784695709041462e-03f * q + 3.224671290700398e-01f ) * q + 2.445134137142996e+00f ) * q +
-                      3.754408661907416e+00f ) *
-                         q +
-                    1.0f;
-        return p < 0.5f ? num / den : -num / den;
-    }
-    float q   = p - 0.5f;
-    float r   = q * q;
-    float num = ( ( ( ( ( -3.969683028665376e+01f * r + 2.209460984245205e+02f ) * r - 2.759285104469687e+02f ) * r +
-                      1.383577518672690e+02f ) *
-                         r -
-                    3.066479806614716e+01f ) *
-                       r +
-                  2.506628277459239e+00f ) *
-                q;
-    float den = ( ( ( ( -5.447609879822406e+01f * r + 1.615858368580409e+02f ) * r - 1.556989798598866e+02f ) * r +
-                    6.680131188771972e+01f ) *
-                       r -
-                  1.328068155288572e+01f ) *
-                     r +
-                1.0f;
-    return num / den;
-}
-
-// THE LOCAL COVER at a world column — Assets::CloudProceduralLocalCover, written for the GPU. The Gaussian
-// copula Phi((Phi^-1(cover) - rho W) / sqrt(1 - rho^2)), whose mean over the weather is the slider exactly;
-// rho = 0 (no strength, or a painted pattern is the weather) is the slider itself, and rho = 1 the step
-// the expression tends to. The same three stand-downs the CPU's WeatherLocalCover makes, in its order.
+// THE LOCAL COVER at a world column — Assets::CloudProceduralLocalCover, written for the GPU (WX-NUBIS):
+// Nubis' localCover = Coverage * W, W = saturate(1 - 2 s Phi(w)) the weather map with true zeros
+// (Assets::CloudWeatherPresence). A strength of 0 (none, or a painted pattern is the weather) is W = 1.
 float CloudLocalCover( vec4 weather, vec2 windPosXz )
 {
-    float cover = clamp( weather.x, 0.0f, 1.0f );
-    float rho   = weather.y;
-    if ( cover <= 0.0f || cover >= 1.0f || rho * rho <= 1e-4f )
+    float cover    = clamp( weather.x, 0.0f, 1.0f );
+    float strength = weather.y;
+    if ( cover <= 0.0f || strength <= 1e-4f )
         return cover;
 
-    float w        = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.w, windPosXz.y * weather.w ) );
-    float residual = sqrt( max( 1.0f - rho * rho, 0.0f ) );
-    float quantile = CloudNormalQuantile( cover );
-    if ( residual < 1e-6f )
-        return rho * w < quantile ? 1.0f : 0.0f;
-    return CloudNormalCdf( ( quantile - rho * w ) / residual );
+    float w = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.w, windPosXz.y * weather.w ) );
+    return cover * clamp( 1.0f - 2.0f * strength * CloudNormalCdf( w ), 0.0f, 1.0f );
 }
 
 // THE CUT ITSELF (CUT-CORE) — Assets::CloudProceduralCoverProfile, written for the GPU. The coverage remap of

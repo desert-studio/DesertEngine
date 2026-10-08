@@ -127,7 +127,7 @@ namespace
     }
 
     /// What fraction of the region's columns carry any cloud at all, measured on the REAL bake. The same
-    /// quantity TheCoverageSliderStillMeansTheSkyAtTheShippedPlacement measures, lifted out of it so the
+    /// quantity TheCoverageSliderIsMonotoneAndOneLeavesTheWeathersGapsAtTheShippedPlacement measures, lifted out of it so the
     /// zero-mean relation can measure the same thing rather than something like it.
     // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
     // when any of its voxels is kept at the local cover of the column's WORLD site — rank under the cover and
@@ -614,8 +614,8 @@ TEST( CloudPlacementSpectrum, EveryPlacementKnobChangesTheLumps )
 // THE DENSITY REDISTRIBUTES MATTER RATHER THAN ADDING IT, and that is a property by construction rather
 // than a coincidence: a cell carrying `d` clusters gives each of them one over the square root of `d` of
 // the width, so the ground they cover between them is the ground one covered. It is asserted because it is
-// what lets the Coverage slider keep its meaning at every setting of the density — without it, decision
-// D-20's mapping would have to be re-measured for each one, which is a knob that invalidates another knob.
+// what keeps the density and Coverage from being two knobs for one quantity — without it, every calibration
+// of Coverage (RECAL) would have to be re-measured for each density, a knob that invalidates another knob.
 TEST( CloudPlacementSpectrum, TheDensityDoesNotMoveTheSkysCover )
 {
     CloudProceduralFieldParams params = ShippedParams();
@@ -635,7 +635,7 @@ TEST( CloudPlacementSpectrum, TheDensityDoesNotMoveTheSkysCover )
 
 // AND SO DOES THE SIZE SPREAD, for the same reason stated differently: the draw is uniform in AREA and not
 // in width, so its mean is one whatever the spread. A spread that was uniform in the RADIUS would have
-// raised the mean area by a twelfth of the spread squared and taken the coverage mapping with it.
+// raised the mean area by a twelfth of the spread squared and taken Coverage's calibration with it.
 TEST( CloudPlacementSpectrum, TheSizeVarietyDoesNotMoveTheSkysCover )
 {
     CloudProceduralFieldParams params = ShippedParams();
@@ -652,39 +652,33 @@ TEST( CloudPlacementSpectrum, TheSizeVarietyDoesNotMoveTheSkysCover )
                                     << std::abs( none - full );
 }
 
-// THE SLIDER STILL MEANS THE SKY AT THE PLACEMENT THAT SHIPS, and this test exists because a sabotage
-// found the hole it fills. `CloudProceduralField` already measures the Coverage slider against the sky and
-// allows it a TENTH — a bound set for a placement that kept every cluster near its own lattice site, on a
-// fixture whose cell is finer than the shipped one. Deleting the packing compensation entirely left that
-// suite GREEN: its worst deviation went from 0.033 to 0.050 and a tenth swallowed both.
-//
-// The compensation is what pays for the free placement's worse packing, so it has to be asserted where it
-// bites — at the shipped 3 km cell, near the top of the slider, on the REAL bake. With the compensation the
-// sky delivered at 0.75 is 0.741; without it, 0.703.
-TEST( CloudPlacementSpectrum, TheCoverageSliderStillMeansTheSkyAtTheShippedPlacement )
+// COVERAGE IS MONOTONE AT THE PLACEMENT THAT SHIPS, AND ONE IS NOT AN OVERCAST (WX-NUBIS). Owner, 10-08:
+// Coverage is "how busy the weather is where there is weather" (Nubis' localCover = Coverage * W), not the
+// fraction of sky. So on the REAL bake at the shipped 3 km cell the sky's cover must rise with it, and at one
+// the weather map's true zeros must still leave the sky well short of full: an overcast is a stratus deck,
+// its own cloud type, never Coverage 1.
+TEST( CloudPlacementSpectrum, TheCoverageSliderIsMonotoneAndOneLeavesTheWeathersGapsAtTheShippedPlacement )
 {
-    double worst = 0.0;
-
-    for ( const float wanted : { 0.35f, 0.75f } )
+    double previous = -1.0;
+    for ( const float coverage : { 0.35f, 0.75f, 1.0f } )
     {
         CloudProceduralFieldParams params = ShippedParams();
-        params.Coverage                   = wanted;
+        params.Coverage                   = coverage;
 
-        const double measured = KeptCover( params, 64 );
+        const double measured = KeptCover( params, 32 );
         ASSERT_GE( measured, 0.0 ) << "the ranked bake failed";
+        std::printf( "[CloudPlacementSpectrum] coverage %.2f -> %.3f of the sky\n", coverage, measured );
 
-        std::printf( "[CloudPlacementSpectrum] coverage %.2f -> %.3f of the sky (%+.3f)\n", wanted, measured,
-                     measured - wanted );
+        EXPECT_GT( measured, previous ) << "raising Coverage to " << coverage << " did not add cloud to the sky";
+        previous = measured;
 
-        worst = std::max( worst, std::abs( measured - static_cast<double>( wanted ) ) );
+        if ( coverage >= 1.0f )
+        {
+            const double zeroShare = 1.0 - 1.0 / ( 2.0 * static_cast<double>( params.PatchStrength ) );
+            EXPECT_LT( measured, 1.0 - 0.5 * zeroShare )
+                 << "Coverage 1 kept cloud over " << measured << " of the sky: the weather's gaps were filled";
+        }
     }
-
-    // A FORTIETH, AND THE NUMBER IS THE GAP RATHER THAN AN AMBITION. With the compensation the worst of the
-    // two settings is out by 0.009; with it deleted, by 0.047. Anything between the two separates them, and
-    // 0.025 sits in the middle with a factor of two of headroom on each side.
-    EXPECT_LT( worst, 0.025 ) << "the Coverage slider is out by " << worst
-                              << " of the sky at the shipped placement, which is where the packing the free "
-                                 "placement costs has to be paid for";
 }
 
 // A PATCH FINER THAN THREE CELLS IS A CHECKERBOARD, NOT A WEATHER SYSTEM, and it is refused by name rather
@@ -3281,8 +3275,8 @@ TEST( CloudPlacementSpectrum, TheCloudSizesFallAsAPowerLawManySmallAndFewLarge )
 
 // BUSY REGIONS AND CLEAR GAPS, on 12 km blocks — the scale the owner's frame shows between 10 and 24 km
 // from the camera. The cover must vary from block to block far more than independent cells make it, some
-// blocks must be nearly clear, and the sky's cover over all of them must still be the slider's.
-TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndKeepsTheSlider )
+// blocks must be nearly clear, and the weather may only REMOVE cloud (W <= 1, WX-NUBIS), never add it.
+TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndOnlyRemovesCloud )
 {
     constexpr uint32_t kSeeds       = 8u;
     constexpr int      kBlockPixels = 64; // 12 km of the 48 km region
@@ -3308,27 +3302,23 @@ TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndK
          << "the weather spreads the cloud between blocks no more than independent cells already do";
     EXPECT_GE( weather.Gaps, 0.05 ) << "no 12 km block of the shipped sky is nearly clear, so there are no gaps";
 
-    EXPECT_NEAR( weather.Mean, none.Mean, 0.05 )
-         << "the weather moved the sky's cover rather than redistributing it, so Coverage no longer means "
-            "the sky (decision D-20)";
+    EXPECT_LT( weather.Mean, none.Mean )
+         << "the weather added cloud to the sky, so W is not a presence map under one (Coverage * W)";
 }
 
-// THE INVARIANT AT ITS SOURCE, OVER THE WORLD. The weather is a WORLD field (FARWX-a: a sum of cosines on
-// the 997 km far torus), so one 48 km region holds about one weather system and its own mean cover moves
-// with it — that is the weather doing its job, not breaking D-20. What the copula promises is the WORLD's
-// cover: the weather has mean zero and variance one over the far torus, and Phi((q - rho W) / r) averages
-// to the slider there. So each weather is measured over many regions spread across the world (the same
-// shifts the kept-sky measurements use), at four settings of the slider and eight weathers, on the function
-// the bake itself calls.
-TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingItsMean )
+// THE WEATHER MAP AT ITS SOURCE, OVER THE WORLD (WX-NUBIS). A cell's cover is Coverage * W with
+// W = saturate(1 - 2 s u), u the weather's uniform rank, so over the world its mean is Coverage * E[W] —
+// E[W] = 1 - s for s <= 1/2 and 1/(4 s) above — and a fraction max(0, 1 - 1/(2 s)) of the cells is EXACTLY
+// empty at every Coverage. Measured over many regions across the far torus, on the function the bake calls.
+// MUTATION: drop the clamp's lower bound in CloudWeatherPresence and the zero census goes red.
+TEST( CloudPlacementSpectrum, TheWeatherMapScalesTheCellsCoverAndEmptiesItsZeros )
 {
     constexpr int kWorldRegions = 32;
 
-    for ( const float coverage : { 0.15f, 0.35f, 0.60f, 0.85f } )
+    for ( const float coverage : { 0.15f, 0.35f, 0.60f, 1.0f } )
     {
         double sumOfMeans = 0.0;
-        double worst      = 0.0;
-        double spread     = 0.0;
+        double sumOfZeros = 0.0;
 
         for ( uint32_t seed = 1; seed <= 8u; ++seed )
         {
@@ -3339,8 +3329,7 @@ TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingI
             const glm::vec2 extent = CloudProceduralCellExtentKm( params, params.Species[0] );
             const int       across = static_cast<int>( params.RegionSizeKm / extent.x + 0.5f );
 
-            double sum = 0.0;
-            double sq  = 0.0;
+            double sum = 0.0, zeros = 0.0;
             for ( int shift = 0; shift < kWorldRegions; ++shift )
             {
                 const glm::vec2 region = RegionShiftKm( params, shift );
@@ -3351,27 +3340,28 @@ TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingI
                              region + glm::vec2( ( static_cast<float>( ix ) + 0.5f ) * extent.x,
                                                  ( static_cast<float>( iz ) + 0.5f ) * extent.y );
                         const double local = CloudProceduralCellCoverage( params, 0u, centre );
+                        EXPECT_LE( local, coverage + 1e-6 ) << "the weather raised a cell over Coverage";
                         sum += local;
-                        sq += local * local;
+                        zeros += local <= 0.0 ? 1.0 : 0.0;
                     }
             }
 
             const double cells = static_cast<double>( across * across ) * static_cast<double>( kWorldRegions );
-            const double mean  = sum / cells;
-            sumOfMeans += mean;
-            worst  = std::max( worst, std::abs( mean - coverage ) );
-            spread = std::max( spread, std::sqrt( std::max( sq / cells - mean * mean, 0.0 ) ) );
+            sumOfMeans += sum / cells;
+            sumOfZeros += zeros / cells;
         }
 
-        const double mean = sumOfMeans / 8.0;
-        std::printf( "[CloudPlacementSpectrum] slider %.2f: cells' cover %.4f over eight weathers, worst "
-                     "weather's world %.4f off, widest spread %.3f\n",
-                     coverage, mean, worst, spread );
+        const double s         = static_cast<double>( ShippedParams().PatchStrength );
+        const double presence  = s <= 0.5 ? 1.0 - s : 1.0 / ( 4.0 * s );
+        const double zeroShare = std::max( 0.0, 1.0 - 1.0 / ( 2.0 * s ) );
+        const double mean      = sumOfMeans / 8.0;
+        const double empty     = sumOfZeros / 8.0;
+        std::printf( "[CloudPlacementSpectrum] coverage %.2f: cells' cover %.4f (expected %.4f), %.3f empty "
+                     "(expected %.3f)\n",
+                     coverage, mean, coverage * presence, empty, zeroShare );
 
-        EXPECT_NEAR( mean, coverage, 0.02 ) << "the weather moved the mean cover at a slider of " << coverage;
-        EXPECT_LT( worst, 0.07 ) << "one weather moved the world's cover by " << worst << " at a slider of "
-                                 << coverage;
-        EXPECT_GT( spread, 0.15 ) << "the weather barely varies the cells' cover at a slider of " << coverage;
+        EXPECT_NEAR( mean, coverage * presence, 0.03 * coverage ) << "at Coverage " << coverage;
+        EXPECT_NEAR( empty, zeroShare, 0.05 ) << "the weather's true zeros moved at Coverage " << coverage;
     }
 }
 

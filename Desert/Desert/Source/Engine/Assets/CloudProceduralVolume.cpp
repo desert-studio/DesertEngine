@@ -244,91 +244,6 @@ namespace Desert::Assets
             return 0.5 * std::erfc( -x * 0.7071067811865476 );
         }
 
-        /// The standard normal's quantile — Acklam's rational approximation (relative error 1.15e-9),
-        /// polished by one Halley step on NormalCdf so the pair is inverse to double precision. Written
-        /// out, like the hash, because the sky's bytes depend on it.
-        double NormalQuantile( double p )
-        {
-            static constexpr double a[] = { -3.969683028665376e+01, 2.209460984245205e+02,
-                                            -2.759285104469687e+02, 1.383577518672690e+02,
-                                            -3.066479806614716e+01, 2.506628277459239e+00 };
-            static constexpr double b[] = { -5.447609879822406e+01, 1.615858368580409e+02,
-                                            -1.556989798598866e+02, 6.680131188771972e+01,
-                                            -1.328068155288572e+01 };
-            static constexpr double c[] = { -7.784894002430293e-03, -3.223964580411365e-01,
-                                            -2.400758277161838e+00, -2.549732539343734e+00,
-                                            4.374664141464968e+00,  2.938163982698783e+00 };
-            static constexpr double d[] = { 7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
-                                            3.754408661907416e+00 };
-
-            p = std::clamp( p, 1e-12, 1.0 - 1e-12 );
-
-            double x = 0.0;
-            if ( p < 0.02425 )
-            {
-                const double q = std::sqrt( -2.0 * std::log( p ) );
-                x = ( ( ( ( ( c[0] * q + c[1] ) * q + c[2] ) * q + c[3] ) * q + c[4] ) * q + c[5] ) /
-                    ( ( ( ( d[0] * q + d[1] ) * q + d[2] ) * q + d[3] ) * q + 1.0 );
-            }
-            else if ( p > 1.0 - 0.02425 )
-            {
-                const double q = std::sqrt( -2.0 * std::log( 1.0 - p ) );
-                x = -( ( ( ( ( c[0] * q + c[1] ) * q + c[2] ) * q + c[3] ) * q + c[4] ) * q + c[5] ) /
-                    ( ( ( ( d[0] * q + d[1] ) * q + d[2] ) * q + d[3] ) * q + 1.0 );
-            }
-            else
-            {
-                const double q = p - 0.5;
-                const double r = q * q;
-                x = ( ( ( ( ( a[0] * r + a[1] ) * r + a[2] ) * r + a[3] ) * r + a[4] ) * r + a[5] ) * q /
-                    ( ( ( ( ( b[0] * r + b[1] ) * r + b[2] ) * r + b[3] ) * r + b[4] ) * r + 1.0 );
-            }
-
-            const double error = NormalCdf( x ) - p;
-            const double slope = 2.5066282746310002 * std::exp( 0.5 * x * x ) * error;
-            return x - slope / ( 1.0 + 0.5 * x * slope );
-        }
-
-        /// THE LOCAL SKY COVER THE WEATHER LEAVES A CELL, given the slider's @p cover for the whole sky —
-        /// a GAUSSIAN COPULA, and the reason it is one is the Coverage invariant (decision D-20).
-        ///
-        /// A cell is cloudy, in this model, where `rho * W + sqrt(1 - rho^2) * E` falls below the slider's
-        /// quantile, W being the weather and E the cell's own independent draw. Both are standard normal, so
-        /// that sum is standard normal WHATEVER rho is, and the fraction of the sky below the quantile is
-        /// the slider EXACTLY. Conditioned on the weather, the cell's own chance is
-        ///
-        ///     Phi( (Phi^-1(cover) - rho * W) / sqrt(1 - rho^2) )
-        ///
-        /// which is what this returns: the expected cover of the sky around a cell, whose average over the
-        /// weather is `cover` — not approximately, by the law of total probability. The multiplicative
-        /// modulation it replaces was mean-preserving only until the clamp at one bit, and could not reach
-        /// zero anywhere.
-        ///
-        /// THE COPULA IS ON THE SKY'S COVER AND NOT ON THE ALIVE FRACTION, and the difference is the one
-        /// the cell loop already pays for: what a cell's alive fraction delivers as sky is the calibrated
-        /// `pow(cover, 0.68)` relation, which is convex in the alive fraction. Redistributing the ALIVE
-        /// fraction would let Jensen's inequality raise the sky by the weather's own contrast; redistributing
-        /// the COVER and letting each cell's calibration act locally keeps the mean where the slider is.
-        ///
-        /// @p strength is the fraction of the draw's VARIANCE the weather decides, so `rho = sqrt(strength)`:
-        /// zero is a sky with no weather in it, one is weather alone — busy regions solid and gaps empty.
-        float WeatherLocalCover( float cover, float strength, float weather )
-        {
-            const float clamped = std::clamp( cover, 0.0f, 1.0f );
-            if ( clamped <= 0.0f || clamped >= 1.0f || strength <= 1e-4f )
-                return clamped;
-
-            const double rho      = std::sqrt( std::clamp( static_cast<double>( strength ), 0.0, 1.0 ) );
-            const double residual = std::sqrt( std::max( 1.0 - rho * rho, 0.0 ) );
-            const double quantile = NormalQuantile( clamped );
-
-            // AT FULL STRENGTH THE WEATHER ALONE DECIDES, and the limit of the expression is a step.
-            if ( residual < 1e-6 )
-                return ( rho * weather < quantile ) ? 1.0f : 0.0f;
-
-            return static_cast<float>( NormalCdf( ( quantile - rho * weather ) / residual ) );
-        }
-
         /// THE ONE PLACE A CELL'S COVERAGE IS DECIDED, and it is one place on purpose.
         ///
         /// Before the painted layout there were two lines here — the slider, then the procedural patch
@@ -413,7 +328,7 @@ namespace Desert::Assets
                 {
                     const float weather =
                          CloudFarWeather( CloudFarWeatherSeed( params ), centreKm, params.PatchTileKm );
-                    modulated = WeatherLocalCover( base, patchStrength, weather );
+                    modulated = base * CloudWeatherPresence( patchStrength, weather );
                 }
             }
 
@@ -2132,15 +2047,25 @@ namespace Desert::Assets
     {
         const float cover = std::clamp( params.Coverage, 0.0f, 1.0f );
 
-        // THE SAME STAND-DOWN CloudProceduralLocalCover makes, read as rho = 0: the march then keeps
-        // against Coverage itself.
+        // THE SAME STAND-DOWN CloudProceduralLocalCover makes, read as a strength of 0: W is then one
+        // everywhere and the march keeps against Coverage itself.
         const CloudLayoutData* patternSource = params.PatternSource.get();
         const bool             painted       = patternSource != nullptr && patternSource->HasPattern() &&
                              params.LayoutPlacement.PatternStrength > 1e-4f;
         const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
-        const float rho      = ( painted || strength <= 1e-4f ) ? 0.0f : std::sqrt( strength );
+        const float live     = ( painted || strength <= 1e-4f ) ? 0.0f : strength;
 
-        return glm::vec4( cover, rho, CloudProceduralRankSoftness( params ), 1.0f / kCloudFarWeatherPeriodKm );
+        return glm::vec4( cover, live, CloudProceduralRankSoftness( params ), 1.0f / kCloudFarWeatherPeriodKm );
+    }
+
+    float CloudWeatherPresence( float strength, float weather )
+    {
+        const float s = std::clamp( strength, 0.0f, 1.0f );
+        if ( s <= 1e-4f )
+            return 1.0f;
+        // Phi(weather) is uniform over the sky because the weather is standard normal; the busy end is low.
+        const float u = static_cast<float>( NormalCdf( static_cast<double>( weather ) ) );
+        return std::clamp( 1.0f - 2.0f * s * u, 0.0f, 1.0f );
     }
 
     float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
@@ -2159,8 +2084,8 @@ namespace Desert::Assets
         if ( strength <= 1e-4f )
             return base;
 
-        return WeatherLocalCover( base, strength,
-                                  CloudFarWeather( CloudFarWeatherSeed( params ), worldKm, params.PatchTileKm ) );
+        return base * CloudWeatherPresence(
+                           strength, CloudFarWeather( CloudFarWeatherSeed( params ), worldKm, params.PatchTileKm ) );
     }
 
     float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,
