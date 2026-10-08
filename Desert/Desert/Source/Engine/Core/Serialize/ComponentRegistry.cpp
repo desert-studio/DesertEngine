@@ -999,9 +999,9 @@ namespace Desert::Core::Serialize
                      [&]
                      {
                          return type == "SkinnedMeshAsset"
-                                     ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
+                                                         ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
                                             file, /*loadAfterCreate=*/false ) )
-                                     : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
+                                                         : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
                                             file, /*loadAfterCreate=*/false ) );
                      },
                      [&m]( const Assets::Asset<Assets::MeshAsset>& mesh, ReferenceOrigin )
