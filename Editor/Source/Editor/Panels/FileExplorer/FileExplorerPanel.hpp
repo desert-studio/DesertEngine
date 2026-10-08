@@ -4,6 +4,9 @@
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserHistory.hpp>
+#include <Editor/Panels/FileExplorer/ContentDirectoryModel.hpp>
+#include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
 #include <Editor/Panels/FileExplorer/FileType.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
@@ -47,40 +50,6 @@ namespace Desert::Core
 namespace Desert::Editor
 {
 
-    struct DirectoryInformation
-    {
-        DirectoryInformation*              Parent;
-        std::vector<DirectoryInformation*> Children;
-
-        std::string AssetPath;
-        // SharedPtr<Graphics::Texture2D> Thumbnail = nullptr;
-        FileType Type;
-        uint64_t FileSize;
-        uint64_t LastWriteTime = 0; // filesystem mtime (for "sort by date"); cached so sorting needs no syscalls
-        ImVec4   FileTypeColour;
-
-        bool Hidden = false;
-        bool IsFile = true;
-        bool Opened = false;
-        bool Leaf   = true;
-
-        // Lazily-resolved texture thumbnail handle (0 = none / not a registered texture). Cached so the
-        // grid doesn't re-resolve every frame; resolution is existing-only (browsing never cooks).
-        uint64_t ThumbnailHandle   = 0;
-        bool     ThumbnailResolved = false;
-
-    public:
-        DirectoryInformation( const std::string& path, bool isFile )
-        {
-            AssetPath = path;
-            IsFile    = isFile;
-            Hidden    = false;
-        }
-
-        ~DirectoryInformation()
-        {
-        }
-    };
     class FileExplorerPanel : public IPanel
     {
     public:
@@ -191,23 +160,10 @@ namespace Desert::Editor
         std::vector<size_t> BuildDisplayOrder() const;
         void DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen = false );
 
-        void DestroyGraphicsResources()
-        {
-            /* m_FolderIcon.reset();
-             m_FileIcon.reset();
-             m_Directories.clear();*/
-        }
-
-        std::string ProcessDirectory( const std::string& directoryPath, DirectoryInformation* parent,
-                                      bool processChildren );
-
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before
         // they are drawn — at startup that is during the splash. Mirrors the per-type branches of the grid.
         void PrefetchCurrentFolderThumbnails();
-        void RemoveDirectoryNode( DirectoryInformation* directory, bool removeFromParent = true );
-        // void OnNewProject() override;
-        void Refresh();
         // Re-scan ONLY the current directory in place (keeps navigation; used by the watcher + QueueRefresh).
         void RefreshCurrentDirectory();
         void QueueRefresh()
@@ -302,21 +258,14 @@ namespace Desert::Editor
         void DrawCloudAssetBakeStatus();
 
     private:
-        std::filesystem::path m_CurrentPath;
-
-        float       m_MinGridSize = 50;
-        float       m_MaxGridSize = 400;
+        float       m_MinGridSize = 40.0f;
+        float       m_MaxGridSize = 400.0f;
         std::string m_MovePath;
-        std::string m_LastNavPath;
-        std::string m_Delimiter;
 
-        size_t m_BasePathLen;
-        bool   m_IsDragging;
-        bool   m_IsInListView;
-        bool   m_UpdateBreadCrumbs;
-        bool   m_ShowHiddenFiles;
-        int    m_GridItemsPerRow;
-        float  m_GridSize = 360.0f;
+        bool  m_IsDragging   = false;
+        bool  m_IsInListView = false;
+        int   m_GridItemsPerRow;
+        float m_GridSize = 120.0f;
 
         // Content-Browser left pane (folder tree + favorites) width; dragged via the splitter, remembered
         // for the session. Clamped to [kMinTreeWidth, avail - kMinContentWidth] each frame.
@@ -336,11 +285,6 @@ namespace Desert::Editor
 
         ImGuiTextFilter m_Filter;
 
-        bool m_TextureCreated = false;
-
-        std::string m_BasePath;
-        std::string m_AssetPath;
-
         bool m_Refresh = false;
         // A file this panel just created, selected by the refresh that lists it (the entry does not exist
         // before that re-listing, so it cannot be selected at creation).
@@ -348,25 +292,13 @@ namespace Desert::Editor
 
         bool m_UpdateNavigationPath = true;
 
-        // Default-initialized: the ctor omitted m_CurrentSelected / m_NextDirectory, so they held
-        // indeterminate values and the first frame could deref garbage (a layout-dependent crash in
-        // OnUIRender). Also nulled on Refresh so a rebuilt m_Directories never leaves a dangling selection.
-        DirectoryInformation* m_CurrentDir        = nullptr;
-        DirectoryInformation* m_BaseProjectDir    = nullptr;
-        DirectoryInformation* m_NextDirectory     = nullptr;
-        DirectoryInformation* m_PreviousDirectory = nullptr;
-
-        std::unordered_map<std::string, std::shared_ptr<DirectoryInformation>> m_Directories;
-        std::vector<DirectoryInformation*>                                     m_BreadCrumbData;
-        /* TDArray<DirectoryInformation*>                                                     m_BreadCrumbData;
-         SharedPtr<Graphics::Texture2D>                                                     m_FolderIcon;
-         SharedPtr<Graphics::Texture2D>                                                     m_FileIcon;*/
+        // THE TREE (F3): every node of the browser, owned here; the raw views below point into it.
+        ContentDirectoryModel m_Model;
+        // The folder on screen; null only before the model's root was listed.
+        DirectoryInformation*              m_CurrentDir = nullptr;
+        std::vector<DirectoryInformation*> m_BreadCrumbData;
 
         DirectoryInformation* m_CurrentSelected = nullptr;
-
-        std::string m_RequestedThumbnailPath;
-        std::string m_CopiedPath;
-        bool        m_CutFile = false;
 
         // Phase-1 file operations (rename / delete / duplicate / move), cross-platform.
         bool                     m_ShowRenamePopup   = false;
@@ -385,10 +317,8 @@ namespace Desert::Editor
         bool                            m_ClipboardCut = false; // true = move on paste, false = copy
 
         // Phase-3 navigation/UX.
-        int                      m_TypeFilter = -1;      // FileType value to show, or -1 for "All"
-        std::vector<std::string> m_NavHistory;           // visited folder paths (back/forward)
-        int                      m_NavPos            = -1;
-        bool                     m_NavigatingHistory = false; // suppress history push during back/forward
+        int                   m_TypeFilter = -1; // FileType value to show, or -1 for "All"
+        ContentBrowserHistory m_History;         // visited folder paths (back/forward)
 
         Assets::AssetManager*           m_AssetManager = nullptr;
         // WHICH FILES ARE DOCUMENTS, and how each becomes a subject. Non-owning; the registry is a member
@@ -456,8 +386,7 @@ namespace Desert::Editor
         std::unordered_map<std::string, SourcePictureRead> m_SourcePictureOf;
 
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
-        int    m_PollCounter   = 0;
-        size_t m_DirSignature  = 0;
+        DirectoryWatcher m_Watcher;
 
         // Copy an external image into Resources/Textures, then import+register it (Import button).
         void ImportExternalTexture();

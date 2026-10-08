@@ -9,6 +9,8 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Panels/Clouds/CloudDocumentOpen.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserUtils.hpp>
+#include <Editor/Panels/FileExplorer/FileTypeInfo.hpp>
 #include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
 #include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
 #include <Editor/Core/AssetFileOps.hpp>
@@ -79,207 +81,17 @@
 #include <fstream>
 #include <system_error>
 
-#ifdef DESERT_PLATFORM_WINDOWS
-#include <windows.h>
-#include <shellapi.h>
-#endif
-
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
-
-    namespace
-    {
-        // THE ONE ROUTE FOR A RENAME OR A MOVE (AF10c). Content the registry has a row for moves through it:
-        // a redirector stays at the old path, so every scene still naming that path keeps loading, and the
-        // move lands on the undo stack. A folder moves the same way for every row inside it, all or nothing,
-        // as one undo step. Only a loose file the registry does not know (a source image, a note) is a plain
-        // file operation - nothing names it by path through the registry.
-        bool MoveOrRename( const std::string& src, const std::filesystem::path& dst, const char* label,
-                           std::string& error )
-        {
-            std::error_code ec;
-            const bool      folder = std::filesystem::is_directory( src, ec );
-            if ( folder || Assets::ContentRegistry::HasRow( src ) )
-            {
-                const auto moved =
-                     folder ? MoveFolderWithUndo( src, dst, label ) : MoveAssetWithUndo( src, dst, label );
-                if ( !moved )
-                    error = moved.GetError();
-                return static_cast<bool>( moved );
-            }
-            std::string newPath;
-            return dst.parent_path() == std::filesystem::path( src ).parent_path()
-                        ? AssetFileOps::Rename( src, dst.filename().string(), newPath, error )
-                        : AssetFileOps::Move( src, dst.parent_path().string(), newPath, error );
-        }
-
-        // A drag onto a folder: the file keeps its name in the destination DIRECTORY.
-        bool MoveFileTo( const std::string& filePath, const std::string& movePath )
-        {
-            std::string error;
-            const bool  moved = MoveOrRename(
-                 filePath, std::filesystem::path( movePath ) / std::filesystem::path( filePath ).filename(),
-                 "Move", error );
-            if ( !moved )
-                LOG_ERROR( "[Assets] move '{}' -> '{}': {}", filePath, movePath, error );
-            return moved;
-        }
-
-        std::string ToLowerCopy( std::string s )
-        {
-            std::transform( s.begin(), s.end(), s.begin(),
-                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-            return s;
-        }
-
-        // --- OS shell integration (no-ops on unsupported platforms) ---------------------------------------
-        void ShellOpenDefault( const std::string& path )
-        {
-#if defined( DESERT_PLATFORM_WINDOWS )
-            std::error_code ec;
-            const auto      abs = std::filesystem::absolute( path, ec ).make_preferred().wstring();
-            ShellExecuteW( nullptr, L"open", abs.c_str(), nullptr, nullptr, SW_SHOWNORMAL );
-#elif defined( DESERT_PLATFORM_MACOS )
-            std::error_code   ec;
-            const std::string abs = std::filesystem::absolute( path, ec ).string();
-            const std::string cmd = "open \"" + abs + "\"";
-            system( cmd.c_str() );
-#else
-            (void)path;
-#endif
-        }
-
-        // Open Explorer/Finder with the item selected (file or folder highlighted in its parent).
-        void ShellRevealInExplorer( const std::string& path )
-        {
-#if defined( DESERT_PLATFORM_WINDOWS )
-            std::error_code    ec;
-            const auto         abs    = std::filesystem::absolute( path, ec ).make_preferred().wstring();
-            const std::wstring params = L"/select,\"" + abs + L"\"";
-            ShellExecuteW( nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL );
-#elif defined( DESERT_PLATFORM_MACOS )
-            std::error_code   ec;
-            const std::string abs = std::filesystem::absolute( path, ec ).string();
-            const std::string cmd = "open -R \"" + abs + "\"";
-            system( cmd.c_str() );
-#else
-            (void)path;
-#endif
-        }
-    } // namespace
-
-    static const std::unordered_map<FileType, std::string> s_FileTypesToString = {
-         { FileType::Unknown, "Unknown" },
-         { FileType::Scene, "Scene" },
-         { FileType::Prefab, "Prefab" },
-         { FileType::Script, "Script" },
-         { FileType::Shader, "Shader" },
-         { FileType::Texture, "Texture" },
-         { FileType::Font, "Font" },
-         { FileType::Cubemap, "Cubemap" },
-         { FileType::Model, "Model" },
-         { FileType::Audio, "Audio" },
-         { FileType::Material, "Material" },
-         { FileType::ShaderGraph, "Shader Graph" },
-         { FileType::Cloud, "Cloud" },
-         { FileType::ImportSettings, "Import Settings" },
-         { FileType::UITheme, "UI Theme" },
-         { FileType::LandscapeLayerInfo, "Landscape Layer Info" },
-         { FileType::LevelSequence, "Level Sequence" },
-         { FileType::VFXSystem, "VFX System" },
-         { FileType::Fracture, "Fracture" },
-         { FileType::Ini, "Settings" },
-         { FileType::SkinnedMesh, "Skeletal Mesh" },
-         { FileType::Skeleton, "Skeleton" },
-         { FileType::Animation, "Animation" },
-         { FileType::ControlRig, "Control Rig" },
-         { FileType::AnimGraph, "Anim Graph" },
-         { FileType::Retarget, "Retarget" },
-         { FileType::FoliageType, "Foliage Type" },
-         { FileType::StringTable, "String Table" },
-         { FileType::CookedWorld, "Cooked World" },
-         { FileType::Skybox, "Skybox" },
-    };
-
-    static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
-         { FileType::Scene, { 0.8f, 0.4f, 0.22f, 1.00f } },
-         { FileType::Prefab, { 0.10f, 0.50f, 0.80f, 1.00f } },
-         { FileType::Script, { 0.10f, 0.50f, 0.80f, 1.00f } },
-         { FileType::Font, { 0.60f, 0.19f, 0.32f, 1.00f } },
-         { FileType::Shader, { 0.10f, 0.50f, 0.80f, 1.00f } },
-         { FileType::Texture, { 0.82f, 0.20f, 0.33f, 1.00f } },
-         { FileType::Cubemap, { 0.82f, 0.18f, 0.30f, 1.00f } },
-         { FileType::Model, { 0.18f, 0.82f, 0.76f, 1.00f } },
-         { FileType::Audio, { 0.20f, 0.80f, 0.50f, 1.00f } },
-         { FileType::ShaderGraph, { 0.55f, 0.35f, 0.85f, 1.00f } },
-         { FileType::Cloud, { 0.62f, 0.78f, 0.95f, 1.00f } },
-         { FileType::Ini, { 0.65f, 0.65f, 0.68f, 1.00f } },
-         { FileType::UITheme, { 0.95f, 0.72f, 0.30f, 1.00f } },
-         { FileType::LandscapeLayerInfo, { 0.45f, 0.70f, 0.30f, 1.00f } },
-         { FileType::LevelSequence, { 0.85f, 0.35f, 0.25f, 1.00f } },
-         { FileType::VFXSystem, { 0.95f, 0.45f, 0.10f, 1.00f } },
-         { FileType::Fracture, { 0.75f, 0.55f, 0.35f, 1.00f } },
-         { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
-         // UE's class colours for the animation family, so a folder of rig content reads as one family.
-         { FileType::SkinnedMesh, { 0.90f, 0.35f, 0.90f, 1.00f } },
-         { FileType::Skeleton, { 0.41f, 0.71f, 0.80f, 1.00f } },
-         { FileType::Animation, { 0.31f, 0.70f, 0.28f, 1.00f } },
-         { FileType::ControlRig, { 0.20f, 0.45f, 0.95f, 1.00f } },
-         { FileType::AnimGraph, { 0.80f, 0.55f, 0.20f, 1.00f } },
-         { FileType::Retarget, { 0.95f, 0.50f, 0.60f, 1.00f } },
-         { FileType::FoliageType, { 0.30f, 0.75f, 0.35f, 1.00f } },
-         { FileType::StringTable, { 0.60f, 0.60f, 0.85f, 1.00f } },
-         { FileType::CookedWorld, { 0.50f, 0.50f, 0.55f, 1.00f } },
-         { FileType::Skybox, { 0.82f, 0.18f, 0.30f, 1.00f } },
-    };
-
-    static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
-         { FileType::Unknown, ICON_MDI_FILE },
-         { FileType::Scene, ICON_MDI_FILE },
-         { FileType::Prefab, ICON_MDI_FILE },
-         { FileType::Script, ICON_MDI_LANGUAGE_LUA },
-         { FileType::Shader, ICON_MDI_IMAGE_FILTER_BLACK_WHITE },
-         { FileType::Texture, ICON_MDI_FILE_IMAGE },
-         { FileType::Font, ICON_MDI_FORMAT_FONT },
-         { FileType::Cubemap, ICON_MDI_IMAGE_FILTER_HDR },
-         { FileType::Model, ICON_MDI_VECTOR_POLYGON },
-         { FileType::Audio, ICON_MDI_MICROPHONE },
-         { FileType::ShaderGraph, ICON_MDI_GRAPH },
-         // The same glyph the cloud-type document registers itself with (EditorLayer's subject-editor
-         // registration), so the browser tile and the window it opens are recognisably the same thing.
-         { FileType::Cloud, ICON_MDI_WEATHER_CLOUDY },
-         { FileType::Ini, ICON_MDI_FILE_DOCUMENT },
-         { FileType::UITheme, ICON_MDI_PALETTE },
-         { FileType::LandscapeLayerInfo, ICON_MDI_LAYERS },
-         { FileType::LevelSequence, ICON_MDI_MOVIE_OPEN },
-         { FileType::VFXSystem, ICON_MDI_FIRE },
-         { FileType::Fracture, ICON_MDI_CUBE_UNFOLDED },
-         { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
-         { FileType::SkinnedMesh, ICON_MDI_HUMAN },
-         { FileType::Skeleton, ICON_MDI_BONE },
-         { FileType::Animation, ICON_MDI_RUN },
-         { FileType::ControlRig, ICON_MDI_HUMAN_HANDSUP },
-         { FileType::AnimGraph, ICON_MDI_SITEMAP },
-         { FileType::Retarget, ICON_MDI_SWAP_HORIZONTAL },
-         { FileType::FoliageType, ICON_MDI_TREE },
-         { FileType::StringTable, ICON_MDI_TRANSLATE },
-         { FileType::CookedWorld, ICON_MDI_MAP },
-         { FileType::Skybox, ICON_MDI_IMAGE_FILTER_HDR },
-    };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
                                           const SubjectEditorRegistry*         subjectEditors,
                                           Assets::AssetManager*                assetManager,
                                           std::weak_ptr<::Desert::Core::Scene> viewportScene )
          // IN DECLARATION ORDER. Members are constructed in the order they are DECLARED whatever this list
-         // says, so a list in a different order is a reader being told the wrong sequence — harmless here
-         // because every initialiser is a literal or a parameter, and exactly how a later initialiser that
-         // reads an earlier member becomes a use-before-init nobody can see.
-         : IPanel( "Assets" ), m_CurrentPath( rootPath ), m_MinGridSize( 40.0f ), m_MaxGridSize( 400.0f ),
-           m_IsDragging( false ), m_IsInListView( false ), m_ShowHiddenFiles( false ), m_GridSize( 120.0f ),
-           m_Refresh( false ), m_UpdateNavigationPath( true ), m_CurrentDir( nullptr ),
-           m_BaseProjectDir( nullptr ), m_PreviousDirectory( nullptr ), m_AssetManager( assetManager ),
+         // says, so a list in a different order is a reader being told the wrong sequence.
+         : IPanel( "Assets" ), m_Model( rootPath.string() ), m_AssetManager( assetManager ),
            m_SubjectEditors( subjectEditors ), m_ViewportScene( std::move( viewportScene ) )
     {
         m_UIHelper = std::make_unique<UI::UIHelper>();
@@ -292,48 +104,16 @@ namespace Desert::Editor
         // snap, and here it would additionally be a copy of a list the user can change while the panel is
         // alive (opening a different project changes which pins exist).
 
-#ifdef DESERT_PLATFORM_WINDOWS
-        m_Delimiter = std::string( "\\" );
-#else
-        m_Delimiter = std::string( "/" );
-#endif
-        float dpi  = 1.0;
-        m_GridSize = 120.0f;
-        m_GridSize *= dpi;
-        m_MinGridSize = 40.0f;
-        m_MaxGridSize = 400.0f;
-        m_MinGridSize *= dpi;
-        m_MaxGridSize *= dpi;
-        m_BasePath = m_CurrentPath.string();
-
-#ifdef DESERT_PLATFORM_WINDOWS
-        m_Delimiter = "\\";
-#else
-        m_Delimiter = "/";
-#endif
-
-        if ( rootPath.empty() )
+        if ( DirectoryInformation* root = m_Model.Root() )
         {
-            m_BasePath = "Assets";
-        }
-        else
-        {
-            m_BasePath = rootPath.string();
-        }
-
-        std::string baseDirectoryHandle = ProcessDirectory( m_BasePath, nullptr, true );
-
-        if ( m_Directories.find( baseDirectoryHandle ) != m_Directories.end() )
-        {
-            m_BaseProjectDir = m_Directories[baseDirectoryHandle].get();
-            m_CurrentDir     = m_BaseProjectDir;
+            m_CurrentDir = root;
 
             // REOPEN WHERE THE USER LEFT IT (THUMB3), as UE's browser does — and first, so the THUMB2
             // prefetch this navigation starts decodes the folder that will actually be on screen. A folder
             // that no longer exists is not an error: the browser opens at the root, as it always did.
             const std::optional<std::string> remembered = EditorPreferences::CurrentBrowserFolder();
-            if ( m_BaseProjectDir != nullptr && !( remembered && NavigateToPath( *remembered ) ) )
-                ChangeDirectory( m_BaseProjectDir );
+            if ( !( remembered && NavigateToPath( *remembered ) ) )
+                ChangeDirectory( root );
         }
         m_RestoringFolder = false;
     }
@@ -355,32 +135,6 @@ namespace Desert::Editor
             m_CloudBake.wait();
     }
 
-    namespace
-    {
-        // Cheap signature of a directory's immediate entries (name + write-time). Detects external
-        // add/remove/rename without an OS watch API.
-        size_t DirectorySignature( const std::string& dirPath )
-        {
-            size_t          sig = 0;
-            std::error_code ec;
-            if ( !std::filesystem::is_directory( dirPath, ec ) )
-                return sig;
-            for ( const auto& entry : std::filesystem::directory_iterator( dirPath, ec ) )
-            {
-                if ( ec )
-                    break;
-                sig ^= std::hash<std::string>{}( entry.path().filename().string() ) + 0x9e3779b9 + ( sig << 6 ) +
-                       ( sig >> 2 );
-                std::error_code tec;
-                const auto      t = std::filesystem::last_write_time( entry.path(), tec );
-                if ( !tec )
-                    sig ^= static_cast<size_t>( t.time_since_epoch().count() ) + 0x9e3779b9 + ( sig << 6 ) +
-                           ( sig >> 2 );
-            }
-            return sig;
-        }
-    } // namespace
-
     void FileExplorerPanel::OnPreUpdate()
     {
         // BEFORE the throttle and before the early return on a null directory: a generation that has
@@ -388,19 +142,9 @@ namespace Desert::Editor
         // future nobody polls is a thread whose result is thrown away at shutdown.
         PollCloudAssetBake();
 
-        // Throttle to ~every 30 frames (~0.5s @60fps) — directory_iterator is cheap but not free.
-        if ( ++m_PollCounter < 30 )
-            return;
-        m_PollCounter = 0;
-
-        if ( !m_CurrentDir )
-            return;
-
-        const size_t sig = DirectorySignature( m_CurrentDir->AssetPath );
-        if ( sig != m_DirSignature )
+        if ( m_CurrentDir != nullptr && m_Watcher.Poll( m_CurrentDir->AssetPath ) )
         {
             LOG_DEBUG( "[FileExplorer] '{}' changed on disk — rescanning.", m_CurrentDir->AssetPath );
-            m_DirSignature = sig;
             QueueRefresh();
         }
     }
@@ -411,35 +155,16 @@ namespace Desert::Editor
             return;
         LeaveThumbnailEdit(); // the edited tile is not in the folder being opened
 
-        m_PreviousDirectory    = m_CurrentDir;
         m_CurrentDir           = directory;
         m_UpdateNavigationPath = true;
-
-        if ( !m_CurrentDir->Opened )
-        {
-            ProcessDirectory( m_CurrentDir->AssetPath, m_CurrentDir->Parent, true );
-        }
+        m_Model.Open( m_CurrentDir );
 
         PrefetchCurrentFolderThumbnails();
         if ( !m_RestoringFolder )
             EditorPreferences::RememberBrowserFolder( m_CurrentDir->AssetPath );
 
-        // THE POLL'S BASELINE IS THE FOLDER JUST ENTERED. Left at the previous folder's signature, the first
-        // poll after every navigation saw a "change" and rescanned a folder that had just been read (TH3).
-        m_DirSignature = DirectorySignature( m_CurrentDir->AssetPath );
-        m_PollCounter  = 0;
-
-        // Record in the back/forward history, unless this navigation IS a back/forward.
-        if ( !m_NavigatingHistory )
-        {
-            if ( m_NavPos + 1 < static_cast<int>( m_NavHistory.size() ) )
-                m_NavHistory.resize( m_NavPos + 1 ); // drop the forward branch
-            if ( m_NavHistory.empty() || m_NavHistory.back() != directory->AssetPath )
-            {
-                m_NavHistory.push_back( directory->AssetPath );
-                m_NavPos = static_cast<int>( m_NavHistory.size() ) - 1;
-            }
-        }
+        m_Watcher.Rebase( m_CurrentDir->AssetPath );
+        m_History.Record( directory->AssetPath ); // a back/forward step is not recorded (ContentBrowserHistory)
     }
 
     void FileExplorerPanel::PrefetchCurrentFolderThumbnails()
@@ -694,17 +419,18 @@ namespace Desert::Editor
 
     bool FileExplorerPanel::NavigateToPath( const std::string& path )
     {
-        if ( auto it = m_Directories.find( path ); it != m_Directories.end() )
+        if ( DirectoryInformation* listed = m_Model.Find( path ) )
         {
-            ChangeDirectory( it->second.get() );
+            ChangeDirectory( listed );
             return true;
         }
 
         // Not loaded yet (e.g. a favorite from a previous session): expand the tree from the project
         // root down to `path`, matching one segment at a time.
-        if ( !m_BaseProjectDir )
+        DirectoryInformation* cur = m_Model.Root();
+        if ( !cur )
             return false;
-        const std::filesystem::path base = m_BaseProjectDir->AssetPath;
+        const std::filesystem::path base = cur->AssetPath;
         std::error_code             ec;
         const std::filesystem::path rel = std::filesystem::relative( path, base, ec );
         // "Not under the project" = the relative path starts with a ".." component. Compare path
@@ -713,9 +439,7 @@ namespace Desert::Editor
         if ( ec || rel.empty() || *rel.begin() == std::filesystem::path( ".." ) )
             return false; // not under the project
 
-        DirectoryInformation* cur = m_BaseProjectDir;
-        if ( !cur->Opened )
-            ProcessDirectory( cur->AssetPath, cur->Parent, true );
+        m_Model.Open( cur );
         std::filesystem::path acc = base;
         for ( const auto& seg : rel )
         {
@@ -729,8 +453,7 @@ namespace Desert::Editor
                 }
             if ( !next )
                 return false; // path no longer exists
-            if ( !next->Opened )
-                ProcessDirectory( next->AssetPath, next->Parent, true );
+            m_Model.Open( next );
             cur = next;
         }
         ChangeDirectory( cur );
@@ -739,22 +462,12 @@ namespace Desert::Editor
 
     void FileExplorerPanel::GoBack()
     {
-        if ( m_NavPos <= 0 )
-            return;
-        --m_NavPos;
-        m_NavigatingHistory = true;
-        (void)NavigateToPath( m_NavHistory[m_NavPos] );
-        m_NavigatingHistory = false;
+        m_History.Step( -1, [this]( const std::string& path ) { (void)NavigateToPath( path ); } );
     }
 
     void FileExplorerPanel::GoForward()
     {
-        if ( m_NavPos + 1 >= static_cast<int>( m_NavHistory.size() ) )
-            return;
-        ++m_NavPos;
-        m_NavigatingHistory = true;
-        (void)NavigateToPath( m_NavHistory[m_NavPos] );
-        m_NavigatingHistory = false;
+        m_History.Step( +1, [this]( const std::string& path ) { (void)NavigateToPath( path ); } );
     }
 
     void FileExplorerPanel::AddPrefabToScene( const std::string& prefabPath )
@@ -1029,131 +742,6 @@ namespace Desert::Editor
         ImGui::ProgressBar( m_CloudBakeProgress.load(), ImVec2( -1.0f, 0.0f ) );
     }
 
-    void FileExplorerPanel::RemoveDirectoryNode( DirectoryInformation* directory, bool removeFromParent )
-    {
-        if ( directory->Parent && removeFromParent )
-        {
-            directory->Parent->Children.clear();
-        }
-
-        // A walk, not recursion: the tree is as deep as the user's folders.
-        std::vector<DirectoryInformation*> pending{ directory };
-        while ( !pending.empty() )
-        {
-            DirectoryInformation* node = pending.back();
-            pending.pop_back();
-            pending.insert( pending.end(), node->Children.begin(), node->Children.end() );
-            m_Directories.erase( node->AssetPath ); // may destroy `node`; its children were taken first
-        }
-    }
-
-    // Unreadable, or the platform's own junk. A path that cannot be STAT'd is not hidden — it is a
-    // browser row we know nothing about, and treating it as visible is the honest answer.
-    //
-    // The error is taken through the std::error_code overload rather than a catch. A try/catch stood
-    // here whose entire handler was a commented-out LOG_ERROR, so a failed status() was swallowed with
-    // no diagnostic reachable even in principle: the one line that would have said something had been
-    // turned into text (§1.4). The error_code form cannot be silent by accident, because the failure is
-    // a value this function has to read.
-    bool IsHidden( const std::filesystem::path& filePath )
-    {
-        std::error_code                    ec;
-        const std::filesystem::file_status status = std::filesystem::status( filePath, ec );
-        if ( ec )
-            return false;
-
-        return ( status.permissions() & std::filesystem::perms::owner_read ) == std::filesystem::perms::none ||
-               filePath.stem().string() == ".DS_Store";
-    }
-
-    std::string FileExplorerPanel::ProcessDirectory( const std::string&    directoryPath,
-                                                     DirectoryInformation* parent, bool processChildren )
-    {
-        const auto& directory = m_Directories[directoryPath];
-        if ( directory && directory->Opened )
-            return directory->AssetPath;
-
-        // The path AS THE CALLER SPELLED IT is the node's identity: it is the key in m_Directories, the
-        // string the navigation history stores, and what every child is built from. Three lines here
-        // said otherwise — an `absolutePath` alias annotated "replace with actual path resolution", the
-        // same note on the assignment below, and a standing marker about pooling the strings — and they
-        // described an intention nobody has held for as long as the file has existed. A note that
-        // promises a different design is read as one, and this panel's real remainder is not string
-        // storage: it is that the whole model is DISK-shaped, which is what its row in
-        // Tests/Common/ContentScanners records with the measurement behind it.
-        const std::filesystem::path stdPath( directoryPath );
-
-        std::shared_ptr<DirectoryInformation> directoryInfo =
-             directory ? directory
-                       : std::make_shared<DirectoryInformation>( directoryPath,
-                                                                 !std::filesystem::is_directory( stdPath ) );
-        directoryInfo->Parent    = parent;
-        directoryInfo->AssetPath = directoryPath;
-
-        std::string extension = stdPath.extension().string();
-        if ( !extension.empty() && extension[0] == '.' )
-            extension = extension.substr( 1 );
-
-        if ( std::filesystem::is_directory( stdPath ) )
-        {
-            directoryInfo->IsFile = false;
-            directoryInfo->Leaf   = true;
-            for ( auto& entry : std::filesystem::directory_iterator( stdPath ) )
-            {
-                if ( !m_ShowHiddenFiles && IsHidden( entry.path() ) )
-                    continue;
-
-                // A branch that hid a cache folder used to stand here, testing AssetPath for a substring
-                // beginning with a DOUBLE separator. Every path in this map comes from generic_string()
-                // of a directory entry, which never produces one, so the condition could not be true —
-                // and the folder it wanted to hide does not exist under any assets root in this project
-                // either. Dead on both counts, and it also set Hidden on the PARENT while skipping a
-                // CHILD, so had it ever fired it would have hidden the wrong node.
-                if ( entry.is_directory() )
-                    directoryInfo->Leaf = false;
-
-                if ( processChildren )
-                {
-                    directoryInfo->Opened = true;
-
-                    std::string subdirHandle =
-                         ProcessDirectory( entry.path().generic_string(), directoryInfo.get(), false );
-                    directoryInfo->Children.push_back( m_Directories[subdirHandle].get() );
-                }
-            }
-        }
-        else
-        {
-            // Root-aware: a `.detex` under the Skybox root is a Skybox, not a Texture (FileTypeOfContent).
-            const FileType fileType =
-                 FileTypeOfContent( extension, Common::Content::KindOfContentFile( stdPath ) );
-
-            directoryInfo->IsFile = true;
-            directoryInfo->Type   = fileType;
-            directoryInfo->FileSize =
-                 std::filesystem::exists( stdPath ) ? std::filesystem::file_size( stdPath ) : 0;
-            {
-                std::error_code wec;
-                const auto      t            = std::filesystem::last_write_time( stdPath, wec );
-                directoryInfo->LastWriteTime = wec ? 0 : static_cast<uint64_t>( t.time_since_epoch().count() );
-            }
-            directoryInfo->Hidden = std::filesystem::exists( stdPath ) ? IsHidden( stdPath ) : true;
-            directoryInfo->Opened = true;
-            directoryInfo->Leaf   = true;
-
-            ImVec4      fileTypeColor   = { 1.0f, 1.0f, 1.0f, 1.0f };
-            const auto& fileTypeColorIt = s_TypeColors.find( fileType );
-            if ( fileTypeColorIt != s_TypeColors.end() )
-                fileTypeColor = fileTypeColorIt->second;
-
-            directoryInfo->FileTypeColour = fileTypeColor;
-        }
-
-        if ( !directory )
-            m_Directories[directoryInfo->AssetPath] = directoryInfo;
-        return directoryInfo->AssetPath;
-    }
-
     void FileExplorerPanel::DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen )
     {
         ImGuiTreeNodeFlags nodeFlags = ( ( dirInfo == m_CurrentDir ) ? ImGuiTreeNodeFlags_Selected : 0 );
@@ -1203,7 +791,7 @@ namespace Desert::Editor
 
                 for ( size_t i = 0; i < dirInfo->Children.size(); i++ )
                 {
-                    if ( !m_ShowHiddenFiles && dirInfo->Children[i]->Hidden )
+                    if ( !m_Model.ShowsHiddenFiles() && dirInfo->Children[i]->Hidden )
                     {
                         continue;
                     }
@@ -1248,8 +836,6 @@ namespace Desert::Editor
             m_MovePath = dirInfo->AssetPath;
         }
     }
-
-    static int FileIndex = 0;
 
     ImVec2 GetAspectCorrectedSize( const ImVec2& originalSize, float maxSize )
     {
@@ -1307,7 +893,6 @@ namespace Desert::Editor
         // pending material; see AssetThumbnailRenderer).
         // Thumbnail capture is driven editor-wide by EditorLayer via ThumbnailService.
         {
-            FileIndex = 0;
             if ( m_Refresh )
             {
                 RefreshCurrentDirectory(); // in-place: keeps navigation (watcher / import / rebuild)
@@ -1359,7 +944,7 @@ namespace Desert::Editor
                     ImGui::Separator();
                 }
                 ImGui::TextDisabled( ICON_MDI_FOLDER_MULTIPLE " CONTENT" );
-                DrawFolder( m_BaseProjectDir, true );
+                DrawFolder( m_Model.Root(), true );
             }
             ImGui::EndChild();
 
@@ -1371,7 +956,7 @@ namespace Desert::Editor
                                                                ImGuiDragDropFlags_AcceptNoDrawDefaultRect ) )
                 {
                     std::string* file = (std::string*)data->Data;
-                    MoveFileTo( *file, m_MovePath );
+                    ContentBrowserUtils::MoveFileTo( *file, m_MovePath );
                     m_IsDragging = false;
                 }
                 ImGui::EndDragDropTarget();
@@ -1513,7 +1098,7 @@ namespace Desert::Editor
                     ImGui::SameLine();
 
                     // Back / Forward / Up navigation.
-                    ImGui::BeginDisabled( m_NavPos <= 0 );
+                    ImGui::BeginDisabled( !m_History.CanGoBack() );
                     if ( ImGui::Button( ICON_MDI_ARROW_LEFT ) )
                         GoBack();
                     ImGui::EndDisabled();
@@ -1521,7 +1106,7 @@ namespace Desert::Editor
                         ImGui::SetTooltip( "Back" );
                     ImGui::SameLine();
 
-                    ImGui::BeginDisabled( m_NavPos + 1 >= static_cast<int>( m_NavHistory.size() ) );
+                    ImGui::BeginDisabled( !m_History.CanGoForward() );
                     if ( ImGui::Button( ICON_MDI_ARROW_RIGHT ) )
                         GoForward();
                     ImGui::EndDisabled();
@@ -1529,7 +1114,7 @@ namespace Desert::Editor
                         ImGui::SetTooltip( "Forward" );
                     ImGui::SameLine();
 
-                    ImGui::BeginDisabled( !m_CurrentDir || m_CurrentDir == m_BaseProjectDir );
+                    ImGui::BeginDisabled( !m_CurrentDir || m_CurrentDir == m_Model.Root() );
                     if ( ImGui::Button( ICON_MDI_ARROW_UP_BOLD ) && m_CurrentDir )
                         ChangeDirectory( m_CurrentDir->Parent );
                     ImGui::EndDisabled();
@@ -1575,7 +1160,7 @@ namespace Desert::Editor
                             }
                             else
                             {
-                                m_BreadCrumbData.push_back( m_BaseProjectDir );
+                                m_BreadCrumbData.push_back( m_Model.Root() );
                                 current = nullptr;
                             }
                         }
@@ -1869,7 +1454,7 @@ namespace Desert::Editor
                 if ( data )
                 {
                     std::string* a = (std::string*)data->Data;
-                    if ( MoveFileTo( *a, m_MovePath ) )
+                    if ( ContentBrowserUtils::MoveFileTo( *a, m_MovePath ) )
                     {
                         // LINFO("Moved File: %s to %s", a->c_str(), m_MovePath.c_str());
                     }
@@ -1878,12 +1463,6 @@ namespace Desert::Editor
                 ImGui::EndDragDropTarget();
             }
         }
-    }
-
-    static const char* IconForType( FileType type )
-    {
-        const auto it = s_FileTypesToIcon.find( type );
-        return it != s_FileTypesToIcon.end() ? it->second : ICON_MDI_FILE;
     }
 
     // Emit the drag-drop payloads a dragged asset can be dropped as. Target widgets accept exactly the
@@ -1935,7 +1514,7 @@ namespace Desert::Editor
                 m_UIHelper->Image( img, ImVec2( previewSize, previewSize ) );
             else
             {
-                const char*  icon = entry.IsFile ? IconForType( entry.Type ) : ICON_MDI_FOLDER;
+                const char*  icon = entry.IsFile ? FileTypeInfoOf( entry.Type ).Icon : ICON_MDI_FOLDER;
                 const ImVec4 col  = entry.IsFile ? entry.FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );
                 ImGui::PushFont( EditorResources::GetBigIconFont() );
                 ImGui::TextColored( col, "%s", icon );
@@ -2380,18 +1959,19 @@ namespace Desert::Editor
         const auto& children = m_CurrentDir->Children;
         order.reserve( children.size() );
 
-        const std::string search = ToLowerCopy( m_SearchBuf );
+        const std::string search = ContentBrowserUtils::ToLowerCopy( m_SearchBuf );
         for ( size_t i = 0; i < children.size(); ++i )
         {
             const auto* c = children[i];
-            if ( !m_ShowHiddenFiles && c->Hidden )
+            if ( !m_Model.ShowsHiddenFiles() && c->Hidden )
                 continue;
             // Type filter (folders always shown so you can still navigate).
             if ( m_TypeFilter >= 0 && c->IsFile && static_cast<int>( c->Type ) != m_TypeFilter )
                 continue;
             if ( !search.empty() )
             {
-                const std::string name = ToLowerCopy( std::filesystem::path( c->AssetPath ).filename().string() );
+                const std::string name =
+                     ContentBrowserUtils::ToLowerCopy( std::filesystem::path( c->AssetPath ).filename().string() );
                 if ( name.find( search ) == std::string::npos )
                     continue;
             }
@@ -2405,7 +1985,8 @@ namespace Desert::Editor
         // editor thread in a folder of 240 materials once the tiles themselves were cheap (THUMB3, sampled).
         std::vector<std::string> names( children.size() );
         for ( const size_t i : order )
-            names[i] = ToLowerCopy( std::filesystem::path( children[i]->AssetPath ).filename().string() );
+            names[i] = ContentBrowserUtils::ToLowerCopy(
+                 std::filesystem::path( children[i]->AssetPath ).filename().string() );
         std::sort( order.begin(), order.end(),
                    [&]( size_t a, size_t b )
                    {
@@ -2614,7 +2195,8 @@ namespace Desert::Editor
                     m_FileOpStatus = "Rename failed: the name cannot be empty";
                 else if ( from.filename() != std::filesystem::path( m_RenameBuf ) )
                 {
-                    if ( MoveOrRename( m_RenamePath, from.parent_path() / m_RenameBuf, "Rename", err ) )
+                    if ( ContentBrowserUtils::MoveOrRename( m_RenamePath, from.parent_path() / m_RenameBuf,
+                                                            "Rename", err ) )
                         QueueRefresh();
                     else
                         m_FileOpStatus = "Rename failed: " + err;
@@ -2762,11 +2344,13 @@ namespace Desert::Editor
         for ( const auto& src : m_Clipboard )
         {
             std::string np, err;
-            const bool  ok = m_ClipboardCut ? MoveOrRename( src,
+            const bool  ok =
+                 m_ClipboardCut
+                       ? ContentBrowserUtils::MoveOrRename( src,
                                                             std::filesystem::path( m_CurrentDir->AssetPath ) /
                                                                  std::filesystem::path( src ).filename(),
                                                             "Move", err )
-                                            : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
+                       : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
             if ( !ok )
                 m_FileOpStatus = "Paste failed: " + err;
         }
@@ -2932,7 +2516,7 @@ namespace Desert::Editor
                          if ( !entry.IsFile )
                              return Common::MakeError<bool>(
                                   "a folder opens on its own, not in a multi-selection" );
-                         ShellOpenDefault( entry.AssetPath );
+                         ContentBrowserUtils::ShellOpenDefault( entry.AssetPath );
                          return Common::MakeSuccess( true );
                      } );
             }
@@ -2940,12 +2524,13 @@ namespace Desert::Editor
                 return overEntries(
                      []( DirectoryInformation& entry ) -> Common::BoolResultStr
                      {
-                         ShellRevealInExplorer( entry.AssetPath );
+                         ContentBrowserUtils::ShellRevealInExplorer( entry.AssetPath );
                          return Common::MakeSuccess( true );
                      } );
             case ContentBrowserCommand::OpenContainingFolder:
                 // The selection lives in one folder: one window, not one per entry.
-                ShellOpenDefault( std::filesystem::path( entries.front()->AssetPath ).parent_path().string() );
+                ContentBrowserUtils::ShellOpenDefault(
+                     std::filesystem::path( entries.front()->AssetPath ).parent_path().string() );
                 return Common::MakeSuccess( true );
             case ContentBrowserCommand::Reimport:
                 return overEntries( []( DirectoryInformation& entry )
@@ -3024,43 +2609,12 @@ namespace Desert::Editor
 
     std::vector<std::string> FileExplorerPanel::ContentFolders() const
     {
-        std::vector<std::string> folders;
-        if ( m_BaseProjectDir == nullptr )
-            return folders;
-        folders.push_back( m_BaseProjectDir->AssetPath );
-        std::error_code ec;
-        for ( auto it = std::filesystem::recursive_directory_iterator( m_BaseProjectDir->AssetPath, ec );
-              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
-        {
-            if ( !m_ShowHiddenFiles && IsHidden( it->path() ) )
-            {
-                it.disable_recursion_pending(); // the tree never opens what it hides
-                continue;
-            }
-            if ( it->is_directory( ec ) )
-                folders.push_back( it->path().generic_string() );
-        }
-        return folders;
+        return m_Model.AllFolders();
     }
 
     std::vector<std::string> FileExplorerPanel::ContentFiles() const
     {
-        std::vector<std::string> files;
-        if ( m_BaseProjectDir == nullptr )
-            return files;
-        std::error_code ec;
-        for ( auto it = std::filesystem::recursive_directory_iterator( m_BaseProjectDir->AssetPath, ec );
-              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
-        {
-            if ( !m_ShowHiddenFiles && IsHidden( it->path() ) )
-            {
-                it.disable_recursion_pending();
-                continue;
-            }
-            if ( it->is_regular_file( ec ) )
-                files.push_back( it->path().generic_string() );
-        }
-        return files;
+        return m_Model.AllFiles();
     }
 
     Common::BoolResultStr FileExplorerPanel::GoToFolder( const std::string& path )
@@ -3213,7 +2767,7 @@ namespace Desert::Editor
         bool                  doubleClicked = false;
 
         const std::string fileName = std::filesystem::path( entry->AssetPath ).filename().string();
-        const char*       icon     = folder ? ICON_MDI_FOLDER : IconForType( entry->Type );
+        const char*       icon     = folder ? ICON_MDI_FOLDER : FileTypeInfoOf( entry->Type ).Icon;
 
         ImGui::PushID( dirIndex );
 
@@ -3405,66 +2959,17 @@ namespace Desert::Editor
         if ( !m_CurrentDir )
             return;
 
-        // The erase below frees the child DirectoryInformation entries, so any raw pointer into them (the
+        // The rescan frees the child DirectoryInformation entries, so any raw pointer into them (the
         // selection) would dangle. Remember it by its stable path and re-resolve after the rescan.
         const std::string selectedPath = m_CurrentSelected ? m_CurrentSelected->AssetPath : std::string();
         m_CurrentSelected              = nullptr;
 
-        // Drop cached child entries so they re-process from disk (picks up added/removed files), then
-        // re-scan the current directory in place — navigation (m_CurrentDir / the tree) is preserved.
-        for ( auto* child : m_CurrentDir->Children )
-            if ( child )
-                m_Directories.erase( child->AssetPath );
-        m_CurrentDir->Children.clear();
-        m_CurrentDir->Opened = false;
-
-        ProcessDirectory( m_CurrentDir->AssetPath, m_CurrentDir->Parent, true );
+        // Re-scan the current directory in place — navigation (m_CurrentDir / the tree) is preserved.
+        m_Model.Rescan( m_CurrentDir );
         m_UpdateNavigationPath = true;
 
         if ( !selectedPath.empty() )
-            if ( auto it = m_Directories.find( selectedPath ); it != m_Directories.end() )
-                m_CurrentSelected = it->second.get();
-    }
-
-    void FileExplorerPanel::Refresh()
-    {
-        // The thumbnail cache is NOT cleared (THM1n-13): it holds the project's pictures from the splash on, and
-        // a rescan changes none of them — a picture whose file was rewritten is decoded again by ThumbnailCache's
-        // own WriteWatch, which is the one rule for "this picture is out of date".
-
-        std::string currentPath = m_CurrentDir->AssetPath;
-
-        // clear() frees every DirectoryInformation -> drop the raw selection pointer so it can't dangle.
-        m_CurrentSelected = nullptr;
-
-        m_Directories.clear();
-
-        // Re-scan the panel's actual root (set in the ctor, e.g. "Resources/"). Previously this reset to a
-        // hardcoded "Assets" placeholder, wiping the tree on every refresh.
-        std::string baseDirectoryHandle = ProcessDirectory( m_BasePath, nullptr, true );
-        m_BaseProjectDir                = m_Directories[baseDirectoryHandle].get();
-        ChangeDirectory( m_BaseProjectDir );
-
-        m_UpdateNavigationPath = true;
-
-        m_BaseProjectDir    = m_Directories[baseDirectoryHandle].get();
-        m_PreviousDirectory = nullptr;
-        m_CurrentDir        = nullptr;
-
-        bool dirFound = false;
-        for ( auto& dir : m_Directories )
-        {
-            if ( dir.first == currentPath )
-            {
-                m_CurrentDir = dir.second.get();
-                dirFound     = true;
-                break;
-            }
-        }
-        if ( !dirFound )
-            ChangeDirectory( m_BaseProjectDir );
-        else
-            ChangeDirectory( m_CurrentDir );
+            m_CurrentSelected = m_Model.Find( selectedPath );
     }
 
     void FileExplorerPanel::DrawAssetTooltip( DirectoryInformation* entry )
@@ -3483,10 +2988,7 @@ namespace Desert::Editor
 
         const std::filesystem::path path( entry->AssetPath );
         const std::string           name     = path.filename().string();
-        const auto                  typeIt   = s_FileTypesToString.find( entry->Type );
-        const char*                 typeName = !entry->IsFile                        ? "Folder"
-                                               : typeIt != s_FileTypesToString.end() ? typeIt->second.c_str()
-                                                                                     : "File";
+        const char*                 typeName = entry->IsFile ? FileTypeInfoOf( entry->Type ).Name : "Folder";
         std::string                 sizeText;
         if ( entry->IsFile )
         {
@@ -3529,7 +3031,7 @@ namespace Desert::Editor
         const bool drewThumb = DrawThumbnailFor( entry, thumbSize );
         if ( !drewThumb )
         {
-            const char*  icon   = IconForType( entry->Type );
+            const char*  icon   = FileTypeInfoOf( entry->Type ).Icon;
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             const ImVec2 sz     = ImGui::CalcTextSize( icon );
             ImGui::GetWindowDrawList()->AddRectFilled( origin,
