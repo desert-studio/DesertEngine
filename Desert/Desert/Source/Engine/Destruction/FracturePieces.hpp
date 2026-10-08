@@ -10,10 +10,14 @@
 //     written after each physics step), otherwise the rest pose — the entity's world transform, because the
 //     bake is in the fracture's own space — moved by the Fracture Mode's Explode offset in the PREVIEW only;
 //   * WITH WHAT: the bake gives the cell walls their own material ID (FractureData::InteriorMaterialId); a
-//     submesh of that ID draws the fracture's interior material, any other the source mesh's slot of its ID.
+//     submesh of that ID draws the fracture's interior material, any other the source mesh's slot of its ID;
+//   * ON WHICH PATH: a submesh whose material is a custom-shader one leaves the batched lit draw for a
+//     DrawSlotMaterialMeshCommand — the split a static mesh makes (ECS::Rules::SplitMeshSlotDraws) — and every
+//     draw of a piece keeps the piece's own motion key, on either path.
 //
 // Every number is in centimetres.
 #include <Engine/Destruction/FractureFormat.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 
 #include <glm/glm.hpp>
 
@@ -73,4 +77,45 @@ namespace Desert::Destruction
     [[nodiscard]] InteriorMaterialChoice
     ChooseInteriorMaterial( const FractureData& fracture, const std::string& fractureName,
                             const std::function<bool( const Common::Content::AssetGuid& )>& isMaterialAsset );
+
+    /// The motion part of a piece's draws (MotionRecord::Part): node + 1, so every piece reads its own previous
+    /// world from the view's MotionHistory and 0 stays "the entity itself".
+    [[nodiscard]] inline uint32_t PieceMotionPart( int32_t node )
+    {
+        return static_cast<uint32_t>( node ) + 1u;
+    }
+
+    /// One draw of a piece instance. SlotPath false: the batched lit draw (DrawStaticMeshCommand), Mask = the
+    /// submeshes it hides. SlotPath true: a custom-shader slot material's draw (DrawSlotMaterialMeshCommand) with
+    /// Mat, Mask = the submeshes it draws. Both at the piece's Transform under the piece's MotionPart.
+    template <class Material>
+    struct PieceDraw
+    {
+        bool      SlotPath = false;
+        Material  Mat{};
+        uint64_t  Mask        = 0;
+        bool      CastShadows = false;
+        glm::mat4 Transform   = glm::mat4( 1.0f );
+        uint32_t  MotionPart  = 0;
+    };
+
+    /// The draws of @p instance's piece mesh of @p submeshCount submeshes: split exactly as a static mesh is
+    /// (ECS::Rules::SplitMeshSlotDraws; the piece casts, hides nothing), slot draws first, then the lit draw when
+    /// a submesh stays on it. @p slotMaterialOf( si ) -> submesh si's custom-shader material (the piece's slot
+    /// binding entry, i.e. the PieceSubmeshMaterials choice — interior or source slot), or null for the lit path.
+    template <class Material, class SlotMaterialOf>
+    [[nodiscard]] std::vector<PieceDraw<Material>> PieceDraws( const PieceInstance& instance, size_t submeshCount,
+                                                               SlotMaterialOf&& slotMaterialOf )
+    {
+        const auto     split = ECS::Rules::SplitMeshSlotDraws<Material>( submeshCount, /*hidden*/ 0ull,
+                                                                         /*castShadows*/ true, slotMaterialOf );
+        const uint32_t part  = PieceMotionPart( instance.Node );
+        std::vector<PieceDraw<Material>> draws;
+        for ( const auto& slot : split.SlotDraws )
+            draws.push_back( { true, slot.Mat, slot.VisibleMask, slot.CastShadows, instance.Transform, part } );
+        if ( split.SurfaceDrawEmitted )
+            draws.push_back(
+                 { false, Material{}, split.SurfaceHidden, split.SurfaceCastShadows, instance.Transform, part } );
+        return draws;
+    }
 } // namespace Desert::Destruction

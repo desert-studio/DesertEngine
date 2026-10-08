@@ -213,10 +213,117 @@ TEST( FracturePieces, ThePieceDrawIsRaceFreeAndEachPieceHasItsOwnMotionKey )
     EXPECT_GE( askers, 1u ) << "PhysicsECSSystem no longer found asking the FractureService: re-check the census";
 
     const std::string draw = ReadText( systemDir + "FracturePieceDraw.cpp" );
-    EXPECT_NE( draw.find( "/*motionPart*/ static_cast<uint32_t>( instance.Node ) + 1u" ), std::string::npos )
-         << "every piece draws with its own MotionHistory key";
+    EXPECT_NE( draw.find( "Destruction::PieceDraws<Graphic::Material*>(" ), std::string::npos )
+         << "the piece draws are no longer planned by PieceDraws (own motion part, static split)";
+    EXPECT_NE( draw.find( "/*sortPriority*/ 0, draw.MotionPart );" ), std::string::npos )
+         << "every piece's lit draw carries its own MotionHistory key";
 
     const std::string vertex = ReadText( "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanVertexBuffer.cpp" );
     EXPECT_NE( vertex.find( "RT_DestroyBuffer" ), std::string::npos );
     EXPECT_EQ( vertex.find( "vmaDestroyBuffer" ), std::string::npos ) << "a buffer freed under a frame in flight";
+}
+
+// A piece whose slot material is a custom-shader one draws that submesh through DrawSlotMaterialMeshCommand, split
+// as a static mesh is, at the piece's own transform under the piece's own motion part; the interior slot keeps the
+// interior material on that path. Red when a custom slot stays on the lit draw (or the lit draw does not hide it),
+// a slot draw takes another transform or motion key than its piece's, the interior submesh's slot draw names a
+// source material, or the caster is on two draws of one piece.
+TEST( FracturePieces, ACustomShaderSlotDrawsOnTheSlotPathWithThePiecesTransformAndMotionKey )
+{
+    // Stand-ins for the materials: batched surfaces and custom-shader ones.
+    struct Mat
+    {
+        bool Custom = false;
+    };
+    const Mat lit{ false }, glass{ true }, interiorCustom{ true }, interiorLit{ false };
+
+    // Submeshes 0, 1 = source IDs 0, 1; submesh 2 = the interior (ID 3), as ToRenderMesh emits them.
+    const std::vector<int> ids{ 0, 1, 3 };
+    const auto             choices = PieceSubmeshMaterials( ids, /*interior*/ 3, /*source slots*/ 2 );
+    const auto             plan =
+         [&]( const PieceInstance& instance, const std::vector<const Mat*>& source, const Mat* interior )
+    {
+        // What FracturePieceDraw::Record does: the slot binding's entry of submesh si, custom ones off the lit
+        // path.
+        return PieceDraws<const Mat*>( instance, ids.size(),
+                                       [&]( size_t si ) -> const Mat*
+                                       {
+                                           const auto& c   = choices[si];
+                                           const Mat*  mat = c.Interior ? interior : source[c.SourceSlot];
+                                           return mat->Custom ? mat : nullptr;
+                                       } );
+    };
+
+    const glm::mat4     pieceWorld = glm::translate( glm::mat4( 1.0f ), glm::vec3( 120.0f, 0.0f, -40.0f ) );
+    const PieceInstance piece{ 2, pieceWorld };
+
+    // Source slot 1 is custom: submesh 1 on the slot path, 0 and 2 (interior, lit) on the lit draw.
+    const auto mixed = plan( piece, { &lit, &glass }, &interiorLit );
+    ASSERT_EQ( mixed.size(), 2u );
+    EXPECT_TRUE( mixed[0].SlotPath );
+    EXPECT_EQ( mixed[0].Mat, &glass );
+    EXPECT_EQ( mixed[0].Mask, 1ull << 1 );
+    EXPECT_EQ( mixed[0].Transform, pieceWorld );
+    EXPECT_EQ( mixed[0].MotionPart, PieceMotionPart( 2 ) );
+    EXPECT_EQ( mixed[0].MotionPart, 3u ) << "a piece's key is node + 1; 0 is the entity itself";
+    EXPECT_FALSE( mixed[1].SlotPath );
+    EXPECT_EQ( mixed[1].Mask, 1ull << 1 ) << "the lit draw must hide the submesh the slot draw draws";
+    EXPECT_EQ( mixed[1].Transform, pieceWorld );
+    EXPECT_EQ( mixed[1].MotionPart, mixed[0].MotionPart ) << "one piece, one motion row on both paths";
+    EXPECT_TRUE( mixed[1].CastShadows );
+    EXPECT_FALSE( mixed[0].CastShadows ) << "the shadow pass draws the piece whole: one caster";
+
+    // The interior material is the custom one: the interior submesh (2) goes to the slot path WITH the interior.
+    const auto interior = plan( piece, { &lit, &lit }, &interiorCustom );
+    ASSERT_EQ( interior.size(), 2u );
+    EXPECT_TRUE( interior[0].SlotPath );
+    EXPECT_EQ( interior[0].Mat, &interiorCustom ) << "the interior slot must keep the interior material";
+    EXPECT_EQ( interior[0].Mask, 1ull << 2 );
+    EXPECT_EQ( interior[1].Mask, 1ull << 2 );
+
+    // Every submesh custom: no lit draw, the first slot draw casts; another piece keeps its own key.
+    const PieceInstance other{ 1, glm::mat4( 1.0f ) };
+    const auto          all = plan( other, { &glass, &glass }, &interiorCustom );
+    ASSERT_EQ( all.size(), 2u );
+    EXPECT_TRUE( all[0].SlotPath && all[1].SlotPath );
+    EXPECT_EQ( all[0].Mask, ( 1ull << 0 ) | ( 1ull << 1 ) ) << "submeshes of one material merge into one draw";
+    EXPECT_EQ( all[1].Mat, &interiorCustom );
+    EXPECT_TRUE( all[0].CastShadows );
+    EXPECT_FALSE( all[1].CastShadows );
+    EXPECT_EQ( all[0].MotionPart, PieceMotionPart( 1 ) );
+    EXPECT_NE( all[0].MotionPart, mixed[0].MotionPart );
+}
+
+// The slot path is the static path's split and carries the part to the motion record. Red when FracturePieceDraw
+// stops emitting DrawSlotMaterialMeshCommand with the piece's part, MeshECSSystem splits statics by a rule of its
+// own again, or the part is dropped between the command and BuildObjectMotions.
+TEST( FracturePieces, TheSlotPathIsTheStaticSplitAndKeepsTheMotionPart )
+{
+    const std::string draw = ReadText( "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.cpp" );
+    EXPECT_NE( draw.find( "Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(" ), std::string::npos );
+    EXPECT_NE( draw.find( "draw.CastShadows, draw.MotionPart );" ), std::string::npos );
+    EXPECT_NE( draw.find( "services.SlotMaterial(" ), std::string::npos );
+
+    const std::string pieces = ReadText( "Desert/Desert/Source/Engine/Destruction/FracturePieces.hpp" );
+    EXPECT_NE( pieces.find( "ECS::Rules::SplitMeshSlotDraws<Material>(" ), std::string::npos );
+
+    const std::string meshSystem = ReadText( "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
+    EXPECT_NE( meshSystem.find( "Rules::SplitMeshSlotDraws<Graphic::Material*>(" ), std::string::npos );
+    EXPECT_NE( meshSystem.find( "pieceServices.SlotMaterial" ), std::string::npos );
+    EXPECT_EQ( meshSystem.find( "dynamic_cast<const Graphic::DataDrivenMaterial*>( parent )" ),
+               meshSystem.rfind( "dynamic_cast<const Graphic::DataDrivenMaterial*>( parent )" ) )
+         << "one custom-shader test (CustomSlotMaterial), not one per path";
+
+    const std::string command =
+         ReadText( "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawSlotMaterialMeshCommand.hpp" );
+    EXPECT_NE( command.find( "CastShadows, MotionPart );" ), std::string::npos );
+    const std::string renderer = ReadText( "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    EXPECT_NE( renderer.find( ".MotionPart         = motionPart," ), std::string::npos );
+    const std::string meshRenderer =
+         ReadText( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    size_t parts = 0;
+    for ( size_t at = meshRenderer.find( ".Part = data.MotionPart" ); at != std::string::npos;
+          at        = meshRenderer.find( ".Part = data.MotionPart", at + 1 ) )
+        ++parts;
+    EXPECT_EQ( parts, 2u ) << "the static AND the generic queue's records carry the part";
 }

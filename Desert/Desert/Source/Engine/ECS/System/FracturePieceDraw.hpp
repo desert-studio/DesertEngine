@@ -3,7 +3,9 @@
 //
 // Not a renderer: MeshECSSystem owns one of these and every piece goes out as the DrawStaticMeshCommand a static
 // mesh records, so the MeshRenderer batches pieces exactly as it batches statics (one instanced draw per material
-// per piece-mesh batch). An entity draws as pieces when it has
+// per piece-mesh batch); submeshes whose material is a custom-shader one go out as DrawSlotMaterialMeshCommand,
+// split as a static mesh's are (Destruction::PieceDraws), each draw under the piece's own motion part. An entity
+// draws as pieces when it has
 //   * a FracturePreviewComponent (the Fracture Mode's preview of the tool's fracture, Explode offsets applied), or
 //   * a DestructibleComponent whose Rest Collection is read (at its bodies' poses while simulated, else at rest);
 // its StaticMeshComponent, if any, is then not drawn (MeshECSSystem skips the entities Record returns).
@@ -48,6 +50,10 @@ namespace Desert::ECS
             std::function<Graphic::MaterialInstancePtr()> DefaultInstance;
             /// The material asset a GUID names, or a null handle when it names none.
             std::function<Assets::AssetHandle( const Common::Content::AssetGuid& )> MaterialByGuid;
+            /// The material a slot instance draws with OFF the batched lit path (a custom-shader material), or
+            /// null when the batched path draws it — the static path's own test
+            /// (MeshECSSystem::CustomSlotMaterial).
+            std::function<Graphic::Material*( const Graphic::MaterialInstance* )> SlotMaterial;
             /// A destructible's fracture: null while pending (FractureService::Get).
             std::function<std::shared_ptr<const Destruction::FractureData>( const Assets::AssetHandle& )> Fracture;
         };

@@ -1613,12 +1613,13 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                                 Material* material, uint64_t visibleSubmeshMask, bool outlined,
-                                                bool castShadows )
+                                                bool castShadows, const uint32_t motionPart )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity             = entity,
+                                    .MotionPart         = motionPart,
                                     .Mesh               = mesh,
                                     .Transform          = transform,
                                     .Outlined           = outlined,
