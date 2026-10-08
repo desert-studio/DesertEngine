@@ -430,7 +430,7 @@ namespace Desert::Core
         m_Distance                    = glm::distance( lookDirection, m_FocalPoint );
         m_RightDirection              = glm::cross( m_Direction, basis.Up );
 
-        m_ViewMatrix = glm::lookAt( m_Position, lookDirection, basis.Up );
+        m_ViewMatrix = ViewMatrixFrom( m_Position, basis );
 
         // Damping
         m_YawDelta *= 0.6f;

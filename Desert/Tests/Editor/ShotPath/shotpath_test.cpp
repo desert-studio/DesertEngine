@@ -4,6 +4,7 @@
 #include <Editor/Core/ShotRecordGate.hpp>
 #include <Editor/Core/ViewportCameraProperties.hpp>
 
+#include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -508,8 +509,12 @@ namespace
         const float      fovX = Desert::Core::kEditorViewportFovXDegrees;
         const FramedView view = FrameBox( box, forward, fovX, aspect );
 
+        // The editor camera's own view matrix (EditorCamera::UpdateCameraView). Not glm::lookAt( eye, eye +
+        // forward ): at 10^7 cm that sum rounds the direction away (ViewMatrixFrom says how far).
         const glm::vec3 up = std::abs( view.Forward.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
-        const glm::mat4 viewMat = glm::lookAt( view.Position, view.Position + view.Forward, up );
+        const glm::vec3 right   = glm::normalize( glm::cross( view.Forward, up ) );
+        const glm::mat4 viewMat = Desert::Core::ViewMatrixFrom(
+             view.Position, Desert::Core::ViewBasis{ view.Forward, glm::cross( right, view.Forward ) } );
         const glm::mat4 proj    = Desert::Core::MakePerspective(
              Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovX ), aspect ), aspect, view.Near,
              view.Far );
