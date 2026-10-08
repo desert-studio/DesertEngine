@@ -311,11 +311,11 @@ TEST( UIIntrospectionWalk, OwnAndInheritedAreDifferentAnswers )
     ASSERT_NE( leaf, nullptr );
 
     EXPECT_EQ( root->Cause, UISkipCause::SelfHidden );
-    EXPECT_EQ( root->CauseBy, scene.Panels[0] );
+    EXPECT_EQ( UI::ToEntity( root->CauseBy ), scene.Panels[0] );
     EXPECT_EQ( mid->Cause, UISkipCause::AncestorSkipped );
-    EXPECT_EQ( mid->CauseBy, scene.Panels[0] ) << "the blame must name the ancestor that stopped, not the parent";
+    EXPECT_EQ( UI::ToEntity( mid->CauseBy ), scene.Panels[0] ) << "the blame must name the ancestor that stopped, not the parent";
     EXPECT_EQ( leaf->Cause, UISkipCause::AncestorSkipped );
-    EXPECT_EQ( leaf->CauseBy, scene.Panels[0] );
+    EXPECT_EQ( UI::ToEntity( leaf->CauseBy ), scene.Panels[0] );
 }
 
 TEST( UIIntrospectionWalk, ABindingThatSaysHiddenIsItsOwnReason )

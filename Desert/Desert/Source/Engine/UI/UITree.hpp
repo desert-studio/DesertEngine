@@ -19,7 +19,7 @@
 // tree every frame, exactly as the ECS walk did, so a frame drawn through it is the frame drawn before.
 namespace Desert::UI
 {
-    // A node of the tree. Bit-for-bit an `entt::entity` in the ECS adapter, so converting is free and the
+    // A node of the tree. Bit-for-bit an `entt::entity` in the ECS adapter (null mapped explicitly), so the
     // id a debugger prints for an element is the same id either side of the seam.
     enum class NodeId : std::uint32_t
     {

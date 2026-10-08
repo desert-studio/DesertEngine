@@ -16,17 +16,22 @@ namespace Desert::UI
     static_assert( std::is_same_v<std::underlying_type_t<entt::entity>, std::uint32_t>,
                    "NodeId is bit-for-bit an entt::entity" );
 
+    // Bit for bit for every real entity. The null id is mapped explicitly both ways: entt's null is its
+    // ENTITY bits all set (the version bits are not part of it, and differ by entt release), so it is not
+    // the all-ones NodeId::Null as a bit pattern — and `e == entt::null` is entt's own test for it.
     [[nodiscard]] constexpr NodeId ToNode( entt::entity e )
     {
-        return static_cast<NodeId>( static_cast<std::uint32_t>( e ) );
+        return e == entt::null ? NodeId::Null : static_cast<NodeId>( static_cast<std::uint32_t>( e ) );
     }
 
     [[nodiscard]] constexpr entt::entity ToEntity( NodeId n )
     {
-        return static_cast<entt::entity>( static_cast<std::uint32_t>( n ) );
+        return n == NodeId::Null ? entt::entity( entt::null )
+                                 : static_cast<entt::entity>( static_cast<std::uint32_t>( n ) );
     }
 
     static_assert( ToNode( entt::entity( entt::null ) ) == NodeId::Null, "entt::null is NodeId::Null" );
+    static_assert( ToEntity( NodeId::Null ) == entt::null, "NodeId::Null is entt::null" );
 
     class EcsUITree final : public IUITree
     {
