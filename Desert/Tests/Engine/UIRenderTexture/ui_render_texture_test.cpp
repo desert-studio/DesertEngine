@@ -28,6 +28,7 @@
 // purity UIRenderTextureSource.hpp exists to protect — naming the concrete Render2D cache here would drag
 // a Vulkan device, a Core::Scene and a SceneRenderer into a test about six comparisons.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -77,7 +78,7 @@ namespace
     // because the question is where the element's size and its ResolutionScale meet.
     struct Ask
     {
-        entt::entity Element = entt::null;
+        UI::NodeId Element = UI::NodeId::Null;
         std::string  ScenePath;
         uint32_t     Width  = 0;
         uint32_t     Height = 0;
@@ -91,7 +92,7 @@ namespace
         {
         }
 
-        const void* ResolveRenderTexture( entt::entity element, const UIRenderTextureRequest& request ) override
+        const void* ResolveRenderTexture( UI::NodeId element, const UIRenderTextureRequest& request ) override
         {
             Asks.push_back( Ask{ .Element   = element,
                                  .ScenePath = std::string( request.ScenePath ),
@@ -253,7 +254,7 @@ TEST( UIRenderTexture, AVisibleElementIsAskedAboutOncePerFrame )
     Draw( ctx, f, dl );
 
     ASSERT_EQ( source.Asks.size(), 1u ) << "an on-screen element must be asked about exactly once a frame";
-    EXPECT_EQ( source.Asks.front().Element, f.Element );
+    EXPECT_EQ( source.Asks.front().Element, UI::ToNode( f.Element ) );
     EXPECT_EQ( source.Asks.front().ScenePath, "Resources/Assets/Scenes/W.desce" );
 }
 

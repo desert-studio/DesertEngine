@@ -23,6 +23,7 @@
 // Every one is written so that removing the mechanism reddens it rather than merely changing a number;
 // the mutations that were run are in the report.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -204,7 +205,7 @@ namespace
     Rect OverlayBox( World& w, UIViewContext& view, entt::entity canvas )
     {
         std::vector<DUI::UIElementNode> nodes;
-        EXPECT_TRUE( DUI::EnumerateCanvas( w.Registry, canvas, kViewport, nodes, &view.CanvasState( canvas ) )
+        EXPECT_TRUE( DUI::EnumerateCanvas( w.Registry, canvas, kViewport, nodes, &view.CanvasState( Desert::UI::ToNode( canvas ) ) )
                           .IsSuccess() );
         Rect box{};
         for ( const DUI::UIElementNode& n : nodes )
@@ -295,7 +296,7 @@ TEST( OverlayModal, APressThatMissesTheDialogDoesNotReachTheElementUnderIt )
         EXPECT_NE( std::find( fired.begin(), fired.end(), "hud:down" ), fired.end() )
              << "with no modal open the HUD button did not hear its own press — the rest of this test "
                 "would then prove nothing";
-        EXPECT_EQ( view.Hot, w.HudButton );
+        EXPECT_EQ( view.Hot, Desert::UI::ToNode( w.HudButton ) );
     }
 
     // --- The modal is open.
@@ -304,11 +305,11 @@ TEST( OverlayModal, APressThatMissesTheDialogDoesNotReachTheElementUnderIt )
         // One frame first: BeginUIFrame binds the view to this registry and drops everything it held, so a
         // cell written before the view has ever seen the scene is thrown away with it.
         w.Frame( view, At( 900.0f, 900.0f ) );
-        view.CanvasState( modal ).OverlayOpen = true;
+        view.CanvasState( Desert::UI::ToNode( modal ) ).OverlayOpen = true;
         const std::vector<std::string> fired  = w.Frame( view, press );
         EXPECT_EQ( std::find( fired.begin(), fired.end(), "hud:down" ), fired.end() )
              << "the press went straight through the modal to the button underneath";
-        EXPECT_EQ( view.Hot, modal )
+        EXPECT_EQ( view.Hot, Desert::UI::ToNode( modal ) )
              << "the frame's hot element was not the modal's own scrim, which is the ONLY thing that "
                 "stops the press: there is no second rule in the controls to fall back on";
     }
@@ -331,13 +332,13 @@ TEST( OverlayModal, AFullyTransparentScrimStillCaptures )
 
     UIViewContext view{ s_Resources };
     w.Frame( view, At( 900.0f, 900.0f ) ); // bind the view to this registry first — see the test above
-    view.CanvasState( modal ).OverlayOpen = true;
+    view.CanvasState( Desert::UI::ToNode( modal ) ).OverlayOpen = true;
     UIInput press                         = At( 50.0f, 50.0f );
     press.MouseDown                       = true;
 
     const std::vector<std::string> fired = w.Frame( view, press );
     EXPECT_EQ( std::find( fired.begin(), fired.end(), "hud:down" ), fired.end() );
-    EXPECT_EQ( view.Hot, modal );
+    EXPECT_EQ( view.Hot, Desert::UI::ToNode( modal ) );
 }
 
 TEST( OverlayModal, AClosedOverlayDrawsNothingAndIsNotTheSameStatementAsAnInvisibleCanvas )
@@ -360,7 +361,7 @@ TEST( OverlayModal, AClosedOverlayDrawsNothingAndIsNotTheSameStatementAsAnInvisi
     // closed" is a different answer from "this canvas has no children".
     std::vector<DUI::UIElementNode> nodes;
     ASSERT_TRUE(
-         DUI::EnumerateCanvas( w.Registry, modal, kViewport, nodes, &view.CanvasState( modal ) ).IsSuccess() );
+         DUI::EnumerateCanvas( w.Registry, modal, kViewport, nodes, &view.CanvasState( Desert::UI::ToNode( modal ) ) ).IsSuccess() );
     ASSERT_FALSE( nodes.empty() ) << "the closed overlay reported an empty tree, which a caller cannot tell "
                                      "from a canvas with nothing in it";
     EXPECT_FALSE( nodes.front().Drawn );
@@ -381,25 +382,25 @@ TEST( OverlayTooltip, ItOpensOnlyAfterTheAuthoredDelayAndClosesWhenThePointerLea
     const UIInput onButton = At( 50.0f, 50.0f );
 
     w.Frame( view, onButton ); // frame 1: the trigger is seen, the clock starts at zero
-    EXPECT_FALSE( view.CanvasState( tip ).OverlayOpen ) << "the tooltip ignored its Open Delay";
+    EXPECT_FALSE( view.CanvasState( Desert::UI::ToNode( tip ) ).OverlayOpen ) << "the tooltip ignored its Open Delay";
 
     Idle( w, view, onButton, 2 ); // ~0.2 s — still under the 0.3 s delay
-    EXPECT_FALSE( view.CanvasState( tip ).OverlayOpen );
+    EXPECT_FALSE( view.CanvasState( Desert::UI::ToNode( tip ) ).OverlayOpen );
 
     Idle( w, view, onButton, 2 ); // ~0.4 s
-    EXPECT_TRUE( view.CanvasState( tip ).OverlayOpen ) << "the delay elapsed and nothing opened";
-    EXPECT_EQ( view.OverlayTooltip, tip );
+    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( tip ) ).OverlayOpen ) << "the delay elapsed and nothing opened";
+    EXPECT_EQ( view.OverlayTooltip, Desert::UI::ToNode( tip ) );
 
     // The trigger's Text reached the overlay through the cell's locals — never through the scene, and
     // never through the process-wide store where a second view would see it.
-    EXPECT_EQ( view.CanvasState( tip ).Locals.Text( DUI::kOverlayTextKey ).value_or( "" ), "Explains the button" );
+    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( tip ) ).Locals.Text( DUI::kOverlayTextKey ).value_or( "" ), "Explains the button" );
     EXPECT_FALSE( DUI::UIDataStore::Get().Has( DUI::kOverlayTextKey ) )
          << "the tooltip's text was written into the process-wide data store, where the editor's preview "
             "and the viewport would overwrite each other";
 
     Idle( w, view, At( 900.0f, 900.0f ), 1 );
-    EXPECT_FALSE( view.CanvasState( tip ).OverlayOpen ) << "the tooltip outlived the hover that opened it";
-    EXPECT_TRUE( view.OverlayTooltip == entt::null );
+    EXPECT_FALSE( view.CanvasState( Desert::UI::ToNode( tip ) ).OverlayOpen ) << "the tooltip outlived the hover that opened it";
+    EXPECT_TRUE( view.OverlayTooltip == Desert::UI::NodeId::Null );
 }
 
 // The brief's own case, end to end through the real walk rather than through PlaceOverlay alone: the
@@ -418,14 +419,14 @@ TEST( OverlayTooltip, AtTheRightEdgeTheOpenedTooltipFlipsAndStaysInsideTheView )
     // --- Control first: in the middle of the view it does NOT flip.
     UIViewContext middleView{ s_Resources };
     Idle( w, middleView, At( 400.0f, 400.0f ), 2 );
-    ASSERT_TRUE( middleView.CanvasState( tip ).OverlayOpen );
+    ASSERT_TRUE( middleView.CanvasState( Desert::UI::ToNode( tip ) ).OverlayOpen );
     const Rect middle = OverlayBox( w, middleView, tip );
     EXPECT_GT( middle.X, 400.0f ) << "the tooltip flipped when there was room not to";
 
     // --- 40 px from the right border: 300 px of tooltip cannot fit to the right of the cursor.
     UIViewContext edgeView{ s_Resources };
     Idle( w, edgeView, At( kSide - 40.0f, 400.0f ), 2 );
-    ASSERT_TRUE( edgeView.CanvasState( tip ).OverlayOpen );
+    ASSERT_TRUE( edgeView.CanvasState( Desert::UI::ToNode( tip ) ).OverlayOpen );
     const Rect edge = OverlayBox( w, edgeView, tip );
 
     EXPECT_LE( edge.X + edge.W, kSide ) << "the tooltip hung off the right edge of the view";
@@ -449,8 +450,8 @@ TEST( OverlayTooltip, AnOpenTooltipNeverTakesThePointerFromWhatItDescribes )
     const UIInput onButton = At( 50.0f, 50.0f );
     Idle( w, view, onButton, 3 );
 
-    ASSERT_TRUE( view.CanvasState( tip ).OverlayOpen );
-    EXPECT_EQ( view.Hot, w.HudButton )
+    ASSERT_TRUE( view.CanvasState( Desert::UI::ToNode( tip ) ).OverlayOpen );
+    EXPECT_EQ( view.Hot, Desert::UI::ToNode( w.HudButton ) )
          << "the tooltip covers the whole view and took the election from the element it is about";
 }
 
@@ -466,22 +467,22 @@ TEST( OverlayContextMenu, ItOpensOnTheRightButtonAndClosesOnEscape )
 
     UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
-    ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen ) << "the right button did not open the menu";
+    ASSERT_TRUE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen ) << "the right button did not open the menu";
     ASSERT_EQ( view.OverlayStack.size(), 1u );
 
     UIInput esc = At( 50.0f, 50.0f );
     esc.Keys.push_back( { Common::KeyCode::Escape } );
     w.Frame( view, esc );
-    EXPECT_FALSE( view.CanvasState( menu ).OverlayOpen ) << "Escape did not close the context menu";
+    EXPECT_FALSE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen ) << "Escape did not close the context menu";
     EXPECT_TRUE( view.OverlayStack.empty() );
 
     // The control: an overlay that says it does not close on Escape does not.
     w.Registry.get<ECS::UIOverlayComponent>( menu ).Data.CloseOnEscape = false;
     UIViewContext second{ s_Resources };
     Click( w, second, 50.0f, 50.0f, /*right=*/true );
-    ASSERT_TRUE( second.CanvasState( menu ).OverlayOpen );
+    ASSERT_TRUE( second.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen );
     w.Frame( second, esc );
-    EXPECT_TRUE( second.CanvasState( menu ).OverlayOpen )
+    EXPECT_TRUE( second.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen )
          << "Close On Escape is a knob that moves nothing — Escape closed the menu anyway";
 }
 
@@ -493,16 +494,16 @@ TEST( OverlayContextMenu, APressOutsideTheMenuClosesItAndAPressInsideDoesNot )
 
     UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
-    ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen );
+    ASSERT_TRUE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen );
 
     // The menu was placed at the click, so a point inside its own box is a press it keeps.
     const Rect box = OverlayBox( w, view, menu );
     Click( w, view, box.X + box.W * 0.5f, box.Y + box.H * 0.5f );
-    EXPECT_TRUE( view.CanvasState( menu ).OverlayOpen )
+    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen )
          << "clicking an item of the menu closed the menu before the item could act";
 
     Click( w, view, 900.0f, 900.0f );
-    EXPECT_FALSE( view.CanvasState( menu ).OverlayOpen ) << "a press outside the menu left it open";
+    EXPECT_FALSE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen ) << "a press outside the menu left it open";
 }
 
 // NESTING IS THE SAME MECHANISM, RECURSIVELY. A submenu is a ContextMenu overlay whose trigger is an item
@@ -522,18 +523,18 @@ TEST( OverlayContextMenu, ASubmenuIsAnotherOverlayOpenedFromAnItemAndClosesWithI
 
     UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
-    ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen );
+    ASSERT_TRUE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen );
 
     const Rect box = OverlayBox( w, view, menu );
     Idle( w, view, At( box.X + box.W * 0.5f, box.Y + box.H * 0.5f ), 2 );
-    ASSERT_TRUE( view.CanvasState( sub ).OverlayOpen ) << "hovering the item did not open the submenu";
+    ASSERT_TRUE( view.CanvasState( Desert::UI::ToNode( sub ) ).OverlayOpen ) << "hovering the item did not open the submenu";
     EXPECT_EQ( view.OverlayStack.size(), 2u ) << "the submenu replaced its parent instead of stacking on it";
 
     UIInput esc = At( box.X + box.W * 0.5f, box.Y + box.H * 0.5f );
     esc.Keys.push_back( { Common::KeyCode::Escape } );
     w.Frame( view, esc );
-    EXPECT_FALSE( view.CanvasState( sub ).OverlayOpen ) << "Escape closed the parent instead of the innermost";
-    EXPECT_TRUE( view.CanvasState( menu ).OverlayOpen );
+    EXPECT_FALSE( view.CanvasState( Desert::UI::ToNode( sub ) ).OverlayOpen ) << "Escape closed the parent instead of the innermost";
+    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen );
 
     Click( w, view, 900.0f, 900.0f );
     EXPECT_TRUE( view.OverlayStack.empty() );
@@ -556,17 +557,17 @@ TEST( OverlayToast, ANotificationLeavesOnItsOwnClock )
     DUI::UIOverlayRequests::Get().Raise( "Toasts", "Saved" );
 
     w.Frame( view, At( 900.0f, 900.0f ) );
-    ASSERT_EQ( view.CanvasState( toasts ).OverlayToastVisible.size(), 1u )
+    ASSERT_EQ( view.CanvasState( Desert::UI::ToNode( toasts ) ).OverlayToastVisible.size(), 1u )
          << "the raised notification never reached the view";
-    EXPECT_TRUE( view.CanvasState( toasts ).OverlayOpen );
-    EXPECT_EQ( view.CanvasState( toasts ).Locals.Text( DUI::OverlayToastTextKey( 0 ) ).value_or( "" ), "Saved" );
-    EXPECT_EQ( view.CanvasState( toasts ).Locals.Bool( DUI::OverlayToastVisibleKey( 1 ) ).value_or( true ), false )
+    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( toasts ) ).OverlayOpen );
+    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( toasts ) ).Locals.Text( DUI::OverlayToastTextKey( 0 ) ).value_or( "" ), "Saved" );
+    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( toasts ) ).Locals.Bool( DUI::OverlayToastVisibleKey( 1 ) ).value_or( true ), false )
          << "an empty slot was left to fall back on whatever the author typed into it";
 
     Idle( w, view, At( 900.0f, 900.0f ), 8 ); // ~0.8 s, past its 0.5 s lifetime
-    EXPECT_TRUE( view.CanvasState( toasts ).OverlayToastVisible.empty() )
+    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( toasts ) ).OverlayToastVisible.empty() )
          << "the notification had to be dismissed by hand";
-    EXPECT_FALSE( view.CanvasState( toasts ).OverlayOpen ) << "the toast canvas stayed open with nothing to show";
+    EXPECT_FALSE( view.CanvasState( Desert::UI::ToNode( toasts ) ).OverlayOpen ) << "the toast canvas stayed open with nothing to show";
 }
 
 TEST( OverlayToast, TheVisibleStackIsBoundedByTheAuthoredSlotsAndTheQueueBehindItIsBoundedToo )
@@ -584,7 +585,7 @@ TEST( OverlayToast, TheVisibleStackIsBoundedByTheAuthoredSlotsAndTheQueueBehindI
 
     w.Frame( view, At( 900.0f, 900.0f ) );
 
-    const auto& cell = view.CanvasState( toasts );
+    const auto& cell = view.CanvasState( Desert::UI::ToNode( toasts ) );
     EXPECT_EQ( cell.OverlayToastVisible.size(), 2u ) << "more notifications were shown than there are slots";
     EXPECT_LE( cell.OverlayToastPending.size(), 8u )
          << "the waiting queue grew without limit — forty notifications raised in one frame would be read "
@@ -610,8 +611,8 @@ TEST( OverlayToast, AToastNeverTakesThePointerFromWhatIsUnderIt )
     w.Frame( view, At( 50.0f, 50.0f ) ); // the notification arrives and the canvas opens this frame
     const std::vector<std::string> fired = Click( w, view, 50.0f, 50.0f );
 
-    ASSERT_TRUE( view.CanvasState( toasts ).OverlayOpen );
-    EXPECT_EQ( view.Hot, w.HudButton ) << "the toast canvas was elected over the HUD beneath it";
+    ASSERT_TRUE( view.CanvasState( Desert::UI::ToNode( toasts ) ).OverlayOpen );
+    EXPECT_EQ( view.Hot, Desert::UI::ToNode( w.HudButton ) ) << "the toast canvas was elected over the HUD beneath it";
     EXPECT_NE( std::find( fired.begin(), fired.end(), "hud:down" ), fired.end() )
          << "the press was swallowed by a notification that is about to disappear on its own";
 }
@@ -631,9 +632,9 @@ TEST( OverlayPlacement, WhereItDrawsAndWhereItCanBeClickedAreOneAnswer )
 
     UIViewContext view{ s_Resources };
     Click( w, view, 120.0f, 80.0f, /*right=*/true ); // inside the HUD button, which carries the trigger
-    ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen );
+    ASSERT_TRUE( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen );
 
-    const glm::vec2 shift = view.CanvasState( menu ).OverlayShift;
+    const glm::vec2 shift = view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayShift;
     ASSERT_GT( glm::length( shift ), 1.0f ) << "the menu was not displaced at all, so this proves nothing";
 
     // Where the LAYOUT WALK says the menu is, carrying this view's cell.
@@ -644,16 +645,16 @@ TEST( OverlayPlacement, WhereItDrawsAndWhereItCanBeClickedAreOneAnswer )
     // recursions over the same tree (UICanvasLayout.hpp says so in as many words), so this is the
     // agreement and not either side of it.
     w.Frame( view, At( box.X + 4.0f, box.Y + 4.0f ) );
-    EXPECT_EQ( Desert::UI::CanvasOf( w.Registry, view.Hot ), menu )
+    EXPECT_EQ( Desert::UI::CanvasOf( w.Registry, Desert::UI::ToEntity( view.Hot ) ), menu )
          << "the pointer landed on the pixels the enumeration says the menu occupies, and the frame elected "
             "something else — the menu draws in one place and is clickable in another";
 
     // The control: the position the menu was AUTHORED at is no longer where it can be clicked.
     UIViewContext third{ s_Resources };
     Click( w, third, 120.0f, 80.0f, /*right=*/true );
-    ASSERT_TRUE( third.CanvasState( menu ).OverlayOpen );
+    ASSERT_TRUE( third.CanvasState( Desert::UI::ToNode( menu ) ).OverlayOpen );
     w.Frame( third, At( 4.0f, 4.0f ) );
-    EXPECT_NE( Desert::UI::CanvasOf( w.Registry, third.Hot ), menu )
+    EXPECT_NE( Desert::UI::CanvasOf( w.Registry, Desert::UI::ToEntity( third.Hot ) ), menu )
          << "the menu was still elected at its unplaced authored position, so nothing was displaced";
 }
 
@@ -744,8 +745,8 @@ TEST( OverlayAuthoring, ADesignViewShowsEveryOverlayWhereItWasAuthored )
 
     ASSERT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
     EXPECT_TRUE( drawn.GetValue() ) << "the UI Editor and Design mode cannot show the overlay being authored";
-    EXPECT_FLOAT_EQ( view.CanvasState( menu ).OverlayShift.x, 0.0f );
-    EXPECT_FLOAT_EQ( view.CanvasState( menu ).OverlayShift.y, 0.0f );
+    EXPECT_FLOAT_EQ( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayShift.x, 0.0f );
+    EXPECT_FLOAT_EQ( view.CanvasState( Desert::UI::ToNode( menu ) ).OverlayShift.y, 0.0f );
 }
 
 // Ю11 put materials on UI elements. An overlay's chrome is ORDINARY UI, so it gets them for nothing —

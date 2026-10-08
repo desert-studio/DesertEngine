@@ -19,6 +19,7 @@
 // A->B->A protocol, and it is the one that would catch a per-entity table surviving a scene it does not
 // belong to, which is this project's recurring defect (entity ids are unique only inside a registry).
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -175,14 +176,14 @@ namespace
         input.MousePx = at;
         Walk( scene, dl, ctx, &input );
         Walk( scene, dl, ctx, &input );
-        return ctx.Hot;
+        return Desert::UI::ToEntity( ctx.Hot );
     }
 
     std::size_t DrawnCount( OverScene& scene, UIViewContext& ctx )
     {
         std::vector<UIElementNode> nodes;
         const auto                 ok = UI::EnumerateCanvas( scene.Registry, scene.Canvas, kViewport, nodes,
-                                                             &ctx.CanvasState( scene.Canvas ) );
+                                                             &ctx.CanvasState( Desert::UI::ToNode( scene.Canvas ) ) );
         EXPECT_TRUE( static_cast<bool>( ok ) ) << ok.GetError();
         return static_cast<std::size_t>(
              std::count_if( nodes.begin(), nodes.end(), []( const UIElementNode& n ) { return n.Drawn; } ) );
@@ -342,12 +343,12 @@ TEST( CanvasOverSceneViewChange, TheCellsOfASceneTheViewHasLeftDoNotAnswerForThe
     UIViewContext   view{ s_Resources };
     R2D::DrawList2D dl;
     ASSERT_TRUE( Walk( a, dl, view ) );
-    ASSERT_NE( view.FindCanvasState( a.Canvas ), nullptr );
-    view.CanvasState( a.Canvas ).Locals.Set( "u18.stamp", true );
+    ASSERT_NE( view.FindCanvasState( Desert::UI::ToNode( a.Canvas ) ), nullptr );
+    view.CanvasState( Desert::UI::ToNode( a.Canvas ) ).Locals.Set( "u18.stamp", true );
 
     ASSERT_TRUE( Walk( b, dl, view ) );
-    EXPECT_EQ( view.Registry, &b.Registry );
-    const UI::UICanvasContext* cellInB = view.FindCanvasState( b.Canvas );
+    EXPECT_EQ( view.Scene, static_cast<const void*>( &b.Registry ) );
+    const UI::UICanvasContext* cellInB = view.FindCanvasState( Desert::UI::ToNode( b.Canvas ) );
     if ( cellInB != nullptr )
     {
         EXPECT_FALSE( cellInB->Locals.Has( "u18.stamp" ) )
@@ -355,7 +356,7 @@ TEST( CanvasOverSceneViewChange, TheCellsOfASceneTheViewHasLeftDoNotAnswerForThe
     }
 
     ASSERT_TRUE( Walk( a, dl, view ) );
-    const UI::UICanvasContext* cellBack = view.FindCanvasState( a.Canvas );
+    const UI::UICanvasContext* cellBack = view.FindCanvasState( Desert::UI::ToNode( a.Canvas ) );
     ASSERT_NE( cellBack, nullptr );
     EXPECT_FALSE( cellBack->Locals.Has( "u18.stamp" ) )
          << "the view kept its cell for this canvas across a visit to another scene";
@@ -374,7 +375,7 @@ TEST( CanvasOverSceneViewChange, TwoLiveViewsOfOneSceneElectIndependently )
     EXPECT_EQ( HotAt( scene, left, OverScene::MarkerCentre() ), scene.Marker );
     EXPECT_EQ( HotAt( scene, right, { 640.0f, 528.0f } ), scene.Button );
     // ...and the first view's answer did not move when the second one drew.
-    EXPECT_EQ( left.Hot, scene.Marker );
+    EXPECT_EQ( left.Hot, Desert::UI::ToNode( scene.Marker ) );
 }
 
 TEST( CanvasOverSceneViewChange, TheAuthoringPreviewToggleDoesNotChangeWhatIsDrawn )

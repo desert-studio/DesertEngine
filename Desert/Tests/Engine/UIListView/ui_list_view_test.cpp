@@ -19,6 +19,7 @@
 // consumer that stops asking EN MASSE, so that test drives a counting stand-in for the backend and
 // requires the demand set to shrink to the window.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -161,9 +162,9 @@ namespace
     // "calling this is also the demand".
     struct CountingRenderTextures final : UI::IUIRenderTextureSource
     {
-        std::unordered_set<entt::entity> Asked;
+        std::unordered_set<UI::NodeId> Asked;
 
-        const void* ResolveRenderTexture( entt::entity element, const UI::UIRenderTextureRequest& ) override
+        const void* ResolveRenderTexture( UI::NodeId element, const UI::UIRenderTextureRequest& ) override
         {
             Asked.insert( element );
             return nullptr; // no picture: the walk draws the magenta fill, which is not what is measured
@@ -229,7 +230,7 @@ namespace
     {
         std::vector<UIElementNode> nodes;
         const auto                 ok = UI::EnumerateCanvas( scene.Registry, scene.Canvas, kViewport, nodes,
-                                                             &ctx.CanvasState( scene.Canvas ) );
+                                                             &ctx.CanvasState( Desert::UI::ToNode( scene.Canvas ) ) );
         EXPECT_TRUE( static_cast<bool>( ok ) ) << ok.GetError();
         return nodes;
     }
@@ -413,16 +414,16 @@ TEST( ListViewRenderTexture, OnlyTheWindowsRowsAreAsked )
     // that refusal is the backend's to make. What matters here is that it is asked about SIXTEEN and not
     // about two thousand, because two thousand would mean 1984 captures built and destroyed every frame.
     EXPECT_EQ( source.Asked.size(), static_cast<std::size_t>( kRowsOnView + 1 ) );
-    EXPECT_EQ( source.Asked.count( scene.Rows[0] ), 1u );
-    EXPECT_EQ( source.Asked.count( scene.Rows[1000] ), 0u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[0] ) ), 1u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[1000] ) ), 0u );
 
     // Scrolled away, the row that held a slot is not asked again -- which is the DESTRUCTION, stated in
     // the only terms the backend can observe.
     source.Asked.clear();
     scene.Registry.get<ECS::UIListViewComponent>( scene.Container ).Data.ScrollY = 1000.0f * kRowHeight;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
-    EXPECT_EQ( source.Asked.count( scene.Rows[0] ), 0u );
-    EXPECT_EQ( source.Asked.count( scene.Rows[1000] ), 1u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[0] ) ), 0u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[1000] ) ), 1u );
 }
 
 TEST( ListViewRenderTexture, TheScrollViewAsksAboutEveryRow )

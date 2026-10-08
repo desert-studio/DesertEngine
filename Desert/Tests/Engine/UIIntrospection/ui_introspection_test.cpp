@@ -15,6 +15,7 @@
 // batch key and not to the classifier, two adjacent commands will classify as "could have merged" while
 // the draw list plainly did not merge them — and that is a failure here rather than a wrong column.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UIIntrospection.hpp>

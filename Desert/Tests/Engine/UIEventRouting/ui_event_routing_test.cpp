@@ -16,6 +16,7 @@
 // and a UIInput, so the pointer is synthesised rather than injected, and what the canvas fired is read back
 // out of the outMessages vector the runtime host already passes.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>

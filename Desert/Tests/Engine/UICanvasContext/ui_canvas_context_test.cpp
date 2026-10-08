@@ -23,6 +23,7 @@
 
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include "UILift.hpp" // Tools/SceneMigrator: the clip below is built through the v40 -> v41 scene lift
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -224,15 +225,15 @@ TEST( UICanvasContext, APerEntityClockIsKeyedInsideItsOwnView )
     Frame( ctxB, b, At( 900.0f, 900.0f, /*down=*/false ) );
 
     // A has been hovering long enough for its ease to saturate.
-    ctxA.CanvasState( a.Canvas ).HoverT[a.Button] = 1.0f;
-    ASSERT_EQ( ctxA.CanvasState( a.Canvas ).HoverT.count( a.Button ), 1u );
+    ctxA.CanvasState( Desert::UI::ToNode( a.Canvas ) ).HoverT[Desert::UI::ToNode( a.Button )] = 1.0f;
+    ASSERT_EQ( ctxA.CanvasState( Desert::UI::ToNode( a.Canvas ) ).HoverT.count( Desert::UI::ToNode( a.Button ) ), 1u );
 
     // give B a real frame delta, so a leaked clock would have time to show
     const glm::vec4 drawnB = Frame( ctxB, b, At( 900.0f, 900.0f, /*down=*/false ), 0.5f );
 
     EXPECT_TRUE( SameColor( drawnB, glm::vec3( 0.1f ) ) )
          << "B's button drew a hover blend from a clock that belongs to A's entity of the same id";
-    EXPECT_NEAR( ctxB.CanvasState( b.Canvas ).HoverT[b.Button], 0.0f, 1e-4f );
+    EXPECT_NEAR( ctxB.CanvasState( Desert::UI::ToNode( b.Canvas ) ).HoverT[Desert::UI::ToNode( b.Button )], 0.0f, 1e-4f );
 }
 
 // --- (4) Each view keeps its own frame delta -------------------------------------------------------------
@@ -261,11 +262,11 @@ TEST( UICanvasContext, EveryViewMeasuresItsOwnFrameDelta )
     // catches is one view easing to 0.6 while the other sits at exactly 0 — not a difference in the fourth
     // decimal. A tighter bound made this test fail on the spread between two consecutive steady_clock
     // reads, which is a flake and worse than no test at all.
-    EXPECT_GT( ctxA.CanvasState( a.Canvas ).HoverT[a.Button], 0.5f )
+    EXPECT_GT( ctxA.CanvasState( Desert::UI::ToNode( a.Canvas ) ).HoverT[Desert::UI::ToNode( a.Button )], 0.5f )
          << "50 ms of hover moved view A's ease by nothing";
-    EXPECT_GT( ctxB.CanvasState( b.Canvas ).HoverT[b.Button], 0.5f )
+    EXPECT_GT( ctxB.CanvasState( Desert::UI::ToNode( b.Canvas ) ).HoverT[Desert::UI::ToNode( b.Button )], 0.5f )
          << "50 ms of hover moved view B's ease by nothing";
-    EXPECT_NEAR( ctxA.CanvasState( a.Canvas ).HoverT[a.Button], ctxB.CanvasState( b.Canvas ).HoverT[b.Button],
+    EXPECT_NEAR( ctxA.CanvasState( Desert::UI::ToNode( a.Canvas ) ).HoverT[Desert::UI::ToNode( a.Button )], ctxB.CanvasState( Desert::UI::ToNode( b.Canvas ) ).HoverT[Desert::UI::ToNode( b.Button )],
                  0.01f );
 }
 
@@ -314,7 +315,7 @@ TEST( UICanvasContext, ScreenNavigationBelongsToTheViewThatDidIt )
     // Seed both views, then release the pointer over the button in ONE of them.
     Frame( viewport, f, At( 10.0f, 10.0f ) );
     Frame( second, f, At( 900.0f, 900.0f ) );
-    ASSERT_TRUE( viewport.Hot == f.Button ) << "the pointer sat on the button and something else was elected";
+    ASSERT_TRUE( viewport.Hot == Desert::UI::ToNode( f.Button ) ) << "the pointer sat on the button and something else was elected";
 
     UIInput click       = At( 10.0f, 10.0f, /*down=*/false );
     click.MouseReleased = true;
@@ -326,8 +327,8 @@ TEST( UICanvasContext, ScreenNavigationBelongsToTheViewThatDidIt )
     }
     Frame( second, f, At( 900.0f, 900.0f ) );
 
-    EXPECT_EQ( viewport.CanvasState( f.Canvas ).Screen, "Settings" );
-    EXPECT_EQ( second.CanvasState( f.Canvas ).Screen, "Home" )
+    EXPECT_EQ( viewport.CanvasState( Desert::UI::ToNode( f.Canvas ) ).Screen, "Settings" );
+    EXPECT_EQ( second.CanvasState( Desert::UI::ToNode( f.Canvas ) ).Screen, "Home" )
          << "a second view of the same scene followed a navigation it never made";
 }
 
@@ -471,10 +472,10 @@ TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )
     (void)clip.Playback->JumpTo( AN::SecondsToFrameTime( 0.5, clip.Sequence.TickRate ) );
     Frame( preview, f, nullptr );
 
-    const Desert::UI::UIClipSample* button = preview.Animation().Sample( f.Button );
+    const Desert::UI::UIClipSample* button = preview.Animation().Sample( Desert::UI::ToNode( f.Button ) );
     ASSERT_NE( button, nullptr ) << "the clip's binding did not reach the button";
     EXPECT_NEAR( button->Offset.x, 50.0F, 1e-2F ) << "the preview did not evaluate the shared playhead";
-    EXPECT_EQ( preview.Animation().Sample( f.Canvas ), nullptr ) << "the clip moved its owner, not its binding";
+    EXPECT_EQ( preview.Animation().Sample( Desert::UI::ToNode( f.Canvas ) ), nullptr ) << "the clip moved its owner, not its binding";
 }
 
 // --- (7) A view pointed at another scene forgets the first one -------------------------------------------
@@ -488,11 +489,11 @@ TEST( UICanvasContext, RebindingAViewToAnotherRegistryDropsItsPerEntityState )
 
     Frame( ctx, a, At( 10.0f, 10.0f ) );
     Frame( ctx, a, At( 10.0f, 10.0f ) );
-    ASSERT_EQ( ctx.Hot, a.Button ) << "the pointer was over A's button for two frames and it was not elected";
-    ASSERT_FALSE( ctx.CanvasState( a.Canvas ).HoverT.empty() );
+    ASSERT_EQ( ctx.Hot, Desert::UI::ToNode( a.Button ) ) << "the pointer was over A's button for two frames and it was not elected";
+    ASSERT_FALSE( ctx.CanvasState( Desert::UI::ToNode( a.Canvas ) ).HoverT.empty() );
 
     const glm::vec4 drawnB = Frame( ctx, b, At( 900.0f, 900.0f ) );
-    EXPECT_TRUE( ctx.Hot == entt::null ) << "the election survived a change of scene";
+    EXPECT_TRUE( ctx.Hot == Desert::UI::NodeId::Null ) << "the election survived a change of scene";
     EXPECT_EQ( ctx.CanvasStateCount(), 1u ) << "a rebind kept the old scene's (canvas x view) cell as well";
     EXPECT_TRUE( SameColor( drawnB, glm::vec3( 0.1f ) ) )
          << "B's button reacted to an election made in A, because the id matched";
@@ -820,7 +821,7 @@ namespace
     // the button was painted.
     struct Probe
     {
-        entt::entity Hot = entt::null;
+        Desert::UI::NodeId Hot = Desert::UI::NodeId::Null;
         glm::vec4    ButtonColor{ -1.0f };
     };
 
@@ -834,7 +835,7 @@ namespace
         Probe           out;
         R2D::DrawList2D second;
         Draw( ctx, n.Registry, n.Canvas, second, &in );
-        out.Hot = ctx.HotNext == entt::null ? ctx.Hot : ctx.HotNext;
+        out.Hot = ctx.HotNext == Desert::UI::NodeId::Null ? ctx.Hot : ctx.HotNext;
         // The panel is drawn first and the button on top of it, so the button's quad is the LAST colour in
         // the list that is one of its three states.
         for ( const auto& v : second.GetVertices() )
@@ -851,11 +852,11 @@ TEST( UICanvasHitTest, AllElectsTheElementAndItsChildren )
     Nested n;
 
     const Probe onButton = Press( n, 10.0f, 10.0f );
-    EXPECT_EQ( onButton.Hot, n.Button );
+    EXPECT_EQ( onButton.Hot, Desert::UI::ToNode( n.Button ) );
     EXPECT_TRUE( SameColor( onButton.ButtonColor, glm::vec3( 0.9f ) ) ) << "the button did not react";
 
     const Probe onPanel = Press( n, 900.0f, 900.0f );
-    EXPECT_EQ( onPanel.Hot, n.Panel ) << "a plain panel must stop the pointer; that is what All means";
+    EXPECT_EQ( onPanel.Hot, Desert::UI::ToNode( n.Panel ) ) << "a plain panel must stop the pointer; that is what All means";
 }
 
 // --- (13) ChildrenOnly: the old RaycastTarget = false ---------------------------------------------------
@@ -867,11 +868,11 @@ TEST( UICanvasHitTest, ChildrenOnlyDoesNotElectItselfButStillElectsItsChild )
     Nested n;
     n.SetHitTest( n.Panel, UI::UIHitTest::ChildrenOnly );
 
-    EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == entt::null )
+    EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == Desert::UI::NodeId::Null )
          << "a ChildrenOnly element was elected where nothing but it is under the pointer";
 
     const Probe onButton = Press( n, 10.0f, 10.0f );
-    EXPECT_EQ( onButton.Hot, n.Button ) << "the child of a transparent parent stopped being hit-testable";
+    EXPECT_EQ( onButton.Hot, Desert::UI::ToNode( n.Button ) ) << "the child of a transparent parent stopped being hit-testable";
     EXPECT_TRUE( SameColor( onButton.ButtonColor, glm::vec3( 0.9f ) ) )
          << "the child was elected but no longer responds";
 }
@@ -886,10 +887,10 @@ TEST( UICanvasHitTest, NothingInTheSubTreeOfANoneCanBecomeHot )
     Nested n;
     n.SetHitTest( n.Panel, UI::UIHitTest::None );
 
-    EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == entt::null );
+    EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == Desert::UI::NodeId::Null );
 
     const Probe onButton = Press( n, 10.0f, 10.0f );
-    EXPECT_TRUE( onButton.Hot == entt::null ) << "the button under a HitTest::None panel was still elected";
+    EXPECT_TRUE( onButton.Hot == Desert::UI::NodeId::Null ) << "the button under a HitTest::None panel was still elected";
     EXPECT_TRUE( SameColor( onButton.ButtonColor, glm::vec3( 0.1f ) ) )
          << "the button under a HitTest::None panel still reacted to the pointer";
 
@@ -907,10 +908,10 @@ TEST( UICanvasHitTest, BlockingStopsThePointerAndSilencesTheWholeSubTree )
     Nested n;
     n.SetHitTest( n.Panel, UI::UIHitTest::Blocking );
 
-    EXPECT_EQ( Press( n, 900.0f, 900.0f ).Hot, n.Panel ) << "a Blocking element let the pointer past it";
+    EXPECT_EQ( Press( n, 900.0f, 900.0f ).Hot, Desert::UI::ToNode( n.Panel ) ) << "a Blocking element let the pointer past it";
 
     const Probe onButton = Press( n, 10.0f, 10.0f );
-    EXPECT_EQ( onButton.Hot, n.Panel )
+    EXPECT_EQ( onButton.Hot, Desert::UI::ToNode( n.Panel ) )
          << "the click landed on the button inside a Blocking panel instead of being swallowed by it";
     EXPECT_TRUE( SameColor( onButton.ButtonColor, glm::vec3( 0.1f ) ) )
          << "a button inside a Blocking panel still reacted — the old Interactable flag did not propagate "
@@ -934,10 +935,10 @@ TEST( UICanvasHitTest, AnElementThatIsNotVisibleIsNotHitTestableWhateverItsHitTe
             n.Registry.get<ECS::UILayoutComponent>( n.Panel ).Data.Visibility = invisible;
             n.SetHitTest( n.Panel, hit );
 
-            EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == entt::null )
+            EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == Desert::UI::NodeId::Null )
                  << "an invisible panel was elected with Visibility " << static_cast<int>( invisible )
                  << " and Hit Test " << static_cast<int>( hit );
-            EXPECT_TRUE( Press( n, 10.0f, 10.0f ).Hot == entt::null )
+            EXPECT_TRUE( Press( n, 10.0f, 10.0f ).Hot == Desert::UI::NodeId::Null )
                  << "the button inside an invisible panel was elected with Visibility "
                  << static_cast<int>( invisible ) << " and Hit Test " << static_cast<int>( hit );
         }
@@ -1407,7 +1408,7 @@ namespace
         R2D::DrawList2D dl;
         const UIInput   in = At( p.x, p.y, /*down=*/false );
         Draw( ctx, f.Registry, f.Canvas, dl, &in );
-        return ctx.Hot == e;
+        return ctx.Hot == Desert::UI::ToNode( e );
     }
 } // namespace
 
@@ -2010,10 +2011,10 @@ TEST( UICanvasContextPair, HoverInOneCellMovesNoOtherCellOfTheTable )
     f.Frame( viewA, onLower, 0.5f );
     f.Frame( viewB, onUpper, 0.5f );
 
-    const float aOnLower = viewA.CanvasState( f.Lower ).HoverT[f.LowerButton];
-    const float aOnUpper = viewA.CanvasState( f.Upper ).HoverT[f.UpperButton];
-    const float bOnLower = viewB.CanvasState( f.Lower ).HoverT[f.LowerButton];
-    const float bOnUpper = viewB.CanvasState( f.Upper ).HoverT[f.UpperButton];
+    const float aOnLower = viewA.CanvasState( Desert::UI::ToNode( f.Lower ) ).HoverT[Desert::UI::ToNode( f.LowerButton )];
+    const float aOnUpper = viewA.CanvasState( Desert::UI::ToNode( f.Upper ) ).HoverT[Desert::UI::ToNode( f.UpperButton )];
+    const float bOnLower = viewB.CanvasState( Desert::UI::ToNode( f.Lower ) ).HoverT[Desert::UI::ToNode( f.LowerButton )];
+    const float bOnUpper = viewB.CanvasState( Desert::UI::ToNode( f.Upper ) ).HoverT[Desert::UI::ToNode( f.UpperButton )];
 
     EXPECT_GT( aOnLower, 0.5f ) << "view A pointed at the lower canvas's button and its clock never moved";
     EXPECT_GT( bOnUpper, 0.5f ) << "view B pointed at the upper canvas's button and its clock never moved";
@@ -2025,10 +2026,10 @@ TEST( UICanvasContextPair, HoverInOneCellMovesNoOtherCellOfTheTable )
          << "the OTHER CANVAS of the same view warmed up: the cell is keyed by the view alone";
 
     // And the view axis, on ONE canvas — the brief's own case, with one registry rather than two.
-    EXPECT_NEAR( viewB.CanvasState( f.Lower ).HoverT[f.LowerButton], 0.0f, 1e-4f )
+    EXPECT_NEAR( viewB.CanvasState( Desert::UI::ToNode( f.Lower ) ).HoverT[Desert::UI::ToNode( f.LowerButton )], 0.0f, 1e-4f )
          << "view B's cell for the lower canvas warmed from view A's pointer: the cell is keyed by the "
             "canvas alone";
-    EXPECT_NEAR( viewA.CanvasState( f.Upper ).HoverT[f.UpperButton], 0.0f, 1e-4f )
+    EXPECT_NEAR( viewA.CanvasState( Desert::UI::ToNode( f.Upper ) ).HoverT[Desert::UI::ToNode( f.UpperButton )], 0.0f, 1e-4f )
          << "view A's cell for the upper canvas warmed from view B's pointer: the cell is keyed by the "
             "canvas alone";
 
@@ -2057,7 +2058,7 @@ TEST( UICanvasContextPair, EachCanvasNavigatesItsOwnScreensInsideOneView )
 
     f.Frame( view, At( 10.0f, 10.0f ) );        // elect the lower canvas's button
     f.Frame( untouched, At( 900.0f, 900.0f ) ); // a second view of the same scene, pointing at nothing
-    ASSERT_EQ( view.Hot, f.LowerButton );
+    ASSERT_EQ( view.Hot, Desert::UI::ToNode( f.LowerButton ) );
 
     UIInput click       = At( 10.0f, 10.0f, /*down=*/false );
     click.MouseReleased = true;
@@ -2071,12 +2072,12 @@ TEST( UICanvasContextPair, EachCanvasNavigatesItsOwnScreensInsideOneView )
         f.Frame( untouched, At( 900.0f, 900.0f, /*down=*/false ) );
     }
 
-    EXPECT_EQ( view.CanvasState( f.Lower ).Screen, "Settings" ) << "the navigation did not stick";
-    EXPECT_EQ( view.CanvasState( f.Upper ).Screen, "Idle" )
+    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( f.Lower ) ).Screen, "Settings" ) << "the navigation did not stick";
+    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screen, "Idle" )
          << "the OTHER canvas of the same view moved, or was re-seeded by the navigating one";
-    EXPECT_EQ( untouched.CanvasState( f.Lower ).Screen, "Home" )
+    EXPECT_EQ( untouched.CanvasState( Desert::UI::ToNode( f.Lower ) ).Screen, "Home" )
          << "a second view of the same scene followed a navigation it never made";
-    EXPECT_EQ( untouched.CanvasState( f.Upper ).Screen, "Idle" );
+    EXPECT_EQ( untouched.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screen, "Idle" );
 }
 
 // --- The pointer is the VIEW's: one election over every canvas of the frame ------------------------------
@@ -2093,7 +2094,7 @@ TEST( UICanvasContextPair, TheCanvasDrawnLastTakesThePointerFromTheOneBelowIt )
 
     UIViewContext view{ s_Resources };
     f.Frame( view, At( 10.0f, 10.0f ) );
-    EXPECT_EQ( view.Hot, f.UpperButton ) << "the pointer was over both canvases and the one drawn FIRST kept it";
+    EXPECT_EQ( view.Hot, Desert::UI::ToNode( f.UpperButton ) ) << "the pointer was over both canvases and the one drawn FIRST kept it";
 
     // The negative control, and it is the one that matters: with the overlay's button moved away the same
     // point must reach the canvas underneath. Without it, "the last canvas always wins" would also pass —
@@ -2104,7 +2105,7 @@ TEST( UICanvasContextPair, TheCanvasDrawnLastTakesThePointerFromTheOneBelowIt )
     UIViewContext second{ s_Resources };
     second.Reset();
     f.Frame( second, At( 10.0f, 10.0f ) );
-    EXPECT_EQ( second.Hot, f.LowerButton )
+    EXPECT_EQ( second.Hot, Desert::UI::ToNode( f.LowerButton ) )
          << "an overlay canvas that does not cover the pointer still swallowed the election";
 }
 
@@ -2119,7 +2120,7 @@ TEST( UICanvasContextPair, ACanvasThatStopsExistingTakesItsCellWithIt )
 
     f.Frame( view, At( 10.0f, 10.0f ) );
     ASSERT_EQ( view.CanvasStateCount(), 2u );
-    view.CanvasState( f.Upper ).Screen = "Alert"; // something recognisable to inherit
+    view.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screen = "Alert"; // something recognisable to inherit
 
     const entt::entity destroyed = f.Upper;
     f.Registry.destroy( f.Upper );
@@ -2140,7 +2141,7 @@ TEST( UICanvasContextPair, ACanvasThatStopsExistingTakesItsCellWithIt )
          << "the index was not recycled, so nothing here is about recycling";
     f.MakeButton( reborn, 200.0f );
     f.Frame( view, At( 10.0f, 10.0f ) );
-    EXPECT_TRUE( view.CanvasState( reborn ).Screen.empty() );
+    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( reborn ) ).Screen.empty() );
     EXPECT_EQ( view.CanvasStateCount(), 2u ) << "the retired cell came back";
 }
 
@@ -2202,7 +2203,7 @@ TEST( UICanvasContextPair, TheEditorsPickAndTheWalkAgreeOnWhichCanvasIsOnTop )
                  hit != entt::null )
                 picked = hit;
 
-        EXPECT_EQ( picked, view.Hot ) << "the pick and the election disagree with Upper's Sort Order at "
+        EXPECT_EQ( Desert::UI::ToNode( picked ), view.Hot ) << "the pick and the election disagree with Upper's Sort Order at "
                                       << upperOrder;
         EXPECT_EQ( picked, upperOrder > 0 ? f.UpperButton : f.LowerButton );
     }
