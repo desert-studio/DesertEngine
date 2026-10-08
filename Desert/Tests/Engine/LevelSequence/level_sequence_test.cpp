@@ -1686,3 +1686,50 @@ TEST( LevelSequencePreview, ASubsequencePosesItsActorAtTheMappedTickAndIsRestore
     EXPECT_FLOAT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, startX )
          << "the subsequence's actor was recorded and given back";
 }
+
+// "+ Track > Subsequence" and the section's sequence picker both refuse a pick that closes a loop, by name.
+TEST( LevelSequenceSubsequenceEdit, AddingOrRetargetingASectionThatClosesACycleIsRefusedByName )
+{
+    const AssetGuid   a{ 9, 1 };
+    const AssetGuid   b{ 9, 2 };
+    const AssetGuid   c{ 9, 3 };
+    const T::Sequence seqB = Playing( a, 0, 100 );
+    const T::Sequence seqC = AuthoredDoor();
+    const auto source = SourceOf( { { "B", &seqB }, { "C", &seqC } }, { { "A", a }, { "B", b }, { "C", c } } );
+
+    T::Sequence    sequence = AuthoredDoor();
+    const uint64_t revision = sequence.Revision;
+    const auto     looped =
+         ECS::AddSubsequenceSection( sequence, a, b, A::FrameNumber{ 0 }, A::FrameNumber{ 50 }, source );
+    ASSERT_FALSE( looped.IsSuccess() );
+    EXPECT_NE( looped.GetError().find( "subsequence cycle: A -> B -> A" ), std::string::npos )
+         << looped.GetError();
+    EXPECT_EQ( sequence.Revision, revision );
+    EXPECT_TRUE( ECS::SubsequenceSections( sequence ).empty() );
+
+    ASSERT_TRUE( ECS::AddSubsequenceSection( sequence, a, c, A::FrameNumber{ 0 }, A::FrameNumber{ 50 }, source )
+                      .IsSuccess() );
+    const auto retarget =
+         ECS::SetSubsequenceSection( sequence, a, 0, A::FrameNumber{ 0 }, A::FrameNumber{ 50 },
+                                     T::SubsequenceSectionContent{ b, A::FrameNumber{ 0 }, 1.0 }, source );
+    ASSERT_FALSE( retarget.IsSuccess() );
+    EXPECT_NE( retarget.GetError().find( "A -> B -> A" ), std::string::npos ) << retarget.GetError();
+    EXPECT_EQ( ECS::SubsequenceSections( sequence ).front().Content.Sequence, c );
+}
+
+// The ruler's playback range handles: the range moves, the keys stay, an inverted range is refused whole.
+TEST( LevelSequenceRange, APlaybackRangeIsSetKeysStayAndAnEndBeforeTheStartIsRefused )
+{
+    T::Sequence  sequence = AuthoredDoor();
+    const size_t tracks   = sequence.Tracks.size();
+    ASSERT_TRUE( ECS::SetPlaybackRange( sequence, A::FrameNumber{ 10 }, A::FrameNumber{ 40 } ).IsSuccess() );
+    EXPECT_EQ( sequence.Start.Value, 10 );
+    EXPECT_EQ( sequence.End.Value, 40 );
+    EXPECT_EQ( sequence.Tracks.size(), tracks );
+
+    const uint64_t revision = sequence.Revision;
+    EXPECT_FALSE( ECS::SetPlaybackRange( sequence, A::FrameNumber{ 50 }, A::FrameNumber{ 20 } ).IsSuccess() );
+    EXPECT_EQ( sequence.Start.Value, 10 );
+    EXPECT_EQ( sequence.End.Value, 40 );
+    EXPECT_EQ( sequence.Revision, revision );
+}

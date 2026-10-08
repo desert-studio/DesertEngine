@@ -299,6 +299,35 @@ namespace Desert::Editor
                                 float contentX0, float laneX0, float laneW );
         /// Delete: the selected event key, one undo step (`ECS::RemoveEventKey`).
         void DeleteSelectedLevelEvent();
+        /// What the selected event key does when it fires (nullopt: a named marker), one undo step
+        /// (`ECS::SetEventKeyAction`).
+        void SetSelectedLevelEventAction( std::optional<Animation::Timeline::EventAction> action );
+        /// The selected keys' interpolation and tangent mode, every binding they sit on, one undo step
+        /// (`ECS::SetEntityTransformKeyShape`).
+        void ShapeSelectedLevelKeys( Animation::KeyInterp interp, Animation::TangentMode mode );
+        /// @p preset on the segment ending at each selected key, on the part the curve view shows (Location or
+        /// Scale), one undo step (`ECS::ApplyEntityTransformEasing`).
+        void EaseSelectedLevelKeys( Animation::Timeline::EasingPreset preset );
+        /// The .dseq files a Subsequence section can play (the content registry's LevelSequence rows), the
+        /// open document excluded.
+        [[nodiscard]] std::vector<std::pair<Common::Content::AssetGuid, std::string>>
+        LevelSubsequenceChoices() const;
+        /// "+ Track > Subsequence > <.dseq>": a section from the playhead to the range end, one undo step
+        /// (`ECS::AddSubsequenceSection`, a cycle refused by name).
+        void AddLevelSubsequence( const Common::Content::AssetGuid& sub );
+        /// Replaces section @p index (range, sequence, offset, scale), one undo step
+        /// (`ECS::SetSubsequenceSection`).
+        void SetLevelSubsequence( size_t index, Animation::FrameNumber start, Animation::FrameNumber end,
+                                  const Animation::Timeline::SubsequenceSectionContent& content );
+        /// Delete: the selected Subsequence section, one undo step (`ECS::RemoveSubsequenceSection`).
+        void DeleteSelectedLevelSubsequence();
+        /// The Subsequence track row (UE: the Subsequences track): a bar per section, stacked by row and named
+        /// by its sequence; a click selects, a drag moves it on the display grid (one undo step on release); the
+        /// selected section's sequence, range, offset and scale are edited under it.
+        void DrawLevelSubsequenceRow( Animation::Timeline::Sequence& sequence, float contentX0, float laneX0,
+                                      float laneW );
+        /// The playback range, one undo step (`ECS::SetPlaybackRange`).
+        void SetLevelPlaybackRange( Animation::FrameNumber start, Animation::FrameNumber end );
         void SetLevelRecord( bool on );
         /// Per frame: the gizmo bit into `m_LevelAutoKey`; the release writes its keys inside one undo step.
         void UpdateLevelAutoKey( Animation::Timeline::Sequence& sequence );
@@ -324,6 +353,28 @@ namespace Desert::Editor
         char                         m_LevelEventName[128] = {}; ///< the row's name field for the selected event
         bool                         m_LevelEventNameEditing =
              false; ///< the field holds a typed, uncommitted name (else it mirrors the key)
+        /// The selected event's action: 0 none, else EventActionKind + 1. Mirrors the key unless a kind that
+        /// needs a Target was picked and its Target is not typed yet (`m_LevelEventActionPending`).
+        int  m_LevelEventActionKind    = 0;
+        bool m_LevelEventActionPending = false;
+        char m_LevelEventTarget[256]   = {}; ///< the selected event's Target (sound file / Lua function)
+        bool m_LevelEventTargetEditing = false;
+        int  m_LevelKeyInterp          = 1; ///< the key-shape row's KeyInterp (Linear)
+        int  m_LevelKeyTangent         = 0; ///< the key-shape row's TangentMode (Auto)
+        int  m_LevelKeyEasing          = 6; ///< the key-shape row's EasingPreset (CubicInOut)
+        /// The selected Subsequence section (its index in `ECS::SubsequenceSections`).
+        std::optional<size_t> m_LevelSelSubsequence;
+        bool                  m_LevelSubsequenceDrag      = false;
+        float                 m_LevelSubsequenceDragX0    = 0.0f;
+        int32_t               m_LevelSubsequenceDragDelta = 0; ///< ticks, on the display grid
+        /// The selected section's fields: they mirror the section unless one of them is being typed in.
+        int    m_LevelSubsequenceFields[3] = {}; ///< start, end (display frames), offset (sub ticks)
+        double m_LevelSubsequenceScale     = 1.0;
+        bool   m_LevelSubsequenceEditing   = false;
+        /// A playback range handle held on the ruler: which (0 start, 1 end) and the tick it is dragged to.
+        std::optional<std::pair<int, int32_t>> m_LevelRangeDrag;
+        int  m_LevelRangeFields[2] = {}; ///< the toolbar's range fields (display frames)
+        bool m_LevelRangeEditing   = false;
         std::optional<Animation::Timeline::Player> m_LevelPlayer;
         Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
         Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };

@@ -1060,6 +1060,25 @@ namespace Desert::ECS
             }
             return row;
         }
+
+        /// Commit for a Subsequence edit: @p edited is also refused when @p self reaches itself through it.
+        /// The cycle check reads @p edited for @p self and @p reachable for every other sequence.
+        Common::BoolResultStr CommitSubsequence( T::Sequence& sequence, T::Sequence& edited,
+                                                 const Common::Content::AssetGuid&     self,
+                                                 const LevelSequenceSubsequenceSource& reachable )
+        {
+            LevelSequenceSubsequenceSource overlay = reachable;
+            overlay.Find                           = [&edited, &self,
+                            &reachable]( const Common::Content::AssetGuid& guid ) -> const T::Sequence*
+            {
+                if ( guid == self )
+                    return &edited;
+                return reachable.Find ? reachable.Find( guid ) : nullptr;
+            };
+            if ( const auto acyclic = CheckSubsequenceCycles( self, overlay ); !acyclic )
+                return Common::MakeFormattedError<bool>( "Subsequence: {}", acyclic.GetError() );
+            return Commit( sequence, edited, "Subsequence" );
+        }
     } // namespace
 
     std::vector<LevelSubsequenceSection> SubsequenceSections( const T::Sequence& sequence )
@@ -1079,9 +1098,10 @@ namespace Desert::ECS
     }
 
     Common::ResultStr<size_t> AddSubsequenceSection( T::Sequence& sequence, const Common::Content::AssetGuid& self,
-                                                     const Common::Content::AssetGuid& sub,
-                                                     const Animation::FrameNumber      start,
-                                                     const Animation::FrameNumber      end )
+                                                     const Common::Content::AssetGuid&     sub,
+                                                     const Animation::FrameNumber          start,
+                                                     const Animation::FrameNumber          end,
+                                                     const LevelSequenceSubsequenceSource& reachable )
     {
         if ( sub == self )
             return Common::MakeError<size_t>( "Subsequence: a sequence cannot play itself" );
@@ -1106,15 +1126,16 @@ namespace Desert::ECS
         section.Content = T::SubsequenceSectionContent{ sub, Animation::FrameNumber{ 0 }, 1.0 };
         track->Sections.push_back( std::move( section ) );
         const size_t index = track->Sections.size() - 1;
-        if ( const auto committed = Commit( sequence, edited, "Subsequence" ); !committed )
+        if ( const auto committed = CommitSubsequence( sequence, edited, self, reachable ); !committed )
             return Common::MakeError<size_t>( committed.GetError() );
         return Common::MakeSuccess( index );
     }
 
     Common::BoolResultStr SetSubsequenceSection( T::Sequence& sequence, const Common::Content::AssetGuid& self,
                                                  const size_t index, const Animation::FrameNumber start,
-                                                 const Animation::FrameNumber        end,
-                                                 const T::SubsequenceSectionContent& content )
+                                                 const Animation::FrameNumber          end,
+                                                 const T::SubsequenceSectionContent&   content,
+                                                 const LevelSequenceSubsequenceSource& reachable )
     {
         if ( content.Sequence == self )
             return Common::MakeError( "Subsequence: a sequence cannot play itself" );
@@ -1127,7 +1148,7 @@ namespace Desert::ECS
         section.End         = end;
         section.Row         = FreeRow( *track, start, end, index );
         section.Content     = content;
-        return Commit( sequence, edited, "Subsequence" );
+        return CommitSubsequence( sequence, edited, self, reachable );
     }
 
     Common::BoolResultStr RemoveSubsequenceSection( T::Sequence& sequence, const size_t index )
@@ -1138,6 +1159,15 @@ namespace Desert::ECS
             return Common::MakeFormattedError<bool>( "Delete subsequence: no section {}", index );
         track->Sections.erase( track->Sections.begin() + static_cast<std::ptrdiff_t>( index ) );
         return Commit( sequence, edited, "Delete subsequence" );
+    }
+
+    Common::BoolResultStr SetPlaybackRange( T::Sequence& sequence, const Animation::FrameNumber start,
+                                            const Animation::FrameNumber end )
+    {
+        T::Sequence edited = sequence;
+        edited.Start       = start;
+        edited.End         = end;
+        return Commit( sequence, edited, "Playback range" );
     }
 
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,

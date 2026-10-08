@@ -349,25 +349,35 @@ namespace Desert::ECS
      * @brief "+ Track ▸ Subsequence ▸ <.dseq>": a section playing @p sub over [@p start, @p end] (offset 0, scale
      * 1) on the master binding's Subsequence track (binding and track created when missing). An overlapping
      * section stacks on the next free row, as UE's sub sections do. Refuses @p sub == @p self (the sequence would
-     * play itself) and the null GUID. Returns the new section's index. All or nothing; Revision++.
+     * play itself), the null GUID, and a section through which @p self reaches itself over @p reachable (the
+     * sequences the others play: `CheckSubsequenceCycles` on the edited sequence, refused by name). Returns the
+     * new section's index. All or nothing; Revision++.
      */
-    [[nodiscard]] Common::ResultStr<size_t> AddSubsequenceSection( Animation::Timeline::Sequence&    sequence,
-                                                                   const Common::Content::AssetGuid& self,
-                                                                   const Common::Content::AssetGuid& sub,
-                                                                   Animation::FrameNumber            start,
-                                                                   Animation::FrameNumber            end );
+    [[nodiscard]] Common::ResultStr<size_t>
+    AddSubsequenceSection( Animation::Timeline::Sequence& sequence, const Common::Content::AssetGuid& self,
+                           const Common::Content::AssetGuid& sub, Animation::FrameNumber start,
+                           Animation::FrameNumber end, const LevelSequenceSubsequenceSource& reachable = {} );
 
     /// Replaces section @p index of the Subsequence track: its range, sequence, start offset (sub ticks) and time
     /// scale (UE: the sub section's properties). `Validate` refuses a zero/negative scale and a null GUID; @p self
-    /// is refused as the sequence. All or nothing; Revision++.
+    /// is refused as the sequence, and so is a sequence through which @p self reaches itself over @p reachable
+    /// (as `AddSubsequenceSection`). All or nothing; Revision++.
     [[nodiscard]] Common::BoolResultStr
     SetSubsequenceSection( Animation::Timeline::Sequence& sequence, const Common::Content::AssetGuid& self,
                            size_t index, Animation::FrameNumber start, Animation::FrameNumber end,
-                           const Animation::Timeline::SubsequenceSectionContent& content );
+                           const Animation::Timeline::SubsequenceSectionContent& content,
+                           const LevelSequenceSubsequenceSource&                 reachable = {} );
 
     /// Removes section @p index of the Subsequence track (the track stays, empty). Revision++.
     [[nodiscard]] Common::BoolResultStr RemoveSubsequenceSection( Animation::Timeline::Sequence& sequence,
                                                                   size_t                         index );
+
+    /// The playback range, inclusive, in ticks (UE: the sequence's green / red playback range handles). Keys
+    /// outside it stay: a player loops and clamps on the range, not on the keys. `Validate` refuses an @p end
+    /// before @p start; the sequence is then left as it was. Revision++.
+    [[nodiscard]] Common::BoolResultStr SetPlaybackRange( Animation::Timeline::Sequence& sequence,
+                                                          Animation::FrameNumber         start,
+                                                          Animation::FrameNumber         end );
 
     /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence
