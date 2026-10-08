@@ -1093,9 +1093,9 @@ namespace VelocityTargetTest
         in.CameraIdentity           = 7;
         in.SceneIdentity            = 1;
         in.Output                   = ViewExtent{ 1920, 1080 };
-        in.RenderScalePercent       = 50; // the lead's live setting
-        in.AntiAliasing.Method      = Desert::Common::Scalability::AntiAliasingMethod::None;
-        in.AntiAliasing.PostProcess = Desert::Common::Scalability::AntiAliasingMethod::None;
+        in.RenderScalePercent       = 100; // no temporal method here: below 100 % would need TAAU (SelectTemporalMethod)
+        in.AntiAliasing.Method      = ::Common::Scalability::AntiAliasingMethod::None;
+        in.AntiAliasing.PostProcess = ::Common::Scalability::AntiAliasingMethod::None;
         in.TimeSeconds              = time;
         return in;
     }
