@@ -871,8 +871,8 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
         EXPECT_EQ( keptInZeros, size_t{ 0 } ) << keptInZeros << " columns the weather empties still hold cloud";
     }
 
-    const double fullCover  = KeptCover( params, 16 );
-    const double zeroShare  = 1.0 - 1.0 / ( 2.0 * static_cast<double>( params.PatchStrength ) );
+    const double fullCover = KeptCover( params, 16 );
+    const double zeroShare = 1.0 - 1.0 / ( 2.0 * static_cast<double>( params.PatchStrength ) );
     EXPECT_LT( fullCover, 1.0 - 0.5 * zeroShare )
          << "a coverage of one kept cloud over " << fullCover << " of the sky: the weather's gaps were filled";
     const std::vector<CloudModellingBlob> full = GenerateCloudProceduralBlobs( params, 0u, origin );
@@ -993,8 +993,8 @@ TEST( CloudProceduralField, TheSkysCoverRisesWithCoverageAndItsGapsAreWeatherSiz
 
         const double measured = KeptCover( params, 16 );
         ASSERT_GE( measured, 0.0 ) << "the ranked bake failed";
-        std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column\n",
-                     coverage, measured );
+        std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column\n", coverage,
+                     measured );
         EXPECT_GT( measured, previous ) << "raising Coverage to " << coverage << " did not add cloud to the sky";
         previous = measured;
     }

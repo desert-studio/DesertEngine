@@ -127,8 +127,8 @@ namespace
     }
 
     /// What fraction of the region's columns carry any cloud at all, measured on the REAL bake. The same
-    /// quantity TheCoverageSliderIsMonotoneAndOneLeavesTheWeathersGapsAtTheShippedPlacement measures, lifted out of it so the
-    /// zero-mean relation can measure the same thing rather than something like it.
+    /// quantity TheCoverageSliderIsMonotoneAndOneLeavesTheWeathersGapsAtTheShippedPlacement measures, lifted out
+    /// of it so the zero-mean relation can measure the same thing rather than something like it.
     // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
     // when any of its voxels is kept at the local cover of the column's WORLD site — rank under the cover and
     // within the air's reach of its body (CloudProceduralColumnKept, FARWX-b15). Measured at many whole-region

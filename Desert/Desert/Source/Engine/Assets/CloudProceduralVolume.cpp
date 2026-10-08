@@ -2084,8 +2084,8 @@ namespace Desert::Assets
         if ( strength <= 1e-4f )
             return base;
 
-        return base * CloudWeatherPresence(
-                           strength, CloudFarWeather( CloudFarWeatherSeed( params ), worldKm, params.PatchTileKm ) );
+        return base * CloudWeatherPresence( strength, CloudFarWeather( CloudFarWeatherSeed( params ), worldKm,
+                                                                       params.PatchTileKm ) );
     }
 
     float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,

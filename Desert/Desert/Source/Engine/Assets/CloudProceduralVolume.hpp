@@ -798,8 +798,8 @@ namespace Desert::Assets
 
     /// What the march needs to turn a rank and a weather sample into a cut, as the GPU block carries it
     /// (CloudGpuPayload::Weather / u_CloudWeather): x the slider's Coverage, y the PatchStrength the
-    /// weather map W is drawn at — ZERO when the weather stands down (no strength, or a painted pattern is the weather, exactly as
-    /// CloudProceduralLocalCover decides), z the cover's softness past a core
+    /// weather map W is drawn at — ZERO when the weather stands down (no strength, or a painted pattern is the
+    /// weather, exactly as CloudProceduralLocalCover decides), z the cover's softness past a core
     /// (CloudProceduralRankSoftness), w 1 / kCloudFarWeatherPeriodKm.
     glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
 
