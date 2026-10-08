@@ -67,9 +67,8 @@ namespace Desert::Editor
         // which is the exact symptom this panel's own comments say is impossible to diagnose.
         // @p thumbnailPool is the editor's (EditorLayer owns it — UE: the Content Browser uses the editor's
         // FAssetThumbnailPool); the panel draws from it and must not outlive it.
-        explicit FileExplorerPanel( const std::filesystem::path&         rootPath,
-                                    const SubjectEditorRegistry*         subjectEditors,
-                                    AssetThumbnailPool&                  thumbnailPool,
+        explicit FileExplorerPanel( const std::filesystem::path& rootPath,
+                                    const SubjectEditorRegistry* subjectEditors, AssetThumbnailPool& thumbnailPool,
                                     Assets::AssetManager*                assetManager  = nullptr,
                                     std::weak_ptr<::Desert::Core::Scene> viewportScene = {} );
         ~FileExplorerPanel() override;

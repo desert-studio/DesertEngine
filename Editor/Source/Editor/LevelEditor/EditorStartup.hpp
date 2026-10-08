@@ -169,7 +169,7 @@ namespace Desert::Editor
         SceneFiles&                                   m_SceneFiles;
         AssetCompiling&                               m_AssetCompiling;
         const bool&                                   m_RealFrameDrawn;
-        AssetThumbnailPool*                           m_ThumbnailPool = nullptr; // non-owning (EditorLayer owns it)
+        AssetThumbnailPool* m_ThumbnailPool = nullptr; // non-owning (EditorLayer owns it)
 
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext = 0;

@@ -313,9 +313,9 @@ namespace Desert::Editor
         {
             m_ThumbnailPool = std::make_unique<AssetThumbnailPool>( m_AssetManager.get() );
             m_Startup.AttachThumbnailPool( m_ThumbnailPool.get() );
-            const EditorPanelHandles handles = RegisterEditorPanels( m_Panels, m_Workspace, m_Play, m_Documents,
-                                                                     m_AssetManager, m_AnimationLibrary,
-                                                                     *m_ThumbnailPool );
+            const EditorPanelHandles handles =
+                 RegisterEditorPanels( m_Panels, m_Workspace, m_Play, m_Documents, m_AssetManager,
+                                       m_AnimationLibrary, *m_ThumbnailPool );
             m_FileExplorerPanel              = handles.FileExplorer;
             m_WorldPartitionPanel            = handles.WorldPartition;
         }

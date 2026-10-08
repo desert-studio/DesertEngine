@@ -59,8 +59,8 @@ namespace Desert::Editor
         }
         {
             auto fileExplorer = std::make_unique<Editor::FileExplorerPanel>(
-                 Common::Constants::Path::ASSETS_PATH, &documents.SubjectEditors(), thumbnailPool, assetManager.get(),
-                 workspace.ActiveScene() );
+                 Common::Constants::Path::ASSETS_PATH, &documents.SubjectEditors(), thumbnailPool,
+                 assetManager.get(), workspace.ActiveScene() );
             handles.FileExplorer = fileExplorer.get();
             panels.Adopt( std::move( fileExplorer ) );
         }

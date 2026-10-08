@@ -86,10 +86,9 @@ namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-    FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
-                                          const SubjectEditorRegistry*         subjectEditors,
-                                          AssetThumbnailPool&                  thumbnailPool,
-                                          Assets::AssetManager*                assetManager,
+    FileExplorerPanel::FileExplorerPanel( const std::filesystem::path& rootPath,
+                                          const SubjectEditorRegistry* subjectEditors,
+                                          AssetThumbnailPool& thumbnailPool, Assets::AssetManager* assetManager,
                                           std::weak_ptr<::Desert::Core::Scene> viewportScene )
          // IN DECLARATION ORDER. Members are constructed in the order they are DECLARED whatever this list
          // says, so a list in a different order is a reader being told the wrong sequence.
