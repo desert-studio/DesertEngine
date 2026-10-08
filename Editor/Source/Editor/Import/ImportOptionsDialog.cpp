@@ -96,10 +96,12 @@ namespace Desert::Editor::ImportOptions
         constexpr std::array<Assets::MeshLodPolicy, 2> kLods = { Assets::MeshLodPolicy::Generate,
                                                                  Assets::MeshLodPolicy::None };
         constexpr std::array<const char*, 2> kLodLabels = { "Generate (authored, else simplified)", "LOD 0 only" };
-        constexpr std::array<Assets::FbxSpecularMap, 2> kSpecularMaps = {
-             Assets::FbxSpecularMap::Specular, Assets::FbxSpecularMap::OcclusionRoughnessMetallic };
-        constexpr std::array<const char*, 2> kSpecularMapLabels = { "Specular (FBX's meaning)",
-                                                                    "Packed AO/Roughness/Metal (R/G/B)" };
+        constexpr std::array<Assets::FbxSpecularMap, 3> kSpecularMaps = {
+             Assets::FbxSpecularMap::Specular, Assets::FbxSpecularMap::OcclusionRoughnessMetallic,
+             Assets::FbxSpecularMap::RoughnessMetallic };
+        constexpr std::array<const char*, 3> kSpecularMapLabels = { "Specular (FBX's meaning)",
+                                                                    "Packed AO/Roughness/Metal (R/G/B)",
+                                                                    "Packed Roughness/Metal (G/B, R unused)" };
 
         constexpr std::array<Assets::MeshFileUnit, 6> kFileUnits = {
              Assets::MeshFileUnit::FromFile,    Assets::MeshFileUnit::Millimetres, Assets::MeshFileUnit::Centimetres,
@@ -429,10 +431,13 @@ namespace Desert::Editor::ImportOptions
 
         UI::BeginPropertyRow( "FBX Specular Map",
                               "What the FBX Specular map holds. Specular: a specular-colour image, as FBX defines "
-                              "it (the surface template has no input for it; the import says so). Packed: AO in "
-                              "R, roughness in G, metalness in B (Lumberyard Bistro / ORCA). Written into new "
-                              "materials only: delete an imported .demat to re-make it." );
-        int specular = settings.SpecularMap == Assets::FbxSpecularMap::OcclusionRoughnessMetallic ? 1 : 0;
+                              "it (the surface template has no input for it; the import says so). Packed AO/Roughness/"
+                              "Metal: AO in R, roughness in G, metalness in B. Packed Roughness/Metal: roughness in "
+                              "G, metalness in B, R holds no occlusion (Lumberyard Bistro / ORCA, Falcor's "
+                              "metal-rough). Written into new materials only: delete an imported .demat to re-make "
+                              "it." );
+        int specular = static_cast<int>(
+             std::ranges::find( kSpecularMaps, settings.SpecularMap ) - kSpecularMaps.begin() );
         if ( ImGui::Combo( "##SpecularMap", &specular, kSpecularMapLabels.data(),
                            static_cast<int>( kSpecularMapLabels.size() ) ) )
         {

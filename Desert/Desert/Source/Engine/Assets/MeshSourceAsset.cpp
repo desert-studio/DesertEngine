@@ -664,12 +664,15 @@ namespace Desert::Assets
                 return "Specular";
             case FbxSpecularMap::OcclusionRoughnessMetallic:
                 return "OcclusionRoughnessMetallic";
+            case FbxSpecularMap::RoughnessMetallic:
+                return "RoughnessMetallic";
         }
         return "?";
     }
     std::optional<FbxSpecularMap> FbxSpecularMapFromName( const std::string_view name )
     {
-        for ( const auto m : { FbxSpecularMap::Specular, FbxSpecularMap::OcclusionRoughnessMetallic } )
+        for ( const auto m : { FbxSpecularMap::Specular, FbxSpecularMap::OcclusionRoughnessMetallic,
+                               FbxSpecularMap::RoughnessMetallic } )
             if ( FbxSpecularMapName( m ) == name )
                 return m;
         return std::nullopt;

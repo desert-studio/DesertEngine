@@ -53,8 +53,8 @@ namespace Desert::Assets::Serialization
             const auto specular = Assets::FbxSpecularMapFromName( *text.SpecularMap );
             if ( !specular )
                 return Common::MakeFormattedError<Result>(
-                     "import settings name Specular map meaning '{}'; this build knows Specular and "
-                     "OcclusionRoughnessMetallic",
+                     "import settings name Specular map meaning '{}'; this build knows Specular, "
+                     "OcclusionRoughnessMetallic and RoughnessMetallic",
                      *text.SpecularMap );
             out.SpecularMap = *specular;
         }

@@ -110,9 +110,14 @@ namespace Desert::Editor
     // THE FBX SPECULAR MAP'S MEANING (SourceImportSettings::SpecularMap), applied to a source dictionary before
     // the template fill. The adapter carries the map under FBX's own name, `fbx.SpecularColor` (UE links it to
     // the Specular input); `OcclusionRoughnessMetallic` re-keys it to `fbx.OcclusionRoughnessMetallic`, which
-    // a template routes channel by channel (StandardSurface: the ORM slot, R/G/B as they stand).
+    // a template routes channel by channel (StandardSurface: the ORM slot, R/G/B as they stand), and
+    // `RoughnessMetallic` to `fbx.RoughnessMetallic` (StandardSurface: G and B only, so the import packs the
+    // slot with an R of no occlusion, as for a glTF metallic-roughness image). A stated packed map is the whole
+    // of what it holds, as UE wires a texture straight into the input: the re-keyed entry carries a unit value,
+    // which a template routes to the factors the image's channels multiply.
     inline constexpr std::string_view kFbxSpecularMapKey             = "fbx.SpecularColor";
     inline constexpr std::string_view kFbxOcclusionRoughnessMetalKey = "fbx.OcclusionRoughnessMetallic";
+    inline constexpr std::string_view kFbxRoughnessMetalKey          = "fbx.RoughnessMetallic";
     SourceMaterial WithFbxSpecularMap( SourceMaterial material, Assets::FbxSpecularMap meaning );
 
     // Why an unread key is lost, beyond "no Import row": the one key whose meaning is the user's to state (the
