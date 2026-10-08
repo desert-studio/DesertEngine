@@ -30,7 +30,7 @@ namespace Desert::Editor
         // Window frame (only when the window is undecorated), close gate, ImGui context, editor fonts,
         // backend layer, io flags, theme. `requestExit` is the one ordered exit: the frame's close button and
         // the OS close both take it. A refusal ends the run.
-        [[nodiscard]] Common::BoolResultStr Attach( Engine::Application& application,
+        [[nodiscard]] Common::BoolResultStr Attach( Engine::Application&  application,
                                                     std::function<void()> requestExit );
 
         // The ImGui frame and ImGuizmo's per-frame state (ImGuizmo is one global — begun ONCE, here, before
@@ -49,7 +49,10 @@ namespace Desert::Editor
 
         // Empty while the OS draws the frame. A reference to the optional itself: LevelEditorCommands binds it
         // before Attach fills it.
-        [[nodiscard]] std::optional<UI::WindowChrome>& Chrome() { return m_WindowChrome; }
+        [[nodiscard]] std::optional<UI::WindowChrome>& Chrome()
+        {
+            return m_WindowChrome;
+        }
 
     private:
         Engine::Application* m_Application = nullptr;

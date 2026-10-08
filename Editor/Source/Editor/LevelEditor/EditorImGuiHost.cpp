@@ -16,7 +16,7 @@
 
 namespace Desert::Editor
 {
-    Common::BoolResultStr EditorImGuiHost::Attach( Engine::Application& application,
+    Common::BoolResultStr EditorImGuiHost::Attach( Engine::Application&  application,
                                                    std::function<void()> requestExit )
     {
         m_Application = &application;
