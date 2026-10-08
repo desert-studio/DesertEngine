@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/UI/UIAnimationSource.hpp>
 #include <Engine/UI/UITextSource.hpp>
 #include <Engine/UI/Style/UIThemeRuntime.hpp>
 #include <Engine/Text/BakedFont.hpp>
@@ -8,6 +9,7 @@
 #include <Common/Core/AssetHandle.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -98,5 +100,9 @@ namespace Desert::UI
 
         // Where every authored string the walk draws is turned into the string on screen (UITextSource.hpp).
         [[nodiscard]] virtual IUITextSource& Text() = 0;
+
+        // A new, empty animation source for ONE view (UIAnimationSource.hpp): each view evaluates the scene's
+        // clips into results of its own, so this is a factory and not a shared service. Never null.
+        [[nodiscard]] virtual std::unique_ptr<IUIAnimationSource> CreateAnimationSource() = 0;
     };
 } // namespace Desert::UI

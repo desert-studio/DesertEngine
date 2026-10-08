@@ -35,7 +35,7 @@
 #include <vector>
 
 using Desert::Assets::BuildUIThemeRuntime;
-using Desert::Assets::kUIThemeDefaultStyle;
+using Desert::UI::kUIThemeDefaultStyle;
 using Desert::Assets::ParseUITheme;
 using Desert::Assets::UIThemeBinding;
 using Desert::Assets::UIThemeColor;

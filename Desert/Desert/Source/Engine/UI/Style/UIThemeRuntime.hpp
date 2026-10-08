@@ -29,6 +29,11 @@ namespace Desert::UI
     /// "this style does not bind this slot" — the value every slot of a style starts at.
     inline constexpr uint16_t kUIThemeUnbound = 0xFFFF;
 
+    /// The style every element uses unless it names another one. A theme without it themes nothing and
+    /// says so once; it is a name and not an empty string so that "no style" cannot be confused with "the
+    /// author left the field blank".
+    inline constexpr const char* kUIThemeDefaultStyle = "Default";
+
     /// One style, flattened: per slot, the index of the token in the table its kind names, or
     /// `kUIThemeUnbound`.
     struct UIThemeStyleTable

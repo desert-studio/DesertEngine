@@ -4,7 +4,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 #include <Engine/Core/LevelTravel.hpp>
-#include <Engine/UI/LoadingOverlay.hpp>
+#include <Engine/UI/Ecs/LoadingOverlay.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIDataStore.hpp>

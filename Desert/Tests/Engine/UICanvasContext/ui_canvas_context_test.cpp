@@ -471,10 +471,10 @@ TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )
     (void)clip.Playback->JumpTo( AN::SecondsToFrameTime( 0.5, clip.Sequence.TickRate ) );
     Frame( preview, f, nullptr );
 
-    ASSERT_EQ( preview.AnimClips.Samples.count( f.Button ), 1U ) << "the clip's binding did not reach the button";
-    EXPECT_NEAR( preview.AnimClips.Samples.at( f.Button ).Offset.x, 50.0F, 1e-2F )
-         << "the preview did not evaluate the shared playhead";
-    EXPECT_EQ( preview.AnimClips.Samples.count( f.Canvas ), 0U ) << "the clip moved its owner, not its binding";
+    const Desert::UI::UIClipSample* button = preview.Animation().Sample( f.Button );
+    ASSERT_NE( button, nullptr ) << "the clip's binding did not reach the button";
+    EXPECT_NEAR( button->Offset.x, 50.0F, 1e-2F ) << "the preview did not evaluate the shared playhead";
+    EXPECT_EQ( preview.Animation().Sample( f.Canvas ), nullptr ) << "the clip moved its owner, not its binding";
 }
 
 // --- (7) A view pointed at another scene forgets the first one -------------------------------------------

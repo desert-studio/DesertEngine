@@ -125,10 +125,9 @@ namespace Desert::UI
                 fx.HazeSpeed     = rd.HazeSpeed;
                 fx.Time          = static_cast<float>( ctx.View.Time );
                 // A keyed clip REPLACES the authored amplitude while it drives it (never written back).
-                if ( const auto clip = ctx.View.AnimClips.Samples.find( e );
-                     clip != ctx.View.AnimClips.Samples.end() )
+                if ( const UIClipSample* clip = ctx.View.Animation().Sample( e ); clip != nullptr )
                 {
-                    if ( const std::optional<float> amplitude = clip->second.HazeAmplitude; amplitude.has_value() )
+                    if ( const std::optional<float> amplitude = clip->HazeAmplitude; amplitude.has_value() )
                         fx.HazeAmplitude = *amplitude * scale;
                 }
 
@@ -461,7 +460,9 @@ namespace Desert::UI
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
         // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
-        PlayUIAnimations( reg, view.FrameDt, view.DrivesSceneAnimation, view.GameWorld, view.AnimClips );
+        view.Animation().Evaluate( reg, UIAnimationStep{ .DtSeconds = view.FrameDt,
+                                                         .Advance   = view.DrivesSceneAnimation,
+                                                         .GameWorld = view.GameWorld } );
 
         // A scene swap leaves the elected entity dangling — drop it rather than matching a recycled id.
         if ( view.Hot != entt::null && !reg.valid( view.Hot ) )

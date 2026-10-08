@@ -5,7 +5,6 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
-#include <Engine/Assets/UIThemeData.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
@@ -96,7 +95,7 @@ namespace Desert::UI::Walk
         // the default-name constant. "Default" fits in a std::string's small buffer, so it costs no
         // allocation.
         const std::string name =
-             authored != nullptr ? authored->Style : std::string( Assets::kUIThemeDefaultStyle );
+             authored != nullptr ? authored->Style : std::string( kUIThemeDefaultStyle );
 
         bool               unknown = false;
         const ElementStyle style   = ctx.Style.For( name, unknown );
@@ -270,16 +269,16 @@ namespace Desert::UI::Walk
     }
 
     // A keyed CLIP (UIAnim) on top of the one-shot tween. The clips were stepped and evaluated once for the
-    // whole frame (BeginUIFrame → PlayUIAnimations), because a clip may drive an element other than its
+    // whole frame (BeginUIFrame → IUIAnimationSource::Evaluate), because a clip may drive an element other than its
     // own; here the element only folds in what the frame computed for it.
     void ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out )
     {
-        const auto it = ctx.View.AnimClips.Samples.find( e );
-        if ( it == ctx.View.AnimClips.Samples.end() )
+        const UIClipSample* clip = ctx.View.Animation().Sample( e );
+        if ( clip == nullptr )
             return;
-        out.Offset += it->second.Offset;
-        out.Size += it->second.Size;
-        out.Tint *= it->second.Tint;
+        out.Offset += clip->Offset;
+        out.Size += clip->Size;
+        out.Tint *= clip->Tint;
     }
 
     BindingSample SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw,

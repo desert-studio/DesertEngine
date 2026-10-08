@@ -52,9 +52,8 @@ namespace Desert::UI::Walk
 
         // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
         float      reveal = path.Reveal;
-        const auto clip   = ctx.View.AnimClips.Samples.find( e );
-        if ( clip != ctx.View.AnimClips.Samples.end() )
-            reveal = clip->second.Reveal.value_or( reveal );
+        if ( const UIClipSample* clip = ctx.View.Animation().Sample( e ); clip != nullptr )
+            reveal = clip->Reveal.value_or( reveal );
 
         const std::vector<glm::vec2> shown = RevealUIPath( line, reveal );
         if ( shown.size() >= 2 )

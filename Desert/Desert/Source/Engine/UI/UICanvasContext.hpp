@@ -4,7 +4,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasResources.hpp>
-#include <Engine/UI/UIAnimationPlayback.hpp>
+#include <Engine/UI/UIAnimationSource.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
@@ -272,7 +272,8 @@ namespace Desert::UI
         // A view cannot exist without the resources it draws with: a host keeps a RegistryUICanvasResources
         // beside its view (they die together), a test hands in a mock that answers what it is about. See
         // UICanvasResources.hpp for why this is a constructor argument and not a registry lookup in the walk.
-        explicit UIViewContext( IUICanvasResources& resources ) : m_Resources( &resources )
+        explicit UIViewContext( IUICanvasResources& resources )
+             : m_Resources( &resources ), m_Animation( resources.CreateAnimationSource() )
         {
         }
 
@@ -280,6 +281,14 @@ namespace Desert::UI
         [[nodiscard]] IUICanvasResources& Resources() const
         {
             return *m_Resources;
+        }
+
+        // What the scene's UI clips add to each element THIS frame, as this view evaluated them
+        // (UIAnimationSource.hpp). Evaluated once in BeginUIFrame, read by every canvas walk of the frame.
+        // Owned by the view and cloned with it, so a probe walking a copy never writes into this view's.
+        [[nodiscard]] IUIAnimationSource& Animation() const
+        {
+            return m_Animation.Get();
         }
 
         // --- Identity ---------------------------------------------------------------------------------
@@ -331,14 +340,10 @@ namespace Desert::UI
         bool DrivesSceneAnimation = true;
 
         // Is this view showing a GAME world — Play-in-editor, the packaged game, the movie render — rather
-        // than an authored level? Only a game world starts AutoPlay UI clips (UIAnimationPlayback.hpp); an
+        // than an authored level? Only a game world starts AutoPlay UI clips (UI/Ecs/UIAnimationPlayback.hpp); an
         // authored level shows the frame under the clip's playhead and the Sequencer moves it, as UE's
         // designer never auto-plays a widget animation. The editor viewport sets it from the scene's state.
         bool GameWorld = true;
-
-        // What the scene's UI clips add to each element THIS frame, as this view evaluated them
-        // (UIAnimationPlayback.hpp). Filled once in BeginUIFrame, read by every canvas walk of the frame.
-        UIClipFrame AnimClips;
 
         // --- Hit testing ------------------------------------------------------------------------------
         // The frame elects a single HOT element (last writer in draw order = topmost) and controls compare
@@ -505,12 +510,13 @@ namespace Desert::UI
             OverlayHoverTrigger    = entt::null;
             OverlayHoverHeld       = 0.0f;
             PrevRightDown          = false;
-            AnimClips.Reset();
+            m_Animation.Get().Reset();
         }
 
     private:
         // Never null: bound by the constructor and copied with the view (an introspection probe walks a copy).
         IUICanvasResources*                               m_Resources;
+        UIAnimationSourceSlot                             m_Animation;
         std::unordered_map<entt::entity, UICanvasContext> m_Canvases;
     };
 } // namespace Desert::UI

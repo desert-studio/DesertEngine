@@ -82,11 +82,6 @@ namespace Desert::Assets
         return versions;
     }
 
-    /// The style every element uses unless it names another one. A theme without it themes nothing and
-    /// says so once; it is a name and not an empty string so that "no style" cannot be confused with "the
-    /// author left the field blank".
-    inline constexpr const char* kUIThemeDefaultStyle = "Default";
-
     /// One named colour. Linear RGB, exactly as the components' own colour fields are, so a token and the
     /// literal it replaces are the same number and swapping one for the other cannot shift the picture.
     struct UIThemeColor

@@ -7,6 +7,7 @@
 
 #include <Engine/UI/UICanvasResources.hpp>
 #include <Engine/UI/Ecs/LocalizationUITextSource.hpp>
+#include <Engine/UI/Ecs/UIAnimationPlayback.hpp>
 
 #include <cstdint>
 #include <unordered_map>
@@ -64,6 +65,11 @@ namespace TestSupport
         [[nodiscard]] Desert::UI::IUITextSource& Text() override
         {
             return m_Text;
+        }
+        // The engine's own clip evaluator: a clip test drives a real UIAnimComponent through the walk.
+        [[nodiscard]] std::unique_ptr<Desert::UI::IUIAnimationSource> CreateAnimationSource() override
+        {
+            return std::make_unique<Desert::UI::TimelineUIAnimationSource>();
         }
 
     private:
