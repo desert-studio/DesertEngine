@@ -447,14 +447,14 @@ namespace Desert::Editor
             // editor's own overlay draws the same line (EditorLayer::OnUIRender).
             if ( ContentSettling() )
             {
-                const Assets::ContentProgressLine line = Assets::ContentProgressNow( m_SettleBase );
-                const bool changed = line.Done != m_ContentProgress.Done || line.Total != m_ContentProgress.Total ||
-                                     line.Item != m_ContentProgress.Item;
+                const Assets::ContentProgressLine line    = Assets::ContentProgressNow( m_SettleBase );
+                const bool                        changed = line.Done != m_ContentProgress.Done ||
+                                     line.Total != m_ContentProgress.Total || line.Item != m_ContentProgress.Item;
                 m_ContentProgress = line;
                 if ( changed && !m_Revealed )
                 {
-                    m_Progress.Step( line.Item.empty() ? std::string( "Scene assets" ) : line.Item,
-                                     line.Done, std::max<std::size_t>( line.Total, 1 ) );
+                    m_Progress.Step( line.Item.empty() ? std::string( "Scene assets" ) : line.Item, line.Done,
+                                     std::max<std::size_t>( line.Total, 1 ) );
                     PushSplash();
                 }
             }

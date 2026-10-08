@@ -176,8 +176,8 @@ namespace Desert::Editor
         std::size_t                           m_ShaderStage   = 0;
         std::size_t                           m_SettleStage   = 0;
         // Reads the loader had finished when the scene load began: the settle counts only the rest.
-        uint64_t                     m_SettleBase = 0;
-        Assets::ContentProgressLine  m_ContentProgress; // the line the settle shows now
+        uint64_t                    m_SettleBase = 0;
+        Assets::ContentProgressLine m_ContentProgress; // the line the settle shows now
         bool        m_ThumbnailsHoldReveal = false;
         bool        m_SplashWarmStarted    = false;
         std::size_t m_SplashWarmTotal      = 0;     // captures queued when the warm-up started

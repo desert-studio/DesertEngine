@@ -714,8 +714,8 @@ TEST_F( AsyncAssetLoad, TheLoadingCountClimbsToItsTotalAndEqualsTheReadsThatRan 
 {
     // Reads that returned before the load began are in neither number.
     auto earlier = std::make_shared<ProbeAsset>( "earlier.probe" );
-    auto first   = AsyncAssetLoader::Get().Request( earlier, []( const auto&, LoadOutcome, const std::string& ) {},
-                                                    [] {} );
+    auto first =
+         AsyncAssetLoader::Get().Request( earlier, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
     ASSERT_TRUE( PumpUntilQuiet() );
     const uint64_t before = AsyncAssetLoader::Get().Progress().Finished;
     EXPECT_EQ( before, 1u );
@@ -753,12 +753,13 @@ TEST_F( AsyncAssetLoad, TheLoadingCountClimbsToItsTotalAndEqualsTheReadsThatRan 
     }
     ASSERT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
 
-    const auto done = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), before, 0 );
+    const auto done  = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), before, 0 );
     int        reads = 0;
     for ( const auto& asset : assets )
         reads += asset->Reads.load();
     EXPECT_EQ( done.Done, done.Total ) << "every read returned and the count stopped short of its total";
-    EXPECT_EQ( done.Done, static_cast<size_t>( reads ) ) << "the loading count is not the number of reads that ran";
+    EXPECT_EQ( done.Done, static_cast<size_t>( reads ) )
+         << "the loading count is not the number of reads that ran";
     EXPECT_EQ( AsyncAssetLoader::Get().Progress().Finished, AsyncAssetLoader::Get().Progress().Started );
 }
 

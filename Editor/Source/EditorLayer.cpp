@@ -235,10 +235,10 @@ namespace Desert::Editor
             if ( ::ImGui::Begin( "##SceneLoading", nullptr, kFlags ) )
             {
                 ::ImGui::TextUnformatted( "Loading scene content..." );
-                const std::string item =
-                     line.Total > 0 ? std::format( "{} ({} / {})", line.Item, std::min( line.Done + 1, line.Total ),
-                                                   line.Total )
-                                    : line.Item;
+                const std::string item = line.Total > 0
+                                              ? std::format( "{} ({} / {})", line.Item,
+                                                             std::min( line.Done + 1, line.Total ), line.Total )
+                                              : line.Item;
                 ::ImGui::TextUnformatted( item.c_str() );
                 const float fraction =
                      line.Total > 0 ? static_cast<float>( line.Done ) / static_cast<float>( line.Total ) : 0.0F;
