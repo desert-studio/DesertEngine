@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <filesystem>
 #include <string>
@@ -28,6 +29,7 @@ namespace Desert::Input
 
         [[nodiscard]] bool operator==( const UserKeyBindings& ) const = default;
     };
+    DESERT_JSON_STRUCT( UserKeyBindings, "UserKeyBindings", 1 )
 
     /// Where this user's bindings live: `input.json` beside the host's machine.json (the editor's
     /// ~/.desertengine, a game's per-user product directory — Common::Settings::GameUserDirectory). Empty when

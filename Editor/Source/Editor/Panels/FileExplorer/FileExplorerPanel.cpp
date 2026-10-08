@@ -16,6 +16,7 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
@@ -855,6 +856,41 @@ namespace Desert::Editor
              !saved )
             return Common::MakeFormattedError( "New Level Sequence: {}", saved.GetError() );
         // Selected once the refresh lists it (UE selects the new asset in the Content Browser).
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewInputAction()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Input Action: the Assets window has no folder open" );
+        const std::filesystem::path folder( m_CurrentDir->AssetPath );
+        const std::string           name = AssetFileOps::UniqueName(
+             "IA_NewAction", Assets::Serialization::kInputActionExtension,
+             [&]( const std::string& n ) { return std::filesystem::exists( folder / n ); } );
+        const auto path = folder / name;
+        if ( const auto saved = Assets::InputActionAsset::Save( path, Assets::Serialization::InputActionData{} );
+             !saved )
+            return Common::MakeFormattedError( "New Input Action: {}", saved.GetError() );
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewInputMappingContext()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Input Mapping Context: the Assets window has no folder open" );
+        const std::filesystem::path folder( m_CurrentDir->AssetPath );
+        const std::string           name = AssetFileOps::UniqueName(
+             "IMC_NewContext", Assets::Serialization::kInputMappingContextExtension,
+             [&]( const std::string& n ) { return std::filesystem::exists( folder / n ); } );
+        const auto path = folder / name;
+        if ( const auto saved =
+                  Assets::InputMappingContextAsset::Save( path, Assets::Serialization::InputMappingContextData{} );
+             !saved )
+            return Common::MakeFormattedError( "New Input Mapping Context: {}", saved.GetError() );
         m_SelectAfterRefresh = path.generic_string();
         QueueRefresh();
         return Common::MakeSuccess( true );
@@ -1768,6 +1804,14 @@ namespace Desert::Editor
 
                             if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
                                 if ( const auto created = CreateNewLevelSequence(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
+
+                            if ( ImGui::Selectable( std::string( kNewInputActionLabel ).c_str() ) )
+                                if ( const auto created = CreateNewInputAction(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
+
+                            if ( ImGui::Selectable( std::string( kNewInputMappingContextLabel ).c_str() ) )
+                                if ( const auto created = CreateNewInputMappingContext(); !created )
                                     LOG_ERROR( "[Content] {}", created.GetError() );
 
                             // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
