@@ -292,9 +292,9 @@ namespace Desert::Editor
         }
         const entt::entity handle = found->get().GetHandle();
 
-        const auto node =
-             std::find_if( probe.Elements.begin(), probe.Elements.end(),
-                           [handle]( const ::Desert::UI::UIElementNode& n ) { return n.Entity == handle; } );
+        const auto node = std::find_if( probe.Elements.begin(), probe.Elements.end(),
+                                        [handle]( const ::Desert::UI::UIElementNode& n )
+                                        { return ::Desert::UI::ToEntity( n.Entity ) == handle; } );
         if ( node == probe.Elements.end() )
         {
             ImGui::TextDisabled( "The selected entity is not under this canvas." );

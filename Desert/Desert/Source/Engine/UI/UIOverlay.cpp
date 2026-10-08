@@ -74,7 +74,7 @@ namespace Desert::UI
                  !walked )
                 return false;
             for ( const UIElementNode& n : nodes )
-                if ( n.Entity == e && n.Drawn && n.OwnRect )
+                if ( ToEntity( n.Entity ) == e && n.Drawn && n.OwnRect )
                 {
                     out = n.ScreenPx;
                     return true;

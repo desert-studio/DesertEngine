@@ -364,7 +364,7 @@ TEST( OverlayModal, AClosedOverlayDrawsNothingAndIsNotTheSameStatementAsAnInvisi
     ASSERT_FALSE( nodes.empty() ) << "the closed overlay reported an empty tree, which a caller cannot tell "
                                      "from a canvas with nothing in it";
     EXPECT_FALSE( nodes.front().Drawn );
-    EXPECT_EQ( nodes.front().CauseBy, modal );
+    EXPECT_EQ( DUI::ToEntity( nodes.front().CauseBy ), modal );
 }
 
 // ==========================================================================================================

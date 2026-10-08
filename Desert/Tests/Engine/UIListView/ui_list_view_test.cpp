@@ -331,7 +331,7 @@ TEST( ListViewWindow, ScrollingMovesTheWindowAndTheClampedEdgeIsOneRowSmaller )
     {
         for ( const UIElementNode& n : nodes )
         {
-            if ( n.Entity == e )
+            if ( UI::ToEntity( n.Entity ) == e )
             {
                 return &n;
             }
@@ -475,7 +475,7 @@ TEST( ListViewContract, AHiddenRowLeavesItsSlotEmptyRatherThanClosingTheGap )
     {
         for ( const UIElementNode& n : Enumerate( scene, ctx ) )
         {
-            if ( n.Entity == e )
+            if ( UI::ToEntity( n.Entity ) == e )
             {
                 return n.RectPx;
             }
@@ -901,7 +901,7 @@ TEST( ListViewBound, TheEnumerationNamesEachRowsRecordAndAgreesWithTheDrawAboutI
     int        rows  = 0;
     for ( const UIElementNode& n : nodes )
     {
-        if ( n.Entity != scene.Rows.front() )
+        if ( UI::ToEntity( n.Entity ) != scene.Rows.front() )
             continue;
         EXPECT_EQ( n.ListRow, rows ) << "rows are enumerated in record order";
         ++rows;

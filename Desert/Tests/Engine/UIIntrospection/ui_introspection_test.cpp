@@ -154,7 +154,7 @@ namespace
     const UIElementNode* NodeFor( const UIFrameProbe& probe, entt::entity e )
     {
         for ( const UIElementNode& n : probe.Elements )
-            if ( n.Entity == e )
+            if ( UI::ToEntity( n.Entity ) == e )
                 return &n;
         return nullptr;
     }
@@ -386,9 +386,9 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
     std::uint32_t checked = 0;
     for ( const UIElementNode& n : probe.Elements )
     {
-        if ( n.Drawn || !scene.Registry.has<ECS::UILayoutComponent>( n.Entity ) )
+        if ( n.Drawn || !scene.Registry.has<ECS::UILayoutComponent>( UI::ToEntity( n.Entity ) ) )
             continue;
-        auto&                   field = scene.Layout( n.Entity ).Visibility;
+        auto&                   field = scene.Layout( UI::ToEntity( n.Entity ) ).Visibility;
         const UI::UIVisibility  prev  = field;
         field                         = UI::UIVisibility::Hidden;
 
@@ -670,4 +670,52 @@ TEST( UIIntrospectionBatches, ACanvasWithNoMaterialReportsNoneOfIt )
     EXPECT_EQ( probe.Batches[0].Material, nullptr );
     EXPECT_EQ( probe.Stats.UniqueMaterials, 0u );
     EXPECT_EQ( probe.Stats.PipelineSwitches, 0u );
+}
+
+// UI-FW1: the framework walks an IUITree, and the ECS adapter is the only thing that knows the registry.
+// Invariants of the adapter itself: ids round-trip bit for bit, the hierarchy and the arguments read back
+// what the registry holds, FindState opens only the value-carrying kinds, and Roots answers in authored
+// (creation) order even though entt's pool hands canvases out in reverse.
+TEST( UITreeEcsAdapter, ReadsTheRegistryAndOnlyTheRegistry )
+{
+    entt::registry     reg;
+    const entt::entity a = reg.create();
+    const entt::entity b = reg.create();
+    const entt::entity c = reg.create();
+    reg.emplace<ECS::UICanvasComponent>( a );
+    reg.emplace<ECS::UICanvasComponent>( b );
+    reg.emplace<ECS::TagComponent>( c ).Tag                = "Row";
+    reg.emplace<ECS::RelationshipComponent>( a ).Children  = { c };
+    reg.emplace<ECS::RelationshipComponent>( c ).Parent    = a;
+    reg.emplace<ECS::UILayoutComponent>( c ).Data.FlexGrow = 3.0f;
+    reg.emplace<ECS::UIToggleComponent>( c );
+
+    UI::EcsUITree    tree( reg );
+    const UI::NodeId na = UI::ToNode( a );
+    const UI::NodeId nc = UI::ToNode( c );
+
+    EXPECT_EQ( UI::ToEntity( nc ), c );
+    EXPECT_EQ( UI::ToNode( entt::entity( entt::null ) ), UI::NodeId::Null );
+    EXPECT_FALSE( tree.Valid( UI::NodeId::Null ) );
+
+    ASSERT_EQ( tree.ChildCount( na ), 1u );
+    EXPECT_EQ( tree.ChildAt( na, 0 ), nc );
+    EXPECT_EQ( tree.ChildAt( na, 1 ), UI::NodeId::Null );
+    EXPECT_EQ( tree.Parent( nc ), na );
+    EXPECT_EQ( tree.Name( nc ), "Row" );
+
+    ASSERT_NE( tree.Get<UI::UILayoutData>( nc ), nullptr );
+    EXPECT_EQ( tree.Get<UI::UILayoutData>( nc ), &reg.get<ECS::UILayoutComponent>( c ).Data );
+    EXPECT_EQ( tree.Get<UI::UIPanelData>( nc ), nullptr );
+
+    EXPECT_EQ( tree.GetState<UI::UIToggleData>( nc ), &reg.get<ECS::UIToggleComponent>( c ).Data );
+    EXPECT_EQ( tree.FindState( nc, UI::ArgKind::Layout ), nullptr ) << "layout is not a control's value";
+
+    std::vector<UI::NodeId> canvases;
+    tree.Roots( UI::ArgKind::Canvas, canvases );
+    ASSERT_EQ( canvases.size(), 2u );
+    EXPECT_EQ( canvases[0], na );
+    EXPECT_EQ( canvases[1], UI::ToNode( b ) );
+
+    EXPECT_EQ( UI::CanvasOf( tree, nc ), na );
 }
