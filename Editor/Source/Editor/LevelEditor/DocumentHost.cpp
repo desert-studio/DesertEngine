@@ -177,6 +177,18 @@ namespace Desert::Editor
                     LOG_WARN( "[Editor] Open: {} — no window opened.", opened.GetError() );
                 continue;
             }
+            if ( request.Action == Core::AssetFieldAction::BrowseTo )
+            {
+                auto synced = !m_ShowAsset ? Common::MakeFormattedError<bool>( "the Assets browser is not wired to "
+                                                                               "the document host" )
+                              : found == nullptr
+                                   ? Common::MakeFormattedError<bool>( "asset {:016x} is not known to the asset manager",
+                                                                       static_cast<uint64_t>( request.Handle ) )
+                                   : m_ShowAsset( found->Filepath.generic_string() );
+                if ( !synced.IsSuccess() )
+                    LOG_WARN( "[Editor] Browse: {}", synced.GetError() );
+                continue;
+            }
             auto folder = Core::AssetFolderFor( found, request.Handle );
             auto shown  = folder.IsSuccess() ? m_ShowFolder( folder.GetValue().generic_string() )
                                              : Common::MakeFormattedError<bool>( "{}", folder.GetError() );

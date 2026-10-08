@@ -618,6 +618,7 @@ namespace Desert::Editor
         // The registrations live beside the asset editors, in Editor/LevelEditor/AssetEditorRegistrations.cpp
         // (UE: each asset editor registers its AssetTypeActions with the AssetTools registry). The registry they
         // fill is DocumentHost's; the order is the file's and is unchanged.
+        m_Documents.SetShowAsset( [this]( const std::string& file ) { return SyncBrowserToAsset( file ); } );
         RegisterAssetEditors( m_Documents, m_Workspace, m_AssetManager, m_AnimationLibrary );
 
         // NOTHING OPENS A PANEL AT BOOT ANY MORE, and the absence is the point.
@@ -1090,6 +1091,15 @@ namespace Desert::Editor
         if ( !m_FileExplorerPanel->NavigateToPath( folder ) )
             return Common::MakeFormattedError<bool>( "'{}' is not a folder the Assets browser can reach", folder );
         return PaletteCommandDone();
+    }
+
+    Common::BoolResultStr EditorLayer::SyncBrowserToAsset( const std::string& file )
+    {
+        if ( m_FileExplorerPanel == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "the Assets browser does not exist in this session; '{}' cannot be shown", file );
+        Core::PanelRequests::Open( "Assets" );
+        return m_FileExplorerPanel->SyncToAsset( file );
     }
 
     void EditorLayer::RequestEditorExit()

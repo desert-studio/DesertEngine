@@ -25,6 +25,8 @@
 #include <string_view>
 #include <vector>
 #include "Editor/LevelEditor/DocumentHost.hpp"
+#include "Editor/LevelEditor/AssetEditorFrame.hpp"
+#include "Engine/Assets/AssetManager.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Engine/Core/ViewBudget.hpp"
 
@@ -463,7 +465,21 @@ namespace Desert::Editor
                     focused = subject;
                 {
                     DESERT_PROFILE_SCOPE_DYNAMIC( document->GetName().c_str() );
-                    document->OnUIRender();
+                    // THE ASSET-EDITOR FRAME (AssetEditorFrame.hpp): toolbar, body, status bar for every
+                    // document whose subject is a file; an entity-component document draws its body alone.
+                    if ( subject.Domain == SubjectDomain::Asset )
+                    {
+                        const Assets::AssetMetadata* asset =
+                             m_AssetManager ? m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) )
+                                            : nullptr;
+                        AssetEditorFrame::DrawToolbar( *document, asset );
+                        if ( AssetEditorFrame::BeginBody() )
+                            document->OnUIRender();
+                        AssetEditorFrame::EndBody();
+                        AssetEditorFrame::DrawStatusBar( *document, asset );
+                    }
+                    else
+                        document->OnUIRender();
                 }
                 // REPORTED, NOT DECIDED HERE. This view says only "I drew it"; whether NOBODY drew it is a
                 // question about all the views at once and is settled by OpenDocuments::EndFrame after

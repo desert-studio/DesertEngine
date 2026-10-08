@@ -107,6 +107,7 @@ namespace Desert::Editor
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
         Common::BoolResultStr ShowFolderInBrowser( const std::string& folder );
+        Common::BoolResultStr SyncBrowserToAsset( const std::string& file );
         // Leaving the editor from its own frame's x or File > Exit: every dirty document asks first, and the
         // editor closes once the last one is answered. Cancel on any of them keeps the editor open. The
         // control channel's `quit` does not come here — an unattended run has nobody to answer.

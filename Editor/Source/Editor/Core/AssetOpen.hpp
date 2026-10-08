@@ -168,6 +168,8 @@ namespace Desert::Editor::Core
     {
         Open,
         ShowInBrowser,
+        // The asset-editor toolbar's Browse (UE: SyncBrowserToAssets): open the folder AND select the file.
+        BrowseTo,
     };
 
     struct AssetFieldRequest
