@@ -437,7 +437,8 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanSamplerCache& VulkanLogicalDevice::GetSamplerCache()
     {
-        DESERT_VERIFY( m_Samplers != nullptr, "GetSamplerCache: the device was not created or is already destroyed" );
+        DESERT_VERIFY( m_Samplers != nullptr,
+                       "GetSamplerCache: the device was not created or is already destroyed" );
         return *m_Samplers;
     }
 

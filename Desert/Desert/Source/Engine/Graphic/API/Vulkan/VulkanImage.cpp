@@ -159,7 +159,8 @@ namespace Desert::Graphic::API::Vulkan
         // samplers or a create info the cache cannot key, never a state to paper over.
         static VkSampler AcquireSampler( SamplerFilterPolicy policy, const Core::Formats::SamplerState& slot = {} )
         {
-            const Common::ResultStr<VkSampler> sampler = EngineSamplerCache().Acquire( SamplerCreateInfo( policy, slot ) );
+            const Common::ResultStr<VkSampler> sampler =
+                 EngineSamplerCache().Acquire( SamplerCreateInfo( policy, slot ) );
             DESERT_VERIFY( sampler.IsSuccess(), "{}", sampler.IsSuccess() ? std::string{} : sampler.GetError() );
             return sampler.GetValue();
         }

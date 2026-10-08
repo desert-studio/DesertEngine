@@ -71,7 +71,7 @@ TEST( SamplerCache, TwoThousandTexturesWithThreeStatesMakeThreeSamplers )
         VkSampler first[3] = {};
         for ( int texture = 0; texture < 2000; ++texture )
         {
-            const int                                  which   = texture % 3;
+            const int                          which   = texture % 3;
             const Common::ResultStr<VkSampler> sampler = cache.Acquire( states[which] );
             ASSERT_TRUE( sampler.IsSuccess() );
             if ( first[which] == VK_NULL_HANDLE )
@@ -103,7 +103,10 @@ TEST( SamplerCache, EveryFieldOfTheStateIsPartOfTheKey )
     variants[8].borderColor   = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     std::set<VkSampler> distinct;
     for ( const VkSamplerCreateInfo& info : variants )
-        distinct.insert( cache.Acquire( info ).GetValue() );
+    {
+        const Common::ResultStr<VkSampler> sampler = cache.Acquire( info );
+        distinct.insert( sampler.GetValue() );
+    }
     EXPECT_EQ( distinct.size(), variants.size() );
     EXPECT_EQ( cache.Size(), variants.size() );
 }
@@ -123,12 +126,13 @@ TEST( SamplerCache, RefusesWhatTheKeyCannotName )
 
 TEST( SamplerCache, ReleaseDestroysAllAndTheCacheMakesAgain )
 {
-    FakeDevice                device;
-    VulkanSamplerCache        cache = device.MakeCache();
-    const VkSamplerCreateInfo info  = State( VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, 1.0f );
-    const VkSampler           first = cache.Acquire( info ).GetValue();
+    FakeDevice                         device;
+    VulkanSamplerCache                 cache = device.MakeCache();
+    const VkSamplerCreateInfo          info  = State( VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, 1.0f );
+    const Common::ResultStr<VkSampler> first = cache.Acquire( info );
     cache.Release();
     EXPECT_EQ( cache.Size(), 0u );
     EXPECT_TRUE( device.Alive.empty() );
-    EXPECT_NE( cache.Acquire( info ).GetValue(), first );
+    const Common::ResultStr<VkSampler> again = cache.Acquire( info );
+    EXPECT_NE( again.GetValue(), first.GetValue() ) << "a released handle was handed out again";
 }

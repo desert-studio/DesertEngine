@@ -207,7 +207,7 @@ namespace Desert::Graphic::API::Vulkan
         PipelineCacheFile::PersistSchedule    m_PersistSchedule{ std::chrono::seconds( 2 ) };
         std::string                           m_DeviceName;
         // Made with the device in CreateDevice, released in Destroy before vkDestroyDevice.
-        std::unique_ptr<VulkanSamplerCache>   m_Samplers;
+        std::unique_ptr<VulkanSamplerCache> m_Samplers;
 
         // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining
         // `VkPhysicalDeviceMemoryBudgetPropertiesEXT` into a properties query whose extension the device

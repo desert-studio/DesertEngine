@@ -325,7 +325,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             if ( takeFrame( it->FrameIndex ) )
             {
-                if ( it->ImageView != VK_NULL_HANDLE ) vkDestroyImageView( device, it->ImageView, nullptr );
+                if ( it->ImageView != VK_NULL_HANDLE )
+                    vkDestroyImageView( device, it->ImageView, nullptr );
                 for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
 
                 vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );

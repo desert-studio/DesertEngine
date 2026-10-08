@@ -303,8 +303,9 @@ namespace Desert::Graphic::API::Vulkan
                                            const RDG::BufferBinding& buffer );
         // The frame loop, after the slot's fence: resets that slot's pool.
         void BeginFrameSlot( uint32_t slot );
-        // The sampler @p desc describes, from the device's VulkanSamplerCache: made on its first request, shared by
-        // every entry (and every texture) with an equal state, owned by the cache. Nothing is created per frame.
+        // The sampler @p desc describes, from the device's VulkanSamplerCache: made on its first request, shared
+        // by every entry (and every texture) with an equal state, owned by the cache. Nothing is created per
+        // frame.
         Common::ResultStr<VkSampler> GetSampler( const RDG::SamplerDesc& desc );
 
     private:
