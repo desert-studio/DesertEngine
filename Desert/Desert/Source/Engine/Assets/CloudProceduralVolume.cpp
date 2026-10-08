@@ -540,7 +540,7 @@ namespace Desert::Assets
 
         if ( a.RegionSizeKm != b.RegionSizeKm || a.LayerBottomKm != b.LayerBottomKm ||
              a.LayerThicknessKm != b.LayerThicknessKm || a.BlendRadiusKm != b.BlendRadiusKm ||
-             a.ProfileDepthKm != b.ProfileDepthKm || a.Coverage != b.Coverage ||
+             a.Coverage != b.Coverage ||
              a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed || a.WindAxis != b.WindAxis ||
              a.ResolvableChordKm != b.ResolvableChordKm )
             return false;
@@ -648,7 +648,6 @@ namespace Desert::Assets
         KeyF32( out, params.LayerBottomKm );
         KeyF32( out, params.LayerThicknessKm );
         KeyF32( out, params.BlendRadiusKm );
-        KeyF32( out, params.ProfileDepthKm );
         KeyF32( out, params.Coverage );
         KeyF32( out, params.CoverageContrast );
         KeyU32( out, params.Seed );
@@ -769,10 +768,6 @@ namespace Desert::Assets
         if ( !( params.BlendRadiusKm > 0.0f ) || !std::isfinite( params.BlendRadiusKm ) )
             return Common::MakeFormattedError<bool>( "blend radius must be a positive length, got {} km",
                                                      params.BlendRadiusKm );
-
-        if ( !( params.ProfileDepthKm > 0.0f ) || !std::isfinite( params.ProfileDepthKm ) )
-            return Common::MakeFormattedError<bool>( "profile depth must be a positive length, got {} km",
-                                                     params.ProfileDepthKm );
 
         if ( !( params.ResolvableChordKm > 0.0f ) || !std::isfinite( params.ResolvableChordKm ) )
             return Common::MakeFormattedError<bool>(
@@ -1472,17 +1467,71 @@ namespace Desert::Assets
         return blobs;
     }
 
+    float CloudProceduralLumpDepthKm( const CloudModellingBlob& blob )
+    {
+        switch ( blob.Primitive )
+        {
+            case CloudModellingPrimitive::Sphere:
+            case CloudModellingPrimitive::Capsule:
+                return blob.RadiiKm.x;
+            case CloudModellingPrimitive::Ellipsoid:
+                break;
+        }
+        return std::min( { blob.RadiiKm.x, blob.RadiiKm.y, blob.RadiiKm.z } );
+    }
+
+    float CloudProceduralBodyDepthKm( const CloudProceduralFieldParams& params, float deepestLumpKm )
+    {
+        const float side      = static_cast<float>( std::max( params.VolumeSideVoxels, 1u ) );
+        const float voxelXZKm = params.RegionSizeKm / side;
+        const float voxelYKm  = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+        const float floorKm   = 2.0f * std::max( voxelXZKm, voxelYKm );
+        return std::max( { deepestLumpKm, floorKm, 1e-6f } );
+    }
+
     namespace
     {
         /// One lump a point asks about: its distance (+inf when it cannot reach the point), its join weight, the
-        /// cluster it belongs to and that cluster's reach past the slider (CloudProceduralClusterReach).
+        /// cluster it belongs to, that cluster's reach past the slider (CloudProceduralClusterReach) and the
+        /// reciprocal of that cluster's CloudProceduralBodyDepthKm.
         struct CloudClusterCandidate
         {
             float    DistanceKm = 0.0f;
             float    Weight     = 1.0f;
             uint32_t Cluster    = 0u;
             float    Reach      = 0.0f;
+            float    InvDepth   = 0.0f;
         };
+
+        /// THE CLUSTERS' BODY DEPTHS (PROFILE-BODY), one per distinct ClusterKm of @p lumps in order of first
+        /// appearance: CloudProceduralBodyDepthKm of the deepest lump. Over EVERY lump of the cluster the
+        /// caller holds — the bake its whole kept set before any wrap or bin culls one, the preview what it is
+        /// handed — so a voxel's normalisation never depends on which lumps reach it.
+        void CloudClusterBodyDepths( const CloudProceduralFieldParams&       params,
+                                     const std::vector<CloudProceduralLump>& lumps, std::vector<glm::vec2>& sites,
+                                     std::vector<float>& invDepths )
+        {
+            sites.clear();
+            std::vector<float> deepest;
+            for ( const CloudProceduralLump& lump : lumps )
+            {
+                const auto  found = std::find( sites.begin(), sites.end(), lump.ClusterKm );
+                const float depth = CloudProceduralLumpDepthKm( lump.Blob );
+                if ( found == sites.end() )
+                {
+                    sites.push_back( lump.ClusterKm );
+                    deepest.push_back( depth );
+                }
+                else
+                {
+                    float& best = deepest[static_cast<size_t>( found - sites.begin() )];
+                    best        = std::max( best, depth );
+                }
+            }
+            invDepths.clear();
+            for ( const float depth : deepest )
+                invDepths.push_back( 1.0f / CloudProceduralBodyDepthKm( params, depth ) );
+        }
 
         /// THE VOXEL, ONE HOME (CUT-AT-BAKE-b) — the bake's and the preview's. The smooth minimum joins the
         /// lumps of one cluster only (JOIN-PER-CLUSTER: a bridge between two clusters belonged to neither, so
@@ -1491,7 +1540,7 @@ namespace Desert::Assets
         /// after the max would cut every cluster of a voxel by the winner's reach). @p candidates stay in the
         /// lumps' canonical order, which is what makes the join's floating-point sum order-independent.
         float CloudProceduralCutJoin( const std::vector<CloudClusterCandidate>& candidates, float density,
-                                      float invBlend, float blendRadiusKm, float invProfile )
+                                      float invBlend, float blendRadiusKm )
         {
             float cut = 0.0f;
             for ( size_t k = 0; k < candidates.size(); ++k )
@@ -1519,7 +1568,8 @@ namespace Desert::Assets
                 const float clusterJoined = CloudModellingJoinKm( nearest, sum, blendRadiusKm );
                 if ( clusterJoined >= 0.0f )
                     continue;
-                const float profile = std::clamp( -clusterJoined * invProfile, 0.0f, 1.0f ) * density;
+                const float profile =
+                     std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f ) * density;
                 cut                 = std::max( cut, CloudProceduralCoverRemap( profile, candidates[k].Reach ) );
             }
             return cut;
@@ -1535,25 +1585,25 @@ namespace Desert::Assets
         // EVERY LUMP IT IS HANDED, where the bake asks the bin — the set differs, the voxel does not. A
         // cluster is its exact site (the lattice site plus its scatter, shared by its lumps), as the bake's
         // clusterOf decides; a caller that hands wrapped copies shifts their ClusterKm with them.
-        const float                        softness = CloudProceduralRankSoftness( params );
-        std::vector<glm::vec2>             sites;
+        const float            softness = CloudProceduralRankSoftness( params );
+        std::vector<glm::vec2> sites;
+        std::vector<float>     invDepths;
+        CloudClusterBodyDepths( params, lumps, sites, invDepths );
+
         std::vector<CloudClusterCandidate> candidates;
         candidates.reserve( lumps.size() );
         for ( const CloudProceduralLump& lump : lumps )
         {
-            const auto found   = std::find( sites.begin(), sites.end(), lump.ClusterKm );
-            const auto cluster = static_cast<uint32_t>( found - sites.begin() );
-            if ( found == sites.end() )
-                sites.push_back( lump.ClusterKm );
+            const auto cluster =
+                 static_cast<uint32_t>( std::find( sites.begin(), sites.end(), lump.ClusterKm ) - sites.begin() );
             candidates.push_back( CloudClusterCandidate{
                  CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ), lump.Blob.Weight,
-                 cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ) } );
+                 cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ), invDepths[cluster] } );
         }
 
         return CloudProceduralCutJoin( candidates,
                                        CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
-                                       1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
-                                       1.0f / std::max( params.ProfileDepthKm, 1e-6f ) );
+                                       1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm );
     }
 
     size_t CountCloudProceduralBlobs( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
@@ -1643,12 +1693,11 @@ namespace Desert::Assets
         const float voxelYKm = params.LayerThicknessKm / static_cast<float>( height );
 
         // How far a lump reaches before its term in the join is below the quantisation floor. See
-        // kJoinCutoffRadii; the profile depth is added because a voxel that far INSIDE a body still has to
-        // know about it.
-        const float influenceKm = params.ProfileDepthKm + params.BlendRadiusKm * kJoinCutoffRadii;
+        // kJoinCutoffRadii. A voxel INSIDE the body lies inside one of its lumps' boxes, so nothing is
+        // added for depth.
+        const float influenceKm = params.BlendRadiusKm * kJoinCutoffRadii;
 
-        const float invBlend   = 1.0f / params.BlendRadiusKm;
-        const float invProfile = 1.0f / params.ProfileDepthKm;
+        const float invBlend = 1.0f / params.BlendRadiusKm;
 
         for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
         {
@@ -1675,7 +1724,15 @@ namespace Desert::Assets
                 /// The cluster this copy belongs to — the lumps' cluster site at this wrap. The smooth
                 /// minimum joins only lumps of one cluster (JOIN-PER-CLUSTER).
                 uint32_t Cluster = 0u;
+                /// 1 / the cluster's CloudProceduralBodyDepthKm (PROFILE-BODY).
+                float InvDepth = 0.0f;
             };
+
+            // EACH CLUSTER'S BODY DEPTH over all its kept lumps, before a wrap or a bin culls one — the same
+            // set and the same function the preview (EvaluateCloudProceduralProfile) uses.
+            std::vector<glm::vec2> depthSites;
+            std::vector<float>     invDepths;
+            CloudClusterBodyDepths( params, blobs, depthSites, invDepths );
 
             std::vector<Placed> placed;
             placed.reserve( blobs.size() * 2u );
@@ -1698,6 +1755,9 @@ namespace Desert::Assets
             {
                 const CloudModellingBlob& blob   = lump.Blob;
                 const float     reach  = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
+                const float     invDepth =
+                     invDepths[static_cast<size_t>( std::find( depthSites.begin(), depthSites.end(), lump.ClusterKm ) -
+                                                    depthSites.begin() )];
                 const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
 
                 for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
@@ -1722,7 +1782,7 @@ namespace Desert::Assets
                             continue;
 
                         placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, reach,
-                                                  clusterOf( lump.ClusterKm, wx, wz ) } );
+                                                  clusterOf( lump.ClusterKm, wx, wz ), invDepth } );
                     }
                 }
             }
@@ -1857,13 +1917,13 @@ namespace Desert::Assets
                                           point.y < item.MinKm.y || point.y > item.MaxKm.y
                                                ? std::numeric_limits<float>::infinity()
                                                : CloudModellingBlobDistanceKm( item.Blob, point ),
-                                          item.Blob.Weight, item.Cluster, item.Reach } );
+                                          item.Blob.Weight, item.Cluster, item.Reach, item.InvDepth } );
                                  }
 
                                  const float cut = CloudProceduralCutJoin(
                                       candidates,
                                       CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY ),
-                                      invBlend, params.BlendRadiusKm, invProfile );
+                                      invBlend, params.BlendRadiusKm );
 
                                  if ( cut <= 0.0f )
                                      continue;

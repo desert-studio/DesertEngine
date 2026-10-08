@@ -72,7 +72,6 @@ namespace
         params.LayerBottomKm     = 1.5f;
         params.LayerThicknessKm  = 3.5f;
         params.BlendRadiusKm     = 0.06f;
-        params.ProfileDepthKm    = 0.35f;
         params.Coverage          = 0.35f;
         params.CoverageContrast  = 1.0f;
         params.Seed              = 7u;
@@ -240,8 +239,15 @@ namespace
     {
         float best = 0.0f;
         for ( const std::vector<CloudModellingBlob>& cluster : clusters )
-            best = std::max( best, ReferenceProfile( cluster, pointKm, params.BlendRadiusKm, params.ProfileDepthKm,
+        {
+            // PROFILE-BODY: normalised by the cluster's own body depth, the deepest lump floored at two voxels.
+            float deepestKm = 0.0f;
+            for ( const CloudModellingBlob& blob : cluster )
+                deepestKm = std::max( deepestKm, CloudProceduralLumpDepthKm( blob ) );
+            best = std::max( best, ReferenceProfile( cluster, pointKm, params.BlendRadiusKm,
+                                                     CloudProceduralBodyDepthKm( params, deepestKm ),
                                                      params.RegionSizeKm ) );
+        }
         return best;
     }
 } // namespace
@@ -1200,6 +1206,34 @@ TEST( CloudProceduralBudget, ACancelledBakeStopsEarlyAndSaysSoRatherThanReturnin
     EXPECT_EQ( calls, 1 ) << "the bake carried on past a callback that said stop";
 }
 
+// THE PROFILE RISES THROUGH THE WHOLE BODY, AND THE CUT KEEPS ITS GRADIENT (PROFILE-BODY). A body depth is
+// never under two voxels of the grid in its coarser direction, and the coverage remap's slope in the profile
+// is at most 1 at every reach — together: the baked ramp spans at least two voxels however near its
+// threshold a cluster stands, so the trilinear fetch never draws it as a facet.
+// MUTATION: divide by `g` again in CloudProceduralCoverRemap and the slope row goes red; drop the floor in
+// CloudProceduralBodyDepthKm and the depth row goes red.
+TEST( CloudProceduralField, TheProfileRampSpansAtLeastTwoVoxelsAtEveryReach )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    const float voxelKm = std::max( params.RegionSizeKm / static_cast<float>( params.VolumeSideVoxels ),
+                                    params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight ) );
+
+    for ( const float lumpKm : { 0.0f, 0.05f, 0.2f, 1.0f, 3.0f } )
+        EXPECT_GE( CloudProceduralBodyDepthKm( params, lumpKm ), std::max( 2.0f * voxelKm, lumpKm ) - 1e-6f )
+             << "a body " << lumpKm << " km deep is normalised over less than two voxels";
+
+    const float step = 1.0f / 256.0f;
+    for ( const float reach : { 0.02f, 0.1f, 0.3f, 0.7f, 1.0f } )
+        for ( float profile = 0.0f; profile + step <= 1.0f; profile += step )
+            EXPECT_LE( CloudProceduralCoverRemap( profile + step, reach ) - CloudProceduralCoverRemap( profile, reach ),
+                       step + 1e-6f )
+                 << "the remap steepens the profile at reach " << reach << ", profile " << profile;
+
+    EXPECT_EQ( CloudProceduralCoverRemap( 0.0f, 1.0f ), 0.0f ) << "air became cloud";
+    EXPECT_EQ( CloudProceduralCoverRemap( 1.0f, 0.0f ), 0.0f ) << "a reach of zero drew cloud";
+    EXPECT_FLOAT_EQ( CloudProceduralCoverRemap( 0.6f, 1.0f ), 0.6f ) << "a full reach changed the profile";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
@@ -1256,7 +1290,6 @@ TEST( CloudProceduralCacheKey, EveryFieldTheComparisonSeesChangesTheKey )
          { "LayerBottomKm", []( Params& p ) { p.LayerBottomKm += 0.1f; } },
          { "LayerThicknessKm", []( Params& p ) { p.LayerThicknessKm += 0.1f; } },
          { "BlendRadiusKm", []( Params& p ) { p.BlendRadiusKm += 0.01f; } },
-         { "ProfileDepthKm", []( Params& p ) { p.ProfileDepthKm += 0.01f; } },
          { "Coverage", []( Params& p ) { p.Coverage += 0.01f; } },
          { "CoverageContrast", []( Params& p ) { p.CoverageContrast += 0.1f; } },
          { "Seed", []( Params& p ) { p.Seed += 1u; } },

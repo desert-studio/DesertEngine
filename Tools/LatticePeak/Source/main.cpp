@@ -396,7 +396,6 @@ namespace
         params.WindAxis          = glm::vec2( windX, windZ );
         params.ResolvableChordKm = chordKm;
         params.BlendRadiusKm     = std::max( 0.02f * latticeKm, 1e-3f );
-        params.ProfileDepthKm    = std::max( 0.12f * latticeKm, 1e-3f );
 
         // THE FOUR PLACEMENT KNOBS DEFAULT TO THE STRUCT'S OWN VALUES, so that running the tool with no
         // flags measures WHAT SHIPS rather than a configuration only the tool has. A negative on the

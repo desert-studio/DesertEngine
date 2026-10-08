@@ -134,7 +134,6 @@ namespace
         params.LayerBottomKm     = 2.20f;
         params.LayerThicknessKm  = 3.60f;
         params.BlendRadiusKm     = 0.06f;
-        params.ProfileDepthKm    = 0.36f;
         params.Coverage          = 0.762f;
         params.CoverageContrast  = 1.0f;
         params.Seed              = 1u;

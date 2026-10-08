@@ -349,7 +349,6 @@ namespace Desert::Tests::CloudFieldRef
             const float latticeKm = 3.0f;
 
             params.BlendRadiusKm     = 0.02f * latticeKm;
-            params.ProfileDepthKm    = 0.12f * latticeKm;
             params.Coverage          = coverage;
             params.CoverageContrast  = contrast;
             params.Seed              = 1u;

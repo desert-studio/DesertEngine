@@ -302,10 +302,6 @@ namespace Desert::Assets
         /// of eight — and the radius only decides how sharp the crease between them is.
         float BlendRadiusKm = 0.06f;
 
-        /// How deep inside the body the Dimensional Profile reaches 1, kilometres. The normalisation of the
-        /// distance field, exactly as in the sculpted volume.
-        float ProfileDepthKm = 0.35f;
-
         /// HOW BUSY THE WEATHER IS WHERE THERE IS WEATHER, 0..1 (owner, 10-08; Nubis' coverage). The march
         /// keeps a cluster where its core rank is under `Coverage * W`, W >= 0 being the weather map
         /// (CloudWeatherPresence), so 0 is exactly empty, the sky's cover rises monotonically with it, and
@@ -828,18 +824,37 @@ namespace Desert::Assets
         return run < softness ? run / ( softness > 1e-4f ? softness : 1e-4f ) : 1.0f;
     }
 
-    /// NUBIS'S COVERAGE REMAP, ValueRemap(profile, 1 - reach, 1, 0, 1) — the one remap both halves make: the
-    /// bake on each cluster's own profile with its CloudProceduralClusterReach, the march on the baked profile
-    /// with the column's CloudProceduralLocalWeather (the shader's CloudCoverRemap). Zero at a reach of zero
-    /// and wherever the profile is zero (air is never cloud); the profile itself at a reach of one.
+    /// NUBIS'S COVERAGE REMAP, ValueRemap(profile, 1 - reach, 1, 0, 1) * reach = max(0, profile - (1 - reach))
+    /// (Schneider, "Nubis" 2017: `remap(base, 1 - coverage, 1, 0, 1) * coverage`) — the one remap both halves
+    /// make: the bake on each cluster's own profile with its CloudProceduralClusterReach, the march on the
+    /// baked profile with the column's CloudProceduralLocalWeather (the shader's CloudCoverRemap). Zero at a
+    /// reach of zero and wherever the profile is zero (air is never cloud); the profile itself at a reach of one.
+    ///
+    /// TIMES THE REACH, NOT DIVIDED BACK TO ONE (PROFILE-BODY): the slope of the result in the profile is 1 at
+    /// every reach, so the cut keeps the profile's own gradient — at least two voxels per unit
+    /// (CloudProceduralBodyDepthKm) — and never steepens into a step the grid's trilinear fetch shows as
+    /// facets. Dividing by the reach made a cluster near its threshold a 0..1 ramp a tenth of a voxel thick.
     inline float CloudProceduralCoverRemap( float profile, float reach )
     {
         if ( reach <= 0.0f || profile <= 0.0f )
             return 0.0f;
         const float g     = reach < 1.0f ? reach : 1.0f;
-        const float value = ( profile - ( 1.0f - g ) ) / g;
+        const float value = profile - ( 1.0f - g );
         return value < 0.0f ? 0.0f : ( value > 1.0f ? 1.0f : value );
     }
+
+    /// How deep the centre of one lump lies inside it, kilometres — its smallest semi-axis (an ellipsoid's
+    /// shortest radius, a sphere's or a capsule's radius). The lumps of one cluster only deepen each other in
+    /// the join, so the deepest lump is the cluster's core depth to within the join's inflation.
+    float CloudProceduralLumpDepthKm( const CloudModellingBlob& blob );
+
+    /// THE DEPTH ONE CLUSTER'S PROFILE IS NORMALISED BY (PROFILE-BODY), kilometres: @p deepestLumpKm, the
+    /// largest CloudProceduralLumpDepthKm among the cluster's lumps, floored at two voxels of the baked grid
+    /// in its coarser direction. The Dimensional Profile is then `depth / this` — 0 on the surface, 1 in the
+    /// core, rising through the WHOLE body as Nubis's and Unreal's do, so the coverage threshold carves the
+    /// form along a gradient the grid resolves. A fixed depth in kilometres (the ProfileDepthKm that stood
+    /// here) put the whole rise in a shell thinner than one voxel and made every cut a facet.
+    float CloudProceduralBodyDepthKm( const CloudProceduralFieldParams& params, float deepestLumpKm );
 
     /// Whether column (@p x, @p z) of the baked @p voxels shows sky or cloud under the per-slot weathers
     /// @p slotWeather (CloudProceduralLocalWeathers): cloud when ANY voxel's winning profile survives
@@ -928,7 +943,8 @@ namespace Desert::Assets
 
     /**
      * @brief What the bake writes for species @p slot at one point, gathered over @p lumps — 0 outside the
-     *        body, 1 at ProfileDepth inside it, times the altitude density, cut by each cluster's reach.
+     *        body, 1 at its cluster's core (CloudProceduralBodyDepthKm), times the altitude density, cut by
+     *        each cluster's reach.
      *
      * ONE HOME WITH THE BAKE (CUT-AT-BAKE-b): the voxel is the same function the bake calls — the join per
      * cluster, the altitude density, each cluster cut by its CloudProceduralClusterReach before the clusters

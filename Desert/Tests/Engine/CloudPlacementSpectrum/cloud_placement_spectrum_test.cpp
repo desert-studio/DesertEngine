@@ -68,7 +68,6 @@ namespace
         params.LayerBottomKm     = 2.20f;
         params.LayerThicknessKm  = 3.60f;
         params.BlendRadiusKm     = 0.06f;
-        params.ProfileDepthKm    = 0.36f;
         params.Coverage          = 0.60f;
         params.CoverageContrast  = 1.0f;
         params.Seed              = 1u;
@@ -1120,10 +1119,6 @@ TEST( CloudPlacementSpectrum, EveryFieldTheBakeReadsMakesTheCachedVolumeStale )
     moved.BlendRadiusKm = 0.09f;
     notices( moved, "the blend radius" );
 
-    moved                = base;
-    moved.ProfileDepthKm = 0.50f;
-    notices( moved, "the profile depth" );
-
     moved          = base;
     moved.Coverage = 0.30f;
     notices( moved, "Coverage" );
@@ -1302,7 +1297,7 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
 {
     const CloudProceduralFieldParams params;
 
-    // TWENTY FIELDS. If this line stops compiling, a field was added to or removed from
+    // NINETEEN FIELDS. If this line stops compiling, a field was added to or removed from
     // CloudProceduralFieldParams. Do BOTH of these before you touch this list:
     //
     //   1. add a line for it to EveryFieldTheBakeReadsMakesTheCachedVolumeStale above, and
@@ -1311,8 +1306,8 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
     // or the artist will move it in the editor and nothing at all will happen — the dead setting §1.3 of
     // the contract forbids, arrived at from the far side where the knob is wired and the CACHE is what eats
     // it.
-    const auto& [regionSizeKm, volumeSideVoxels, layerBottomKm, layerThicknessKm, blendRadiusKm, profileDepthKm,
-                 coverage, coverageContrast, seed, placementDensity, placementScatter, placementSizeVariety,
+    const auto& [regionSizeKm, volumeSideVoxels, layerBottomKm, layerThicknessKm, blendRadiusKm, coverage,
+                 coverageContrast, seed, placementDensity, placementScatter, placementSizeVariety,
                  patchTileKm, patchStrength, windAxis, layoutPlacement, patternSource, maskSource,
                  resolvableChordKm, species] = params;
 
@@ -1332,7 +1327,6 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
     (void)layerBottomKm;
     (void)layerThicknessKm;
     (void)blendRadiusKm;
-    (void)profileDepthKm;
     (void)coverage;
     (void)coverageContrast;
     (void)seed;
@@ -1345,7 +1339,7 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
     (void)resolvableChordKm;
     (void)species;
 
-    std::printf( "[CloudPlacementSpectrum] CloudProceduralFieldParams is %zu bytes over 20 fields\n",
+    std::printf( "[CloudPlacementSpectrum] CloudProceduralFieldParams is %zu bytes over 19 fields\n",
                  sizeof( CloudProceduralFieldParams ) );
 }
 

@@ -154,7 +154,6 @@ namespace
         params.LayerBottomKm     = CloudTypeBaseKm( shape );
         params.LayerThicknessKm  = std::max( CloudTypeTopKm( shape ) - params.LayerBottomKm, 0.001f );
         params.BlendRadiusKm     = 0.02f * latticeKm;
-        params.ProfileDepthKm    = 0.12f * latticeKm;
         params.Coverage          = 1.0f;
         params.CoverageContrast  = 1.0f;
         params.Seed              = 1u;

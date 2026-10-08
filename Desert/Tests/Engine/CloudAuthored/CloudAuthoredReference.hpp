@@ -178,7 +178,6 @@ namespace Desert::Tests::CloudAuthoredRef
             built.Params.LayerBottomKm     = std::max( envelope.BottomKm, 0.0f );
             built.Params.LayerThicknessKm  = std::max( envelope.TopKm - built.Params.LayerBottomKm, 0.001f );
             built.Params.BlendRadiusKm     = 0.06f;
-            built.Params.ProfileDepthKm    = 0.36f;
             built.Params.Coverage          = coverage;
             built.Params.CoverageContrast  = 1.0f;
             built.Params.Seed              = 1u;

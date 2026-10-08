@@ -369,7 +369,8 @@ float CloudLocalWeather( vec4 weather, vec4 layoutPlace, vec2 layoutStrength, in
 }
 
 // NUBIS'S COVERAGE REMAP — Assets::CloudProceduralCoverRemap, written for the GPU: ValueRemap(profile,
-// 1 - reach, 1, 0, 1) (Schneider, "Nubis, Evolved", SIGGRAPH 2022). The bake makes it per cluster with the
+// 1 - reach, 1, 0, 1) * reach = max(0, profile - (1 - reach)) (Schneider, "Nubis" 2017). Times the reach, so
+// the cut keeps the profile's own gradient at every reach (PROFILE-BODY) instead of steepening into a facet. The bake makes it per cluster with the
 // cluster's reach past the Coverage slider; the march makes it here with the column's weather W, a continuous
 // 2D field, so nothing discrete is ever interpolated across the voxel grid. Air (profile 0) never becomes
 // cloud at any weather.
@@ -378,7 +379,7 @@ float CloudCoverRemap( float profile, float reach )
     if ( reach <= 0.0f || profile <= 0.0f )
         return 0.0f;
     float g = min( reach, 1.0f );
-    return clamp( ( profile - ( 1.0f - g ) ) / g, 0.0f, 1.0f );
+    return clamp( profile - ( 1.0f - g ), 0.0f, 1.0f );
 }
 
 // The procedural producer — ONE FETCH, four species.

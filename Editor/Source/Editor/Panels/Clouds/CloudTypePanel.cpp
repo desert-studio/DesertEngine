@@ -521,7 +521,6 @@ namespace Desert::Editor
 
         params.RegionSizeKm      = std::max( latticeKm * 6.0f, 16.1f );
         params.BlendRadiusKm     = std::max( 0.02f * latticeKm, 1e-3f );
-        params.ProfileDepthKm    = std::max( 0.12f * latticeKm, 1e-3f );
         params.ResolvableChordKm = Graphic::CloudFinestResolvableChordKm( 256.0f );
 
         // EVERY CELL ALIVE, because the preview is about the SHAPE of one cloud and not about how many
