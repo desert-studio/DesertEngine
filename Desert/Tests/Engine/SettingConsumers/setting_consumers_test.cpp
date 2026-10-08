@@ -1700,8 +1700,9 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
     // its response (Strength, Speed, Height), and MakeInstanceWind takes the scene's wind, not an angle.
     const std::string meshSystem = ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
     EXPECT_NE( meshSystem.find( "ECS::WindAt(" ), std::string::npos ) << "foliage sway must ask ECS::WindAt";
-    const std::string foliageType =
-         ReadFile( root + "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" );
+    // Comments stripped: the format history names the field it removed.
+    const std::string foliageType = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadFile( root + "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" ) );
     EXPECT_EQ( foliageType.find( "DirectionDegrees" ), std::string::npos )
          << "FoliageWind declares its own wind direction";
     const std::string instanceWind = ReadFile( root + "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" );
