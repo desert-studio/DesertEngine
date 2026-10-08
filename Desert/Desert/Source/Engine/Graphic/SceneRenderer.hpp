@@ -233,10 +233,11 @@ namespace Desert::Graphic
                                 const std::string& directTextureSampler = {}, bool castShadows = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
-        // slot's own runtime material (a MaterialService-owned DataDrivenMaterial).
+        // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
+        // of the entity the draw belongs to (RenderSubmissionExtra::MotionPart), 0 = the entity itself.
         void SubmitSlotMaterialMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform, Material* material,
-                                     uint64_t visibleSubmeshMask, bool outlined = false,
-                                     bool castShadows = false );
+                                     uint64_t visibleSubmeshMask, bool outlined = false, bool castShadows = false,
+                                     uint32_t motionPart = 0 );
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;

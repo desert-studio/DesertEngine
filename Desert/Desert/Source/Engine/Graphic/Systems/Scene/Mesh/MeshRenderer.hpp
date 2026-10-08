@@ -229,6 +229,9 @@ namespace Desert::Graphic::System
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
             uint32_t Entity = 0;
+            // A stable part of the entity (MotionRecord::Part, e.g. a fracture piece), 0 = the entity itself. A
+            // slot-material draw of a part carries the part its lit draw carries, so both read one motion row.
+            uint32_t MotionPart = 0;
             // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
             uint32_t                   MotionRow = 0;

@@ -479,7 +479,7 @@ namespace Desert::Graphic::System
         for ( const auto& data : m_StaticQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         for ( const auto& data : m_GenericQueue )
-            records.push_back( { .Entity = data.Entity, .World = data.Transform } );
+            records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         const size_t rigidCount = records.size();
         for ( const auto& data : m_SkinnedQueue )
             records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );

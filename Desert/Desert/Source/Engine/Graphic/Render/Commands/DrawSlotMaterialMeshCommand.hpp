@@ -22,7 +22,11 @@ namespace Desert::Graphic::Render
     {
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
         // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
-        uint32_t           Entity;
+        uint32_t Entity;
+        // A stable part of the entity (MotionRecord::Part; a fracture piece's node + 1), 0 = the entity itself:
+        // the part the same piece's DrawStaticMeshCommand carries, so the piece's velocity is its own on both
+        // paths.
+        uint32_t           MotionPart = 0;
         Desert::Mesh*      Mesh;
         glm::mat4          Transform;
         Graphic::Material* SlotMaterial;
@@ -35,16 +39,17 @@ namespace Desert::Graphic::Render
 
         DrawSlotMaterialMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
                                      Graphic::Material* material, uint64_t visibleSubmeshMask, bool outlined,
-                                     bool castShadows = false )
-             : Entity( entity ), Mesh( mesh ), Transform( transform ), SlotMaterial( material ),
-               VisibleSubmeshMask( visibleSubmeshMask ), Outlined( outlined ), CastShadows( castShadows )
+                                     bool castShadows = false, uint32_t motionPart = 0 )
+             : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ), Transform( transform ),
+               SlotMaterial( material ), VisibleSubmeshMask( visibleSubmeshMask ), Outlined( outlined ),
+               CastShadows( castShadows )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
             renderer.SubmitSlotMaterialMesh( Entity, Mesh, Transform, SlotMaterial, VisibleSubmeshMask, Outlined,
-                                             CastShadows );
+                                             CastShadows, MotionPart );
         }
     };
 } // namespace Desert::Graphic::Render

@@ -9,11 +9,13 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
+#include <Engine/Graphic/Render/Commands/DrawSlotMaterialMeshCommand.hpp>
 #include <Engine/Runtime/SelectionContext.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <format>
 #include <span>
 
@@ -169,12 +171,29 @@ namespace Desert::ECS
                 const auto at = meshes->ByNode.find( instance.Node );
                 if ( at == meshes->ByNode.end() )
                     continue; // logged when its mesh failed to build
-                commands.Emplace<Graphic::Render::DrawStaticMeshCommand>(
-                     static_cast<uint32_t>( entity ), meshes->Pieces[at->second].Mesh.get(),
-                     pieces.Bindings[at->second], instance.Transform, outlined, /*hidden*/ 0ull, /*forcedLOD*/ -1,
-                     /*lodBias*/ 0,
-                     /*castShadows*/ true, /*receiveShadows*/ true, /*sortPriority*/ 0,
-                     /*motionPart*/ static_cast<uint32_t>( instance.Node ) + 1u );
+                DynamicMesh*                           mesh    = meshes->Pieces[at->second].Mesh.get();
+                const Graphic::MaterialSlotBindingPtr& binding = pieces.Bindings[at->second];
+                const size_t                           slots   = binding->Slots.size();
+                const size_t submeshCount = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
+                for ( const auto& draw : Destruction::PieceDraws<Graphic::Material*>(
+                           instance, submeshCount,
+                           [&]( size_t si ) -> Graphic::Material*
+                           {
+                               if ( slots == 0 )
+                                   return nullptr;
+                               return services.SlotMaterial( binding->Slots[std::min( si, slots - 1 )] );
+                           } ) )
+                {
+                    if ( draw.SlotPath )
+                        commands.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
+                             static_cast<uint32_t>( entity ), mesh, draw.Transform, draw.Mat, draw.Mask, outlined,
+                             draw.CastShadows, draw.MotionPart );
+                    else
+                        commands.Emplace<Graphic::Render::DrawStaticMeshCommand>(
+                             static_cast<uint32_t>( entity ), mesh, binding, draw.Transform, outlined, draw.Mask,
+                             /*forcedLOD*/ -1, /*lodBias*/ 0, draw.CastShadows, /*receiveShadows*/ true,
+                             /*sortPriority*/ 0, draw.MotionPart );
+                }
             }
             drawn.insert( entity );
         };
