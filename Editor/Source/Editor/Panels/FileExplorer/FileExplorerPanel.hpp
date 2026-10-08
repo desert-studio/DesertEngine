@@ -4,6 +4,8 @@
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/FileExplorer/AssetContextMenu.hpp>
+#include <Editor/Panels/FileExplorer/AssetThumbnailPool.hpp>
+#include <Editor/Panels/FileExplorer/AssetTileThumbnail.hpp>
 #include <Editor/Panels/FileExplorer/AssetViewState.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserAssetView.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
@@ -205,94 +207,19 @@ namespace Desert::Editor
         // of EditorLayer and outlives every panel. See Editor/Core/SubjectEditorRegistry.hpp — the chain of
         // `else if` per format that used to live in this file is registered there now, beside the editors.
         const SubjectEditorRegistry*             m_SubjectEditors = nullptr;
-        std::unique_ptr<UI::UIHelper>   m_UIHelper;
-        std::unique_ptr<ThumbnailCache>          m_Thumbnails;
-        // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
-        // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
-        std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
-        std::vector<ThumbnailPrefetch::Item>
-             m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
-        std::vector<ThumbnailWarmup::WarmItem>
-             m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
+        // THE PICTURES (F5; UE FAssetThumbnailPool + SAssetThumbnail): the pool holds the resident pictures,
+        // the workers' lists and the per-path answers; the drawer draws a tile, its tooltip and a drag's
+        // preview from it. The splash's passes above forward to the pool.
+        AssetThumbnailPool m_ThumbnailPool;
+        AssetTileThumbnail m_TileThumbnail;
 
-        // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
-        // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the
-        // request a material resolve, a registry lookup and two more keys. The name never changes for a
-        // path; a request, once accepted, is the service's to finish — asked again only after the picture
-        // has been seen current, so an edit that makes it stale asks again.
-        const std::string&                           ThumbnailPngFor( const std::string& assetPath );
-        std::unordered_map<std::string, std::string> m_ThumbnailPngOf;
-        std::unordered_map<std::string, ImVec4>      m_CaptureAsked; // asset path -> its placeholder swatch
         // The constructor's own navigations are not the user's and are not remembered.
         bool m_RestoringFolder = true;
 
-        std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
-        std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam
-
-        // THE FILE A RenderedMesh TILE PHOTOGRAPHS: a model's own path (CookPaths::MeshAsset maps it to its
-        // .stmesh), or the cooked mesh a .defoliage names (ThumbnailFoliage — UE: a foliage type's picture is
-        // its mesh's), so a type and its mesh share one key, one freshness source and one capture. The foliage
-        // read is cached per path and file time; a refusal is logged once and blacklisted in m_FailedThumbs.
-        std::optional<std::string> MeshSourceFor( const DirectoryInformation& entry );
-        // The same answer by path and type — for a registry row, which has no DirectoryInformation.
-        std::optional<std::string> MeshSourceFor( const std::string& assetPath, FileType type );
-        struct MeshSourceRead
-        {
-            std::filesystem::file_time_type Written;
-            std::string                     Source;
-        };
-        std::unordered_map<std::string, MeshSourceRead> m_MeshSourceOf;
-
-        // WHAT A RenderedMesh TILE SHOWS, by the asset its import wrote (THM-FIXB2; UE: a source file is not an
-        // asset — the picture is the imported asset's). A raw source (.fbx/.glb/.gltf/…) is pictured by what its
-        // import record says it imports as: a StaticMesh by its cooked .stmesh, a SkinnedMesh by its .skmesh in
-        // its bind pose, a Skeleton by its .skeleton on its preview mesh; clips only, or a source not imported
-        // yet (no record), keep the type icon — never "has not been cooked". Any other mesh file is its own
-        // cooked form. `Cooked` is the picture's key and freshness source; `Pose` routes it to RequestPose.
-        struct MeshPicture
-        {
-            std::string Cooked;
-            bool        Pose = false;
-        };
-        std::optional<MeshPicture> MeshPictureFor( const std::string& assetPath, FileType type );
-        // The record read, cached per source and the record's file time (a re-import rewrites it).
-        struct SourcePictureRead
-        {
-            std::filesystem::file_time_type Written;
-            std::optional<MeshPicture>      Picture;
-        };
-        std::unordered_map<std::string, SourcePictureRead> m_SourcePictureOf;
+        std::weak_ptr<::Desert::Core::Scene> m_ViewportScene; // for "Capture Thumbnail from viewport"
 
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
         DirectoryWatcher m_Watcher;
-
-        // Resolve (existing-only) + draw a texture thumbnail for an entry; returns false if none.
-        // The tile's and the tooltip's picture, by ThumbnailProducers::ProducerOf — the one dispatch. False =
-        // draw the type icon (no picture yet, or none by design).
-        bool DrawThumbnailFor( DirectoryInformation* entry, const ImVec2& size );
-        bool DrawTextureThumbnail( DirectoryInformation* entry, const ImVec2& size );
-        // Draw a rendered preview for a material entry (material-on-sphere). Generates the PNG lazily
-        // (throttled to ~1/frame) on first use and caches it to disk; returns false until the PNG exists.
-        bool DrawRenderedMaterialThumbnail( DirectoryInformation* entry, const ImVec2& size );
-        // Same, for a mesh entry (the mesh auto-framed by its bounds).
-        bool DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size );
-        // Same, for a skinned mesh in its bind pose (ThumbnailPose; the .skmesh is its own cooked form).
-        // @p subject is the posed asset: the entry itself, or the .skmesh/.skeleton a skinned source's import
-        // wrote.
-        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
-                                        const std::string& subject );
-        // Same, for a file whose picture is PAINTED from its own bytes rather than rendered — the four
-        // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
-        bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );
-
-        // UE-style hover tooltip for a tile: picture, name, type/size, path. Shown after the cursor has
-        // rested AssetTooltipLayout::kHoverDelaySeconds on the same tile; size and placement from
-        // AssetTooltipLayout::Compute (capped, never off-window). A click only selects.
-        void DrawAssetTooltip( DirectoryInformation* entry );
-
-        // Which tile the cursor rests on and since when; identity only, never dereferenced here.
-        const DirectoryInformation* m_TooltipEntry      = nullptr;
-        double                      m_TooltipHoverStart = 0.0;
 
         // THE PIECES (F6 F8 F9 F10; UE NewAssetOrClassContextMenu / AssetContextMenu / SThumbnailEditModeTools):
         // the panel owns them and calls them. Last, because their constructors read m_AssetManager and
