@@ -121,9 +121,9 @@ namespace Desert::Graphic::API::Vulkan
 
         /// The per-frame drain, called once per present: destroys what the ring has come back round to.
         void ProcessDeletionQueue();
-        /// At most once a second, from ProcessDeletionQueue: owed deletions, the ledger's live bytes and largest tags,
-        /// and VMA's per-heap block/allocation bytes against the driver's usage, as one debug line. Growth inside
-        /// the ledger, inside VMA's blocks, or only in the driver's number names three different causes.
+        /// At most once a second, from ProcessDeletionQueue: owed deletions, the ledger's live bytes and largest
+        /// tags, and VMA's per-heap block/allocation bytes against the driver's usage, as one debug line. Growth
+        /// inside the ledger, inside VMA's blocks, or only in the driver's number names three different causes.
         void LogCensusIfDue();
 
         /// Destroys EVERYTHING still queued, whatever frame it was queued on, and answers how many.

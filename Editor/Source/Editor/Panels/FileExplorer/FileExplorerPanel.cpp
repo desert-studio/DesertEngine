@@ -542,8 +542,9 @@ namespace Desert::Editor
 
         // THE ORDER IS FIXED NOW, THE JUDGING IS NOT (TickWarmProject): every subject is listed as if it needed a
         // capture, and WarmProjectItem drops the fresh ones as it reaches them, a slice of each frame at a time.
-        m_WarmJudgeQueue = ThumbnailWarmup::SplashWarmList( scene, project, []( const WarmItem& ) { return true; } );
-        m_WarmJudgeNext  = 0;
+        m_WarmJudgeQueue =
+             ThumbnailWarmup::SplashWarmList( scene, project, []( const WarmItem& ) { return true; } );
+        m_WarmJudgeNext = 0;
         m_WarmMeshesPending.clear();
         RequestProjectPictures();
         (void)TickWarmProject();
@@ -561,12 +562,13 @@ namespace Desert::Editor
             WarmProjectItem( m_WarmJudgeQueue[m_WarmJudgeNext] );
             ++m_WarmJudgeNext;
         } while ( m_WarmJudgeNext < m_WarmJudgeQueue.size() &&
-                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count() <
-                        WarmJudgeSliceMs );
+                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count() <
+                       WarmJudgeSliceMs );
         if ( m_WarmJudgeNext == m_WarmJudgeQueue.size() )
         {
             LOG_INFO( "[Thumbnails] the splash judged {} subject(s); {} capture(s) queued, {} mesh(es) still read",
-                      m_WarmJudgeQueue.size(), ThumbnailService::Get().SceneWarmPending(), m_WarmMeshesPending.size() );
+                      m_WarmJudgeQueue.size(), ThumbnailService::Get().SceneWarmPending(),
+                      m_WarmMeshesPending.size() );
             m_WarmJudgeQueue.clear();
             m_WarmJudgeNext = 0;
             (void)TickWarmMeshes();
@@ -585,7 +587,7 @@ namespace Desert::Editor
         // is its mesh's picture (MeshSourceFor); a .skmesh is its own cooked form; a skinned source is the
         // pose of the asset its import wrote (MeshPictureFor), resolved as a Pose.
         const auto pictureOf = [this]( const WarmItem& subject ) { return WarmPictureOf( subject ); };
-        const auto cookedOf = [&pictureOf]( const WarmItem& subject ) -> std::optional<std::string>
+        const auto cookedOf  = [&pictureOf]( const WarmItem& subject ) -> std::optional<std::string>
         {
             const std::optional<MeshPicture> picture = pictureOf( subject );
             if ( !picture )
@@ -604,11 +606,13 @@ namespace Desert::Editor
                 return ThumbnailService::JudgeMeshPicture( *cooked ); // the tile's and the enqueue gate's verdict
             }
             if ( subject.Kind == WarmKind::Sky )
-                return ThumbnailService::JudgeSkyboxPicture( subject.Path ); // the tile's and RequestSkybox's verdict
+                return ThumbnailService::JudgeSkyboxPicture(
+                     subject.Path ); // the tile's and RequestSkybox's verdict
             return ThumbnailFreshness::Judge(
                  ThumbnailFreshness::Observe( ThumbnailPngFor( subject.Path ), subject.Path ) );
         };
-        const auto needsCapture = [&]( const WarmItem& subject ) {
+        const auto needsCapture = [&]( const WarmItem& subject )
+        {
             return !m_FailedThumbs.contains( subject.Path ) &&
                    verdictOf( subject ) == ThumbnailFreshness::Verdict::Capture;
         };

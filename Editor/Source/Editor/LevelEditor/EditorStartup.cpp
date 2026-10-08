@@ -365,7 +365,8 @@ namespace Desert::Editor
         // A cold mesh still being read counts too: it is a capture that has not been queued YET (THM1m).
         // The subjects not judged yet count as captures too: the judging is time-sliced (TickWarmProject).
         const std::size_t warmPending = m_FileExplorer->TickWarmProject() +
-                                        ThumbnailService::Get().SceneWarmPending() + m_FileExplorer->TickWarmMeshes();
+                                        ThumbnailService::Get().SceneWarmPending() +
+                                        m_FileExplorer->TickWarmMeshes();
         m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
         // THE CAPTURES' PICTURES ARE UPLOADED TOO (THM1n-13): once every splash capture has landed, the PNGs they
         // wrote are asked of the workers like the rest, so the window never opens on a picture still on disk.
@@ -434,10 +435,11 @@ namespace Desert::Editor
                  "yet ({})",
                  gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
         m_SplashWarmTotal = m_FileExplorer->WarmProjectThumbnails( scene, project );
-        LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
-                  "subject(s) to judge (a slice per frame) and capture before the hand-over, the rest decode from the "
-                  "disk cache",
-                  scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );
+        LOG_INFO(
+             "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
+             "subject(s) to judge (a slice per frame) and capture before the hand-over, the rest decode from the "
+             "disk cache",
+             scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );
     }
 
     void EditorStartup::UpdateContentSettling()

@@ -205,17 +205,17 @@ namespace Desert::Graphic::API::Vulkan
         const auto now = std::chrono::steady_clock::now();
         if ( s_VmaAllocator == VK_NULL_HANDLE || now - m_LastCensus < std::chrono::seconds( 1 ) )
             return;
-        m_LastCensus = now;
-        constexpr double MB = 1024.0 * 1024.0;
-        std::string      heaps;
+        m_LastCensus                               = now;
+        constexpr double                        MB = 1024.0 * 1024.0;
+        std::string                             heaps;
         const VkPhysicalDeviceMemoryProperties* props = nullptr;
         vmaGetMemoryProperties( s_VmaAllocator, &props );
         std::vector<VmaBudget> budgets( props != nullptr ? props->memoryHeapCount : 0 );
         if ( !budgets.empty() )
             vmaGetHeapBudgets( s_VmaAllocator, budgets.data() );
         for ( std::size_t heap = 0; heap < budgets.size(); ++heap )
-            heaps += std::format( " heap{}: blocks {:.1f} MB, allocations {:.1f} MB, driver usage {:.1f} MB;", heap,
-                                  static_cast<double>( budgets[heap].statistics.blockBytes ) / MB,
+            heaps += std::format( " heap{}: blocks {:.1f} MB, allocations {:.1f} MB, driver usage {:.1f} MB;",
+                                  heap, static_cast<double>( budgets[heap].statistics.blockBytes ) / MB,
                                   static_cast<double>( budgets[heap].statistics.allocationBytes ) / MB,
                                   static_cast<double>( budgets[heap].usage ) / MB );
         std::string tags;
@@ -223,10 +223,11 @@ namespace Desert::Graphic::API::Vulkan
         for ( std::size_t i = 0; i < byTag.size() && i < 6; ++i )
             tags += std::format( " {} x{} {:.1f} MB;", byTag[i].Tag, byTag[i].Count,
                                  static_cast<double>( byTag[i].Bytes ) / MB );
-        LOG_DEBUG( "[VulkanAllocator] census: {} owed deletion(s) ({} buffer(s), {} image(s)); ledger {} object(s) "
-                   "{:.1f} MB;{} largest:{}",
-                   QueuedCount(), m_BufferDeletionQueue.size(), m_ImageDeletionQueue.size(), m_Ledger.LiveCount(),
-                   static_cast<double>( m_Ledger.LiveBytes() ) / MB, heaps, tags );
+        LOG_DEBUG(
+             "[VulkanAllocator] census: {} owed deletion(s) ({} buffer(s), {} image(s)); ledger {} object(s) "
+             "{:.1f} MB;{} largest:{}",
+             QueuedCount(), m_BufferDeletionQueue.size(), m_ImageDeletionQueue.size(), m_Ledger.LiveCount(),
+             static_cast<double>( m_Ledger.LiveBytes() ) / MB, heaps, tags );
     }
 
     void VulkanAllocator::RT_DestroyImage( VkImage image, VmaAllocation allocation, VkImageView imageView,

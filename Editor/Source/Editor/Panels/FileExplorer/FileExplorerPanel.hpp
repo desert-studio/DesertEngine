@@ -111,10 +111,10 @@ namespace Desert::Editor
         /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
         /// captures it queued or is still resolving, counting every subject not judged yet as one.
         ///
-        /// THE JUDGING IS TIME-SLICED (TickWarmProject), not done here. Whether a mesh's picture is stale reads its
-        /// import record, and on Bistro (1296 scene subjects, 2324 project pictures) judging all of them in this
-        /// call held ONE splash frame for ~2.5 min in Debug: no texture upload, no deletion-queue drain and no
-        /// splash progress for that long. UE renders thumbnails incrementally for the same reason.
+        /// THE JUDGING IS TIME-SLICED (TickWarmProject), not done here. Whether a mesh's picture is stale reads
+        /// its import record, and on Bistro (1296 scene subjects, 2324 project pictures) judging all of them in
+        /// this call held ONE splash frame for ~2.5 min in Debug: no texture upload, no deletion-queue drain and
+        /// no splash progress for that long. UE renders thumbnails incrementally for the same reason.
         std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
                                            const std::vector<ThumbnailWarmup::WarmItem>& project );
 
@@ -415,7 +415,7 @@ namespace Desert::Editor
              m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
         // TickWarmProject: the splash's subjects in SplashWarmList order, judged from m_WarmJudgeNext on.
         std::vector<ThumbnailWarmup::WarmItem> m_WarmJudgeQueue;
-        std::size_t                            m_WarmJudgeNext = 0;
+        std::size_t                            m_WarmJudgeNext  = 0;
         static constexpr double                WarmJudgeSliceMs = 8.0; // half a 60 Hz frame
         // One subject of the warm: judged by its picture's freshness and, when it needs a capture, queued.
         void WarmProjectItem( const ThumbnailWarmup::WarmItem& item );
