@@ -1002,7 +1002,7 @@ namespace Desert::Graphic::System
                       m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
                       // Clear the R32F depth target to 1.0 (far): background texels must read as "no occluder",
                       // else the default 0.1 grey clear falsely shadows receivers whose light-space depth > 0.1.
-                      glm::vec4( 1.0f ), RenderPassOrder::Default,
+                      glm::vec4( 1.0f ),
                       // And the DEPTH ATTACHMENT to 1.0 as well, overriding the engine's reversed-Z clear of
                       // 0. This pass is standard-Z (SetupShadowPass says why); a 0 clear under its LessOrEqual
                       // test would reject every caster and hand back an empty shadow map, silently.

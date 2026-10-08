@@ -594,6 +594,19 @@ namespace Desert::Graphic
         // overlay phases after the temporal resolve.
         void AddGraphPhasePasses( RDG::Builder& graph, FrameTextures& textures, bool ( *selects )( RenderPhaseID ),
                                   bool clearFirst, const OverlayTargets& overlay = {} );
+        // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
+        // declared reads; @p color / @p depth are the loads of the node's targets.
+        void AddPassNode( RDG::Builder& graph, FrameTextures& textures, const RenderGraphBuilder::PassConfig& pass,
+                          const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
+                          const RDG::LoadOp& color, const RDG::LoadOp& depth, const OverlayTargets& overlay );
+        // A system's raster pass that is not registered with the builder: one LOAD node on the pass's own target,
+        // placed by the position of this call. Nothing when the pass has no target (the system did not
+        // initialize).
+        void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
+                              const RenderGraphBuilder::PassConfig& pass );
+        // The frame's translucency, in draw order by call order: the height fog apply, the cloud composite (far
+        // field), then the Transparency phase's registered passes (particles, external passes).
+        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
         // Makes m_TemporalUpscaler the implementation of @p method (kept when it already is; null for None).
         void EnsureTemporalUpscaler( TemporalMethod method );
         // The frame's temporal resolve, after the Transparency phase: registers the view's histories and adds
@@ -617,14 +630,14 @@ namespace Desert::Graphic
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
         // and the Transparency-phase passes — the one point in the frame where the scene depth is finished in
         // BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its apply
-        // is a graph pass in Transparency at RenderPassOrder::AtmosphericFog, BELOW the particles, so
+        // is the first node of AddFrameTranslucency, BELOW the particles, so
         // they composite over the fogged scene. When Sky Phase 3 lands, this pass composes fog OVER the
         // aerial perspective (UE's order).
 
         // The cloud march and its noise bake. Issued immediately after the atmospheric fog: both are
         // in-frame compute and must be outside an open render pass, and by that point the scene depth is
-        // final and this frame's atmosphere LUTs have been filled. The composite itself is a graph pass in
-        // Transparency at RenderPassOrder::FarField, ABOVE the fog and BELOW the particles.
+        // final and this frame's atmosphere LUTs have been filled. The composite itself is the second node of
+        // AddFrameTranslucency, ABOVE the fog and BELOW the particles.
         // The cloud layer's shadow on the WORLD, which is a different pass at a different point in the
         // frame from the march above and belongs to a different consumer. Issued BEFORE the render graph
         // records, because the deferred lighting pass reads it and runs immediately after the graph. It

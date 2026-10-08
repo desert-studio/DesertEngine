@@ -62,11 +62,6 @@ namespace Desert::Graphic
             // and empties the shadow map without a single error anywhere.
             std::optional<float> ClearDepth;
 
-            // Where this pass sits INSIDE its phase; lower draws first. Leave it at Default unless the
-            // pass has a real reason to overrule registration order — see the AddPass comment below and
-            // RenderPassOrder in RenderGraphSort.hpp.
-            int32_t OrderInPhase = RenderPassOrder::Default;
-
             // Assigned by AddPass(); anything a caller writes here is overwritten. It is the tie-break
             // that makes the order inside a phase reproducible instead of "whatever came out".
             uint64_t RegistrationIndex = 0;
@@ -84,14 +79,13 @@ namespace Desert::Graphic
         //   between phases — the topological order of the phase graph (AddPhaseDependency /
         //                    AddTextureDependency), ties broken by the phase registry's declaration
         //                    order;
-        //   inside a phase — OrderInPhase first (lower draws first), then the order AddPass was called
-        //                    in.
+        //   inside a phase — the order AddPass was called in.
         //
         // Registration order is the default because it is the one thing the author of a pass can see:
         // the pass a system adds first, and the system SceneRenderer::Init registers first, draw first.
         // It is *not* a licence to encode a visual dependency in a call-site ordering hundreds of lines
-        // away — if your pass must be over or under a specific neighbour, say so with `orderInPhase`,
-        // and the coupling survives someone reshuffling Init.
+        // away, and there is no numeric placement either: a pass that must be over or under a specific
+        // neighbour is added by SceneRenderer's frame-build functions in that order (AddFrameTranslucency).
         // Both hand back the stored pass, valid until the next AddPass, so a registration can set a field the
         // short form has no parameter for in place: `builder.AddPass( ... ).Declare = ...;`.
         PassConfig& AddPass( const PassConfig& config );
@@ -102,14 +96,12 @@ namespace Desert::Graphic
                              std::shared_ptr<Framebuffer>             targetFramebuffer = nullptr,
                              const std::vector<RenderPassDependency>& dependencies      = {},
                              const std::optional<glm::vec4>&          clearColor        = std::nullopt,
-                             int32_t                                  orderInPhase      = RenderPassOrder::Default,
                              const std::optional<float>&              clearDepth        = std::nullopt );
         PassConfig& AddPass( const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
                              const GraphicsPipelineSpecification&     pipelineSpec      = {},
                              std::shared_ptr<Framebuffer>             targetFramebuffer = nullptr,
                              const std::vector<RenderPassDependency>& dependencies      = {},
                              const std::optional<glm::vec4>&          clearColor        = std::nullopt,
-                             int32_t                                  orderInPhase      = RenderPassOrder::Default,
                              const std::optional<float>&              clearDepth        = std::nullopt );
 
         void AddPhaseDependency( RenderPhaseID requiredPhase, RenderPhaseID dependentPhase );

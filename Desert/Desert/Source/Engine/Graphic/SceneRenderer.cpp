@@ -372,7 +372,7 @@ namespace Desert::Graphic
 
         // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
         // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
-        // Transparency phase, self-ordered below the particles by RenderPassOrder::AtmosphericFog.
+        // translucency, below the particles by the order of AddFrameTranslucency's calls.
         // Non-fatal: neither must ever take a scene down.
         RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer,
                                                    m_RenderGraphBuilder );
@@ -382,10 +382,9 @@ namespace Desert::Graphic
             LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
 
         // Volumetric clouds: a march through a spherical shell, issued outside the graph
-        // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the Transparency phase,
-        // self-ordered above the fog and below the particles by RenderPassOrder::FarField. Registered after the
-        // fog so that if the two ever end up on the same rung the registration order breaks the tie the same way
-        // the phase order already does. Non-fatal: a missing sky must never take a scene down.
+        // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the translucency, above the
+        // fog and below the particles by the order of AddFrameTranslucency's calls. Non-fatal: a missing sky
+        // must never take a scene down.
         RegisterSystem<System::VolumetricCloudRenderer>( "VolumetricCloudSystem", this, m_TargetFramebuffer,
                                                          m_RenderGraphBuilder );
         if ( const auto cloudInit =
@@ -1077,8 +1076,7 @@ namespace Desert::Graphic
                             RenderPhase::IsDeferredOverlay( RenderPhase::Debug ) &&
                             RenderPhase::IsDeferredOverlay( RenderPhase::UI ),
                        "the overlay phases added below must be the ones the main phase walk skips" );
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Transparency; }, false );
+        AddFrameTranslucency( graph, textures );
 
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )

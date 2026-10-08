@@ -17,9 +17,8 @@ namespace Desert::Graphic
         PassConfig stored        = config;
         stored.RegistrationIndex = m_NextRegistrationIndex++;
 
-        LOG_DEBUG( "Added pass '{}' to phase '{}' (order {}, registration #{}) with {} dependencies", stored.Name,
-                   RenderPhaseToString( stored.Phase ), stored.OrderInPhase, stored.RegistrationIndex,
-                   stored.Dependencies.size() );
+        LOG_DEBUG( "Added pass '{}' to phase '{}' (registration #{}) with {} dependencies", stored.Name,
+                   RenderPhaseToString( stored.Phase ), stored.RegistrationIndex, stored.Dependencies.size() );
 
         std::vector<PassConfig>& phase = m_PhasePasses[stored.Phase];
         phase.push_back( std::move( stored ) );
@@ -30,7 +29,7 @@ namespace Desert::Graphic
          const std::string& name, RenderPhaseID phase, NodeRecordFunc executeFunc,
          const GraphicsPipelineSpecification& pipelineSpec, std::shared_ptr<Framebuffer> targetFramebuffer,
          const std::vector<RenderPassDependency>& dependencies, const std::optional<glm::vec4>& clearColor,
-         int32_t orderInPhase, const std::optional<float>& clearDepth )
+         const std::optional<float>& clearDepth )
     {
         PassConfig config;
         config.Name              = name;
@@ -40,7 +39,6 @@ namespace Desert::Graphic
         config.TargetFramebuffer = targetFramebuffer;
         config.Dependencies      = dependencies;
         config.ClearColor        = clearColor;
-        config.OrderInPhase      = orderInPhase;
         config.ClearDepth        = clearDepth;
 
         return AddPass( config );
@@ -50,7 +48,7 @@ namespace Desert::Graphic
          const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
          const GraphicsPipelineSpecification& pipelineSpec, std::shared_ptr<Framebuffer> targetFramebuffer,
          const std::vector<RenderPassDependency>& dependencies, const std::optional<glm::vec4>& clearColor,
-         int32_t orderInPhase, const std::optional<float>& clearDepth )
+         const std::optional<float>& clearDepth )
     {
         return AddPass( name, phase,
                         NodeRecordFunc(
@@ -60,8 +58,7 @@ namespace Desert::Graphic
                                  execute();
                                  return BOOLSUCCESS;
                              } ),
-                        pipelineSpec, std::move( targetFramebuffer ), dependencies, clearColor, orderInPhase,
-                        clearDepth );
+                        pipelineSpec, std::move( targetFramebuffer ), dependencies, clearColor, clearDepth );
     }
 
     void RenderGraphBuilder::AddPhaseDependency( RenderPhaseID requiredPhase, RenderPhaseID dependentPhase )
@@ -135,13 +132,13 @@ namespace Desert::Graphic
             }
         }
 
-        std::vector<RenderPassOrderKey> keys;
+        std::vector<RenderPassSortKey>  keys;
         std::vector<PassConfig*>        passes;
         for ( auto& [phase, phasePasses] : m_PhasePasses )
         {
             for ( auto& pass : phasePasses )
             {
-                keys.push_back( RenderPassOrderKey{ pass.Phase, pass.OrderInPhase, pass.RegistrationIndex } );
+                keys.push_back( RenderPassSortKey{ pass.Phase, pass.RegistrationIndex } );
                 passes.push_back( &pass );
             }
         }

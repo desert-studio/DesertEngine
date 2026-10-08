@@ -2027,6 +2027,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // TAA1-B: the view's temporal upscaler declares its own nodes (ITemporalUpscaler::AddPasses); the
             // entry names the member that holds it.
             const size_t temporal = text.find( "->AddPasses(", at );
+            // ARCH1b: a system's raster pass placed by the position of its call (AddSystemRaster); the entry names
+            // the system member that hands the pass over.
+            const size_t systemRaster = text.find( "AddSystemRaster(", at );
             // A graph node: its name is the first string literal of the call (a std::format loop name keeps
             // its "{}", one entry per call site).
             size_t node = text.find( "graph.AddPass(", at );
@@ -2035,7 +2038,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { pass, phases, frame, raster, node, compute, deferred, temporal } );
+            const size_t first =
+                 std::min( { pass, phases, frame, raster, node, compute, deferred, temporal, systemRaster } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -2046,6 +2050,23 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
+            }
+            else if ( first == systemRaster )
+            {
+                size_t close = text.find( '(', systemRaster );
+                for ( int depth = 0; close < text.size(); ++close )
+                {
+                    depth += text[close] == '(' ? 1 : text[close] == ')' ? -1 : 0;
+                    if ( depth == 0 )
+                        break;
+                }
+                ASSERT_LT( close, text.size() ) << "unbalanced AddSystemRaster call";
+                const std::string call   = squeeze( text.substr( systemRaster, close + 1 - systemRaster ) );
+                const size_t      member = call.rfind( "->" );
+                ASSERT_NE( member, std::string::npos ) << call;
+                added.push_back(
+                     std::format( "system[{}]", call.substr( member + 2, call.size() - member - 3 ) ) );
+                at = close + 1;
             }
             else if ( first == temporal )
             {
@@ -2131,6 +2152,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
+         // ARCH1b: the translucency in draw order by call order (AddFrameTranslucency), no numeric placement:
+         // the height fog apply lands on the opaque scene first, the far field (cloud composite) over it, then
+         // everything nearer the camera (particles, the editor's passes) over both.
+         "system[ApplyPass()]",
+         "system[CompositePass()]",
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",

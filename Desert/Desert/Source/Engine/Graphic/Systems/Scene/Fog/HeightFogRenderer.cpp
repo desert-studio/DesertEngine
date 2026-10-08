@@ -244,15 +244,20 @@ namespace Desert::Graphic::System
         return nodes;
     }
 
-    void HeightFogRenderer::RegisterPasses( RenderGraphBuilder& builder )
+    void HeightFogRenderer::RegisterPasses( RenderGraphBuilder& )
     {
-        const auto target = m_TargetFramebuffer.lock();
-        if ( !target || !m_ApplyPipeline )
-            return;
+        // Nothing to register: the apply is not a phase pass. SceneRenderer::AddFrameTranslucency adds it
+        // (ApplyPass) as the first translucency node, by the position of that call.
+    }
 
+    RenderGraphBuilder::PassConfig HeightFogRenderer::ApplyPass()
+    {
         RenderGraphBuilder::PassConfig config;
+        const auto                     target = m_TargetFramebuffer.lock();
+        if ( !target || !m_ApplyPipeline )
+            return config;
+
         config.Name        = "HeightFogApply";
-        config.Phase       = RenderPhase::Transparency;
         config.ExecuteFunc = [this]( RDG::PassContext&     context,
                                      const FrameGraphRefs& refs ) -> Common::BoolResultStr
         {
@@ -267,12 +272,7 @@ namespace Desert::Graphic::System
         };
         config.PipelineSpec      = m_ApplyPipeline->GetSpecification();
         config.TargetFramebuffer = target;
-        config.Dependencies      = { RenderPassDependency( RenderPhase::Geometry ) };
 
-        // The fog is the FLOOR of the Transparency phase: it must land on the opaque scene before the
-        // every particle draw over it, so all of them are composited
-        // OVER the fogged world. Stated here, on the pass itself, not implied by registration order.
-        config.OrderInPhase = RenderPassOrder::AtmosphericFog;
         // The apply samples the fog image the AtmosphericFog node wrote as a storage image this frame.
         // Its one block: the shader's layout, no other route (no material), and the fog image as the entry
         // that declares the read. texelFetch at the target's own size: the sampler never filters.
@@ -287,6 +287,6 @@ namespace Desert::Graphic::System
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
         };
 
-        builder.AddPass( config );
+        return config;
     }
 } // namespace Desert::Graphic::System

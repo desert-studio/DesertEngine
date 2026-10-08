@@ -101,56 +101,94 @@ namespace Desert::Graphic
             const bool                          clears = clearFirst && target != previous;
             previous                                   = target;
 
-            auto targets = TargetsOf( textures, target, spec.DebugName, pass.Name );
-            if ( !targets )
-                continue;
-            // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
-            // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
-            // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
-            // PopulateSceneDepth filled; one sample, so no resolves).
-            if ( overlay.IsValid() && target == m_TargetFramebuffer )
-            {
-                if ( targets->Colors.size() != kSceneTargetVelocitySlot + 1 )
-                {
-                    LOG_ERROR(
-                         "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
-                         "replaces exactly colour 0 and the velocity slot",
-                         pass.Name, targets->Colors.size() );
-                    continue;
-                }
-                targets->Colors[0]                        = overlay.Color;
-                targets->Colors[kSceneTargetVelocitySlot] = overlay.Velocity;
-                targets->Depth                            = overlay.Depth;
-                targets->Resolves                         = {};
-            }
-            RenderPassDeclaration declared;
-            if ( pass.Declare )
-                pass.Declare( declared, textures.GraphRefs() );
-            std::vector<RDG::TextureRef> images;
-            if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
-                continue;
-
             const glm::vec4   clearColor = spec.ClearColor.Color;
             const RDG::LoadOp color =
                  clears ? RDG::LoadOp::ClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a )
                         : RDG::LoadOp::Load();
             const RDG::LoadOp depth =
                  clears ? RDG::LoadOp::ClearDepth( spec.ClearColor.DepthStencil.x ) : RDG::LoadOp::Load();
-            const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
-            graph.AddPass(
-                 pass.Name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
-                 [&]( RDG::PassBuilder& node )
-                 {
-                     DeclareOn( node, images, declared );
-                     for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
-                         node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
-                     if ( targets->Depth.IsValid() )
-                         node.DepthTarget( targets->Depth, depth );
-                     DeclareResolves( node, targets->Resolves );
-                 },
-                 [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
-                      RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
+            AddPassNode( graph, textures, pass, target, spec.DebugName, color, depth, overlay );
         }
+    }
+
+    void SceneRenderer::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
+                                         const RenderGraphBuilder::PassConfig& pass )
+    {
+        // A system whose pipeline failed to build hands back a pass with no target (it logged why at Initialize).
+        if ( !pass.TargetFramebuffer || !pass.ExecuteFunc )
+            return;
+        AddPassNode( graph, textures, pass, pass.TargetFramebuffer, pass.Name, RDG::LoadOp::Load(),
+                     RDG::LoadOp::Load(), {} );
+    }
+
+    void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
+        // numeric placement. The height fog apply first: it modifies the OPAQUE scene itself (every pixel gains
+        // the fog between it and the camera), so everything composited after lands over the fogged world. Then
+        // the far field, the cloud composite: everything after it is nearer the camera and paints over it.
+        // Then the Transparency phase's registered passes (particles, the editor's external passes), in
+        // registration order. All on the scene target: the graph merges them into one render pass.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        AddSystemRaster(
+             graph, textures,
+             UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->ApplyPass() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        AddSystemRaster( graph, textures,
+                         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
+                              ->CompositePass() );
+        AddGraphPhasePasses(
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Transparency; }, false );
+    }
+
+    void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures,
+                                     const RenderGraphBuilder::PassConfig& pass,
+                                     const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
+                                     const RDG::LoadOp& color, const RDG::LoadOp& depth,
+                                     const OverlayTargets& overlay )
+    {
+        auto targets = TargetsOf( textures, target, debugName, pass.Name );
+        if ( !targets )
+            return;
+        // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
+        // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
+        // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
+        // PopulateSceneDepth filled; one sample, so no resolves).
+        if ( overlay.IsValid() && target == m_TargetFramebuffer )
+        {
+            if ( targets->Colors.size() != kSceneTargetVelocitySlot + 1 )
+            {
+                LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
+                           "replaces exactly colour 0 and the velocity slot",
+                           pass.Name, targets->Colors.size() );
+                return;
+            }
+            targets->Colors[0]                        = overlay.Color;
+            targets->Colors[kSceneTargetVelocitySlot] = overlay.Velocity;
+            targets->Depth                            = overlay.Depth;
+            targets->Resolves                         = {};
+        }
+        RenderPassDeclaration declared;
+        if ( pass.Declare )
+            pass.Declare( declared, textures.GraphRefs() );
+        std::vector<RDG::TextureRef> images;
+        if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
+            return;
+
+        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
+        graph.AddPass(
+             pass.Name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+             [&]( RDG::PassBuilder& node )
+             {
+                 DeclareOn( node, images, declared );
+                 for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
+                     node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
+                 if ( targets->Depth.IsValid() )
+                     node.DepthTarget( targets->Depth, depth );
+                 DeclareResolves( node, targets->Resolves );
+             },
+             [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+                  RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,

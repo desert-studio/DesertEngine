@@ -24,38 +24,15 @@ namespace Desert::Graphic
     // Two levels of order, and both are total:
     //   1. Between phases — a topological sort of the phase dependency graph, ties broken by the
     //      registry's declaration order.
-    //   2. Inside one phase — PassConfig::OrderInPhase first (an explicit statement of intent), then
-    //      the registration index (who called AddPass first).
+    //   2. Inside one phase — the registration index (who called AddPass first). There is no numeric
+    //      placement: an order a pass depends on is the order of the calls in SceneRenderer's frame-build
+    //      functions (AddFrameTranslucency draws the fog, then the cloud composite, then the phase).
     // ------------------------------------------------------------------------------------------------
 
-    // Where a pass sits inside its phase. Lower draws FIRST. These are hints with a defined meaning,
-    // not a fixed ladder: any int32_t is legal, and a pass that has no opinion leaves Default and is
-    // ordered against its equals by registration order alone.
-    namespace RenderPassOrder
-    {
-        // The atmospheric-fog apply in Transparency: it modifies the OPAQUE scene itself (every pixel's
-        // geometry gains the fog between it and the camera), so it must land before everything the
-        // phase composites over that scene — every particle included. It sits below FarField for
-        // exactly that reason: what the phase composites draws over the fogged world, never under it.
-        constexpr int32_t AtmosphericFog = -200;
-
-        // Content at sky distance that is composited inside an otherwise camera-local phase. Everything
-        // else in that phase is nearer to the camera and must paint OVER it: sparks and smoke from an
-        // emitter in front of the camera belong on top of a distant backdrop, never erased by it.
-        constexpr int32_t FarField = -100;
-
-        // No opinion; registration order decides. This is what every existing engine pass uses.
-        constexpr int32_t Default = 0;
-
-        // Content that must sit on top of everything else in its phase.
-        constexpr int32_t NearField = 100;
-    } // namespace RenderPassOrder
-
     // Everything the sort needs to know about one registered pass.
-    struct RenderPassOrderKey
+    struct RenderPassSortKey
     {
         RenderPhaseID Phase             = RenderPhase::None;
-        int32_t       OrderInPhase      = RenderPassOrder::Default;
         uint64_t      RegistrationIndex = 0;
     };
 
@@ -145,14 +122,14 @@ namespace Desert::Graphic
     }
 
     // Returns indices into `keys`, in execution order: by position of the pass's phase in `phaseOrder`,
-    // then by OrderInPhase, then by registration index. The final fall-back to the key's own position
+    // then by registration index. The final fall-back to the key's own position
     // keeps the result total even if a caller hands in duplicate registration indices — std::sort leaves
     // equal elements in an unspecified order, and "unspecified" is the bug this function exists to kill.
     //
     // A pass whose phase is missing from `phaseOrder` is placed after all ordered phases (by phase ID)
     // rather than dropped: losing a pass silently is worse than drawing it late.
-    inline std::vector<std::size_t> OrderRenderPasses( const std::vector<RenderPassOrderKey>& keys,
-                                                       const std::vector<RenderPhaseID>&      phaseOrder )
+    inline std::vector<std::size_t> OrderRenderPasses( const std::vector<RenderPassSortKey>& keys,
+                                                       const std::vector<RenderPhaseID>&     phaseOrder )
     {
         std::map<RenderPhaseID, std::size_t> phaseRank;
         for ( std::size_t i = 0; i < phaseOrder.size(); ++i )
@@ -175,8 +152,8 @@ namespace Desert::Graphic
                    {
                        const auto lhsRank = rankOf( keys[lhs].Phase );
                        const auto rhsRank = rankOf( keys[rhs].Phase );
-                       return std::tie( lhsRank, keys[lhs].OrderInPhase, keys[lhs].RegistrationIndex, lhs ) <
-                              std::tie( rhsRank, keys[rhs].OrderInPhase, keys[rhs].RegistrationIndex, rhs );
+                       return std::tie( lhsRank, keys[lhs].RegistrationIndex, lhs ) <
+                              std::tie( rhsRank, keys[rhs].RegistrationIndex, rhs );
                    } );
 
         return indices;
