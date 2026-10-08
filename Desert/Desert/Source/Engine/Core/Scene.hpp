@@ -2,7 +2,7 @@
 
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
-#include <Engine/Graphic/ExternalRenderPass.hpp>
+#include <Engine/Graphic/ExtensionPass.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
@@ -189,7 +189,7 @@ namespace Desert::Core
         // renderer" any more and the nine call sites left on it are the ones that ask a question the
         // first view answers for the whole document: the Details panel's cascade count, .demat hot
         // reload, the scene-settings readout. A pass that draws INTO a view asks the view instead —
-        // ExternalPassContext::Renderer — because the answer differs per view and asking the scene gave
+        // ExtensionPassContext::Renderer — because the answer differs per view and asking the scene gave
         // every viewport the first one's debug flags.
         [[nodiscard]] Graphic::SceneRenderer* GetSceneRenderer() const
         {
@@ -476,10 +476,15 @@ namespace Desert::Core
         [[nodiscard]] Common::BoolResultStr Serialize( const Assets::AssetManager* assetManager,
                                                        const Common::Filepath&     path ) const;
 
-        // Editor Pass API: inject a render pass into the scene render graph from outside the engine
-        // (debug draw, gizmos, authoring aids). See Graphic::ExternalPassSpecification for placement.
-        void RegisterExternalPass( Graphic::ExternalPassSpecification&& spec );
-        void UnregisterExternalPass( const std::string& name );
+        // Extension passes: render passes from outside the engine (debug draw, gizmos, authoring aids, the UI
+        // canvas) at a named RDG::ExtensionPoint. Every view of this scene adds them each frame at that point
+        // (Graphic::ExtensionPass). A repeated name replaces the earlier pass.
+        void                                                RegisterExtensionPass( Graphic::ExtensionPass&& pass );
+        void                                                UnregisterExtensionPass( const std::string& name );
+        [[nodiscard]] const Graphic::ExtensionPassRegistry& GetExtensionPasses() const
+        {
+            return m_ExtensionPasses;
+        }
 
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
@@ -573,13 +578,10 @@ namespace Desert::Core
         // question the editor was asking.
         ViewList m_Views;
 
-        // The external passes the editor injected, KEPT so that a view opened later gets them too. Not a
-        // second source of truth for what is installed: a SceneRenderer stores each pass as a render
-        // system under its own key and that is still the only place a pass is looked up or executed —
-        // this is the ORDER FORM, replayed once onto each new renderer, and Unregister erases from here
-        // for exactly the same reason. Without it a second viewport of the same world has no grid, no
-        // collider wireframes and no 2D UI overlay, and nothing says why.
-        std::vector<Graphic::ExternalPassSpecification> m_ExternalPasses;
+        // The extension passes the editor registered: the ONE place they live. Each view's renderer reads them at
+        // BeginScene and adds them at their points while it builds its frame, so a view opened later has them
+        // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
+        Graphic::ExtensionPassRegistry m_ExtensionPasses;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

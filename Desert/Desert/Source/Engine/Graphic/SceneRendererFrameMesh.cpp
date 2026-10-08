@@ -127,8 +127,9 @@ namespace Desert::Graphic
         // numeric placement. The height fog apply first: it modifies the OPAQUE scene itself (every pixel gains
         // the fog between it and the camera), so everything composited after lands over the fogged world. Then
         // the far field, the cloud composite: everything after it is nearer the camera and paints over it.
-        // Then the Transparency phase's registered passes (particles, the editor's external passes), in
-        // registration order. All on the scene target: the graph merges them into one render pass.
+        // Then the Transparency phase's registered passes (particles), then the passes registered at the
+        // AfterTranslucency extension point (the editor grid). All on the scene target: the graph merges them into
+        // one render pass.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         AddSystemRaster(
              graph, textures,
@@ -139,6 +140,50 @@ namespace Desert::Graphic
                               ->CompositePass() );
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Transparency; }, false );
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
+    }
+
+    void SceneRenderer::AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures,
+                                           const RDG::ExtensionPoint point, const OverlayTargets& overlay )
+    {
+        // Outside a BeginScene/EndScene bracket there is no scene, so no extension passes; without a scene target
+        // there is nothing for them to draw over.
+        if ( !m_FrameExtensions || !m_TargetFramebuffer )
+            return;
+        m_FrameExtensions->ForEachAt(
+             point,
+             [&]( const ExtensionPass& extension )
+             {
+                 // The context is made when the graph calls the pass (Declare while it is built, Execute when it
+                 // runs), from this renderer's state then: the camera, the target a resize may have recreated.
+                 const auto context = [this]( const FrameGraphRefs& refs )
+                 {
+                     ExtensionPassContext ctx;
+                     ctx.Camera       = GetMainCamera();
+                     ctx.Target       = m_TargetFramebuffer.get();
+                     ctx.Depth        = m_TargetFramebuffer && m_TargetFramebuffer->GetDepthAttachmentCount() > 0
+                                             ? m_TargetFramebuffer->GetDepthAttachmentImage().get()
+                                             : nullptr;
+                     ctx.ScenePlaying = IsScenePlaying();
+                     ctx.Renderer     = this;
+                     ctx.Graph        = refs;
+                     return ctx;
+                 };
+                 // The pass's functions are COPIED into the node: the scene may replace the registration while the
+                 // graph built this frame still holds the node.
+                 RenderGraphBuilder::PassConfig node;
+                 node.Name              = extension.Name;
+                 node.TargetFramebuffer = m_TargetFramebuffer;
+                 node.ExecuteFunc =
+                      [context, execute = extension.Execute]( RDG::PassContext& pass, const FrameGraphRefs& refs )
+                 { return execute( context( refs ), pass ); };
+                 if ( extension.Declare )
+                     node.Declare = [context, declare = extension.Declare]( RenderPassDeclaration& declared,
+                                                                            const FrameGraphRefs&  refs )
+                     { declare( declared, context( refs ) ); };
+                 AddPassNode( graph, textures, node, m_TargetFramebuffer, node.Name, RDG::LoadOp::Load(),
+                              RDG::LoadOp::Load(), overlay );
+             } );
     }
 
     void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures,

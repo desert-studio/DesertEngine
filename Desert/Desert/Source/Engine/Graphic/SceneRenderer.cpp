@@ -44,16 +44,6 @@
 
 namespace Desert::Graphic
 {
-    namespace
-    {
-        // WHAT MAKES A REGISTERED SYSTEM THE SCENE'S RATHER THAN THE RENDERER'S, as one string. Two places
-        // read it and they must not be able to disagree: ExternalSystemKey() stamps it onto every pass the
-        // editor registers, and SceneRenderer::RebindScene() drops exactly the entries carrying it when a
-        // different scene arrives. A prefix renamed in one of the two would leave the rebind matching
-        // nothing while still compiling, and the previous scene's grid would keep drawing over the new one.
-        constexpr std::string_view kExternalSystemPrefix = "External:";
-    } // namespace
-
     void SceneRenderer::Init()
     {
         // Init runs on the first scene AND on every scene after it — see the header for the two lifetimes
@@ -437,35 +427,16 @@ namespace Desert::Graphic
 
     void SceneRenderer::RebindScene()
     {
-        // Everything below drops render systems, and a render system owns pipelines and descriptor pools
-        // the last submitted frame may still be executing against. Same rule, same reason, as the five
-        // sites that destroy a whole SceneRenderer (Desert/Tests/Engine/TeardownOrder).
+        // Everything below releases render-system state (OnSceneReplaced), and a render system owns pipelines and
+        // descriptor pools the last submitted frame may still be executing against. Same rule, same reason, as the
+        // five sites that destroy a whole SceneRenderer (Desert/Tests/Engine/TeardownOrder).
         //
-        // Paid on EVERY scene load even when there is nothing to drop. That is deliberate: the caller has
+        // Paid on EVERY scene load even when there is nothing to release. That is deliberate: the caller has
         // just cleared the entity registry and is about to destroy the RenderRegistry, so the frame that
         // was in flight when the load was requested is referencing objects on their way out either way.
         Renderer::GetInstance().WaitDeviceIdle();
 
-        // THE PREVIOUS SCENE'S EDITOR PASSES. Collected first and erased after, because ForgetRenderSystem
-        // mutates both containers being walked.
-        //
-        // Matched by the "External:" prefix that RegisterExternalPass itself stamps on — one place decides
-        // what an external pass is called and one place decides what counts as one, so a rename cannot
-        // leave this loop matching nothing while still compiling.
-        std::vector<std::string> external;
-        for ( const auto& name : m_RenderSystemOrder )
-        {
-            if ( name.starts_with( kExternalSystemPrefix ) )
-                external.push_back( name );
-        }
-        for ( const auto& name : external )
-            ForgetRenderSystem( name );
-
-        if ( !external.empty() )
-            LOG_INFO( "[SceneRenderer] Dropped {} external pass(es) belonging to the previous scene.",
-                      external.size() );
-
-        // ...and tell what is LEFT — the engine systems, which are the renderer's and stay — that the world
+        // Tell the engine systems — which are the renderer's and stay — that the world
         // they have been accumulating over is gone. Most of them do nothing with it; the ones that do are a
         // temporal history and a per-entity GPU cache, and IRenderSystem::OnSceneReplaced says why those two
         // are the only kinds that can exist here.
@@ -610,6 +581,8 @@ namespace Desert::Graphic
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
 
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
+        // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
+        m_FrameExtensions = &scene.GetExtensionPasses();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1010,7 +983,7 @@ namespace Desert::Graphic
 
         AddFrameCloudShadowMap( graph, textures );
 
-        // The registered systems' passes (and the editor's external passes) outside the overlay phases.
+        // The registered systems' passes outside the overlay phases.
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return !RenderPhase::IsDeferredOverlay( phase ); },
              true );
@@ -1069,6 +1042,10 @@ namespace Desert::Graphic
         AddFrameAtmosphericFog( graph, textures );
         AddFrameVolumetricClouds( graph, textures, frame );
 
+        // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
+        // the engine that belong under every translucent layer join here.
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterOpaque, {} );
+
         // Particles (Transparency phase), debug lines and the UI canvas run AFTER the deferred lighting
         // composite so lit geometry does not paint over them, and as LOAD overlays so a CLEAR begin never
         // wipes the depth later overlays test against (the particle top-down bug / grid-through-meshes).
@@ -1104,14 +1081,18 @@ namespace Desert::Graphic
 
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false, overlay );
+        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
         // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
-        // through ExternalPassSpecification::Declare), and the graph orders it after the blur.
+        // through ExtensionPass::Declare), and the graph orders it after the blur.
         if ( m_BackdropBlurNeeded )
             AddFrameBackdropBlur( graph, textures, postInput );
 
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false, overlay );
+        // The UI canvas, last before the post chain.
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
         AddFrameJumpFlood( graph, textures );
         AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
@@ -1165,6 +1146,7 @@ namespace Desert::Graphic
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
+        m_FrameExtensions = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -1679,72 +1661,6 @@ namespace Desert::Graphic
         m_SpotLight.SpotLights.push_back( spotLight );
     }
 
-    namespace
-    {
-        // Adapts an ExternalPassSpecification to the render-system interface so external passes flow
-        // through the same graph build as engine systems (phases, dependencies, same-target merging).
-        // The target framebuffer is looked up at RegisterPasses time rather than captured, so a resize
-        // that recreates it cannot leave the pass pointing at the old one.
-        //
-        // These are the SCENE's, not the renderer's: the spec closes over the editor's RenderRegistry for a
-        // particular scene, and SceneRenderer::RebindScene drops every one of them when a different scene
-        // is bound. The owner re-registers against the new scene immediately afterwards.
-        class ExternalPassSystem final : public IRenderSystem
-        {
-        public:
-            ExternalPassSystem( SceneRenderer* renderer, ExternalPassSpecification&& spec )
-                 : m_Renderer( renderer ), m_Spec( std::move( spec ) )
-            {
-            }
-
-            void RegisterPasses( RenderGraphBuilder& builder ) override
-            {
-                const auto& target = m_Renderer->GetTargetFramebuffer();
-                if ( !target || !m_Spec.Execute )
-                    return;
-
-                RenderGraphBuilder::PassConfig config;
-                config.Name        = m_Spec.Name;
-                config.Phase       = m_Spec.Phase;
-                config.ExecuteFunc = [this]( RDG::PassContext& pass, const FrameGraphRefs& refs )
-                { return m_Spec.Execute( Context( refs ), pass ); };
-                config.PipelineSpec      = m_Spec.PipelineSpecification;
-                config.TargetFramebuffer = target;
-                config.Dependencies      = m_Spec.Dependencies;
-                // What the editor's pass samples besides the scene target it draws over, in its own words.
-                if ( m_Spec.Declare )
-                    config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
-                    { m_Spec.Declare( declared, Context( refs ) ); };
-                builder.AddPass( config );
-            }
-
-        private:
-            [[nodiscard]] ExternalPassContext Context( const FrameGraphRefs& refs ) const
-            {
-                const auto&         target = m_Renderer->GetTargetFramebuffer();
-                ExternalPassContext ctx;
-                ctx.Camera       = m_Renderer->GetMainCamera();
-                ctx.Target       = target.get();
-                ctx.Depth        = target && target->GetDepthAttachmentCount() > 0
-                                        ? target->GetDepthAttachmentImage().get()
-                                        : nullptr;
-                ctx.ScenePlaying = m_Renderer->IsScenePlaying();
-                ctx.Renderer     = m_Renderer;
-                ctx.Graph        = refs;
-                return ctx;
-            }
-
-            SceneRenderer*            m_Renderer;
-            ExternalPassSpecification m_Spec;
-        };
-
-        // Namespace external passes so they can never collide with (or evict) an engine system.
-        std::string ExternalSystemKey( const std::string& name )
-        {
-            return std::string( kExternalSystemPrefix ) + name;
-        }
-    } // namespace
-
     void SceneRenderer::TrackRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )
     {
         // Replacing a system keeps the slot it already holds in the registration order: an editor tool
@@ -1761,32 +1677,6 @@ namespace Desert::Graphic
         m_RenderSystems.erase( name );
         m_RenderSystemOrder.erase( std::remove( m_RenderSystemOrder.begin(), m_RenderSystemOrder.end(), name ),
                                    m_RenderSystemOrder.end() );
-    }
-
-    void SceneRenderer::RegisterExternalPass( ExternalPassSpecification&& spec )
-    {
-        DESERT_VERIFY( !spec.Name.empty() && spec.Execute );
-
-        // THE KEY IS TAKEN BEFORE THE SPEC IS MOVED, AND THAT ORDER MUST BE A STATEMENT RATHER THAN AN
-        // ARGUMENT LIST. Reading `spec.Name` and moving `spec` inside one argument list leaves the order
-        // to the compiler: clang evaluates arguments left to right, MSVC right to left, and both conform.
-        // Under MSVC the move ran first, so every external pass registered itself under the bare prefix
-        // "External:" — one key for all of them, the second registration evicting the first, and
-        // UnregisterExternalPass() looking up "External:<name>" and never finding it. Consecutive
-        // statements ARE sequenced; see Desert/Tests/Engine/ArgumentOrder for the census over the tree.
-        const std::string key = ExternalSystemKey( spec.Name );
-        TrackRenderSystem( key, std::make_shared<ExternalPassSystem>( this, std::move( spec ) ) );
-        RebuildRenderGraph();
-    }
-
-    void SceneRenderer::UnregisterExternalPass( const std::string& name )
-    {
-        const auto key = ExternalSystemKey( name );
-        if ( m_RenderSystems.find( key ) == m_RenderSystems.end() )
-            return;
-
-        ForgetRenderSystem( key );
-        RebuildRenderGraph();
     }
 
     void SceneRenderer::RegisterRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )

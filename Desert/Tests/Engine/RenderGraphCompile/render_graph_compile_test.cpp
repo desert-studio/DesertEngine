@@ -6,6 +6,7 @@
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -2030,6 +2031,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // ARCH1b: a system's raster pass placed by the position of its call (AddSystemRaster); the entry names
             // the system member that hands the pass over.
             const size_t systemRaster = text.find( "AddSystemRaster(", at );
+            // ARCH1b-2: an extension point invoked at its place (AddExtensionPoint): the entry names the point.
+            // The member's own definition names no point before its first ';' and is skipped.
+            size_t extension = text.find( "AddExtensionPoint(", at );
+            while ( extension != std::string::npos &&
+                    text.find( "RDG::ExtensionPoint::", extension ) > text.find( ';', extension ) )
+                extension = text.find( "AddExtensionPoint(", extension + 1 );
             // A graph node: its name is the first string literal of the call (a std::format loop name keeps
             // its "{}", one entry per call site).
             size_t node = text.find( "graph.AddPass(", at );
@@ -2038,8 +2045,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first =
-                 std::min( { pass, phases, frame, raster, node, compute, deferred, temporal, systemRaster } );
+            const size_t first = std::min(
+                 { pass, phases, frame, raster, node, compute, deferred, temporal, systemRaster, extension } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -2050,6 +2057,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
+            }
+            else if ( first == extension )
+            {
+                const size_t name = text.find( "RDG::ExtensionPoint::", extension ) +
+                                    std::string_view( "RDG::ExtensionPoint::" ).size();
+                size_t stop = name;
+                while ( stop < text.size() &&
+                        ( std::isalnum( static_cast<unsigned char>( text[stop] ) ) || text[stop] == '_' ) )
+                    ++stop;
+                added.push_back( std::format( "extension[{}]", text.substr( name, stop - name ) ) );
+                at = stop;
             }
             else if ( first == systemRaster )
             {
@@ -2152,12 +2170,15 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
+         // ARCH1b-2: passes from outside the engine join at named extension points, each invoked at its place.
+         "extension[AfterOpaque]",
          // ARCH1b: the translucency in draw order by call order (AddFrameTranslucency), no numeric placement:
          // the height fog apply lands on the opaque scene first, the far field (cloud composite) over it, then
          // everything nearer the camera (particles, the editor's passes) over both.
          "system[ApplyPass()]",
          "system[CompositePass()]",
          "phases[phase==RenderPhase::Transparency]",
+         "extension[AfterTranslucency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
          // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
@@ -2168,8 +2189,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Scene: PopulateSceneDepth",
          "Debug: Velocity",
          "phases[phase==RenderPhase::Debug]",
+         "extension[Overlay]",
          "UI: BackdropBlur{}",
          "phases[phase==RenderPhase::UI]",
+         "extension[UI]",
          "PostFX: JumpFloodInit",
          "PostFX: JumpFloodStep{}",
          "PostFX: JumpFloodFinal",
@@ -3192,6 +3215,74 @@ namespace
     }
 } // namespace
 
+// ARCH1b-2: A PASS REGISTERED AT AN EXTENSION POINT LANDS BETWEEN THAT POINT'S NEIGHBOURS. The registry hands each
+// point's passes over in registration order and no other point's; a frame build that invokes the point between two
+// nodes gets them there in the compiled graph. Red if ForEachAt leaks another point's pass, reorders, or a
+// re-registration does not replace (and move to the back) the earlier pass of that name.
+TEST( RenderGraphCompile, AnExtensionPassLandsBetweenItsPointsNeighbours )
+{
+    struct TestExtension
+    {
+        std::string    Name;
+        ExtensionPoint Point = ExtensionPoint::Overlay;
+    };
+    ExtensionRegistry<TestExtension> registry;
+    registry.Register( { "Grid", ExtensionPoint::AfterTranslucency } );
+    registry.Register( { "Colliders", ExtensionPoint::Overlay } );
+    registry.Register( { "Canvas", ExtensionPoint::UI } );
+    registry.Register( { "Cubemap", ExtensionPoint::Overlay } );
+    registry.Register( { "Colliders", ExtensionPoint::Overlay } ); // replaced: now after Cubemap
+    EXPECT_EQ( registry.All().size(), 4u );
+    EXPECT_FALSE( registry.Unregister( "Nothing" ) );
+
+    ExternalTexture  target( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    Builder          graph( "extension" );
+    const TextureRef scene = graph.RegisterExternal( target, "SceneColor" );
+    const auto       add   = [&]( const std::string& name )
+    {
+        graph.AddPass(
+             name, PassFlags::Raster | PassFlags::NeverCull,
+             [&]( PassBuilder& pass ) { pass.ColorTarget( 0, scene, LoadOp::Load() ); },
+             []( PassContext& ) { return Common::MakeSuccess( true ); } );
+    };
+    add( "Debug: Lines" );
+    registry.ForEachAt( ExtensionPoint::Overlay, [&]( const TestExtension& pass ) { add( pass.Name ); } );
+    add( "UI: BackdropBlur" );
+
+    const CompileResult      result = CompileOrFail( graph );
+    std::vector<std::string> order;
+    for ( const auto& pass : result.Passes )
+        order.push_back( pass.Name );
+    EXPECT_EQ( order, ( std::vector<std::string>{ "Debug: Lines", "Cubemap", "Colliders", "UI: BackdropBlur" } ) );
+}
+
+// ARCH1b-2: no pass is placed through the old external-pass API: the editor, plugins and external graphs register
+// at an RDG::ExtensionPoint. Red if RegisterExternalPass / ExternalPassSpecification / ExternalPassContext is
+// spelled anywhere in the engine or editor sources again.
+TEST( RenderGraphCompile, NoExternalPassApiRemainsInEngineOrEditor )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    size_t files = 0;
+    for ( const char* dir : { "Desert/Desert/Source/Engine", "Editor/Source" } )
+    {
+        for ( const auto& entry : fs::recursive_directory_iterator( root / dir ) )
+        {
+            const std::string ext = entry.path().extension().string();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            ++files;
+            std::ifstream     file( entry.path() );
+            const std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+            for ( const char* symbol :
+                  { "RegisterExternalPass", "ExternalPassSpecification", "ExternalPassContext" } )
+                EXPECT_EQ( text.find( symbol ), std::string::npos )
+                     << entry.path().string() << " spells " << symbol;
+        }
+    }
+    EXPECT_GT( files, 100u ) << "the census read almost nothing";
+}
+
 // THE PHASE PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). The AddGraphPhasePasses bridge
 // no longer opens the engine's render pass around a legacy wrapper: every registered pass is a Raster node whose
 // targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
@@ -3229,8 +3320,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     EXPECT_NE( source( "RenderGraphBuilder.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
                std::string::npos );
-    EXPECT_NE( source( "ExternalRenderPass.hpp" )
-                    .find( "std::function<void(RenderPassDeclaration&,constExternalPassContext&)>Declare;" ),
+    EXPECT_NE( source( "ExtensionPass.hpp" )
+                    .find( "std::function<void(RenderPassDeclaration&,constExtensionPassContext&)>Declare;" ),
                std::string::npos );
 
     // Each system names what its pass samples, in its own RegisterPasses.
@@ -3797,7 +3888,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     {
         const std::string text = SqueezedSource( root, file );
         EXPECT_NE( text.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared,"
-                              "constGraphic::ExternalPassContext&){declared.Bindings(m_BindingLayout.Get("
+                              "constGraphic::ExtensionPassContext&){declared.Bindings(m_BindingLayout.Get("
                               "m_Pipeline->GetSpecification().Shader),m_Material->GetMaterialExecutor()->"
                               "GetRouteFill());};" ),
                    std::string::npos )
@@ -3838,7 +3929,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     // blocks there; its exec only flushes.
     const std::string ui = SqueezedSource( root, "Editor/Source/Editor/RenderSystems/Passes/EditorUIPass.cpp" );
     const size_t      uiDeclare = ui.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared," );
-    const size_t      uiExec    = ui.find( "pass.Execute=[this](constGraphic::ExternalPassContext&ctx," );
+    const size_t      uiExec    = ui.find( "pass.Execute=[this](constGraphic::ExtensionPassContext&ctx," );
     ASSERT_NE( uiDeclare, std::string::npos );
     ASSERT_NE( uiExec, std::string::npos );
     ASSERT_LT( uiDeclare, uiExec );

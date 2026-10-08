@@ -63,7 +63,7 @@
 #include <Engine/Graphic/DebugViewState.hpp>
 
 #include <Engine/Graphic/IRenderSystem.hpp>
-#include <Engine/Graphic/ExternalRenderPass.hpp>
+#include <Engine/Graphic/ExtensionPass.hpp>
 
 namespace Desert::Core
 {
@@ -152,9 +152,9 @@ namespace Desert::Graphic
         //
         // Every pipeline, framebuffer and render system in this class answers question 1 with NO: a render
         // system is constructed from a SceneRenderer* and a Framebuffer and never sees the Scene at all
-        // (Systems/RenderSystem.hpp), and the framebuffers are sized from the WINDOW. Exactly one row of
-        // m_RenderSystems answers YES — the "External:" passes the editor registers against a particular
-        // scene's RenderRegistry — and that row is what a rebind drops.
+        // (Systems/RenderSystem.hpp), and the framebuffers are sized from the WINDOW. The one thing that answers
+        // YES — the extension passes the editor registers against a particular scene — is not held here at all:
+        // the renderer reads them from the scene it is handed each BeginScene (m_FrameExtensions).
         //
         // MEASURED, Debug, on the two scenes Clouds_Protocol and Sky_PhysicalShowcase loaded alternately
         // through the control channel. Before and after INTERLEAVED across five sessions on a machine shared
@@ -429,13 +429,7 @@ namespace Desert::Graphic
         void RegisterRenderPass( RenderPhaseID phase, const std::string& name, std::function<void()> executeFunc,
                                  const GraphicsPipelineSpecification& pipeSpec = {} );
 
-        // External (editor) pass injection: wraps the specification into an internal render system so
-        // the pass participates in the normal graph build (phases, dependencies, pass merging).
-        // Re-registering the same name replaces the previous pass; both rebuild the graph.
-        void RegisterExternalPass( ExternalPassSpecification&& spec );
-        void UnregisterExternalPass( const std::string& name );
-
-        // True while the scene runs in Play mode (refreshed each BeginScene). External passes use this
+        // True while the scene runs in Play mode (refreshed each BeginScene). Extension passes use this
         // to hide authoring aids during gameplay.
         bool IsScenePlaying() const
         {
@@ -554,14 +548,10 @@ namespace Desert::Graphic
         // without keeping a second copy of the flag.
         bool EnsureRendererResources();
 
-        // THE SCENE'S HALF, and it runs on EVERY Init() including the first. Releases what belonged to the
-        // scene that was here before and rebuilds the graph over what is left.
-        //
-        // What that is, exhaustively: the "External:" render systems. The editor registers its authoring
-        // passes (grid, colliders, gizmo overlays) against the scene it built its RenderRegistry for, by
-        // name; a different scene's registry re-registers its own, and the registry that owned these is
-        // destroyed by the same caller a few lines later. Leaving them would leave passes closing over a
-        // registry that no longer exists.
+        // THE SCENE'S HALF, and it runs on EVERY Init() including the first. Tells the engine systems the world
+        // they accumulated over is gone and rebuilds the graph. The renderer holds nothing of the scene's to
+        // release: the editor's extension passes (grid, colliders, gizmo overlays) live on the Scene and are read
+        // from the scene each BeginScene hands over, so a different scene's passes cannot outlive it here.
         //
         // What is deliberately NOT here: any reset of the engine systems' own state. They keep it across a
         // scene load for the same reason they keep it across a frame — every per-frame input is RESTATED by
@@ -605,8 +595,14 @@ namespace Desert::Graphic
         void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
                               const RenderGraphBuilder::PassConfig& pass );
         // The frame's translucency, in draw order by call order: the height fog apply, the cloud composite (far
-        // field), then the Transparency phase's registered passes (particles, external passes).
+        // field), the Transparency phase's registered passes (particles), then the AfterTranslucency extension
+        // point.
         void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
+        // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
+        // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
+        // the position of this call. The frame build calls it once per point, at that point's place.
+        void AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures, RDG::ExtensionPoint point,
+                                const OverlayTargets& overlay );
         // Makes m_TemporalUpscaler the implementation of @p method (kept when it already is; null for None).
         void EnsureTemporalUpscaler( TemporalMethod method );
         // The frame's temporal resolve, after the Transparency phase: registers the view's histories and adds
@@ -746,6 +742,9 @@ namespace Desert::Graphic
         // Raised by the UI canvas when it drew glass; consumed at the top of the next frame's UI phase.
         bool                   m_BackdropBlurNeeded = false;
         bool                   m_ScenePlaying = false; // set per frame in BeginScene (hides authoring aids)
+        // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
+        // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
+        const ExtensionPassRegistry* m_FrameExtensions = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
