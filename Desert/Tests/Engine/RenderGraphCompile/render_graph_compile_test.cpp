@@ -2189,12 +2189,19 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // and with no history; the sharpen (Resolution.Sharpness) follows any resolve, on its output.
     declares( "AddFrameTemporal",
               { "constboolspatial=IsSpatialUpscale(frame);",
-                "spatial?std::vector<HistoryRefs>{}:m_ViewState.History().Register(graph)",
+                "temporal?m_ViewState.History().Register(graph):std::vector<HistoryRefs>{}",
                 "m_SpatialUpscale.AddPasses(graph,frame,inputs.SceneColor)", "resolvedColor=upscaled.GetValue();",
                 "m_Quality.As<int>(Common::Scalability::Parameter::UpscalerSharpness)",
                 "if(SharpenRuns(frame,sharpness))", "m_Sharpen.AddPasses(graph,frame,resolvedColor,sharpness)",
                 "resolvedColor=sharpened.GetValue();", "returnwithoutTemporal(upscaled.GetError());",
                 "returnwithoutTemporal(sharpened.GetError());" } );
+    // TAA1-B 6: above 100 % (Split.Mode == Supersample) the SSAA downsample follows the temporal output, or runs
+    // alone on the scene colour without a temporal method, and its output is the resolved colour.
+    declares( "AddFrameTemporal",
+              { "constboolsupersample=frame.Split.Mode==Common::Scalability::ScaleMode::Supersample;",
+                "if(!m_TargetFramebuffer||(!spatial&&!supersample&&!temporal))", "resolvedColor=inputs.SceneColor;",
+                "m_SupersampleResolve.AddPasses(graph,frame,resolvedColor)", "resolvedColor=downsampled.GetValue();",
+                "returnwithoutTemporal(downsampled.GetError());" } );
     // TAA1-B 6: the overlay target set is at the OUTPUT extent and its depth is the scene depth populated by
     // "Scene: PopulateSceneDepth"; a frame the resolve cannot run on is rendered without it, by name, and the
     // caller then post-processes the scene colour (the fallback is the caller's, not a silent skip).

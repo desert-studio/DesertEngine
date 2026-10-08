@@ -1551,10 +1551,13 @@ namespace Desert::Graphic
                                                                    const ViewFrame&      frame,
                                                                    const RDG::TextureRef exposure )
     {
-        // The resolve of this frame: the temporal method's, or the spatial upscale (below 100 % without one).
-        const bool spatial = IsSpatialUpscale( frame );
-        if ( !m_TargetFramebuffer ||
-             ( !spatial && ( frame.Method == TemporalMethod::None || !m_TemporalUpscaler ) ) )
+        // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and above
+        // 100 % the fixed SSAA downsample after the temporal method, or alone without one (TemporalUpscaler.hpp
+        // WHERE IT RUNS).
+        const bool spatial     = IsSpatialUpscale( frame );
+        const bool supersample = frame.Split.Mode == Common::Scalability::ScaleMode::Supersample;
+        const bool temporal    = frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr;
+        if ( !m_TargetFramebuffer || ( !spatial && !supersample && !temporal ) )
             return {};
         // Every refusal below renders the frame WITHOUT the resolve and says so by name: an invalid set, so the
         // caller post-processes the scene colour and draws the overlays into the scene target.
@@ -1574,9 +1577,9 @@ namespace Desert::Graphic
         if ( const Common::BoolResultStr prepared = m_PopulateSceneDepth->Prepare(); !prepared )
             return withoutTemporal( prepared.GetError() );
         // Registered every frame the method runs: EndFrame reads which Current a fault lost. The spatial upscale
-        // has no history.
+        // and the SSAA downsample have no history.
         const std::vector<HistoryRefs> histories =
-             spatial ? std::vector<HistoryRefs>{} : m_ViewState.History().Register( graph );
+             temporal ? m_ViewState.History().Register( graph ) : std::vector<HistoryRefs>{};
         const TemporalUpscalerInputs inputs{
              .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
              .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
@@ -1595,11 +1598,25 @@ namespace Desert::Graphic
         }
         else
         {
-            const Common::ResultStr<TemporalUpscalerOutputs> added =
-                 m_TemporalUpscaler->AddPasses( graph, frame, inputs );
-            if ( !added )
-                return withoutTemporal( added.GetError() );
-            resolvedColor = added.GetValue().SceneColor;
+            resolvedColor = inputs.SceneColor;
+            if ( temporal )
+            {
+                const Common::ResultStr<TemporalUpscalerOutputs> added =
+                     m_TemporalUpscaler->AddPasses( graph, frame, inputs );
+                if ( !added )
+                    return withoutTemporal( added.GetError() );
+                resolvedColor = added.GetValue().SceneColor;
+            }
+            // Above 100 % the temporal output is at RenderExtent; the downsample brings it to OutputExtent, where the
+            // overlay target set and the post chain are.
+            if ( supersample )
+            {
+                const Common::ResultStr<RDG::TextureRef> downsampled =
+                     m_SupersampleResolve.AddPasses( graph, frame, resolvedColor );
+                if ( !downsampled )
+                    return withoutTemporal( downsampled.GetError() );
+                resolvedColor = downsampled.GetValue();
+            }
         }
         // The post sharpen (Resolution.Sharpness) on the resolved colour, outside the history.
         const int sharpness = m_Quality.As<int>( Common::Scalability::Parameter::UpscalerSharpness );
