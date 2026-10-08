@@ -25,12 +25,12 @@ namespace Desert::Assets
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
-        bool IsReadyForUse() const override
+        [[nodiscard]] bool IsReadyForUse() const override
         {
             return m_Ready;
         }
 
-        const Destruction::FractureData& GetFracture() const
+        [[nodiscard]] const Destruction::FractureData& GetFracture() const
         {
             return m_Fracture;
         }

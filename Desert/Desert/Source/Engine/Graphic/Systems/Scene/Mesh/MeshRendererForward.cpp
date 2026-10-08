@@ -1307,7 +1307,6 @@ namespace Desert::Graphic::System
                 }
             }
         }
-        return;
     }
 
     void MeshRenderer::BuildSkinnedDraws( const bool useLoadPass, MeshDrawList& list )
@@ -1454,7 +1453,6 @@ namespace Desert::Graphic::System
                             } } );
             }
         }
-        return;
     }
 
     void MeshRenderer::DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )

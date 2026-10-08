@@ -141,7 +141,7 @@ namespace Desert::Graphic
              { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); },
              [expand]( RDG::PassBuilder& pass, RDG::TextureRef depth )
              {
-                 if ( expand )
+                 if ( expand != nullptr )
                      expand->DeclareBindings( pass, depth );
              },
              [expand]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -347,7 +347,7 @@ namespace Desert::Graphic
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
         DeferredShadowInput shadow;
-        if ( meshRenderer )
+        if ( meshRenderer != nullptr )
         {
             shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
             shadow.Count                = meshRenderer->GetValidCascadeCount();
@@ -364,19 +364,19 @@ namespace Desert::Graphic
                 environment.Look = env->Look;
                 if ( env->IrradianceMap.IsValid() )
                     environment.Irradiance =
-                         static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
+                         dynamic_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
                 if ( env->PreFilteredMap.IsValid() )
                     environment.Prefiltered =
-                         static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
+                         dynamic_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
             }
             if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
                  brdf && brdf->GetImageHandle().IsValid() )
-                environment.BrdfLut = static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
+                environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =
-             UNIQUE_GET_AS( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] );
+             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
         // "Upload: Lights.Point" / "Upload: Lights.Spot", ordered before the Composite that reads them.
         const System::DeferredCompositeLights lights =
              System::DeferredLightingRenderer::UploadLights( graph, GetPointLights(), GetSpotLights() );

@@ -110,7 +110,7 @@ namespace Desert::Destruction
                                                            settings.MaxSleepTime.x, settings.MaxSleepTime.y ) );
 
         const std::vector<FractureNode>& nodes = data->Nodes;
-        const int32_t                    count = static_cast<int32_t>( nodes.size() );
+        const auto                       count = static_cast<int32_t>( nodes.size() );
         if ( nodes[0].Parent != -1 )
             return Common::MakeError<Result>(
                  std::format( "node 0 has parent {}: it must be the root", nodes[0].Parent ) );
@@ -169,7 +169,7 @@ namespace Desert::Destruction
                 }
 
         object.Data                = std::move( data );
-        const uint32_t objectIndex = static_cast<uint32_t>( m_Objects.size() );
+        const auto objectIndex     = static_cast<uint32_t>( m_Objects.size() );
         m_Objects.push_back( std::move( object ) );
 
         auto spawned = SpawnBody( objectIndex, { 0 }, desc.Position, desc.Rotation, glm::vec3( 0.0f ),
@@ -210,14 +210,14 @@ namespace Desert::Destruction
                                                      { return b.Handle != Physics::kInvalidBody; } ) );
     }
 
-    std::vector<int32_t> DestructionWorld::UnitsOf( const Object& object, const BodyState& body ) const
+    std::vector<int32_t> DestructionWorld::UnitsOf( const Object& object, const BodyState& body )
     {
         if ( body.Members.size() == 1u )
             return object.Nodes[body.Members[0]].Children;
         return body.Members;
     }
 
-    int32_t DestructionWorld::UnitOfLeaf( const Object& object, const BodyState& body, int32_t leaf ) const
+    int32_t DestructionWorld::UnitOfLeaf( const Object& object, const BodyState& body, int32_t leaf )
     {
         const int32_t unitParent =
              body.Members.size() == 1u ? body.Members[0] : object.Nodes[body.Members[0]].Parent;
@@ -229,7 +229,7 @@ namespace Desert::Destruction
         return unit;
     }
 
-    glm::dvec3 DestructionWorld::CenterOfMass( const Object& object, const std::vector<int32_t>& members ) const
+    glm::dvec3 DestructionWorld::CenterOfMass( const Object& object, const std::vector<int32_t>& members )
     {
         glm::dvec3 sum( 0.0 );
         double     volume = 0.0;
@@ -244,9 +244,15 @@ namespace Desert::Destruction
 
     void DestructionWorld::AssignBody( Object& object, int32_t node, int32_t body )
     {
-        object.Nodes[node].Body = body;
-        for ( const int32_t child : object.Nodes[node].Children )
-            AssignBody( object, child, body );
+        std::vector<int32_t> pending{ node };
+        while ( !pending.empty() )
+        {
+            const int32_t current = pending.back();
+            pending.pop_back();
+            object.Nodes[current].Body       = body;
+            const std::vector<int32_t>& kids = object.Nodes[current].Children;
+            pending.insert( pending.end(), kids.begin(), kids.end() );
+        }
     }
 
     Common::ResultStr<uint32_t> DestructionWorld::SpawnBody( uint32_t objectIndex, std::vector<int32_t> members,
@@ -462,13 +468,13 @@ namespace Desert::Destruction
                     break;
                 // The impulse then acts on the bodies the break left (the pieces, not the whole that was).
                 acted = 0u;
-                for ( uint32_t o = 0; o < m_Objects.size(); ++o )
-                    for ( const BodyState& body : m_Objects[o].Bodies )
+                for ( const Object& obj : m_Objects )
+                    for ( const BodyState& body : obj.Bodies )
                     {
                         if ( body.Handle == Physics::kInvalidBody || body.Static )
                             continue;
-                        const glm::vec3 j = Evaluate(
-                             command.Vector, WorldPoint( body, CenterOfMass( m_Objects[o], body.Members ) ) );
+                        const glm::vec3 j =
+                             Evaluate( command.Vector, WorldPoint( body, CenterOfMass( obj, body.Members ) ) );
                         if ( !( glm::length( j ) > 0.0f ) )
                             continue;
                         m_Physics.AddImpulse( body.Handle, j );
@@ -537,6 +543,7 @@ namespace Desert::Destruction
 
         // The units left behind, grouped by connectivity (UE bCreateNewClusters).
         std::vector<std::vector<int32_t>> groups;
+        groups.reserve( released.size() );
         for ( const int32_t unit : released )
             groups.push_back( { unit } );
         {

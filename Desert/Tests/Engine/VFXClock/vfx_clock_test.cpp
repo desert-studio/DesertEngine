@@ -160,6 +160,7 @@ TEST( VFXClock, ALongSeekIsSpreadOverTicksAndSaysSo )
 
     clock.SeekTo( 2.0 ); // 120 steps
     std::vector<Record> plans;
+    plans.reserve( 3 );
     for ( int i = 0; i < 3; ++i )
         plans.push_back( Of( clock.Advance( kStep ) ) );
 

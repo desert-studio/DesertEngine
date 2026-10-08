@@ -21,6 +21,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <format>
 
 namespace Desert::Graphic::Render2D
@@ -212,6 +213,13 @@ namespace Desert::Graphic::Render2D
 
     namespace
     {
+        // A draw command's Texture is the opaque id of an engine Image2D (DrawList2D.hpp): the id is the image's
+        // address, so decoding it gives the image the material binds.
+        Image2D* ImageOfTextureId( const void* id )
+        {
+            return std::bit_cast<Image2D*>( id );
+        }
+
         // The glass draw's push block: projection, the rect in ITS OWN space, its corner radius, the blur LOD,
         // 1/viewport (the shader maps gl_FragCoord into the snapshot with it) and the two rows that map a screen
         // fragment back into that own space. 128 bytes, the engine's push-block cap.
@@ -297,7 +305,7 @@ namespace Desert::Graphic::Render2D
             resolved.Layout   = &m_GlassLayout;
             return resolved;
         }
-        if ( cmd.Material )
+        if ( cmd.Material != nullptr )
         {
             // A UI-DOMAIN MATERIAL FILL. The batch carries the resolved entry the canvas walk got from
             // UIMaterialCache::Resolve - never null, and never null-and-meaning-fine: a handle the UI path cannot
@@ -306,7 +314,7 @@ namespace Desert::Graphic::Render2D
             // per-draw decision made here, so setup (DeclareInto) and Flush agree, never the whole node's fault.
             const auto* entry = m_MaterialCache.DrawableOrDefault(
                  static_cast<const UIMaterialCache::Entry*>( cmd.Material ), m_Projection );
-            if ( !entry || !entry->Pipeline || !entry->Material )
+            if ( entry == nullptr || !entry->Pipeline || !entry->Material )
                 return resolved;
             resolved.Kind     = CommandKind::Material;
             resolved.Pipeline = entry->Pipeline.get();
@@ -315,24 +323,23 @@ namespace Desert::Graphic::Render2D
             resolved.Layout   = &entry->Layout;
             return resolved;
         }
-        MaterialExecutor* exec;
+        MaterialExecutor* exec = nullptr;
         if ( cmd.Text )
         {
             // Text always carries a valid font-atlas texture; route it to the SDF pipeline.
             exec              = ExecutorFor( m_TextExecutors, m_TextShader, "u_SDFAtlas", cmd.Texture,
-                                             const_cast<Image2D*>( static_cast<const Image2D*>( cmd.Texture ) ) );
+                                             ImageOfTextureId( cmd.Texture ) );
             resolved.Pipeline = m_TextPipeline.get();
             resolved.Layout   = &m_TextLayout;
         }
         else
         {
-            Image2D* img =
-                 cmd.Texture ? const_cast<Image2D*>( static_cast<const Image2D*>( cmd.Texture ) ) : m_WhiteImage;
+            Image2D* img      = cmd.Texture != nullptr ? ImageOfTextureId( cmd.Texture ) : m_WhiteImage;
             exec              = ExecutorFor( m_Executors, m_Shader, "u_Texture", cmd.Texture, img );
             resolved.Pipeline = m_Pipeline.get();
             resolved.Layout   = &m_PlainLayout;
         }
-        if ( !exec )
+        if ( exec == nullptr )
             return ResolvedCommand{};
         resolved.Kind     = CommandKind::Plain;
         resolved.Plain    = exec;
@@ -407,7 +414,7 @@ namespace Desert::Graphic::Render2D
             // PrepareDraw, the one place - it also validated exactly this block).
             if ( resolved.Kind != CommandKind::Material )
             {
-                resolved.Plain->PushConstant( &m_Projection, (uint32_t)sizeof( glm::mat4 ) );
+                resolved.Plain->PushConstant( &m_Projection, static_cast<uint32_t>( sizeof( glm::mat4 ) ) );
             }
             declared.Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
                                resolved.Executor->GetRouteFill() );
@@ -534,8 +541,8 @@ namespace Desert::Graphic::Render2D
                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                 }
                 const Common::BoolResultStr drawn =
-                     renderer.DrawIndexed( bindings, *resolved.Pipeline, resolved.Plain, *m_VertexBuffer,
-                                           *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
+                     Renderer::DrawIndexed( bindings, *resolved.Pipeline, resolved.Plain, *m_VertexBuffer,
+                                            *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
                 if ( !drawn.IsSuccess() && failure.IsSuccess() )
                 {
                     failure = Common::MakeError(
@@ -569,8 +576,8 @@ namespace Desert::Graphic::Render2D
                 RDG::PassBindings bindings( context, context.GetBindingBlock( index ) );
                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                 const Common::BoolResultStr drawn =
-                     renderer.DrawIndexed( bindings, *resolved.Pipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
-                                           cmd.IndexCount, cmd.IndexOffset );
+                     Renderer::DrawIndexed( bindings, *resolved.Pipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
+                                            cmd.IndexCount, cmd.IndexOffset );
                 if ( !drawn.IsSuccess() && failure.IsSuccess() )
                     failure = Common::MakeError( std::format( kGlassPanelNotDrawnFormat, drawn.GetError() ) );
                 usedBackdrop = true;
@@ -580,7 +587,7 @@ namespace Desert::Graphic::Render2D
             // A UI material's row / push matrix / index and a 2D batch's projection were filled in the setup
             // (DeclareBindings); the exec only clips and draws.
             ApplyScissor( cmd );
-            const Common::BoolResultStr drawn = renderer.DrawIndexed(
+            const Common::BoolResultStr drawn = Renderer::DrawIndexed(
                  RDG::PassBindings( context, context.GetBindingBlock( index ) ), *resolved.Pipeline,
                  resolved.Executor, *m_VertexBuffer, *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
             if ( !drawn.IsSuccess() && failure.IsSuccess() )

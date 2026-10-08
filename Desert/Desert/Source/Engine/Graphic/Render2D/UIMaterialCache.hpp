@@ -135,7 +135,7 @@ namespace Desert::Graphic::Render2D
         // the row's fault, else the error of RDG::ValidatePassBindings on exactly the block Render2D::DeclareInto
         // declares (the entry's kept layout + its executor's route fill). The ONE place a UI material draw is
         // prepared, so the fallback and the setup refusal cannot disagree.
-        std::string PrepareDraw( const Entry& entry, const glm::mat4& projection );
+        static std::string PrepareDraw( const Entry& entry, const glm::mat4& projection );
 
         std::shared_ptr<Framebuffer>                   m_Target;
         std::unordered_map<Assets::AssetHandle, Entry> m_Entries;

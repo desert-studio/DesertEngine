@@ -263,7 +263,7 @@ namespace Desert::Graphic::System
         if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline )
             return BOOLSUCCESS;
         // Through the block DeclareOverdrawResolve declared.
-        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_OverdrawResolvePipeline,
                                                        m_OverdrawResolveMaterial->GetMaterialExecutor() );
     }

@@ -111,13 +111,13 @@ namespace Desert::Assets::Serialization
         VFXValueType   Type   = VFXValueType::Float;
         VFXInputSource Source = VFXInputSource::Value;
         /// Source == Value.
-        std::optional<glm::vec4> Value;
+        std::optional<glm::vec4> Value{};
         /// Source == Curve: one channel per component of Type, each sorted by Time.
-        std::optional<std::vector<std::vector<VFXCurveKey>>> Curve;
+        std::optional<std::vector<std::vector<VFXCurveKey>>> Curve{};
         /// Source == Binding: "User.<param>" (a UserParams row of the same Type) or "Particles.<attribute>".
-        std::optional<std::string> Binding;
+        std::optional<std::string> Binding{};
         /// Source == Random.
-        std::optional<VFXRandomRange> Random;
+        std::optional<VFXRandomRange> Random{};
 
         [[nodiscard]] bool operator==( const VFXModuleInput& ) const = default;
     };

@@ -28,7 +28,7 @@ namespace
         for ( const auto& F : Faces )
         {
             glm::dvec3 FaceCenter( 0 );
-            for ( int v : F )
+            for ( const int v : F )
                 FaceCenter += 0.25 * Mesh.GetVertex( v );
             const glm::dvec3 Out = FaceCenter - Center;
             for ( const auto [a, b, c] : { std::array{ F[0], F[1], F[2] }, std::array{ F[0], F[2], F[3] } } )
@@ -193,7 +193,7 @@ namespace
 
     TEST( FractureFormat, ANullGuidIsRefused )
     {
-        FractureData d;
+        const FractureData d{};
         EXPECT_FALSE( EncodeFracture( d ) );
     }
 } // namespace

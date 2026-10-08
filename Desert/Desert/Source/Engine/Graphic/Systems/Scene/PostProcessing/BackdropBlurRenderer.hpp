@@ -80,7 +80,7 @@ namespace Desert::Graphic::System
             if ( !m_DownsamplePipeline )
                 return; // RecordDownsample refuses by name
             auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
-                                        Renderer::GetInstance().GetPipelineRouteFill( *m_DownsamplePipeline ) );
+                                        Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
             if ( mip == 0 )
             {
                 block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),

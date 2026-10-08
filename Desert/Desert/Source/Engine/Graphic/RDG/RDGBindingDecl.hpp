@@ -73,7 +73,7 @@ namespace Desert::Graphic::RDG
         }
 
         // One value per distinct description: the key of the backend's sampler cache.
-        constexpr uint32_t GetKey() const
+        [[nodiscard]] constexpr uint32_t GetKey() const
         {
             return static_cast<uint32_t>( MinFilter ) | ( static_cast<uint32_t>( MagFilter ) << 2 ) |
                    ( static_cast<uint32_t>( MipMode ) << 4 ) | ( static_cast<uint32_t>( AddressU ) << 6 ) |
@@ -105,7 +105,7 @@ namespace Desert::Graphic::RDG
     struct ShaderBindingLayout
     {
         std::string             ShaderName;            // what an error names: the shader's own name
-        std::vector<ShaderSlot> Slots;                 // every resource slot the shader declares
+        std::vector<ShaderSlot> Slots{};               // every resource slot the shader declares
         uint32_t                PushConstantBytes = 0; // the declared range; 0 = the shader declares none
     };
 

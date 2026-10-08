@@ -311,30 +311,39 @@ namespace Desert::Graphic::RDG
     void Builder::SetFaultDefault( TextureRef texture, FaultDefault value )
     {
         const ResourceRecord* record = FindResource( texture.Index, ResourceKind::Texture );
-        if ( !record || record->IsExternal() )
-            return RecordError( std::format( "graph '{}': SetFaultDefault of handle {}, which is not a transient "
-                                             "texture of this graph",
-                                             m_Name, texture.Index ) );
+        if ( record == nullptr || record->IsExternal() )
+        {
+            RecordError( std::format( "graph '{}': SetFaultDefault of handle {}, which is not a transient "
+                                      "texture of this graph",
+                                      m_Name, texture.Index ) );
+            return;
+        }
         m_Resources[texture.Index].Default = value;
     }
 
     void Builder::SetFaultPolicy( TextureRef external, ExternalFaultPolicy policy )
     {
         const ResourceRecord* record = FindResource( external.Index, ResourceKind::Texture );
-        if ( !record || !record->IsExternal() )
-            return RecordError( std::format( "graph '{}': SetFaultPolicy of texture handle {}, which is not an "
-                                             "external of this graph",
-                                             m_Name, external.Index ) );
+        if ( record == nullptr || !record->IsExternal() )
+        {
+            RecordError( std::format( "graph '{}': SetFaultPolicy of texture handle {}, which is not an "
+                                      "external of this graph",
+                                      m_Name, external.Index ) );
+            return;
+        }
         m_Resources[external.Index].Policy = policy;
     }
 
     void Builder::SetFaultPolicy( BufferRef external, ExternalFaultPolicy policy )
     {
         const ResourceRecord* record = FindResource( external.Index, ResourceKind::Buffer );
-        if ( !record || !record->IsExternal() )
-            return RecordError( std::format( "graph '{}': SetFaultPolicy of buffer handle {}, which is not an "
-                                             "external of this graph",
-                                             m_Name, external.Index ) );
+        if ( record == nullptr || !record->IsExternal() )
+        {
+            RecordError( std::format( "graph '{}': SetFaultPolicy of buffer handle {}, which is not an "
+                                      "external of this graph",
+                                      m_Name, external.Index ) );
+            return;
+        }
         m_Resources[external.Index].Policy = policy;
     }
 
@@ -845,7 +854,8 @@ namespace Desert::Graphic::RDG
             FrameFault fault{ std::move( reason ), {}, std::move( roots ) };
             for ( uint32_t r = 0; r < m_Resources.size(); ++r )
             {
-                if ( m_Resources[r].ExternalTex && m_Resources[r].Policy == ExternalFaultPolicy::FrameFatal )
+                if ( m_Resources[r].ExternalTex != nullptr &&
+                     m_Resources[r].Policy == ExternalFaultPolicy::FrameFatal )
                     fault.Externals.push_back( MakeFrameFaultExternal( r ) );
             }
             m_Report.Frame = std::move( fault );
@@ -951,7 +961,9 @@ namespace Desert::Graphic::RDG
                 const uint32_t        source     = record.Kind == ResourceKind::Texture && !record.IsExternal()
                                                         ? m_FaultDefaults.GetSource( record.Default )
                                                         : kInvalidResource;
-                bool                  attachment = false, sampled = false, other = false;
+                bool                  attachment = false;
+                bool                  sampled    = false;
+                bool                  other      = false;
                 for ( const ResourceUse& use : m_Passes[p].Uses )
                 {
                     if ( use.Resource != edge.Resource )
@@ -1079,13 +1091,15 @@ namespace Desert::Graphic::RDG
 
         // An external whose every writer this frame was lost late: FrameFatal ends the frame (after EndGraph
         // below, so the graph's command buffers stay well formed), InvalidateHistory is listed for its owner.
-        std::vector<uint32_t> lateFatal, lateRoots;
+        std::vector<uint32_t> lateFatal;
+        std::vector<uint32_t> lateRoots;
         for ( uint32_t r = 0; r < m_Resources.size(); ++r )
         {
             const ResourceRecord& record = m_Resources[r];
             if ( !record.IsExternal() || record.Policy == ExternalFaultPolicy::KeepsContents )
                 continue;
-            bool                  anyWriter = false, anySurvivor = false;
+            bool                  anyWriter   = false;
+            bool                  anySurvivor = false;
             std::vector<uint32_t> roots;
             for ( const CompiledPass& compiledPass : result.Passes )
             {

@@ -526,8 +526,10 @@ TEST( ShaderReflection, APushBlockOfExactlyTheCapIsAccepted )
     ShaderResource::ReflectionData data;
     const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
     ASSERT_TRUE( diagnostics.empty() ) << FirstOr( diagnostics, "" );
-    ASSERT_TRUE( data.PushConstantRanges.has_value() );
-    EXPECT_EQ( data.PushConstantRanges->Size, Desert::ShaderResources::ShaderLayout::kMaxPushConstantBytes );
+    const auto& pushRanges = data.PushConstantRanges;
+    if ( !pushRanges.has_value() )
+        FAIL() << "the stage reflects no push-constant range";
+    EXPECT_EQ( pushRanges->Size, Desert::ShaderResources::ShaderLayout::kMaxPushConstantBytes );
 }
 
 TEST( ShaderReflection, A132BytePushBlockIsRefusedByNameAndSize )

@@ -355,7 +355,7 @@ namespace Desert::Core::Formats
 
         // A program fragment of either kind (medium or particle): the metadata is the whole of it and no
         // stage is compiled for it.
-        bool IsFragmentProgram() const
+        [[nodiscard]] bool IsFragmentProgram() const
         {
             return IsMediumProgram() || !ParticleSource.empty();
         }

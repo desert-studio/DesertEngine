@@ -179,7 +179,7 @@ namespace Desert::Graphic::System
         // scene update; this view only turns them into dispatches. No clock is read here.
         const VFX::VFXWorld& world        = scene.GetVFXWorld();
         const auto&          clock        = world.GetClock().GetSettings();
-        const float          stepSeconds  = static_cast<float>( clock.StepSeconds );
+        const auto           stepSeconds  = static_cast<float>( clock.StepSeconds );
         const uint32_t       stepCapacity = std::max( clock.MaxStepsPerTick, clock.MaxSeekStepsPerTick );
 
         const auto& reg  = scene.GetRegistry();
@@ -195,7 +195,7 @@ namespace Desert::Graphic::System
 
                  // An emitter added after this update's VFX tick joins on the next one.
                  const VFX::EmitterInstance* instance = world.FindEmitter( static_cast<uint64_t>( id.UUID ) );
-                 if ( !instance )
+                 if ( instance == nullptr )
                      return;
 
                  const auto  entityId = static_cast<uint32_t>( entity );
@@ -331,12 +331,12 @@ namespace Desert::Graphic::System
 
     void ParticleRenderer::ImportSimulationBuffers( RDG::Builder& graph )
     {
-        auto& renderer = Renderer::GetInstance();
         for ( size_t i = 0; i < m_FrameEmitters.size(); ++i )
         {
             FrameEmitter& fe                      = m_FrameEmitters[i];
             fe.Declared                           = false;
-            const Common::BoolResultStr particles = renderer.ImportBuffer( fe.Gpu->Particles, fe.ParticlesImport );
+            const Common::BoolResultStr particles =
+                 Renderer::ImportBuffer( fe.Gpu->Particles, fe.ParticlesImport );
             if ( !particles )
             {
                 LOG_ERROR( "[Particles] emitter {} sits out this frame, its state buffer is not in the frame "
@@ -344,7 +344,7 @@ namespace Desert::Graphic::System
                            i, particles.GetError() );
                 continue;
             }
-            const Common::BoolResultStr steps = renderer.ImportBuffer( fe.Gpu->Steps, fe.StepsImport );
+            const Common::BoolResultStr steps = Renderer::ImportBuffer( fe.Gpu->Steps, fe.StepsImport );
             if ( !steps )
             {
                 LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table is not in the frame "
@@ -367,7 +367,7 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( fe, step ) )
                 continue; // Simulate skips it the same way
-            pass.Bindings( layout, Renderer::GetInstance().GetPipelineRouteFill( *m_SimPipeline ) )
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_SimPipeline ) )
                  .Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageWrite )
                  .Storage( "StepTable", fe.StepsRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( SimPush ) ) );
@@ -377,7 +377,7 @@ namespace Desert::Graphic::System
     bool ParticleRenderer::IsDrawn( const FrameEmitter& fe )
     {
         // An emitter the graph was not told about is neither simulated nor drawn.
-        return fe.Declared && fe.Gpu && fe.Gpu->Particles && fe.Gpu->Material;
+        return fe.Declared && fe.Gpu != nullptr && fe.Gpu->Particles && fe.Gpu->Material;
     }
 
     GraphicsPipeline* ParticleRenderer::BillboardPipeline( const FrameEmitter& fe ) const
@@ -412,7 +412,7 @@ namespace Desert::Graphic::System
                                    return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
                                // The Declare below filled this emitter's material and declared its block (the
                                // integrated state, StorageRead): the n-th drawn emitter opens block n.
-                               RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+                               const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
                                if ( auto drawn = renderer.DrawProcedural(
                                          bindings, *pipeline, fe.Gpu->Material->GetMaterialExecutor(),
                                          static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u, 1 );
@@ -432,8 +432,8 @@ namespace Desert::Graphic::System
             // block against that fill before anything is recorded, so it is filled here and never in the exec.
             // Each emitter fills ITS OWN material: a shared one routed every emitter through one descriptor set,
             // written at most once per frame - so every emitter after the first drew the first one's buffer.
-            const auto camera = m_SceneRenderer->GetMainCamera();
-            if ( !camera )
+            auto* const camera = m_SceneRenderer->GetMainCamera();
+            if ( camera == nullptr )
                 return; // the exec draws nothing either
             for ( const FrameEmitter& fe : m_FrameEmitters )
             {

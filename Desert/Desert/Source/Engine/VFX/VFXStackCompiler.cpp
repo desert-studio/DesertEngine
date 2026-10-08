@@ -170,7 +170,7 @@ namespace Desert::VFX
 
         Common::ResultStr<std::string> ReadText( const std::filesystem::path& path )
         {
-            std::ifstream in( path, std::ios::binary );
+            const std::ifstream in( path, std::ios::binary );
             if ( !in )
                 return Common::MakeFormattedError<std::string>( "cannot read '{}'", path.string() );
             std::ostringstream out;
@@ -457,6 +457,7 @@ namespace Desert::VFX
 
         // 2. The layout (sorted by name: one stack, one layout, whatever order the modules declared them in).
         std::vector<VFXModuleDecl> variables;
+        variables.reserve( attributes.size() );
         for ( const auto& [name, type] : attributes )
             variables.push_back( { name, type } );
         VFXCompiledEmitter compiled;
@@ -646,31 +647,44 @@ namespace Desert::VFX
                         in = &x;
             const bool random =
                  slot.SlotKind == VFXParamSlot::Kind::RandomMin || slot.SlotKind == VFXParamSlot::Kind::RandomMax;
-            const bool curve   = slot.SlotKind == VFXParamSlot::Kind::Curve;
-            const bool present = in != nullptr && ( random  ? in->Random.has_value()
-                                                    : curve ? in->Curve.has_value()
-                                                            : in->Value.has_value() );
-            if ( !present )
+            const bool curve = slot.SlotKind == VFXParamSlot::Kind::Curve;
+            const auto gone  = [&]
+            {
                 return Common::MakeFormattedError<Result>(
                      "slot {}: emitter '{}' {} module {} input '{}' is gone or "
                      "changed source - recompile the stack",
                      s, emitter.Name, GroupName( slot.Group ), slot.Module, slot.Input );
+            };
+            if ( in == nullptr )
+                return gone();
             if ( curve )
             {
+                const auto& channels = in->Curve;
+                if ( !channels.has_value() )
+                    return gone();
                 const VFXCurveLUTEntry* entry =
                      curves.Find( VFXCurveRef{ emitterIndex, slot.Group, slot.Module, slot.Input } );
-                if ( entry == nullptr || entry->Channels != in->Curve->size() )
+                if ( entry == nullptr || entry->Channels != channels->size() )
                     return Common::MakeFormattedError<Result>(
                          "slot {}: emitter '{}' {} module {} input '{}' has no table in the curve atlas - rebuild "
                          "the atlas",
                          s, emitter.Name, GroupName( slot.Group ), slot.Module, slot.Input );
                 rows.push_back( CurveParamRow( *entry ) );
             }
-            else if ( !random )
-                rows.push_back( *in->Value );
+            else if ( random )
+            {
+                const auto& range = in->Random;
+                if ( !range.has_value() )
+                    return gone();
+                rows.push_back( slot.SlotKind == VFXParamSlot::Kind::RandomMin ? range->Min : range->Max );
+            }
             else
-                rows.push_back( slot.SlotKind == VFXParamSlot::Kind::RandomMin ? in->Random->Min
-                                                                               : in->Random->Max );
+            {
+                const auto& value = in->Value;
+                if ( !value.has_value() )
+                    return gone();
+                rows.push_back( *value );
+            }
         }
         return Common::MakeSuccess( std::move( rows ) );
     }

@@ -981,7 +981,7 @@ TEST( Pak, AnArchiveFromAnEarlierVersionIsRefusedByItsNumber )
         const fs::path pak = dir / std::format( "old{}.dpak", digit );
         Spit( pak, ArchiveWithMagicDigit( dir, digit ) );
 
-        Common::Utils::PakReader reader( pak );
+        const Common::Utils::PakReader reader( pak );
         EXPECT_FALSE( reader.IsOpen() ) << digit;
         const std::string& why = reader.OpenError();
         EXPECT_NE( why.find( std::format( "version {}", digit ) ), std::string::npos ) << why;

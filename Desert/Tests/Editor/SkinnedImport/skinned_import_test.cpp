@@ -14,7 +14,6 @@
 //    CreateAssetsFromImport, by the registry's write journal), and the record states Kind = SkinnedMesh.
 
 #include <Editor/Import/CookPaths.hpp>
-#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
 #include <Editor/Import/ImportedAssetSource.hpp>
 #include <Editor/Import/MaterialAdoption.hpp>
@@ -913,9 +912,13 @@ TEST_F( InstancedNodeImport, EveryNodeOfASharedMeshIsItsOwnMesh )
     EXPECT_EQ( outcome.WrittenMeshes.size(), 3u ) << "three nodes place the one mesh, so the split writes three";
     const auto record = Ser::ReadImportRecord( m_Lamps );
     ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
-    ASSERT_TRUE( record.GetValue().has_value() );
-    ASSERT_TRUE( record.GetValue()->Nodes.has_value() );
-    EXPECT_EQ( *record.GetValue()->Nodes, ( std::vector<std::string>{ "LampA", "LampB", "LampC" } ) );
+    const auto& imported = record.GetValue();
+    if ( !imported.has_value() )
+        FAIL() << "the import wrote no record";
+    const auto& nodes = imported->Nodes;
+    if ( !nodes.has_value() )
+        FAIL() << "the record names no nodes";
+    EXPECT_EQ( *nodes, ( std::vector<std::string>{ "LampA", "LampB", "LampC" } ) );
 }
 
 TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
@@ -934,9 +937,11 @@ TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
     ASSERT_EQ( mesh.Triangles.size(), 9u ) << "one triangle per node";
 
     // Each triangle's centroid and its first edge (the authored +X edge), in cm.
-    const auto at = [&]( int index ) {
-        return glm::vec3( mesh.Positions[3 * index], mesh.Positions[3 * index + 1],
-                          mesh.Positions[3 * index + 2] );
+    const auto at = [&]( int index )
+    {
+        return glm::vec3( mesh.Positions[3 * static_cast<std::size_t>( index )],
+                          mesh.Positions[3 * static_cast<std::size_t>( index ) + 1],
+                          mesh.Positions[3 * static_cast<std::size_t>( index ) + 2] );
     };
     std::vector<glm::vec3> centre;
     std::vector<glm::vec3> edge;

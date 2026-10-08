@@ -227,11 +227,11 @@ namespace Desert::Editor
 
         // Whatever fails from here on, the scene stays in Play: Stop restores the authored level only from a
         // world that is not in Edit, and a half-travelled world is still the game's, never the document's.
-        const auto stayInPlay = [&]( std::string error ) -> Common::BoolResultStr
+        const auto stayInPlay = [&]( const std::string& error ) -> Common::BoolResultStr
         {
             scene->SetState( SceneState::Play );
             m_Workspace.ActiveSceneReplaced();
-            return Common::MakeError( std::move( error ) );
+            return Common::MakeError( error );
         };
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path ); !loaded )

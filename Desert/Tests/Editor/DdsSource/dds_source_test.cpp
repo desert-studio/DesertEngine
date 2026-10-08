@@ -21,8 +21,10 @@ namespace
 
     constexpr uint32_t FourCC( char a, char b, char c, char d )
     {
-        return uint32_t( uint8_t( a ) ) | ( uint32_t( uint8_t( b ) ) << 8 ) | ( uint32_t( uint8_t( c ) ) << 16 ) |
-               ( uint32_t( uint8_t( d ) ) << 24 );
+        return static_cast<uint32_t>( static_cast<uint8_t>( a ) ) |
+               ( static_cast<uint32_t>( static_cast<uint8_t>( b ) ) << 8 ) |
+               ( static_cast<uint32_t>( static_cast<uint8_t>( c ) ) << 16 ) |
+               ( static_cast<uint32_t>( static_cast<uint8_t>( d ) ) << 24 );
     }
 
     void Put( std::vector<unsigned char>& out, std::size_t at, uint32_t v )
@@ -115,7 +117,7 @@ TEST( DdsSource, Bc7Mode6FromTheDx10Header )
     ASSERT_TRUE( r.IsSuccess() ) << r.GetError();
     const auto img = r.ExtractValue();
     EXPECT_EQ( img.Format, "BC7_UNORM_SRGB (DX10)" );
-    for ( unsigned char c : img.Rgba8 )
+    for ( const unsigned char c : img.Rgba8 )
         EXPECT_EQ( c, 255 );
 }
 

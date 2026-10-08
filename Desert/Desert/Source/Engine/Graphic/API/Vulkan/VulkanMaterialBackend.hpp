@@ -62,7 +62,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         /** The shader's reload generation at the moment those sets were allocated. */
-        uint64_t GetShaderGeneration() const
+        [[nodiscard]] uint64_t GetShaderGeneration() const
         {
             return m_ShaderGeneration;
         }

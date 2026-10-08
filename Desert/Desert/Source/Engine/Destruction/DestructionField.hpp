@@ -150,7 +150,7 @@ namespace Desert::Destruction
     struct FieldCommand
     {
         FieldPhysicsType Type = FieldPhysicsType::ExternalStrain;
-        ScalarField      Scalar; ///< ExternalStrain, Kill, Anchor
-        VectorField      Vector; ///< Impulse
+        ScalarField      Scalar{}; ///< ExternalStrain, Kill, Anchor
+        VectorField      Vector{}; ///< Impulse
     };
 } // namespace Desert::Destruction

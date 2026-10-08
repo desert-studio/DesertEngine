@@ -83,9 +83,9 @@ namespace Desert::Graphic::RDG
         void SetSources( TextureRef black, TextureRef white, TextureRef blackCube );
 
         // The resource index @p value names; kInvalidResource for None or before SetSources.
-        uint32_t GetSource( FaultDefault value ) const;
+        [[nodiscard]] uint32_t GetSource( FaultDefault value ) const;
         // True when every non-None value has a source (a graph that declares a FaultDefault needs this).
-        bool HasSources() const;
+        [[nodiscard]] bool HasSources() const;
 
         // Black 0,0,0,1; White 1,1,1,1; BlackCube 0,0,0,1. None has no clear (its readers are culled): returns the
         // Black clear, never asked for None by the graph.
@@ -193,8 +193,8 @@ namespace Desert::Graphic::RDG
                          const ExecuteReport& report );
 
         // Faults currently remembered (logged and not yet recovered), over every graph.
-        uint32_t GetActiveCount() const;
-        uint32_t GetLinesLogged() const;
+        [[nodiscard]] uint32_t GetActiveCount() const;
+        [[nodiscard]] uint32_t GetLinesLogged() const;
 
     private:
         Sink m_Sink;

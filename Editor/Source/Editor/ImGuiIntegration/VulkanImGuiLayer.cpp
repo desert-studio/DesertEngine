@@ -319,7 +319,7 @@ namespace Desert::Graphic::API::Vulkan
         graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
         // Its faults are logged by the graph backend, its own failures by ExecuteGraph; a FrameFault presents
         // black, and the detached windows below draw either way.
-        (void)renderer.ExecuteGraph( graph );
+        (void)::Desert::Graphic::Renderer::ExecuteGraph( graph );
 
         // THE BOUNDARY OF THE FRAME'S GRAPH. The detached platform windows below are OS windows the ImGui
         // backend owns, each with its own swapchain, render pass, command buffers, submit and present — they are

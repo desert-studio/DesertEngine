@@ -89,7 +89,7 @@ namespace Desert::VFX
                 }
             }
         // The offset travels as a float component of the parameter row: exact only below 2^24.
-        if ( atlas.Floats.size() > ( std::size_t( 1 ) << 24 ) )
+        if ( atlas.Floats.size() > ( static_cast<std::size_t>( 1 ) << 24 ) )
             return Common::MakeFormattedError<VFXCurveAtlas>(
                  "the system's curve atlas is {} floats; a curve offset is exact only below 2^24",
                  atlas.Floats.size() );
@@ -106,14 +106,14 @@ namespace Desert::VFX
     {
         // GetCurveLUTIndices (NiagaraDataInterfaceCurveTemplate.ush): saturate the normalised time, then the two
         // neighbouring samples and the fraction between them.
-        const float    last  = static_cast<float>( entry.Samples - 1 );
+        const auto     last  = static_cast<float>( entry.Samples - 1 );
         const float    x     = std::clamp( ( time - entry.MinTime ) * entry.InvTimeRange, 0.0f, 1.0f ) * last;
         const float    a     = std::floor( x );
         const float    b     = std::min( a + 1.0f, last );
         const float    f     = x - a;
         const uint32_t ia    = entry.Offset + static_cast<uint32_t>( a ) * entry.Channels;
         const uint32_t ib    = entry.Offset + static_cast<uint32_t>( b ) * entry.Channels;
-        glm::vec4      value = glm::vec4( 0.0f );
+        auto           value = glm::vec4( 0.0f );
         for ( uint32_t c = 0; c < entry.Channels && c < 4; ++c )
             value[static_cast<int>( c )] = std::lerp( atlas[ia + c], atlas[ib + c], f );
         return value;

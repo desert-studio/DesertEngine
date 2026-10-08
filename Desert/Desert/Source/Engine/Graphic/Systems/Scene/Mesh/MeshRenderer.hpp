@@ -63,7 +63,7 @@ namespace Desert::Graphic::System
             // The per-draw material state the draw records with (transform push constant, material row, bone
             // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
             // order as before the split. Empty: the draw has none.
-            std::function<void()> BindState;
+            std::function<void()> BindState{};
         };
 
         // THE frame's draw list of one lit mesh node. The material (hence shader and route fill) of every draw is

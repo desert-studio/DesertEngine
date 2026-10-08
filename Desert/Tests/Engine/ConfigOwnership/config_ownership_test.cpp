@@ -1392,25 +1392,29 @@ namespace
     bool HasOverride( const Migrated& m, Parameter parameter, int value )
     {
         const Common::Scalability::ParameterOverride wanted{ KeyOf( parameter ), value };
-        const auto&                                  overrides = m.Settings.Quality->Overrides;
+        const auto&                                  quality = m.Settings.Quality;
+        if ( !quality.has_value() )
+            return false;
+        const auto& overrides = quality->Overrides;
         return std::find( overrides.begin(), overrides.end(), wanted ) != overrides.end();
     }
 
     // The one override the migration wrote, or none.
     void ExpectOnly( const Migrated& m, std::optional<Common::Scalability::ParameterOverride> expected )
     {
-        ASSERT_TRUE( m.Settings.Quality.has_value() )
-             << "a migrated file must hold the selection it migrated into";
-        EXPECT_EQ( m.Settings.Quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
+        const auto& quality = m.Settings.Quality;
+        if ( !quality.has_value() )
+            FAIL() << "a migrated file must hold the selection it migrated into";
+        EXPECT_EQ( quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
         EXPECT_TRUE( m.Settings.UnknownKeys.empty() ) << "a retired key was carried into the next save";
         if ( !expected )
         {
-            EXPECT_TRUE( m.Settings.Quality->Overrides.empty() );
+            EXPECT_TRUE( quality->Overrides.empty() );
             EXPECT_EQ( m.Report.Overrides, 0 );
             return;
         }
-        ASSERT_EQ( m.Settings.Quality->Overrides.size(), 1u );
-        EXPECT_EQ( m.Settings.Quality->Overrides[0], *expected );
+        ASSERT_EQ( quality->Overrides.size(), 1u );
+        EXPECT_EQ( quality->Overrides[0], *expected );
         EXPECT_EQ( m.Report.Overrides, 1 );
     }
 
@@ -1464,9 +1468,9 @@ TEST( ConfigOwnership, RetiredAnisotropyBecomesTheAnisotropyOverride )
 TEST( ConfigOwnership, RetiredMeshLODBecomesTheMeshLODOverride )
 {
     const int high = HighOf( Parameter::MeshLOD );
-    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high ? "false" : "true" ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::MeshLOD ), high ? 0 : 1 } );
-    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high ? "true" : "false" ) ), std::nullopt );
+    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high != 0 ? "false" : "true" ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::MeshLOD ), high != 0 ? 0 : 1 } );
+    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high != 0 ? "true" : "false" ) ), std::nullopt );
 }
 
 TEST( ConfigOwnership, RetiredCloudQualityTierBecomesTheCloudOverride )
@@ -1588,7 +1592,7 @@ TEST( ConfigOwnership, AnUntouchedDefaultFileMigratesWithZeroOverrides )
                     R"("CloudQualityTier":"{}"}})",
          MethodName( HighOf( Parameter::AntiAliasingMethod ) ), HighOf( Parameter::AntiAliasingSamples ),
          kFilters[HighOf( Parameter::TextureFilter )], HighOf( Parameter::Anisotropy ),
-         HighOf( Parameter::MeshLOD ) ? "true" : "false", kClouds[HighOf( Parameter::CloudQuality )] );
+         HighOf( Parameter::MeshLOD ) != 0 ? "true" : "false", kClouds[HighOf( Parameter::CloudQuality )] );
     const auto m = Migrate( raw );
     EXPECT_EQ( m.Report.KeysMoved, 6 );
     ExpectOnly( m, std::nullopt );

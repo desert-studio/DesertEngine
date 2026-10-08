@@ -80,11 +80,11 @@ namespace Desert::Destruction
             {
             }
 
-            bool Failed() const
+            [[nodiscard]] bool Failed() const
             {
                 return m_Failed;
             }
-            size_t Remaining() const
+            [[nodiscard]] size_t Remaining() const
             {
                 return m_Bytes.size() - m_At;
             }
@@ -128,7 +128,9 @@ namespace Desert::Destruction
             }
             glm::dvec3 D3()
             {
-                const double x = F64(), y = F64(), z = F64();
+                const double x = F64();
+                const double y = F64();
+                const double z = F64();
                 return { x, y, z };
             }
             /// A count of records of @p recordBytes each, refused when the payload cannot hold them.
@@ -312,7 +314,9 @@ namespace Desert::Destruction
             n.HullVertices.resize( r.Count( 12 ) );
             for ( glm::vec3& v : n.HullVertices )
             {
-                const float x = r.F32(), y = r.F32(), z = r.F32();
+                const float x = r.F32();
+                const float y = r.F32();
+                const float z = r.F32();
                 v = { x, y, z };
             }
             n.HullFaces.resize( r.Count( 4 ) );

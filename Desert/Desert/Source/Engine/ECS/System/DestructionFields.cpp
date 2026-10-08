@@ -61,6 +61,6 @@ namespace Desert::ECS
         if ( !fired )
             return Common::MakeError<uint32_t>( "the entity has no field component (RadialImpulseField, "
                                                 "StrainField, KillField or AnchorField)" );
-        return Common::MakeSuccess( std::move( acted ) );
+        return Common::MakeSuccess( acted );
     }
 } // namespace Desert::ECS

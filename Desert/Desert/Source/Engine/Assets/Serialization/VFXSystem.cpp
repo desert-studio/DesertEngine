@@ -5,6 +5,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <set>
@@ -49,9 +50,10 @@ namespace Desert::Assets::Serialization
             const std::string what = std::format( "{} input '{}'", where, in.Name );
             if ( in.Name.empty() )
                 return Common::MakeFormattedError<bool>( "{} input has an empty Name", where );
-            const bool value = in.Source == VFXInputSource::Value, curve = in.Source == VFXInputSource::Curve,
-                       binding = in.Source == VFXInputSource::Binding,
-                       random  = in.Source == VFXInputSource::Random;
+            const bool value   = in.Source == VFXInputSource::Value;
+            const bool curve   = in.Source == VFXInputSource::Curve;
+            const bool binding = in.Source == VFXInputSource::Binding;
+            const bool random  = in.Source == VFXInputSource::Random;
             if ( in.Value.has_value() != value || in.Curve.has_value() != curve ||
                  in.Binding.has_value() != binding || in.Random.has_value() != random )
                 return Common::MakeFormattedError<bool>(
@@ -235,10 +237,7 @@ namespace Desert::Assets::Serialization
 
     bool VFXCategoryRegister::Contains( const std::string_view id ) const
     {
-        for ( const VFXCategory& c : Categories )
-            if ( c.Id == id )
-                return true;
-        return false;
+        return std::ranges::any_of( Categories, [id]( const VFXCategory& c ) { return c.Id == id; } );
     }
 
     Common::ResultStr<VFXCategoryRegister> ReadVFXCategories( const std::filesystem::path& path )

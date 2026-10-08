@@ -1467,7 +1467,7 @@ namespace Desert::Core::Preprocess
             if ( !lowerAt( i, "domain" ) )
                 continue;
             size_t j = i + 6;
-            while ( j < source.size() && std::isspace( static_cast<unsigned char>( source[j] ) ) )
+            while ( j < source.size() && std::isspace( static_cast<unsigned char>( source[j] ) ) != 0 )
                 ++j;
             if ( j > i + 6 && lowerAt( j, "particle" ) )
                 return true;

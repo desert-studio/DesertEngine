@@ -243,10 +243,11 @@ namespace Common::Settings
     {
         if ( settings.Quality )
             return { *settings.Quality, false };
-        if ( Scalability::CacheValid( settings.Recommended, device ) )
+        if ( const auto& cached = settings.Recommended;
+             cached.has_value() && Scalability::CacheValid( cached, device ) )
         {
             Scalability::QualitySelection recommended;
-            recommended.Levels = settings.Recommended->Levels;
+            recommended.Levels = cached->Levels;
             return { std::move( recommended ), true };
         }
         return { HighSelection(), false };

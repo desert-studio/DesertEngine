@@ -83,9 +83,11 @@ TEST( VFXSystemFormat, RoundTripKeepsEveryField )
     auto parsed = ParseVFXSystem( WriteVFXSystem( Campfire() ), Register() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     VFXSystemData read = parsed.GetValue();
-    ASSERT_TRUE( read.Header.has_value() );
-    EXPECT_EQ( read.Header->Kind, "VFXSystem" );
-    EXPECT_FALSE( read.Header->Guid.empty() );
+    const auto&   header = read.Header;
+    if ( !header.has_value() )
+        FAIL() << "the read file carries no header";
+    EXPECT_EQ( header->Kind, "VFXSystem" );
+    EXPECT_FALSE( header->Guid.empty() );
     read.Header.reset();
     EXPECT_EQ( read, Campfire() );
 }
@@ -98,7 +100,11 @@ TEST( VFXSystemFormat, GuidIsKeptWhenTheFileIsWrittenAgain )
     edited.Seed          = 99;
     auto again           = ParseVFXSystem( WriteVFXSystem( edited ), Register() );
     ASSERT_TRUE( again ) << again.GetError();
-    EXPECT_EQ( again.GetValue().Header->Guid, first.GetValue().Header->Guid );
+    const auto& againHeader = again.GetValue().Header;
+    const auto& firstHeader = first.GetValue().Header;
+    if ( !againHeader.has_value() || !firstHeader.has_value() )
+        FAIL() << "a parsed file carries no header";
+    EXPECT_EQ( againHeader->Guid, firstHeader->Guid );
     EXPECT_EQ( again.GetValue().Seed, 99u );
 }
 
@@ -126,7 +132,10 @@ TEST( VFXSystemFormat, RefusesWhatNoStageCouldHonour )
     EXPECT_NE( Refusal( d ), "<accepted>" ) << "two sources on one input";
 
     d = Campfire();
-    d.Emitters[0].Stack.ParticleUpdate[0].Inputs[0].Curve->pop_back();
+    auto& updateCurve = d.Emitters[0].Stack.ParticleUpdate[0].Inputs[0].Curve;
+    if ( !updateCurve.has_value() )
+        FAIL() << "Campfire's scale input carries no curve";
+    updateCurve->pop_back();
     EXPECT_NE( Refusal( d ), "<accepted>" ) << "a Vec2 curve needs two channels";
 
     d = Campfire();

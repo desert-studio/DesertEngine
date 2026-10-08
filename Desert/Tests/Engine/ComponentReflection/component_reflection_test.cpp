@@ -809,10 +809,14 @@ TEST( VolumetricCloudPayload, TheSunColourAndThePerSampleGateAgreeOnEveryCombina
     // Opaque handles: AtmosphereEnv holds them as forward-declared pointers and the packer only ever
     // tests them against null, so a distinct non-null address is a complete stand-in for a real image.
     // Empty-owner aliases: non-null handles that own nothing, so the stand-in addresses are never deleted.
-    const std::shared_ptr<Desert::Graphic::Image2D> lut( std::shared_ptr<Desert::Graphic::Image2D>{},
-                                                         reinterpret_cast<Desert::Graphic::Image2D*>( 0x1000 ) );
+    int                                             lutToken      = 0;
+    int                                             skyLightToken = 0;
+    const std::shared_ptr<Desert::Graphic::Image2D> lut(
+         std::shared_ptr<Desert::Graphic::Image2D>{},
+         static_cast<Desert::Graphic::Image2D*>( static_cast<void*>( &lutToken ) ) );
     const std::shared_ptr<Desert::Graphic::Image2D> skyLight(
-         std::shared_ptr<Desert::Graphic::Image2D>{}, reinterpret_cast<Desert::Graphic::Image2D*>( 0x2000 ) );
+         std::shared_ptr<Desert::Graphic::Image2D>{},
+         static_cast<Desert::Graphic::Image2D*>( static_cast<void*>( &skyLightToken ) ) );
 
     // Three visibly different sun quantities, so an assertion below cannot pass by two of them colliding.
     const glm::vec3 outerSpace( 8.0f, 7.0f, 6.0f );

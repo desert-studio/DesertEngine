@@ -1622,7 +1622,7 @@ namespace Desert::Graphic::RDG
             return Common::MakeError<CompileResult>( m_DeclarationError );
 
         Compiler compiler( *this, memory, pipes );
-        if ( Common::BoolResultStr defaults = compiler.ValidateFaultDefaults(); !defaults )
+        if ( const Common::BoolResultStr defaults = compiler.ValidateFaultDefaults(); !defaults )
             return Common::MakeError<CompileResult>( defaults.GetError() );
         compiler.FaultMalformedPasses();
         compiler.FoldPassUses();

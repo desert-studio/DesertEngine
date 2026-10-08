@@ -159,8 +159,10 @@ TEST( LevelTravel, AMissingLevelIsRefusedWithItsPathAndNothingIsQueued )
          << refused.GetError();
 
     // The travel already queued is the one still queued: a refusal is not a fallback.
-    ASSERT_TRUE( Travel::Get().Pending().has_value() );
-    EXPECT_EQ( *Travel::Get().Pending(), Abs( dir, "Content/Scenes/Arena.desce" ) );
+    const auto pending = Travel::Get().Pending();
+    if ( !pending.has_value() )
+        FAIL() << "the queued travel is gone";
+    EXPECT_EQ( *pending, Abs( dir, "Content/Scenes/Arena.desce" ) );
 }
 
 TEST( LevelTravel, AnEmptyNameIsTheProjectsDefaultMap )

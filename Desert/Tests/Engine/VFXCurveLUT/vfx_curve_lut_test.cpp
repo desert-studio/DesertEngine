@@ -41,8 +41,9 @@ namespace
         for ( int i = 0; i <= 4000; ++i )
         {
             const float t = static_cast<float>( i ) / 4000.0f;
-            worst         = std::max( worst, std::abs( VFX::SampleCurveLUT( atlas, entry, t )[channel] -
-                                                       VFX::EvaluateCurve( channels[channel], t ) ) );
+            worst         = std::max(
+                 worst, std::abs( VFX::SampleCurveLUT( atlas, entry, t )[static_cast<glm::length_t>( channel )] -
+                                          VFX::EvaluateCurve( channels[channel], t ) ) );
         }
         return worst;
     }
@@ -147,7 +148,8 @@ TEST( VFXCurveLUT, TheAtlasHoldsEveryEnabledParticleCurveAtItsOwnOffset )
     value.Value = glm::vec4( 3.0f );
 
     S::VFXSystemData  system;
-    S::VFXEmitterData a, b;
+    S::VFXEmitterData a;
+    S::VFXEmitterData b;
     a.Stack.ParticleSpawn.push_back(
          { "engine:A",
            true,

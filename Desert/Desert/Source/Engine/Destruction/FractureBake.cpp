@@ -46,7 +46,9 @@ namespace Desert::Destruction
         // assumed, so the two can never disagree.
         double OutwardSign()
         {
-            const glm::dvec3 a( 0, 0, 0 ), b( 1, 0, 0 ), c( 0, 1, 0 );
+            const glm::dvec3 a( 0, 0, 0 );
+            const glm::dvec3 b( 1, 0, 0 );
+            const glm::dvec3 c( 0, 1, 0 );
             return glm::dot( Geometry::VectorUtil::Normal( a, b, c ), glm::cross( b - a, c - a ) ) > 0 ? 1.0
                                                                                                        : -1.0;
         }
@@ -64,7 +66,9 @@ namespace Desert::Destruction
             glm::dvec3     moment( 0.0 );
             for ( const int t : mesh.TriangleIndicesItr() )
             {
-                glm::dvec3 a, b, c;
+                glm::dvec3 a;
+                glm::dvec3 b;
+                glm::dvec3 c;
                 mesh.GetTriVertices( t, a, b, c );
                 const double v = sign * glm::dot( a, glm::cross( b, c ) ) / 6.0;
                 out.Volume += v;
@@ -116,7 +120,8 @@ namespace Desert::Destruction
                                                                      index + 1 );
                     break;
                 case FractureMethod::Brick:
-                    if ( !( level.Brick.Length > 0.0 && level.Brick.Height > 0.0 && level.Brick.Depth > 0.0 ) )
+                    if ( !( level.Brick.Length > 0.0 ) || !( level.Brick.Height > 0.0 ) ||
+                         !( level.Brick.Depth > 0.0 ) )
                         return Common::MakeFormattedError<bool>(
                              "level {}: Brick sizes must be positive, not {} x {} x {} cm", index + 1,
                              level.Brick.Length, level.Brick.Height, level.Brick.Depth );
@@ -184,7 +189,9 @@ namespace Desert::Destruction
 
                 for ( size_t k = 1; k + 1 < face.size(); ++k )
                 {
-                    int        a = face[0], b = face[k], c = face[k + 1];
+                    const int  a = face[0];
+                    const int  b = face[k];
+                    const int  c = face[k + 1];
                     glm::dvec3 n =
                          Geometry::VectorUtil::Normal( cell.Vertices[a], cell.Vertices[b], cell.Vertices[c] );
                     if ( glm::dot( n, outward ) < 0.0 )
@@ -201,8 +208,14 @@ namespace Desert::Destruction
 
                     // Box projection: drop the dominant axis of the face normal.
                     const glm::dvec3 an    = glm::abs( n );
-                    const int        drop  = ( an.x >= an.y && an.x >= an.z ) ? 0 : ( an.y >= an.z ? 1 : 2 );
-                    const int        uAxis = ( drop + 1 ) % 3, vAxis = ( drop + 2 ) % 3;
+                    const int        drop  = [&an]
+                    {
+                        if ( an.x >= an.y && an.x >= an.z )
+                            return 0;
+                        return an.y >= an.z ? 1 : 2;
+                    }();
+                    const int        uAxis      = ( drop + 1 ) % 3;
+                    const int        vAxis      = ( drop + 2 ) % 3;
                     const int        corners[3] = { a, b, c };
 
                     for ( int layer = 0; layer < attributes.NumUVLayers(); ++layer )
@@ -228,15 +241,15 @@ namespace Desert::Destruction
                     {
                         auto* overlay = attributes.GetNormalLayer( layer );
                         int   e[3];
-                        for ( int i = 0; i < 3; ++i )
-                            e[i] = overlay->AppendElement( glm::vec3( frame[layer] ) );
+                        for ( int& element : e )
+                            element = overlay->AppendElement( glm::vec3( frame[layer] ) );
                         overlay->SetTriangle( tid, Index3i( e[0], e[1], e[2] ) );
                     }
                     if ( auto* colors = attributes.PrimaryColors() )
                     {
                         int e[3];
-                        for ( int i = 0; i < 3; ++i )
-                            e[i] = colors->AppendElement( glm::vec4( 1.0f ) );
+                        for ( int& element : e )
+                            element = colors->AppendElement( glm::vec4( 1.0f ) );
                         colors->SetTriangle( tid, Index3i( e[0], e[1], e[2] ) );
                     }
                 }
@@ -290,7 +303,7 @@ namespace Desert::Destruction
                             keep[static_cast<size_t>( t )] = 1;
                         DynamicMesh3 trimmed( cut );
                         for ( const int t : all )
-                            if ( !keep[static_cast<size_t>( t )] )
+                            if ( keep[static_cast<size_t>( t )] == 0 )
                                 trimmed.RemoveTriangle( t );
                         island.CompactCopy( trimmed );
                     }
@@ -330,7 +343,7 @@ namespace Desert::Destruction
             if ( result != JPH::ConvexHullBuilder::EResult::Success &&
                  result != JPH::ConvexHullBuilder::EResult::MaxVerticesReached )
                 return Common::MakeFormattedError<bool>( "the convex hull of a {}-vertex piece failed: {}",
-                                                         positions.size(), error ? error : "?" );
+                                                         positions.size(), error != nullptr ? error : "?" );
 
             std::map<int, int> remap;
             for ( const JPH::ConvexHullBuilder::Face* face : builder.GetFaces() )
@@ -445,7 +458,7 @@ namespace Desert::Destruction
         for ( size_t li = 0; li < settings.Levels.size(); ++li )
         {
             const FractureLevelSettings& level = settings.Levels[li];
-            const uint32_t               depth = static_cast<uint32_t>( li + 1 );
+            const auto                   depth = static_cast<uint32_t>( li + 1 );
             std::vector<int32_t>         next;
             for ( const int32_t parent : frontier )
             {
@@ -521,6 +534,7 @@ namespace Desert::Destruction
                             sites.push_back( glm::mix( pb.Min, pb.Max,
                                                        ( glm::dvec3( x, y, z ) + 0.5 ) / glm::dvec3( grid ) ) );
                 std::vector<glm::dvec3> centres;
+                centres.reserve( children.size() );
                 for ( const int32_t c : children )
                     centres.push_back(
                          0.5 * ( bounds[static_cast<size_t>( c )].Min + bounds[static_cast<size_t>( c )].Max ) );
@@ -539,7 +553,7 @@ namespace Desert::Destruction
                     cluster.Parent          = static_cast<int32_t>( parent );
                     cluster.Kind            = FractureNodeKind::Cluster;
                     cluster.DamageThreshold = nodes[static_cast<size_t>( group[0] )].DamageThreshold;
-                    const int32_t id        = static_cast<int32_t>( nodes.size() );
+                    const auto id           = static_cast<int32_t>( nodes.size() );
                     nodes.push_back( std::move( cluster ) );
                     meshes.emplace_back();
                     for ( const int32_t c : group )
@@ -566,7 +580,7 @@ namespace Desert::Destruction
         result.Nodes.resize( order.size() );
         for ( size_t k = 0; k < order.size(); ++k )
         {
-            const size_t  old  = static_cast<size_t>( order[k] );
+            const auto    old  = static_cast<size_t>( order[k] );
             FractureNode& node = result.Nodes[k];
             node               = std::move( nodes[old] );
             node.Parent        = node.Parent < 0 ? -1 : newIndex[static_cast<size_t>( node.Parent )];

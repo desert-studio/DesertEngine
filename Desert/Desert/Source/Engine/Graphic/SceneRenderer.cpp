@@ -989,7 +989,7 @@ namespace Desert::Graphic
 
         // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
         // the final image black for this frame.
-        (void)Renderer::GetInstance().ExecuteGraph( graph );
+        (void)Renderer::ExecuteGraph( graph );
         textures.ResetInvalidatedHistories();
     }
 

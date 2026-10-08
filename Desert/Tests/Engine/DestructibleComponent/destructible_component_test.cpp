@@ -28,7 +28,8 @@ namespace
         leaf.Volume          = static_cast<double>( size.x ) * size.y * size.z;
         leaf.CenterOfMass    = glm::dvec3( ( lo + hi ) * 0.5f );
         for ( int i = 0; i < 8; ++i )
-            leaf.HullVertices.emplace_back( i & 1 ? hi.x : lo.x, i & 2 ? hi.y : lo.y, i & 4 ? hi.z : lo.z );
+            leaf.HullVertices.emplace_back( ( i & 1 ) != 0 ? hi.x : lo.x, ( i & 2 ) != 0 ? hi.y : lo.y,
+                                            ( i & 4 ) != 0 ? hi.z : lo.z );
         leaf.HullFaces = { { 0, 4, 6, 2 }, { 1, 3, 7, 5 }, { 0, 1, 5, 4 },
                            { 2, 6, 7, 3 }, { 0, 2, 3, 1 }, { 4, 5, 7, 6 } };
         return leaf;

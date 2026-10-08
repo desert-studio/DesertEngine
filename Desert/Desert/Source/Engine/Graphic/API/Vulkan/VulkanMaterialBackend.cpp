@@ -20,13 +20,13 @@
 namespace Desert::Graphic::API::Vulkan
 {
     VulkanMaterialBackend::VulkanMaterialBackend( const std::shared_ptr<Shader>& shader )
-         : MaterialBackend( shader ), m_VulkanShader( SP_CAST( VulkanShader, shader ) )
+         : MaterialBackend( shader ), m_VulkanShader( SP_CAST( VulkanShader, shader ) ),
+           m_ShaderGeneration( m_VulkanShader->GetCodeGeneration() )
     {
         // Captured ONCE, and kept. Every set this backend allocates below belongs to these layouts for
         // as long as the backend lives, so a recompile of the shader cannot leave the sets pointing at
         // a contract that no longer exists — see VulkanDescriptorSetLayout.hpp.
-        m_Layouts          = m_VulkanShader->GetAllDescriptorSetLayouts();
-        m_ShaderGeneration = m_VulkanShader->GetCodeGeneration();
+        m_Layouts = m_VulkanShader->GetAllDescriptorSetLayouts();
 
         // A SHADER WITH NO LAYOUTS HAS NOTHING TO ALLOCATE FOR, AND ASKING ANYWAY IS TWENTY VALIDATION
         // ERRORS. That is what a shader whose first compile failed carries: no stages, so no reflection,

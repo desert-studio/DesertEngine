@@ -429,7 +429,7 @@ namespace Desert::Graphic::System
             // @p layout is the one kept for @p pipeline (keyed on its shader, not re-derived per frame).
             pipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
             auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
-                                            Renderer::GetInstance().GetPipelineRouteFill( *pipeline ) );
+                                            Renderer::GetPipelineRouteFill( *pipeline ) );
             block.PushConstantBytes( pushBytes );
             return block;
         };

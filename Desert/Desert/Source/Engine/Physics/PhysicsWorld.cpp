@@ -274,7 +274,7 @@ namespace Desert::Physics
             if ( shape->GetType() != JPH::EShapeType::Compound )
                 return 0u;
             JPH::SubShapeID remainder;
-            return static_cast<const JPH::CompoundShape*>( shape )->GetSubShapeIndexFromID( id, remainder );
+            return JPH::StaticCast<JPH::CompoundShape>( shape )->GetSubShapeIndexFromID( id, remainder );
         }
 
         // Jolt keeps a contact's solved impulse to itself (ContactConstraintManager), so the impulse is
@@ -492,9 +492,14 @@ namespace Desert::Physics
             return Common::MakeError<BodyHandle>( std::format( "Jolt refused the compound of {} parts: {}",
                                                                desc.Parts.size(), result.GetError() ) );
 
-        const auto                motion = desc.Type == BodyType::Dynamic     ? JPH::EMotionType::Dynamic
-                                           : desc.Type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
-                                                                              : JPH::EMotionType::Static;
+        const auto motion = [&desc]
+        {
+            if ( desc.Type == BodyType::Dynamic )
+                return JPH::EMotionType::Dynamic;
+            if ( desc.Type == BodyType::Kinematic )
+                return JPH::EMotionType::Kinematic;
+            return JPH::EMotionType::Static;
+        }();
         const JPH::ObjectLayer    layer  = desc.Type == BodyType::Static ? Layers::NON_MOVING : Layers::MOVING;
         JPH::BodyCreationSettings settings( result.Get(),
                                             JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),

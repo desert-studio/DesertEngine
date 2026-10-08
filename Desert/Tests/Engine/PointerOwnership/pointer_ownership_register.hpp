@@ -2034,7 +2034,7 @@ namespace Desert::Tests::PointerCensus
           "the registry is a member of the Scene that owns the PhysicsECSSystem that owns this; Attach re-points it every frame and Detach disconnects through it while it is alive (PhysicsBodyLifetime's shape)" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanGpuBenchmark.cpp",
           "Pass", "Name", Guard::StaticStorage,
-          "a string literal (\"Alu\", \"Bandwidth\") in the benchmark's local pass table" },
+          R"(a string literal ("Alu", "Bandwidth") in the benchmark's local pass table)" },
         { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
           "ResolvedCommand", "Retained", Guard::FrameScoped,
           "Render2D::ResolvedCommand: &m_Retained[cmd] taken by Resolve in the setup and read by that frame's Flush; m_Retained is a member of this Render2D, an unordered_map whose nodes do not move, and it is cleared only by BeginFrame in the same call that Resets m_Prepared, so no prepared command outlives its entry" },

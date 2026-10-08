@@ -128,7 +128,7 @@ namespace Desert::Graphic::System
         // THE BUDGET, TAKEN AND HELD. Read before the first Setup* because SetupShadowPass allocates from it;
         // from here on only RebudgetShadows may change it (a Shadows quality change), and holding a copy is
         // what makes that true rather than a rule somebody has to keep.
-        TakeShadowBudget( m_SceneRenderer ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{} );
+        TakeShadowBudget( m_SceneRenderer != nullptr ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{} );
 
         if ( !SetupGeometryPass() )
             return Common::MakeError( "Failed to setup static geometry pass" );
@@ -225,11 +225,14 @@ namespace Desert::Graphic::System
             if ( command.Pipeline == nullptr || command.Mesh == nullptr || command.Material == nullptr ||
                  !command.Material->GetShader() )
             {
-                Fail( std::format( "mesh draw refused: no {}", command.Pipeline == nullptr ? "pipeline"
-                                                               : command.Mesh == nullptr   ? "mesh"
-                                                               : command.Material == nullptr
-                                                                    ? "material"
-                                                                    : "material shader" ) );
+                const char* missing = "material shader";
+                if ( command.Pipeline == nullptr )
+                    missing = "pipeline";
+                else if ( command.Mesh == nullptr )
+                    missing = "mesh";
+                else if ( command.Material == nullptr )
+                    missing = "material";
+                Fail( std::format( "mesh draw refused: no {}", missing ) );
                 return;
             }
             const Shader* recordedWith = command.Pipeline->GetSpecification().Shader.get();
@@ -315,7 +318,7 @@ namespace Desert::Graphic::System
                 {
                     draw.BindState();
                 }
-                if ( auto drawn = Renderer::GetInstance().RenderMesh(
+                if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
                           draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
                      !drawn.IsSuccess() )

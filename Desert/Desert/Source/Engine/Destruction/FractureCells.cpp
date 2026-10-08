@@ -56,7 +56,7 @@ namespace Desert::Destruction
                     std::reverse( face.begin(), face.end() );
                 out.Faces.push_back( std::move( face ) );
             }
-            if ( neighbors )
+            if ( neighbors != nullptr )
                 out.Neighbors = *neighbors;
             else
                 out.Neighbors.assign( out.Faces.size(), -1 );
@@ -126,7 +126,9 @@ namespace Desert::Destruction
         std::vector<ConvexCell> cells;
         if ( sites.empty() )
             return cells;
-        int nx = 1, ny = 1, nz = 1;
+        int nx = 1;
+        int ny = 1;
+        int nz = 1;
         GuessOptimalGrid( static_cast<int>( sites.size() ), bounds.Max - bounds.Min, nx, ny, nz );
         voro::container container( bounds.Min.x, bounds.Max.x, bounds.Min.y, bounds.Max.y, bounds.Min.z,
                                    bounds.Max.z, nx, ny, nz, false, false, false, 8 );
@@ -144,7 +146,9 @@ namespace Desert::Destruction
             {
                 if ( !container.compute_cell( cell, loop ) )
                     continue;
-                double x = 0, y = 0, z = 0;
+                double x = 0;
+                double y = 0;
+                double z = 0;
                 loop.pos( x, y, z );
                 std::vector<int> neighbors;
                 cell.neighbors( neighbors );
@@ -208,10 +212,10 @@ namespace Desert::Destruction
             {
                 for ( double xx = 0.0; xx <= extents.x; xx += dim.x )
                 {
-                    const bool       shifted = settings.Bond == BrickBond::Stretcher ? ( oddLine ^ oddY ) : oddY;
+                    const bool       shifted = settings.Bond == BrickBond::Stretcher ? ( oddLine != oddY ) : oddY;
                     const glm::dvec3 centre  = bounds.Min + glm::dvec3( shifted ? xx : xx + half.x, yy, zz );
-                    CellBounds       brick{ glm::max( centre - half, bounds.Min ),
-                                      glm::min( centre + half, bounds.Max ) };
+                    const CellBounds brick{ glm::max( centre - half, bounds.Min ),
+                                            glm::min( centre + half, bounds.Max ) };
                     if ( brick.Max.x - brick.Min.x <= 1e-9 || brick.Max.y - brick.Min.y <= 1e-9 ||
                          brick.Max.z - brick.Min.z <= 1e-9 )
                         continue;

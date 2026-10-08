@@ -168,7 +168,7 @@ namespace
              parsed.GetValue().Meta.ParticleSource );
 
         const auto              path = VFX::EngineModuleDir() / "Gravity.shader";
-        shaderc::Compiler       compiler;
+        const shaderc::Compiler compiler;
         shaderc::CompileOptions options;
         options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
@@ -191,7 +191,7 @@ namespace
 TEST( VFXStackCompile, AnEngineModuleParsesIntoDeclarationsAndBody )
 {
     const auto         path = VFX::EngineModuleDir() / "Gravity.shader";
-    std::ifstream      in( path );
+    const std::ifstream in( path );
     std::ostringstream text;
     text << in.rdbuf();
     const auto module = VFX::ParseParticleModule( text.str(), path.string() );
@@ -231,6 +231,7 @@ TEST( VFXStackCompile, TheStackDerivesItsAttributesSortedByName )
 {
     const auto               compiled = Compile( Sparks() );
     std::vector<std::string> names;
+    names.reserve( compiled.Layout.Attributes.size() );
     for ( const auto& a : compiled.Layout.Attributes )
         names.push_back( a.Name );
     // Init + Gravity + Solve + UpdateAge declarations, plus Position from the Particles.Position binding.
@@ -398,7 +399,10 @@ TEST( VFXStackCompile, ACurveInputIsALUTRowAndItsKeysAreNotInTheText )
     EXPECT_NE( before.Layout.Find( "Age" ), nullptr );
 
     // New key values, same program; and Value -> Curve is a structural change that moves it.
-    system.Emitters[0].Stack.ParticleUpdate[0].Inputs[0].Curve->at( 2 ).at( 1 ).Value = -5.0f;
+    auto& updateCurve = system.Emitters[0].Stack.ParticleUpdate[0].Inputs[0].Curve;
+    if ( !updateCurve.has_value() )
+        FAIL() << "the update input carries no curve";
+    updateCurve->at( 2 ).at( 1 ).Value                                                = -5.0f;
     const auto after                                                                  = Compile( system );
     EXPECT_EQ( after.ShaderText, before.ShaderText );
     EXPECT_EQ( after.Key, before.Key );
@@ -453,7 +457,7 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
 
     for ( const auto& path : paths )
     {
-        std::ifstream      in( path );
+        const std::ifstream in( path );
         std::ostringstream text;
         text << in.rdbuf();
         const auto module = VFX::ParseParticleModule( text.str(), path.string() );
@@ -520,7 +524,7 @@ TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
     for ( const Row& row : rows )
     {
         const auto         path = VFX::EngineModuleDir() / std::format( "{}.shader", row.Module );
-        std::ifstream      in( path );
+        const std::ifstream in( path );
         std::ostringstream text;
         text << in.rdbuf();
         const auto module = VFX::ParseParticleModule( text.str(), path.string() );

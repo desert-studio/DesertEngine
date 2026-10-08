@@ -418,7 +418,7 @@ namespace Common::Utils
             if ( magicRead == 4 && std::memcmp( magic, kMagicPrefix, 3 ) == 0 && magic[3] >= '0' &&
                  magic[3] <= '9' )
             {
-                const uint32_t version = static_cast<uint32_t>( magic[3] - '0' );
+                const auto version = static_cast<uint32_t>( magic[3] - '0' );
                 m_OpenError = fmt::format( "this is a version {} archive ({}) and this build reads only version "
                                            "{} (\"DPK3\") — {} (the file is {} bytes)",
                                            version, QuoteMagic( magic, magicRead ), kFormatVersion,

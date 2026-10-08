@@ -175,11 +175,11 @@ namespace Desert::Destruction
                                                const glm::vec3& position, const glm::quat& rotation,
                                                const glm::vec3& linear, const glm::vec3& angular, bool broken );
         void                        DestroyBody( uint32_t objectIndex, uint32_t bodyIndex );
-        void                        AssignBody( Object& object, int32_t node, int32_t body );
+        static void                 AssignBody( Object& object, int32_t node, int32_t body );
 
-        [[nodiscard]] std::vector<int32_t> UnitsOf( const Object& object, const BodyState& body ) const;
-        [[nodiscard]] int32_t    UnitOfLeaf( const Object& object, const BodyState& body, int32_t leaf ) const;
-        [[nodiscard]] glm::dvec3 CenterOfMass( const Object& object, const std::vector<int32_t>& members ) const;
+        [[nodiscard]] static std::vector<int32_t> UnitsOf( const Object& object, const BodyState& body );
+        [[nodiscard]] static int32_t    UnitOfLeaf( const Object& object, const BodyState& body, int32_t leaf );
+        [[nodiscard]] static glm::dvec3 CenterOfMass( const Object& object, const std::vector<int32_t>& members );
 
         Physics::PhysicsWorld&                           m_Physics;
         std::vector<Object>                              m_Objects; // a removed object has no Data

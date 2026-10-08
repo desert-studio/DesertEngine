@@ -298,7 +298,7 @@ namespace Desert::Graphic::RDG
         // are set by RegisterSystemTextures, so every graph that registers its system textures can honour a
         // FaultDefault without a second call site.
         FaultDefaults&       GetFaultDefaults();
-        const FaultDefaults& GetFaultDefaults() const;
+        [[nodiscard]] const FaultDefaults& GetFaultDefaults() const;
 
         // Compiles against the backend's memory requirements, has the backend acquire physical resources,
         // then for every executed pass in order: label/timestamp, its one barrier batch, begin render pass

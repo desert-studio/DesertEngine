@@ -41,7 +41,7 @@ namespace Desert::Graphic::API::Vulkan
         // multisamples both.
         const VkSampleCountFlags both = probe.ColorSampleCounts & probe.DepthSampleCounts;
         catalog.MSAACounts.push_back( 1 );
-        for ( int count : { 2, 4, 8, 16, 32, 64 } )
+        for ( const int count : { 2, 4, 8, 16, 32, 64 } )
             if ( ( both & static_cast<VkSampleCountFlags>( count ) ) != 0 )
                 catalog.MSAACounts.push_back( count );
 
@@ -88,7 +88,7 @@ namespace Desert::Graphic::API::Vulkan
         // Anisotropy: the standard levels up to the device's limit.
         catalog.AnisotropyLevels.push_back( 1 );
         if ( probe.Caps.Has( Capability::SamplerAnisotropy ) )
-            for ( int level : { 2, 4, 8, 16 } )
+            for ( const int level : { 2, 4, 8, 16 } )
                 if ( static_cast<float>( level ) <= probe.MaxSamplerAnisotropy )
                     catalog.AnisotropyLevels.push_back( level );
 

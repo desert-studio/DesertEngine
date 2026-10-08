@@ -653,8 +653,8 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
 {
     // Never dereferenced: the declaration only carries the image to the import (aliasing, non-owning).
     int                                           lutToken = 0;
-    const std::shared_ptr<Desert::Graphic::Image> lut( std::shared_ptr<void>(),
-                                                       reinterpret_cast<Desert::Graphic::Image*>( &lutToken ) );
+    const std::shared_ptr<Desert::Graphic::Image> lut(
+         std::shared_ptr<void>(), static_cast<Desert::Graphic::Image*>( static_cast<void*>( &lutToken ) ) );
 
     ExternalTexture  lutImport( Tex2D( 64, 32, ImageFormat::RGBA16F ), Access::None );
     ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
@@ -707,7 +707,7 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
 {
     int                                           fallbackToken = 0;
     const std::shared_ptr<Desert::Graphic::Image> fallback(
-         std::shared_ptr<void>(), reinterpret_cast<Desert::Graphic::Image*>( &fallbackToken ) );
+         std::shared_ptr<void>(), static_cast<Desert::Graphic::Image*>( static_cast<void*>( &fallbackToken ) ) );
 
     ExternalTexture  fallbackImport( Tex2D( 4, 4, ImageFormat::RGBA8F ), Access::None );
     ExternalTexture  reconstructed( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
@@ -2807,9 +2807,9 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     ASSERT_NE( importAt, std::string::npos );
     const std::string importBody =
          particleText.substr( importAt, particleText.find( "voidParticleRenderer::", importAt ) - importAt );
-    EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Particles,fe.ParticlesImport)" ),
+    EXPECT_NE( importBody.find( "Renderer::ImportBuffer(fe.Gpu->Particles,fe.ParticlesImport)" ),
                std::string::npos );
-    EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Steps,fe.StepsImport)" ), std::string::npos );
+    EXPECT_NE( importBody.find( "Renderer::ImportBuffer(fe.Gpu->Steps,fe.StepsImport)" ), std::string::npos );
     // An emitter the graph was not told about is not dispatched.
     const size_t simulateAt = particleText.find( "ParticleRenderer::Simulate(constRDG::PassContext&context," );
     ASSERT_NE( simulateAt, std::string::npos );
@@ -3063,8 +3063,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "Storage(\"u_SkyViewLut\",m_SkyViewLut,RDG::Access::StorageWrite",
              "Storage(\"u_AerialPerspectiveLut\",m_AerialPerspectiveLut,RDG::Access::StorageWrite",
              "Storage(\"u_DistantSkyLight\",m_DistantLight,RDG::Access::StorageWrite",
-             "Sampled(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::SampledCompute,"
-             "GlobalTextureFilterSampler()",
+             R"(Sampled("u_TransmittanceLut",m_TransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
              // RDG-PSO: each LUT node's layout is the one kept for its pipeline (keyed on the pipeline's shader).
              "declared.Bindings(layout.Get(pipeline->GetSpecification().Shader),",
              "declareBlock(transmittance.Access,m_TransmittanceLutPipeline.get(),m_TransmittanceLutLayout,0)",
@@ -3073,7 +3072,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
            { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,m_ShadowMapPipeline.get(),m_"
              "ShadowMapLayout,",
-             "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
+             R"(Storage("u_CloudShadowMap",m_ShadowMapImage,RDG::Access::StorageWrite,"Clouds.ShadowMap"))" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
            // Block 0's entries: the fog image it writes, the depth and the sky's two images it samples, each
@@ -3081,8 +3080,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            { "block.Storage(\"u_FogApply\",fogImage,RDG::Access::StorageWrite)",
              ".Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
              ".Sampled(\"u_AerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
-             ".Sampled(\"u_DistantSkyLight\",distantSkyLight,RDG::Access::SampledCompute,"
-             "GlobalTextureFilterSampler()",
+             R"(.Sampled("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
              "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "transients.HeightFog=fogImage" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
@@ -3090,8 +3088,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
              "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,m_MarchPipeline.get(),m_MarchLayout,",
              // The sky's three images are entries of the march with the sampler each carried as its own.
-             ".Sampled(\"u_DistantSkyLight\",distantSkyLight,RDG::Access::SampledCompute,"
-             "GlobalTextureFilterSampler()",
+             R"(.Sampled("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
              ".Sampled(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
              ".Sampled(\"u_CloudSunTransmittanceLut\",sunTransmittanceLut,RDG::Access::SampledCompute,"
              "GlobalTextureFilterSampler()",
@@ -3396,13 +3393,13 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
     const std::string        dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
     for ( const auto& entry : fs::directory_iterator( root / dir ) )
         files.push_back( dir + entry.path().filename().string() );
-    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp" );
-    files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" );
-    files.push_back( "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
-    files.push_back( "Runtime/Source/RuntimeLayer.cpp" );
-    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp" );
-    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" );
+    files.emplace_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    files.emplace_back( "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp" );
+    files.emplace_back( "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" );
+    files.emplace_back( "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
+    files.emplace_back( "Runtime/Source/RuntimeLayer.cpp" );
+    files.emplace_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp" );
+    files.emplace_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" );
     // The terrain and mesh renderers (C3b gap 5): the terrain keeps one layout per program, keyed on the pipeline
     // every group records with; a mesh draw list keeps one per recording shader (ShaderBindingLayoutSet).
     const char* const sceneMeshFiles[] = {
@@ -3411,7 +3408,7 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp" };
     for ( const char* file : sceneMeshFiles )
-        files.push_back( file );
+        files.emplace_back( file );
     const std::regex get( R"(([Ll]ayout(?:s|Cache)?\.Get\())" );
     const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
     size_t           gets = 0;
@@ -3911,6 +3908,7 @@ namespace
     std::vector<std::string> ExecutedNames( const CompileResult& result )
     {
         std::vector<std::string> names;
+        names.reserve( result.Passes.size() );
         for ( const CompiledPass& pass : result.Passes )
             names.push_back( pass.Name );
         return names;
@@ -4063,7 +4061,7 @@ TEST( RenderGraphCompile, BindingValidationRefusesABlockWithoutALayout )
 
 TEST( RenderGraphCompile, FaultedPassIsCulledWithItsExclusiveDependants )
 {
-    GlassFrame          frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
+    const GlassFrame    frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
     const CompileResult result = CompileOrFail( frame.graph );
 
     // Glass (2) is faulted; GlassBlur (3) read only Glass and has no default for it, so it goes with it.
@@ -4085,7 +4083,7 @@ TEST( RenderGraphCompile, FaultedPassIsCulledWithItsExclusiveDependants )
 
 TEST( RenderGraphCompile, SharedDependantReadsTheProducersSystemDefault )
 {
-    GlassFrame          frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
+    const GlassFrame    frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
     const CompileResult result = CompileOrFail( frame.graph );
 
     ASSERT_EQ( result.Substitutions.size(), 1u );
@@ -4151,24 +4149,28 @@ TEST( RenderGraphCompile, FaultThatLeavesAFrameFatalExternalUnwrittenIsAFrameFau
     GlassFrame       frame( FaultDefault::None, ExternalFaultPolicy::FrameFatal );
     frame.graph.Extract( frame.back, frame.backbuffer, Access::Present );
     const CompileResult result = CompileOrFail( frame.graph );
-    ASSERT_TRUE( result.Frame.has_value() );
+    const auto&         frameFault = result.Frame;
+    if ( !frameFault.has_value() )
+        FAIL() << "the compile reports no frame fault";
     // The report alone tells the caller what to clear and the state to leave it in (the Extract's: Present).
     const std::vector<FrameFaultExternal> expected{ { frame.back.Index, Access::Present } };
-    EXPECT_EQ( result.Frame->Externals, expected );
-    EXPECT_EQ( result.Frame->RootPasses, std::vector<uint32_t>{ 2 } );
+    EXPECT_EQ( frameFault->Externals, expected );
+    EXPECT_EQ( frameFault->RootPasses, std::vector<uint32_t>{ 2 } );
 
     EXPECT_FALSE( frame.graph.Execute( backend ).IsSuccess() );
     EXPECT_TRUE( backend.Calls.empty() ); // nothing recorded: the caller clears the backbuffer and presents
     EXPECT_TRUE( frame.ran.empty() );
     EXPECT_EQ( backend.FaultLines.size(), 1u ); // the frame fault is reported through the same reporter
     const ExecuteReport& report = frame.graph.GetExecuteReport();
-    ASSERT_TRUE( report.Frame.has_value() );
-    EXPECT_EQ( report.Frame->Externals, expected );
+    const auto&          reportedFault = report.Frame;
+    if ( !reportedFault.has_value() )
+        FAIL() << "the execute report carries no frame fault";
+    EXPECT_EQ( reportedFault->Externals, expected );
 }
 
 TEST( RenderGraphCompile, KeepsContentsExternalWithoutWriterIsNotAFrameFault )
 {
-    GlassFrame          frame( FaultDefault::None, ExternalFaultPolicy::KeepsContents );
+    const GlassFrame    frame( FaultDefault::None, ExternalFaultPolicy::KeepsContents );
     const CompileResult result = CompileOrFail( frame.graph );
     EXPECT_FALSE( result.Frame.has_value() );
     EXPECT_EQ( result.FaultCulledPasses, ( std::vector<uint32_t>{ 2, 3, 4 } ) );
@@ -4405,7 +4407,7 @@ TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
     ASSERT_NE( open, std::string::npos ) << "class PassBindings moved";
     const size_t close = header.find( "};", open );
     ASSERT_NE( close, std::string::npos );
-    std::string       classBody  = header.substr( open, close - open );
+    const std::string classBody  = header.substr( open, close - open );
     const size_t      privateAt  = classBody.find( "private:" );
     const std::string publicPart = classBody.substr( 0, privateAt );
     const std::regex  nameFirst( R"(\w+\((std::)?(string_view|conststd::string&|std::string|constchar\*))" );

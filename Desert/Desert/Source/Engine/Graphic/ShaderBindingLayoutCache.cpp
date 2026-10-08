@@ -9,13 +9,13 @@ namespace Desert::Graphic
     ShaderBindingLayoutCache::Get( const std::shared_ptr<Shader>& shader )
     {
         return m_Cache.Get( shader, shader->GetCodeGeneration(),
-                            []( const Shader& s ) { return Renderer::GetInstance().GetBindingLayout( s ); } );
+                            []( const Shader& s ) { return Renderer::GetBindingLayout( s ); } );
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>&
     ShaderBindingLayoutSet::Get( const std::shared_ptr<Shader>& shader )
     {
         return m_Caches.Get( shader, shader->GetCodeGeneration(),
-                             []( const Shader& s ) { return Renderer::GetInstance().GetBindingLayout( s ); } );
+                             []( const Shader& s ) { return Renderer::GetBindingLayout( s ); } );
     }
 } // namespace Desert::Graphic

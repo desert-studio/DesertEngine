@@ -219,7 +219,7 @@ namespace Desert::Graphic
                 return *this;
             }
             // The index the exec passes to PassContext::GetBindingBlock.
-            uint32_t GetIndex() const
+            [[nodiscard]] uint32_t GetIndex() const
             {
                 return m_Index;
             }
@@ -238,7 +238,7 @@ namespace Desert::Graphic
                                    RDG::OtherRouteFill                                    other )
         {
             m_Blocks.push_back( { layout, std::move( other ), {}, 0 } );
-            return BlockDeclaration( *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) );
+            return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
         // A layout made for this declaration only: the declaration takes it over.
         BlockDeclaration Bindings( RDG::ShaderBindingLayout layout, RDG::OtherRouteFill other )
@@ -247,10 +247,10 @@ namespace Desert::Graphic
                                   std::move( other ),
                                   {},
                                   0 } );
-            return BlockDeclaration( *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) );
+            return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
 
-        const std::vector<BlockUse>& Blocks() const
+        [[nodiscard]] const std::vector<BlockUse>& Blocks() const
         {
             return m_Blocks;
         }

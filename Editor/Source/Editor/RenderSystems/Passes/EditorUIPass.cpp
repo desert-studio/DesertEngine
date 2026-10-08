@@ -196,14 +196,14 @@ namespace Desert::Editor::Render
                 // LoadScene is Core::OpenLevel, the call the game's own button makes: in Play the editor's
                 // boundary loads the level into the PLAYED world (PlayWorldTravel) and Stop returns to the
                 // authored one. A preview of the authored level (Edit) has no game world to travel.
-                if ( clicked.rfind( kScene, 0 ) == 0 && m_UIView.GameWorld )
+                if ( clicked.starts_with( kScene ) && m_UIView.GameWorld )
                 {
                     if ( const auto queued = ::Desert::Core::OpenLevel( clicked.substr( kScene.size() ) );
                          !queued )
                         LOG_ERROR( "[UI Preview] {}", queued.GetError() );
                 }
                 const bool processLevel =
-                     clicked == "quit" || clicked.rfind( kScene, 0 ) == 0 || clicked.rfind( "url:", 0 ) == 0;
+                     clicked == "quit" || clicked.starts_with( kScene ) || clicked.starts_with( "url:" );
                 if ( !processLevel )
                     UI::UIMessageQueue::Get().Push( clicked );
             }
@@ -218,7 +218,7 @@ namespace Desert::Editor::Render
         pass.Execute = [this]( const Graphic::ExternalPassContext& ctx,
                                Graphic::RDG::PassContext&          node ) -> Common::BoolResultStr
         {
-            if ( m_Scene.expired() || !ctx.Target )
+            if ( m_Scene.expired() || ctx.Target == nullptr )
                 return BOOLSUCCESS; // the setup gathered nothing either
             const Common::BoolResultStr flushed = m_Render2D.Flush( node, ctx.Graph.Transients.BackdropBlur, 0 );
             if ( auto* renderer = ctx.Renderer )

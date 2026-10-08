@@ -14,13 +14,14 @@ namespace Desert::Scripting
     void RegisterLevelBindings( ScriptEngine::Impl& implRef )
     {
         sol::table level = implRef.Lua.create_named_table( "level" );
-        level.set_function( "open",
-                            []( sol::optional<std::string> name ) -> std::tuple<bool, sol::optional<std::string>>
-                            {
-                                const auto opened = Core::OpenLevel( name.value_or( std::string{} ) );
-                                if ( !opened )
-                                    return { false, opened.GetError() };
-                                return { true, sol::nullopt };
-                            } );
+        level.set_function(
+             "open",
+             []( const sol::optional<std::string>& name ) -> std::tuple<bool, sol::optional<std::string>>
+             {
+                 const auto opened = Core::OpenLevel( name.value_or( std::string{} ) );
+                 if ( !opened )
+                     return { false, opened.GetError() };
+                 return { true, sol::nullopt };
+             } );
     }
 } // namespace Desert::Scripting

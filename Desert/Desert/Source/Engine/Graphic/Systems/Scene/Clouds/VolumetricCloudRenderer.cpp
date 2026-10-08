@@ -1069,7 +1069,7 @@ namespace Desert::Graphic::System
                                   ShaderBindingLayoutCache& layout, const uint32_t pushBytes )
         {
             auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
-                                            Renderer::GetInstance().GetPipelineRouteFill( *pipeline ) );
+                                            Renderer::GetPipelineRouteFill( *pipeline ) );
             block.PushConstantBytes( pushBytes );
             return block;
         }
@@ -1177,9 +1177,9 @@ namespace Desert::Graphic::System
             DESERT_PROFILE_PASS( "Clouds: ShadowMap" );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::GetInstance().DispatchCompute( bindings, *m_ShadowMapPipeline,
-                                                            GroupCount( resolution, kMarchWorkGroupSize ),
-                                                            GroupCount( resolution, kMarchWorkGroupSize ), 1 );
+            return Renderer::DispatchCompute( bindings, *m_ShadowMapPipeline,
+                                              GroupCount( resolution, kMarchWorkGroupSize ),
+                                              GroupCount( resolution, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( shadow ) );
 
@@ -1353,7 +1353,7 @@ namespace Desert::Graphic::System
         // the slot existed. A generic backend fallback would be a different colour by accident.
         m_MediumImages.assign( m_MediumValues.Textures.size(), nullptr );
         m_MediumTextureNames.clear();
-        if ( schema )
+        if ( schema != nullptr )
         {
             for ( const Core::Formats::ShaderParam& p : *schema )
             {
@@ -1370,9 +1370,9 @@ namespace Desert::Graphic::System
             if ( !handle.IsNull() && textures && images )
             {
                 auto* texture = textures->Get( handle );
-                if ( auto image =
-                          texture ? std::static_pointer_cast<Image2D>( images->Share( texture->GetImageHandle() ) )
-                                  : nullptr )
+                if ( auto image = texture != nullptr ? std::static_pointer_cast<Image2D>(
+                                                            images->Share( texture->GetImageHandle() ) )
+                                                     : nullptr )
                 {
                     m_MediumImages[slot] = image;
                     continue;
@@ -1896,10 +1896,10 @@ namespace Desert::Graphic::System
                 // point of the pass is that a column's optical depth accumulates downward and a thread per
                 // texel would have to re-integrate everything above it.
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                return Renderer::GetInstance().DispatchCompute(
-                     bindings, *m_SkyOcclusionPipeline,
-                     GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
-                     GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
+                return Renderer::DispatchCompute( bindings, *m_SkyOcclusionPipeline,
+                                                  GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
+                                                  GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
+                                                  1 );
             };
             nodes.push_back( std::move( occlusion ) );
 
@@ -2016,9 +2016,9 @@ namespace Desert::Graphic::System
             DESERT_PROFILE_PASS( "Clouds: March" );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::GetInstance().DispatchCompute( bindings, *m_MarchPipeline,
-                                                            GroupCount( traceWidth, kMarchWorkGroupSize ),
-                                                            GroupCount( traceHeight, kMarchWorkGroupSize ), 1 );
+            return Renderer::DispatchCompute( bindings, *m_MarchPipeline,
+                                              GroupCount( traceWidth, kMarchWorkGroupSize ),
+                                              GroupCount( traceHeight, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( march ) );
 
@@ -2101,9 +2101,9 @@ namespace Desert::Graphic::System
         {
             DESERT_PROFILE_PASS( "Clouds: TemporalResolve" );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            return Renderer::GetInstance().DispatchCompute( bindings, *m_ResolvePipeline,
-                                                            GroupCount( m_HalfWidth, kMarchWorkGroupSize ),
-                                                            GroupCount( m_HalfHeight, kMarchWorkGroupSize ), 1 );
+            return Renderer::DispatchCompute( bindings, *m_ResolvePipeline,
+                                              GroupCount( m_HalfWidth, kMarchWorkGroupSize ),
+                                              GroupCount( m_HalfHeight, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( temporal ) );
 

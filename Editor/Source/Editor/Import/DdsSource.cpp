@@ -253,15 +253,16 @@ namespace Desert::Editor
         unsigned char SnormToUnorm8( signed char s )
         {
             // bcdec clamps -128 to -127, so the range is the symmetric [-127, 127] the format defines.
-            const float v = ( std::max( static_cast<int>( s ), -127 ) + 127 ) * ( 255.0f / 254.0f );
+            const float v =
+                 static_cast<float>( std::max( static_cast<int>( s ), -127 ) + 127 ) * ( 255.0f / 254.0f );
             return static_cast<unsigned char>( std::lround( v ) );
         }
 
         /// BC5 is X and Y of a unit tangent-space normal stored as [0,255]; Z is what makes it unit length.
         unsigned char ReconstructZ( unsigned char x8, unsigned char y8 )
         {
-            const float x = x8 / 255.0f * 2.0f - 1.0f;
-            const float y = y8 / 255.0f * 2.0f - 1.0f;
+            const float x = static_cast<float>( x8 ) / 255.0f * 2.0f - 1.0f;
+            const float y = static_cast<float>( y8 ) / 255.0f * 2.0f - 1.0f;
             const float z = std::sqrt( std::max( 0.0f, 1.0f - x * x - y * y ) );
             return static_cast<unsigned char>( std::lround( ( z * 0.5f + 0.5f ) * 255.0f ) );
         }
@@ -411,7 +412,7 @@ namespace Desert::Editor
             format = Recognised{ Layout::Masked32,
                                  std::format( "32-bit RGB masks R={:#010x} G={:#010x} B={:#010x} A={:#010x}",
                                               masks.R, masks.G, masks.B,
-                                              ( pfFlags & kPixelFormatAlphaPixels ) ? masks.A : 0u ) };
+                                              ( pfFlags & kPixelFormatAlphaPixels ) != 0 ? masks.A : 0u ) };
         }
         else
         {
@@ -421,14 +422,18 @@ namespace Desert::Editor
                  pfFlags, bpp, masks.R, masks.G, masks.B, masks.A ) );
         }
 
+        if ( !format.has_value() )
+            return Common::MakeError<DdsSourceImage>( "DDS pixel format was not recognised" );
+        const Recognised& recognised = *format;
+
         if ( isVolume )
             return Common::MakeError<DdsSourceImage>(
-                 std::format( "DDS {} is a volume texture; a texture source is one 2D image", format->Name ) );
+                 std::format( "DDS {} is a volume texture; a texture source is one 2D image", recognised.Name ) );
         if ( width == 0 || height == 0 || width > 16384 || height > 16384 )
             return Common::MakeError<DdsSourceImage>( std::format(
-                 "DDS {} has extent {}x{}; 1..16384 per side is accepted", format->Name, width, height ) );
+                 "DDS {} has extent {}x{}; 1..16384 per side is accepted", recognised.Name, width, height ) );
 
-        const Layout      kind    = format->Kind;
+        const Layout      kind    = recognised.Kind;
         const std::size_t texels  = static_cast<std::size_t>( width ) * height;
         const std::size_t blocksX = ( width + 3u ) / 4u;
         const std::size_t blocksY = ( height + 3u ) / 4u;
@@ -437,12 +442,12 @@ namespace Desert::Editor
         if ( size - dataAt < topMipLen )
             return Common::MakeError<DdsSourceImage>(
                  std::format( "DDS {} {}x{} is truncated: the top mip needs {} bytes, the file holds {}",
-                              format->Name, width, height, topMipLen, size - dataAt ) );
+                              recognised.Name, width, height, topMipLen, size - dataAt ) );
 
         DdsSourceImage out;
         out.Width  = width;
         out.Height = height;
-        out.Format = format->Name;
+        out.Format = recognised.Name;
         out.IsFloat =
              kind == Layout::BC6HU || kind == Layout::BC6HS || kind == Layout::RGBA16F || kind == Layout::RGBA32F;
         if ( out.IsFloat )
@@ -497,7 +502,7 @@ namespace Desert::Editor
                 case Layout::Masked32:
                 {
                     const uint32_t texel = ReadU32( t );
-                    const uint32_t aMask = ( pfFlags & kPixelFormatAlphaPixels ) ? masks.A : 0u;
+                    const uint32_t aMask = ( pfFlags & kPixelFormatAlphaPixels ) != 0 ? masks.A : 0u;
                     out.Rgba8[i * 4 + 0] = Channel( texel, masks.R, 0 );
                     out.Rgba8[i * 4 + 1] = Channel( texel, masks.G, 0 );
                     out.Rgba8[i * 4 + 2] = Channel( texel, masks.B, 0 );
@@ -505,16 +510,16 @@ namespace Desert::Editor
                     break;
                 }
                 case Layout::RGBA16UNORM:
-                    for ( int c = 0; c < 4; ++c )
+                    for ( std::size_t c = 0; c < 4; ++c )
                     {
                         const unsigned v     = t[c * 2] | ( static_cast<unsigned>( t[c * 2 + 1] ) << 8 );
                         out.Rgba8[i * 4 + c] = static_cast<unsigned char>( ( v * 255u + 32767u ) / 65535u );
                     }
                     break;
                 case Layout::RGBA16F:
-                    for ( int c = 0; c < 4; ++c )
+                    for ( std::size_t c = 0; c < 4; ++c )
                     {
-                        const uint16_t h     = static_cast<uint16_t>( t[c * 2] | ( t[c * 2 + 1] << 8 ) );
+                        const auto h         = static_cast<uint16_t>( t[c * 2] | ( t[c * 2 + 1] << 8 ) );
                         out.RgbaF[i * 4 + c] = glm::unpackHalf1x16( h );
                     }
                     break;

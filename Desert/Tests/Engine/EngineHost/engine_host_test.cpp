@@ -303,7 +303,7 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline.GetValue(), kWords / 64u, 1u,
                                                                  1u );
              } );
@@ -563,7 +563,7 @@ TEST( EngineHost, AnUnwrittenMaterialStorageBufferIsNotAmongTheMaterialsWrittenS
     const Common::BoolResultStr begun    = renderer.BeginFrame();
     ASSERT_TRUE( begun.IsSuccess() ) << begun.GetError();
     executor->Apply();
-    auto*      backend = static_cast<API::Vulkan::VulkanMaterialBackend*>( executor->GetMaterialBackend().get() );
+    auto*      backend = dynamic_cast<API::Vulkan::VulkanMaterialBackend*>( executor->GetMaterialBackend().get() );
     const auto slots   = backend->GetWrittenSlots( EngineContext::GetInstance().GetCurrentFrameIndex() );
     const Common::BoolResultStr presented = renderer.PresentFinalImage();
     ASSERT_TRUE( presented.IsSuccess() ) << presented.GetError();

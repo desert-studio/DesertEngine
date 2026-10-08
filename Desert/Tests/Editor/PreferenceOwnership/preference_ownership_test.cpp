@@ -1309,7 +1309,7 @@ TEST( PreferenceOwnershipUnknownKeys, PreviewSettingsEqualityNamesEveryFieldButT
     EXPECT_EQ( rfl::fields<Desert::Editor::PreviewEnvironment::Settings>().size(), 6u )
          << "PreviewEnvironment::Settings gained or lost a member: update its operator== to match";
 
-    Desert::Editor::PreviewEnvironment::Settings a;
+    const Desert::Editor::PreviewEnvironment::Settings a{};
     Desert::Editor::PreviewEnvironment::Settings b;
     b.UnknownKeys.insert( std::string( "FromNewerBuild" ), Common::Json::Value( 1 ) );
     EXPECT_TRUE( a == b ) << "another build's carried key made two identical previews compare different";
