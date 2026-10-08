@@ -61,7 +61,7 @@ namespace Desert::Editor
             std::function<void( const std::string& png, const std::string& assetPath )> OnCaptured;
         };
 
-        ThumbnailEditMode( Assets::AssetManager* assetManager, std::weak_ptr<Core::Scene> viewportScene,
+        ThumbnailEditMode( Assets::AssetManager* assetManager, std::weak_ptr<::Desert::Core::Scene> viewportScene,
                            Delegates delegates );
 
         /// Whether there is a viewport scene whose frame Capture would read.
@@ -111,9 +111,9 @@ namespace Desert::Editor
         // The live orbit asked of ThumbnailService as a preview (subject resolved as the tile resolves it).
         void RequestPreview( const DirectoryInformation& entry, Gesture& gesture );
 
-        Assets::AssetManager*      m_AssetManager = nullptr;
-        std::weak_ptr<Core::Scene> m_ViewportScene;
-        Delegates                  m_On;
+        Assets::AssetManager*                m_AssetManager = nullptr;
+        std::weak_ptr<::Desert::Core::Scene> m_ViewportScene;
+        Delegates                            m_On;
 
         std::string            m_Path;      // the entry in the mode; empty = no tile is being edited
         std::string            m_OrbitFile; // OrbitFileOf( m_Path )

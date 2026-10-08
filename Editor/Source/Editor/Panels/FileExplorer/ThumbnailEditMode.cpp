@@ -35,8 +35,8 @@ namespace Desert::Editor
 
     // Port pattern: UE Editor/ContentBrowser/Private/SThumbnailEditModeTools.cpp (the tile as the orbit control,
     // one transaction per gesture) and AssetContextMenu.cpp ExecuteCaptureThumbnail (the viewport as the picture).
-    ThumbnailEditMode::ThumbnailEditMode( Assets::AssetManager*      assetManager,
-                                          std::weak_ptr<Core::Scene> viewportScene, Delegates delegates )
+    ThumbnailEditMode::ThumbnailEditMode( Assets::AssetManager*                assetManager,
+                                          std::weak_ptr<::Desert::Core::Scene> viewportScene, Delegates delegates )
          : m_AssetManager( assetManager ), m_ViewportScene( std::move( viewportScene ) ),
            m_On( std::move( delegates ) )
     {

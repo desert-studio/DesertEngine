@@ -55,8 +55,8 @@ namespace Desert::Editor
 
     // Port pattern: UE Editor/ContentBrowser/Private/NewAssetOrClassContextMenu.cpp (the "New…" section built
     // for one target folder, every item a factory into that folder).
-    NewAssetMenu::NewAssetMenu( Assets::AssetManager* assetManager, std::weak_ptr<Core::Scene> viewportScene,
-                                Delegates delegates )
+    NewAssetMenu::NewAssetMenu( Assets::AssetManager*                assetManager,
+                                std::weak_ptr<::Desert::Core::Scene> viewportScene, Delegates delegates )
          : m_AssetManager( assetManager ), m_ViewportScene( std::move( viewportScene ) ),
            m_On( std::move( delegates ) )
     {

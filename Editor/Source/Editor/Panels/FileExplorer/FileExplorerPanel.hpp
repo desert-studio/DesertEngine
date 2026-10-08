@@ -104,6 +104,9 @@ namespace Desert::Editor
 
         // One entry of the open folder as a tile (@p gridView) or a list row — the asset view's OnDrawTile.
         ContentBrowserAssetView::TileResult RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
+        // Drag source with a thumbnail/big-icon preview (needs the thumbnail cache, hence a member).
+        void EmitAssetDragSource( const DirectoryInformation& entry );
+
         // Paths of the current multi-selection; falls back to the current entry when empty.
         std::vector<std::string> SelectionPaths() const;
 

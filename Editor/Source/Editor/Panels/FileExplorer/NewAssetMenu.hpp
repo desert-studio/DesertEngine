@@ -50,7 +50,7 @@ namespace Desert::Editor
             std::function<void( const std::string& )> OnStatus;             // the red line; empty clears it
         };
 
-        NewAssetMenu( Assets::AssetManager* assetManager, std::weak_ptr<Core::Scene> viewportScene,
+        NewAssetMenu( Assets::AssetManager* assetManager, std::weak_ptr<::Desert::Core::Scene> viewportScene,
                       Delegates delegates );
         // CANCEL, THEN WAIT: the worker writes into this object's progress and path.
         ~NewAssetMenu();
@@ -85,9 +85,9 @@ namespace Desert::Editor
         // the cheap formats and the generated ones cannot come to report differently.
         void FinishCloudAsset( const Common::BoolResultStr& written );
 
-        Assets::AssetManager*      m_AssetManager = nullptr;
-        std::weak_ptr<Core::Scene> m_ViewportScene;
-        Delegates                  m_On;
+        Assets::AssetManager*                m_AssetManager = nullptr;
+        std::weak_ptr<::Desert::Core::Scene> m_ViewportScene;
+        Delegates                            m_On;
 
         // ── Creating a cloud volume: the one generation the browser may have in flight ──────────────────
         //
