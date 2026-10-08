@@ -14,6 +14,7 @@
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 
@@ -89,6 +90,30 @@ namespace Desert::ECS
     RemoveEntityTransformKeys( Animation::Timeline::Sequence&             sequence,
                                const Animation::Timeline::BindingGuid&    binding,
                                const std::vector<Animation::FrameNumber>& ticks );
+
+    /**
+     * @brief The curve editor's per-key shape (UE: the key's interpolation and tangent mode in the curve editor's
+     * right-click menu): every lane of @p binding's pose keys on @p ticks gets @p interp and @p mode, and the
+     * channel's auto tangents are refreshed. The Rotation lanes are a quaternion (Constant or Linear by the
+     * RotationChannel invariant), so Cubic sets them Linear — the slerp UE's Rotation lanes also use. All or
+     * nothing: a tick with no pose key refuses and leaves the sequence as it was. Revision++.
+     */
+    [[nodiscard]] Common::BoolResultStr
+    SetEntityTransformKeyShape( Animation::Timeline::Sequence&             sequence,
+                                const Animation::Timeline::BindingGuid&    binding,
+                                const std::vector<Animation::FrameNumber>& ticks, Animation::KeyInterp interp,
+                                Animation::TangentMode mode );
+
+    /**
+     * @brief An easing preset on the segment of @p binding's @p part (Position or Scale) that ENDS at the pose key
+     * on @p endTick (UE: section easing, authored here as keys — `Timeline::ApplyEasingPreset` on each of the
+     * part's three lanes, at the sequence's display rate). Refuses Rotation (a quaternion has no per-lane
+     * tangents), a tick with no key, and the first key (no segment ends there). All or nothing. Revision++.
+     */
+    [[nodiscard]] Common::BoolResultStr
+    ApplyEntityTransformEasing( Animation::Timeline::Sequence&          sequence,
+                                const Animation::Timeline::BindingGuid& binding, Animation::TrackChannel part,
+                                Animation::FrameNumber endTick, Animation::Timeline::EasingPreset preset );
 
     /**
      * @brief Auto Key for a level sequence (UE's Auto Key with the Sequencer open): ONE pose key per bound actor
@@ -263,8 +288,9 @@ namespace Desert::ECS
     /// One key of an Event track, as the Sequencer row draws it.
     struct LevelEventKey
     {
-        Animation::FrameNumber Tick;
-        std::string            Name;
+        Animation::FrameNumber                          Tick;
+        std::string                                     Name;
+        std::optional<Animation::Timeline::EventAction> Action;
     };
 
     /// Every key of @p binding's Event track, section by section, each section's keys by tick. Empty for no track.
@@ -295,6 +321,54 @@ namespace Desert::ECS
                                                         const Animation::Timeline::BindingGuid& binding,
                                                         size_t                                  index );
 
+    /// What the event at @p index does when it fires (UE: the event key's endpoint): @p action, or nullopt for a
+    /// named marker only. `Validate` refuses a PlaySound / CallScript without its Target; the sequence is then
+    /// left as it was.
+    [[nodiscard]] Common::BoolResultStr
+    SetEventKeyAction( Animation::Timeline::Sequence& sequence, const Animation::Timeline::BindingGuid& binding,
+                       size_t index, std::optional<Animation::Timeline::EventAction> action );
+
+    /// The Property of the sequence-level Subsequence track (UE: the Subsequences track).
+    inline constexpr const char* kLevelSequenceSubsequenceProperty = "Subsequence";
+
+    /// One section of the Subsequence track, as the Sequencer row draws it; `Index` is its place in the track.
+    struct LevelSubsequenceSection
+    {
+        size_t                                         Index = 0;
+        Animation::FrameNumber                         Start;
+        Animation::FrameNumber                         End;
+        int32_t                                        Row = 0;
+        Animation::Timeline::SubsequenceSectionContent Content;
+    };
+
+    /// Every section of the Subsequence track, in track order. Empty for no track.
+    [[nodiscard]] std::vector<LevelSubsequenceSection>
+    SubsequenceSections( const Animation::Timeline::Sequence& sequence );
+
+    /**
+     * @brief "+ Track ▸ Subsequence ▸ <.dseq>": a section playing @p sub over [@p start, @p end] (offset 0, scale
+     * 1) on the master binding's Subsequence track (binding and track created when missing). An overlapping
+     * section stacks on the next free row, as UE's sub sections do. Refuses @p sub == @p self (the sequence would
+     * play itself) and the null GUID. Returns the new section's index. All or nothing; Revision++.
+     */
+    [[nodiscard]] Common::ResultStr<size_t> AddSubsequenceSection( Animation::Timeline::Sequence&    sequence,
+                                                                   const Common::Content::AssetGuid& self,
+                                                                   const Common::Content::AssetGuid& sub,
+                                                                   Animation::FrameNumber            start,
+                                                                   Animation::FrameNumber            end );
+
+    /// Replaces section @p index of the Subsequence track: its range, sequence, start offset (sub ticks) and time
+    /// scale (UE: the sub section's properties). `Validate` refuses a zero/negative scale and a null GUID; @p self
+    /// is refused as the sequence. All or nothing; Revision++.
+    [[nodiscard]] Common::BoolResultStr
+    SetSubsequenceSection( Animation::Timeline::Sequence& sequence, const Common::Content::AssetGuid& self,
+                           size_t index, Animation::FrameNumber start, Animation::FrameNumber end,
+                           const Animation::Timeline::SubsequenceSectionContent& content );
+
+    /// Removes section @p index of the Subsequence track (the track stays, empty). Revision++.
+    [[nodiscard]] Common::BoolResultStr RemoveSubsequenceSection( Animation::Timeline::Sequence& sequence,
+                                                                  size_t                         index );
+
     /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence
      * player with "Restore State" on close).
@@ -310,9 +384,13 @@ namespace Desert::ECS
     class LevelSequencePreview
     {
     public:
+        /// @p subsequences finds the sequences the Subsequence sections play (their actors are recorded and
+        /// restored like the root's); @p asset is the document's own GUID, the root of the cycle check.
         LevelSequenceStep Scrub( entt::registry& registry, const Animation::Timeline::Sequence& sequence,
                                  Animation::FrameNumber tick, const LevelSequenceClipSource& clips = {},
-                                 const LevelSequenceMaterialSlots& materials = {} );
+                                 const LevelSequenceMaterialSlots&     materials    = {},
+                                 const LevelSequenceSubsequenceSource& subsequences = {},
+                                 const Common::Content::AssetGuid&     asset        = {} );
         void              Restore( entt::registry& registry );
 
         [[nodiscard]] bool Active() const

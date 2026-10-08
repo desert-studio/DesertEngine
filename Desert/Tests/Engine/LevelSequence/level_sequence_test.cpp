@@ -28,6 +28,7 @@
 
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <tuple>
 
 #include <string>
@@ -1479,4 +1480,209 @@ TEST( LevelSequencePlayback, ASubsequenceCycleIsRefusedByNameBeforeAndDuringPlay
     const auto played = ECS::StepLevelSequence( world.registry, component, playback, Step( 50 ), {}, {}, source );
     ASSERT_EQ( played.Refusals.size(), 1U );
     EXPECT_EQ( played.Refusals[0], "subsequence cycle: A -> B -> A" );
+}
+
+// ── SEQ1c: the Sequencer's command layer for key shape, easing, event actions, subsequence sections ─────────
+namespace
+{
+    namespace Ed1c = Desert::Editor;
+
+    /// The Transform channel of @p sequence's first Transform track's first section.
+    const T::TransformChannel& DoorPose( const T::Sequence& sequence )
+    {
+        for ( const T::Track& track : sequence.Tracks )
+            if ( track.Property == ECS::kLevelSequenceTransformProperty )
+                return std::get<T::TransformChannel>( std::get<T::Channel>( track.Sections.front().Content ) );
+        throw std::runtime_error( "no Transform track" );
+    }
+
+    const A::ScalarKey& KeyOn( const T::FloatChannel& lane, int32_t tick )
+    {
+        for ( const A::ScalarKey& key : lane.Keys )
+            if ( key.Tick.Value == tick )
+                return key;
+        throw std::runtime_error( "no key on that tick" );
+    }
+
+    Ed1c::SequenceOwner OwnerOf( T::Sequence& sequence )
+    {
+        Ed1c::SequenceOwner owner;
+        owner.Identity = &sequence;
+        owner.Resolve  = [&sequence]() -> T::Sequence* { return &sequence; };
+        owner.Volatile = false;
+        owner.Name     = "Level Sequence";
+        return owner;
+    }
+} // namespace
+
+TEST( LevelSequenceKeys, KeyShapeSetsEveryLaneOfTheKeyAndRotationStaysASlerp )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  door     = sequence.Bindings.front().Guid;
+
+    ASSERT_TRUE( ECS::SetEntityTransformKeyShape( sequence, door, { A::FrameNumber{ 100 } }, A::KeyInterp::Cubic,
+                                                  A::TangentMode::User )
+                      .IsSuccess() );
+    const T::TransformChannel& pose = DoorPose( sequence );
+    EXPECT_EQ( KeyOn( pose.Translation.X, 100 ).Interp, A::KeyInterp::Cubic );
+    EXPECT_EQ( KeyOn( pose.Scale.Z, 100 ).Interp, A::KeyInterp::Cubic );
+    EXPECT_EQ( KeyOn( pose.Translation.Y, 100 ).Mode, A::TangentMode::User );
+    EXPECT_EQ( KeyOn( pose.Rotation.W, 100 ).Interp, A::KeyInterp::Linear ) << "a quaternion lane is never Cubic";
+    EXPECT_EQ( KeyOn( pose.Translation.X, 0 ).Interp, A::KeyInterp::Linear ) << "only the named key changed";
+
+    // A tick with no key refuses the whole edit.
+    const T::Sequence before = sequence;
+    EXPECT_FALSE( ECS::SetEntityTransformKeyShape( sequence, door, { A::FrameNumber{ 0 }, A::FrameNumber{ 55 } },
+                                                   A::KeyInterp::Constant, A::TangentMode::Auto )
+                       .IsSuccess() );
+    EXPECT_EQ( sequence.Revision, before.Revision );
+    EXPECT_EQ( KeyOn( DoorPose( sequence ).Translation.X, 0 ).Interp, A::KeyInterp::Linear );
+}
+
+TEST( LevelSequenceKeys, AnEaseInOutOnLocationInsertsTheMiddleKeyAndRefusesRotationAndTheFirstKey )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  door     = sequence.Bindings.front().Guid;
+
+    EXPECT_FALSE( ECS::ApplyEntityTransformEasing( sequence, door, A::TrackChannel::Rotation,
+                                                   A::FrameNumber{ 100 }, T::EasingPreset::QuadInOut )
+                       .IsSuccess() );
+    EXPECT_FALSE( ECS::ApplyEntityTransformEasing( sequence, door, A::TrackChannel::Position, A::FrameNumber{ 0 },
+                                                   T::EasingPreset::QuadInOut )
+                       .IsSuccess() )
+         << "no segment ends on the first key";
+    ASSERT_TRUE( ECS::ApplyEntityTransformEasing( sequence, door, A::TrackChannel::Position, A::FrameNumber{ 100 },
+                                                  T::EasingPreset::QuadInOut )
+                      .IsSuccess() );
+    const T::TransformChannel& pose = DoorPose( sequence );
+    EXPECT_EQ( pose.Translation.X.Keys.size(), 3U ) << "an InOut is two cubics: one key at the middle";
+    EXPECT_EQ( pose.Rotation.X.Keys.size(), 2U ) << "Rotation untouched";
+}
+
+TEST( LevelSequenceEvents, AnActionIsSetClearedAndRefusedWithoutItsTarget )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  master   = ECS::LevelSequenceMasterBinding();
+    ASSERT_TRUE( ECS::AddEventTrack( sequence, master ).IsSuccess() );
+    ASSERT_TRUE( ECS::AddEventKey( sequence, master, A::FrameNumber{ 10 }, "Boom" ).IsSuccess() );
+
+    const uint64_t revision = sequence.Revision;
+    EXPECT_FALSE(
+         ECS::SetEventKeyAction( sequence, master, 0, T::EventAction{ T::EventActionKind::PlaySound, "" } )
+              .IsSuccess() );
+    EXPECT_EQ( sequence.Revision, revision );
+
+    ASSERT_TRUE( ECS::SetEventKeyAction( sequence, master, 0,
+                                         T::EventAction{ T::EventActionKind::PlaySound, "Audio/boom.wav" } )
+                      .IsSuccess() );
+    const auto keys = ECS::EventKeys( sequence, master );
+    ASSERT_TRUE( keys.front().Action.has_value() );
+    EXPECT_EQ( keys.front().Action->Target, "Audio/boom.wav" );
+
+    ASSERT_TRUE( ECS::SetEventKeyAction( sequence, master, 0, std::nullopt ).IsSuccess() );
+    EXPECT_FALSE( ECS::EventKeys( sequence, master ).front().Action.has_value() );
+    EXPECT_FALSE( ECS::SetEventKeyAction( sequence, master, 7, std::nullopt ).IsSuccess() );
+}
+
+TEST( LevelSequenceSubsequenceEdit, ASectionIsAddedStackedEditedAndRemovedAndNeverPlaysItself )
+{
+    T::Sequence     sequence = AuthoredDoor();
+    const AssetGuid self{ 1, 1 };
+    const AssetGuid sub{ 2, 2 };
+
+    EXPECT_FALSE( ECS::AddSubsequenceSection( sequence, self, self, A::FrameNumber{ 0 }, A::FrameNumber{ 50 } )
+                       .IsSuccess() );
+    const auto first =
+         ECS::AddSubsequenceSection( sequence, self, sub, A::FrameNumber{ 0 }, A::FrameNumber{ 50 } );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    const auto second =
+         ECS::AddSubsequenceSection( sequence, self, sub, A::FrameNumber{ 40 }, A::FrameNumber{ 90 } );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    auto sections = ECS::SubsequenceSections( sequence );
+    ASSERT_EQ( sections.size(), 2U );
+    EXPECT_EQ( sections[0].Row, 0 );
+    EXPECT_EQ( sections[1].Row, 1 ) << "an overlapping section stacks on the next row";
+    EXPECT_EQ( sections[0].Content.TimeScale, 1.0 );
+
+    // A stopped section is Validate's refusal, and the sequence is as it was.
+    const uint64_t revision = sequence.Revision;
+    EXPECT_FALSE( ECS::SetSubsequenceSection( sequence, self, 0, A::FrameNumber{ 0 }, A::FrameNumber{ 50 },
+                                              T::SubsequenceSectionContent{ sub, A::FrameNumber{ 0 }, 0.0 } )
+                       .IsSuccess() );
+    EXPECT_EQ( sequence.Revision, revision );
+
+    ASSERT_TRUE( ECS::SetSubsequenceSection( sequence, self, 0, A::FrameNumber{ 0 }, A::FrameNumber{ 30 },
+                                             T::SubsequenceSectionContent{ sub, A::FrameNumber{ 12 }, 2.0 } )
+                      .IsSuccess() );
+    sections = ECS::SubsequenceSections( sequence );
+    EXPECT_EQ( sections[0].End.Value, 30 );
+    EXPECT_EQ( sections[0].Content.StartOffset.Value, 12 );
+    EXPECT_EQ( sections[0].Content.TimeScale, 2.0 );
+
+    ASSERT_TRUE( ECS::RemoveSubsequenceSection( sequence, 1 ).IsSuccess() );
+    EXPECT_EQ( ECS::SubsequenceSections( sequence ).size(), 1U );
+}
+
+// Every Sequencer edit is one ScopedSequenceEdit: one Ctrl+Z takes back exactly that edit.
+TEST( LevelSequenceSubsequenceEdit, EachEditIsOneUndoStep )
+{
+    auto& history = Desert::Editor::CommandHistory::Get();
+    history.Clear();
+    T::Sequence                   sequence = AuthoredDoor();
+    const auto                    door     = sequence.Bindings.front().Guid;
+    const Ed1c::SequenceOwner     owner    = OwnerOf( sequence );
+    Ed1c::SequenceEditTransaction transaction;
+    {
+        const Ed1c::ScopedSequenceEdit step( transaction, owner );
+        ASSERT_TRUE( ECS::AddSubsequenceSection( sequence, AssetGuid{ 1, 1 }, AssetGuid{ 2, 2 },
+                                                 A::FrameNumber{ 0 }, A::FrameNumber{ 50 } )
+                          .IsSuccess() );
+    }
+    {
+        const Ed1c::ScopedSequenceEdit step( transaction, owner );
+        ASSERT_TRUE( ECS::SetEntityTransformKeyShape( sequence, door, { A::FrameNumber{ 100 } },
+                                                      A::KeyInterp::Constant, A::TangentMode::Auto )
+                          .IsSuccess() );
+    }
+    ASSERT_EQ( history.UndoStack().size(), 2U );
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_EQ( KeyOn( DoorPose( sequence ).Translation.X, 100 ).Interp, A::KeyInterp::Linear );
+    EXPECT_EQ( ECS::SubsequenceSections( sequence ).size(), 1U ) << "the undo took back only the key shape";
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_TRUE( ECS::SubsequenceSections( sequence ).empty() );
+    history.Clear();
+}
+
+// The Sequencer's preview plays a subsequence at the mapped time when it is given the source, and restores
+// the subsequence's actors on close; without a source the section is refused by name.
+TEST( LevelSequencePreview, ASubsequencePosesItsActorAtTheMappedTickAndIsRestored )
+{
+    T::Sequence inner = DoorAndCut( std::to_string( kDoorUuid ) );
+    inner.TickRate    = A::FrameRate{ 30, 1 };
+    inner.Tracks.pop_back(); // no camera cut
+    const AssetGuid innerGuid{ 9, 1 };
+    T::Sequence     outer = Playing( innerGuid, 20, 80 );
+    outer.TickRate        = A::FrameRate{ 60, 1 };
+    const auto source     = SourceOf( { { "Inner", &inner } }, { { "Inner", innerGuid } } );
+
+    World       world;
+    const float startX = world.registry.get<ECS::TransformComponent>( world.door ).Translation.x;
+
+    ECS::LevelSequencePreview blind;
+    const auto                refused = blind.Scrub( world.registry, outer, A::FrameNumber{ 50 } );
+    ASSERT_FALSE( refused.Refusals.empty() );
+    EXPECT_NE( refused.Refusals.front().find( "loaded" ), std::string::npos ) << refused.Refusals.front();
+    blind.Restore( world.registry );
+
+    ECS::LevelSequencePreview preview;
+    const auto                step =
+         preview.Scrub( world.registry, outer, A::FrameNumber{ 50 }, {}, {}, source, AssetGuid{ 7, 7 } );
+    EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
+    // Parent tick 50 is 30 ticks (0.5 s) into the section: the inner's tick 15 at 30 ticks/s; X 0 -> 100 over
+    // 0..100.
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 15.0F, 1e-3F );
+
+    preview.Restore( world.registry );
+    EXPECT_FLOAT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, startX )
+         << "the subsequence's actor was recorded and given back";
 }

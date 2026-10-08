@@ -132,11 +132,14 @@ namespace Desert::Editor
         const auto scene = m_Scene.lock();
         if ( !scene )
             return;
-        const auto step =
-             m_LevelPreview.Scrub( scene->GetRegistry(), sequence, m_LevelTick,
-                                   m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager )
-                                                             : ECS::LevelSequenceClipSource{},
-                                   ECS::LevelSequenceMaterialSlotOverrides() );
+        const auto step = m_LevelPreview.Scrub(
+             scene->GetRegistry(), sequence, m_LevelTick,
+             m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager )
+                                       : ECS::LevelSequenceClipSource{},
+             ECS::LevelSequenceMaterialSlotOverrides(),
+             m_AssetManager != nullptr ? ECS::LevelSequenceSubsequences( *m_AssetManager )
+                                       : ECS::LevelSequenceSubsequenceSource{},
+             ResolveLevelAsset() ? ResolveLevelAsset()->Guid() : Common::Content::AssetGuid{} );
         for ( const auto& refusal : step.Refusals )
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;
