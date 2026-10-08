@@ -9,10 +9,6 @@
 #include "Editor/ImGuiIntegration/ImGuiLayer.hpp"
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 #include "Editor/Panels/IPanel.hpp"
-#include "Editor/Core/CommandPalette.hpp"
-#include "Editor/Core/Commands/CommandRegistry.hpp"
-#include "Editor/Core/Selection/EntityCommands.hpp"
-#include "Editor/Panels/FileExplorer/AssetCommands.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
@@ -29,6 +25,7 @@
 #include "Editor/LevelEditor/StatusBar.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
 #include "Editor/LevelEditor/SessionRecovery.hpp"
+#include "Editor/LevelEditor/LevelEditorCommands.hpp"
 #include "Editor/LevelEditor/ControlService.hpp"
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/EditorStartup.hpp"
@@ -84,23 +81,6 @@ namespace Desert::Editor
 
     private:
         void DrawMenuBar();
-
-        // The palette's and the control channel's list, built from m_Commands (see CommandRegistry.hpp).
-        [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
-        // The palette groups of modules not cut out yet (add shape, the palette's own door, scenes/views):
-        // registered in palette order between the subject-owned providers.
-        void        AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
-        void        AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
-        static void AppendSceneCommands( std::vector<PaletteCommand>& commands );
-        void        AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
-
-        // Ctrl+P "go to anything": draws the overlay over the dictionary above. No-op unless open.
-        void DrawCommandPalette();
-        // The palette asked for BY NAME, from its own dictionary — the only way an unattended run can put
-        // it on screen, since a keystroke is not available here. Deferred rather than opened in the
-        // closure: Draw() closes the palette on the line after it runs an entry, so opening it from inside
-        // itself would work over the socket and do nothing under a person's hand.
-        bool m_OpenPaletteRequested = false;
 
         // ===== Popups =====
         void DrawPopups();
@@ -186,10 +166,6 @@ namespace Desert::Editor
         // decision this task took on `CloudNoiseService::GetGeneration` and `InstancesDirty`.
         // The focus slot this note once described lives in DockLayout (m_Dock.FocusSlot()).
 
-        CommandPalette m_CommandPalette;
-        // Every palette provider, in palette order; registered in OnAttach.
-        CommandRegistry m_Commands;
-
         // Edit ▸ Preferences... and the toolbar's gear (UE: SSettingsEditor). See
         // Editor/LevelEditor/PreferencesWindow.hpp.
         PreferencesWindow m_Preferences{ m_Workspace };
@@ -224,10 +200,27 @@ namespace Desert::Editor
         // Autosave, the crash lock and its recovery pop-up, the device-lost save (UE: FPackageAutoSaver). See
         // Editor/LevelEditor/SessionRecovery.hpp.
         SessionRecovery m_Recovery{ m_Workspace, m_SceneFiles, m_Play, m_AssetManager };
+        // The palette's dictionary, the Ctrl+P overlay and the level's global shortcuts (UE: FLevelEditorCommands),
+        // after every module whose commands it lists. See Editor/LevelEditor/LevelEditorCommands.hpp.
+        LevelEditorCommands m_LevelCommands{ { .Workspace      = m_Workspace,
+                                               .Files          = m_SceneFiles,
+                                               .Play           = m_Play,
+                                               .Documents      = m_Documents,
+                                               .Dock           = m_Dock,
+                                               .Menu           = m_MainMenu,
+                                               .Compiling      = m_AssetCompiling,
+                                               .Panels         = m_Panels,
+                                               .AssetsSlot     = m_AssetManager,
+                                               .FileExplorer   = m_FileExplorerPanel,
+                                               .WorldPartition = m_WorldPartitionPanel,
+                                               .App            = m_Application,
+                                               .Chrome         = m_WindowChrome,
+                                               .ShowFolder     = [this]( const std::string& folder )
+                                               { return ShowFolderInBrowser( folder ); } } };
         // The control channel (UE: Remote Control), after every module it reads. See
         // Editor/LevelEditor/ControlService.hpp.
         ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
-                                  m_Capture,   m_Panels,     m_Commands };
+                                  m_Capture,   m_Panels,     m_LevelCommands.Registry() };
 
         // QualityBoot::Start's answer, taken in the constructor (before the workspace's first renderer) and
         // returned by OnAttach.
@@ -238,11 +231,5 @@ namespace Desert::Editor
         // every module it reads; built in the constructor, which receives the splash. See
         // Editor/LevelEditor/EditorStartup.hpp.
         EditorStartup m_Startup;
-
-        // The palette providers that hold state or several slots (EDL-2b). Declared after every slot they point
-        // at; the census is taken once per build (m_Commands.OnBuildBegin) and read by Assets, Foliage and Open.
-        AssetFileCensus                 m_PaletteAssetFiles;
-        std::unique_ptr<EntityCommands> m_EntityCommands;
-        std::unique_ptr<AssetCommands>  m_AssetCommands;
     };
 } // namespace Desert::Editor
