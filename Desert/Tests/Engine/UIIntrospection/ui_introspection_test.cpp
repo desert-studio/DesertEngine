@@ -92,7 +92,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
             Registry.emplace<ECS::RelationshipComponent>( Canvas );
@@ -115,7 +115,7 @@ namespace
             return e;
         }
 
-        ECS::UILayoutData& Layout( entt::entity e )
+        UI::UILayoutData& Layout( entt::entity e )
         {
             return Registry.get<ECS::UILayoutComponent>( e ).Data;
         }
@@ -272,7 +272,7 @@ TEST( UIIntrospectionBatches, NoTwoAdjacentBatchesCouldHaveMerged )
 TEST( UIIntrospectionWalk, CountsAddUp )
 {
     Scene scene;
-    scene.Layout( scene.Panels[1] ).Visibility = ECS::UIVisibility::Hidden;
+    scene.Layout( scene.Panels[1] ).Visibility = UI::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
     UIViewContext   ctx{ s_Resources };
@@ -295,7 +295,7 @@ TEST( UIIntrospectionWalk, OwnAndInheritedAreDifferentAnswers )
     Scene              scene( 1 );
     const entt::entity child                   = scene.AddPanel( scene.Panels[0], 0.0f, 0.0f, 20.0f, 20.0f );
     const entt::entity grandchild              = scene.AddPanel( child, 0.0f, 0.0f, 10.0f, 10.0f );
-    scene.Layout( scene.Panels[0] ).Visibility = ECS::UIVisibility::Hidden;
+    scene.Layout( scene.Panels[0] ).Visibility = UI::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
     UIViewContext   ctx{ s_Resources };
@@ -323,7 +323,7 @@ TEST( UIIntrospectionWalk, ABindingThatSaysHiddenIsItsOwnReason )
     Scene scene( 2 );
     auto& b  = scene.Registry.emplace<ECS::UIBindingComponent>( scene.Panels[1] ).Data;
     b.Key    = "hud.visible";
-    b.Target = ECS::UIBindTarget::Visible;
+    b.Target = UI::UIBindTarget::Visible;
     UI::UIDataStore::Get().Set( "hud.visible", false );
 
     R2D::DrawList2D dl;
@@ -370,8 +370,8 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
     // single byte, so hiding it must leave the draw list byte-identical.
     Scene              scene( 3 );
     const entt::entity underHidden             = scene.AddPanel( scene.Panels[0], 0.0f, 0.0f, 20.0f, 20.0f );
-    scene.Layout( scene.Panels[0] ).Visibility = ECS::UIVisibility::Hidden;
-    scene.Layout( scene.Panels[2] ).Visibility = ECS::UIVisibility::Collapsed;
+    scene.Layout( scene.Panels[0] ).Visibility = UI::UIVisibility::Hidden;
+    scene.Layout( scene.Panels[2] ).Visibility = UI::UIVisibility::Collapsed;
     (void)underHidden;
 
     R2D::DrawList2D dl;
@@ -389,8 +389,8 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
         if ( n.Drawn || !scene.Registry.has<ECS::UILayoutComponent>( n.Entity ) )
             continue;
         auto&                   field = scene.Layout( n.Entity ).Visibility;
-        const ECS::UIVisibility prev  = field;
-        field                         = ECS::UIVisibility::Hidden;
+        const UI::UIVisibility  prev  = field;
+        field                         = UI::UIVisibility::Hidden;
 
         R2D::DrawList2D again;
         UIViewContext   ctx2{ s_Resources };
@@ -590,7 +590,7 @@ TEST( UIIntrospectionCost, AnElementBetweenTwoTexturesIsTheOneThatOpensABatch )
     EXPECT_GT( cost.Vertices, 0u );
 
     // The scene is left exactly as it was found: the measurement hides the element and restores it.
-    EXPECT_EQ( scene.Layout( scene.Panels[1] ).Visibility, ECS::UIVisibility::Visible );
+    EXPECT_EQ( scene.Layout( scene.Panels[1] ).Visibility, UI::UIVisibility::Visible );
 }
 
 TEST( UIIntrospectionCost, AFlatPanelBetweenFlatPanelsOpensNothing )

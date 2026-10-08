@@ -105,7 +105,7 @@ namespace Desert::UI
         float                    ScreenT       = 1.0f;  // 0..1 progress of the transition (1 = idle)
         float                    ScreenSlidePx = 60.0f; // mirrored from the canvas's UIScreenStack
         float                    ScreenTime    = 0.25f;
-        ECS::UIEasing            ScreenEasing  = ECS::UIEasing::CubicOut;
+        UIEasing                 ScreenEasing  = UIEasing::CubicOut;
         bool                     ScreenBack    = false; // a Back transition slides the other way
         std::string              ScreenReq;             // requested by a button, applied at the walk's end
         bool                     ScreenReqBack = false;

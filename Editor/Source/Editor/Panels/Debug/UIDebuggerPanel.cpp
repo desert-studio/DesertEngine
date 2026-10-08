@@ -81,17 +81,17 @@ namespace Desert::Editor
             return buf;
         }
 
-        const char* HitTestName( ECS::UIHitTest h )
+        const char* HitTestName( ::Desert::UI::UIHitTest h )
         {
             switch ( h )
             {
-                case ECS::UIHitTest::All:
+                case ::Desert::UI::UIHitTest::All:
                     return "All";
-                case ECS::UIHitTest::ChildrenOnly:
+                case ::Desert::UI::UIHitTest::ChildrenOnly:
                     return "ChildrenOnly";
-                case ECS::UIHitTest::Blocking:
+                case ::Desert::UI::UIHitTest::Blocking:
                     return "Blocking";
-                case ECS::UIHitTest::None:
+                case ::Desert::UI::UIHitTest::None:
                     return "None";
             }
             return "?";

@@ -18,9 +18,9 @@ namespace
     namespace AN = Desert::Animation;
     namespace TL = Desert::Animation::Timeline;
 
-    constexpr int kOffset     = 0; // ECS::UITweenProperty
+    constexpr int kOffset     = 0; // Desert::UI::UITweenProperty
     constexpr int kOpacity    = 2;
-    constexpr int kLinear     = 0; // ECS::UIEasing
+    constexpr int kLinear     = 0; // Desert::UI::UIEasing
     constexpr int kCubicInOut = 6;
 
     // Records what the evaluator hands the host, by property.

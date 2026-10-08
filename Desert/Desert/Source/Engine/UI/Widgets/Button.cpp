@@ -94,28 +94,28 @@ namespace Desert::UI::Walk
             // encoding as the ImGui renderer, so the host dispatcher is unchanged).
             switch ( b.Action )
             {
-                case ECS::UIButtonAction::LoadScene:
+                case UIButtonAction::LoadScene:
                     *outClicked = "scene:" + b.OnClickMessage;
                     break;
-                case ECS::UIButtonAction::QuitGame:
+                case UIButtonAction::QuitGame:
                     *outClicked = "quit";
                     break;
-                case ECS::UIButtonAction::OpenURL:
+                case UIButtonAction::OpenURL:
                     *outClicked = "url:" + b.OnClickMessage;
                     break;
-                case ECS::UIButtonAction::ShowScreen:
+                case UIButtonAction::ShowScreen:
                     // Handled inside the canvas — the host never sees a screen switch.
                     RequestScreen( ctx, b.OnClickMessage, false );
                     *outClicked = "screen:" + b.OnClickMessage;
                     break;
-                case ECS::UIButtonAction::BackScreen:
+                case UIButtonAction::BackScreen:
                     RequestScreen( ctx, "", true );
                     *outClicked = "screen:back";
                     break;
-                case ECS::UIButtonAction::SendEvent:
+                case UIButtonAction::SendEvent:
                     *outClicked = b.OnClickMessage;
                     break;
-                case ECS::UIButtonAction::None:
+                case UIButtonAction::None:
                 default:
                     break;
             }

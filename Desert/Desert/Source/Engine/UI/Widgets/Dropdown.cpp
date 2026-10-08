@@ -62,13 +62,13 @@ namespace Desert::UI::Walk
              mn, mx, Tinted( ctx, glm::vec4( st.Color( StyleSlot::DropdownBackground, d.Background ), 1.0f ) ),
              st.Metric( StyleSlot::DropdownCornerRadius, d.CornerRadius ) * scale );
 
-        ECS::UITextData td;
+        UITextData td;
         td.Text     = ( d.SelectedIndex >= 0 && d.SelectedIndex < (int)options.size() ) ? options[d.SelectedIndex]
                                                                                         : std::string();
         td.FontSize = st.FontSize( StyleSlot::DropdownFont, d.FontSize );
         td.Color    = listText;
         td.Font     = st.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
-        td.Align    = ECS::UITextAlign::Left;
+        td.Align    = UITextAlign::Left;
         DrawText2D( ctx.View.Resources(), dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
 
         // Down-arrow on the right edge.

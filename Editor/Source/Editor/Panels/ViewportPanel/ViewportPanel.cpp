@@ -1049,11 +1049,11 @@ namespace Desert::Editor
                     ImGui::Separator();
                     if ( ImGui::BeginMenu( ICON_MDI_LAYERS_OUTLINE "  Overlay" ) )
                     {
-                        const std::array<std::pair<const char*, ECS::UIOverlayKind>, 4> kinds{ {
-                             { ICON_MDI_TOOLTIP_TEXT_OUTLINE "  Tooltip", ECS::UIOverlayKind::Tooltip },
-                             { ICON_MDI_MENU "  Context Menu", ECS::UIOverlayKind::ContextMenu },
-                             { ICON_MDI_WINDOW_MAXIMIZE "  Modal Dialog", ECS::UIOverlayKind::Modal },
-                             { ICON_MDI_BELL_OUTLINE "  Toast Stack", ECS::UIOverlayKind::Toast },
+                        const std::array<std::pair<const char*, ::Desert::UI::UIOverlayKind>, 4> kinds{ {
+                             { ICON_MDI_TOOLTIP_TEXT_OUTLINE "  Tooltip", ::Desert::UI::UIOverlayKind::Tooltip },
+                             { ICON_MDI_MENU "  Context Menu", ::Desert::UI::UIOverlayKind::ContextMenu },
+                             { ICON_MDI_WINDOW_MAXIMIZE "  Modal Dialog", ::Desert::UI::UIOverlayKind::Modal },
+                             { ICON_MDI_BELL_OUTLINE "  Toast Stack", ::Desert::UI::UIOverlayKind::Toast },
                         } };
                         for ( const auto& [label, kind] : kinds )
                             if ( ImGui::MenuItem( label ) )

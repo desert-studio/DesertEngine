@@ -101,14 +101,14 @@ namespace Desert::UI
     {
         if ( !reg.valid( e ) || !reg.has<ECS::UILayoutComponent>( e ) )
             return true;
-        return reg.get<ECS::UILayoutComponent>( e ).Data.Visibility != ECS::UIVisibility::Collapsed;
+        return reg.get<ECS::UILayoutComponent>( e ).Data.Visibility != UIVisibility::Collapsed;
     }
 
     bool IsElementVisible( entt::registry& reg, entt::entity e )
     {
         if ( !reg.valid( e ) || !reg.has<ECS::UILayoutComponent>( e ) )
             return true;
-        return reg.get<ECS::UILayoutComponent>( e ).Data.Visibility == ECS::UIVisibility::Visible;
+        return reg.get<ECS::UILayoutComponent>( e ).Data.Visibility == UIVisibility::Visible;
     }
 
     namespace
@@ -123,24 +123,24 @@ namespace Desert::UI
             float Scale;
         };
 
-        CanvasFit ResolveCanvas( const ECS::UICanvasData& d, const Rect& viewportPx )
+        CanvasFit ResolveCanvas( const UICanvasData& d, const Rect& viewportPx )
         {
             switch ( d.ScaleMode )
             {
-                case ECS::UICanvasScaleMode::ScaleWithScreen:
+                case UICanvasScaleMode::ScaleWithScreen:
                 {
                     const float sx = d.ReferenceWidth > 0.0f ? viewportPx.W / d.ReferenceWidth : 1.0f;
                     const float sy = d.ReferenceHeight > 0.0f ? viewportPx.H / d.ReferenceHeight : 1.0f;
                     const float m  = std::clamp( d.MatchWidthHeight, 0.0f, 1.0f );
                     return { viewportPx, sx * ( 1.0f - m ) + sy * m };
                 }
-                case ECS::UICanvasScaleMode::Letterbox:
+                case UICanvasScaleMode::Letterbox:
                 {
                     const Rect fit = CanvasRect( d.ReferenceWidth, d.ReferenceHeight, viewportPx.W, viewportPx.H );
                     const float scale = d.ReferenceWidth > 0.0f ? fit.W / d.ReferenceWidth : 1.0f;
                     return { Rect{ viewportPx.X + fit.X, viewportPx.Y + fit.Y, fit.W, fit.H }, scale };
                 }
-                case ECS::UICanvasScaleMode::Stretch:
+                case UICanvasScaleMode::Stretch:
                 default:
                     return { viewportPx, 1.0f }; // canvas == viewport, 1:1 px
             }
@@ -194,9 +194,9 @@ namespace Desert::UI
                 sizes.push_back( pref * scale );
             }
             LayoutGroupParams params;
-            params.Type     = g.Type == ECS::UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                              : g.Type == ECS::UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                      : LayoutGroupType::Vertical;
+            params.Type     = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
+                              : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
+                                                                 : LayoutGroupType::Vertical;
             params.PaddingL = g.Padding.x * scale;
             params.PaddingT = g.Padding.y * scale;
             params.PaddingR = g.Padding.z * scale;
@@ -235,9 +235,9 @@ namespace Desert::UI
                 flex.push_back( fg );
             }
             LayoutGroupParams params;
-            params.Type         = g.Type == ECS::UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                                  : g.Type == ECS::UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                          : LayoutGroupType::Vertical;
+            params.Type         = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
+                                  : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
+                                                                     : LayoutGroupType::Vertical;
             params.PaddingL     = g.Padding.x * scale;
             params.PaddingT     = g.Padding.y * scale;
             params.PaddingR     = g.Padding.z * scale;
@@ -359,21 +359,20 @@ namespace Desert::UI
             // WHY THIS ELEMENT IS NOT DRAWN, in the order the walk asks it. An ancestor that already
             // stopped wins over anything this element says about itself: the walk never reached it, so
             // its own Visibility was never read and reporting it would invent a reason.
-            const ECS::UIHitTest hitTest =
-                 hasLayout ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest : ECS::UIHitTest::All;
+            const UIHitTest hitTest =
+                 hasLayout ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest : UIHitTest::All;
             node.HitTest = hitTest;
-            node.ElectsSelf =
-                 scope.Elect && ( hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::Blocking );
+            node.ElectsSelf = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::Blocking );
 
             UISkipCause self = UISkipCause::None;
             if ( hasLayout )
             {
                 switch ( reg.get<ECS::UILayoutComponent>( e ).Data.Visibility )
                 {
-                    case ECS::UIVisibility::Hidden:
+                    case UIVisibility::Hidden:
                         self = UISkipCause::SelfHidden;
                         break;
-                    case ECS::UIVisibility::Collapsed:
+                    case UIVisibility::Collapsed:
                         self = UISkipCause::SelfCollapsed;
                         break;
                     default:
@@ -529,8 +528,7 @@ namespace Desert::UI
             child.Xform        = xform;
             child.Depth        = scope.Depth + 1;
             child.ParentEntity = e;
-            child.Elect =
-                 scope.Elect && ( hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::ChildrenOnly );
+            child.Elect     = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly );
             child.SkippedBy = scope.SkippedBy != entt::null ? scope.SkippedBy : node.Drawn ? entt::null : e;
             child.Row       = scope.Row;
             child.RowIndex  = scope.RowIndex;
@@ -643,7 +641,7 @@ namespace Desert::UI
         if ( !reg.valid( e ) || !reg.has<ECS::UIBindingComponent>( e ) )
             return false;
         const auto& b = reg.get<ECS::UIBindingComponent>( e ).Data;
-        if ( b.Target != ECS::UIBindTarget::Visible || b.Key.empty() )
+        if ( b.Target != UIBindTarget::Visible || b.Key.empty() )
             return false;
         const auto v = BindingStore( ctx, b.Key, row ).Bool( b.Key );
         return v.has_value() && !*v;

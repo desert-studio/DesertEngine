@@ -60,6 +60,7 @@ using Desert::UI::Rect;
 using Desert::UI::UIInput;
 using Desert::UI::UIViewContext;
 namespace ECS = Desert::ECS;
+namespace UI  = Desert::UI;
 namespace R2D = Desert::Graphic::Render2D;
 
 namespace
@@ -89,7 +90,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
 
@@ -130,7 +131,7 @@ namespace
 
         // Give @p e a listener that says @p name on every edge, so a test never has to decide which edge
         // it is asserting about twice.
-        ECS::UIPointerEventsData& Listen( entt::entity e, const std::string& name )
+        UI::UIPointerEventsData& Listen( entt::entity e, const std::string& name )
         {
             auto& ev          = Registry.emplace<ECS::UIPointerEventsComponent>( e ).Data;
             ev.OnEnterMessage = name + ":enter";
@@ -140,7 +141,7 @@ namespace
             return ev;
         }
 
-        void SetHitTest( entt::entity e, ECS::UIHitTest h )
+        void SetHitTest( entt::entity e, UI::UIHitTest h )
         {
             Registry.get<ECS::UILayoutComponent>( e ).Data.HitTest = h;
         }
@@ -218,9 +219,9 @@ TEST( UIEventRoute, APressOnALeafIsHeardByEveryAncestorInnermostFirst )
 TEST( UIEventRoute, TunnelListenersAllRunBeforeAnyBubbleListener )
 {
     Tree t;
-    t.Listen( t.Outer, "outer" ).Phase = ECS::UIEventPhase::Tunnel;
+    t.Listen( t.Outer, "outer" ).Phase = UI::UIEventPhase::Tunnel;
     t.Listen( t.Inner, "inner" ); // Bubble, the default
-    t.Listen( t.LeafA, "leafA" ).Phase = ECS::UIEventPhase::Tunnel;
+    t.Listen( t.LeafA, "leafA" ).Phase = UI::UIEventPhase::Tunnel;
 
     UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
@@ -256,7 +257,7 @@ TEST( UIEventRoute, ATunnellingAncestorThatStopsTakesThePressAndItsChildrenNever
 {
     Tree  t;
     auto& outer           = t.Listen( t.Outer, "outer" );
-    outer.Phase           = ECS::UIEventPhase::Tunnel;
+    outer.Phase           = UI::UIEventPhase::Tunnel;
     outer.StopPropagation = true;
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
@@ -297,7 +298,7 @@ TEST( UIEventRouteMeetsHitTest, AChildrenOnlyAncestorIsSkippedAndTheOneAboveItSt
     t.Listen( t.Outer, "outer" );
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
-    t.SetHitTest( t.Inner, ECS::UIHitTest::ChildrenOnly );
+    t.SetHitTest( t.Inner, UI::UIHitTest::ChildrenOnly );
 
     UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
@@ -315,7 +316,7 @@ TEST( UIEventRouteMeetsHitTest, ABlockingTargetSwallowsThePressForItsAncestorsTo
     t.Listen( t.Canvas, "canvas" );
     t.Listen( t.Outer, "outer" );
     t.Listen( t.LeafA, "leafA" );
-    t.SetHitTest( t.LeafA, ECS::UIHitTest::Blocking );
+    t.SetHitTest( t.LeafA, UI::UIHitTest::Blocking );
 
     UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
@@ -332,7 +333,7 @@ TEST( UIEventRouteMeetsHitTest, NothingUnderANoneAncestorCanEvenStartARoute )
     t.Listen( t.Outer, "outer" );
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
-    t.SetHitTest( t.Outer, ECS::UIHitTest::None );
+    t.SetHitTest( t.Outer, UI::UIHitTest::None );
 
     UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
@@ -421,7 +422,7 @@ TEST( UIEventHover, AChildrenOnlyElementIsNotToldThePointerArrived )
     t.Listen( t.Outer, "outer" );
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
-    t.SetHitTest( t.Inner, ECS::UIHitTest::ChildrenOnly );
+    t.SetHitTest( t.Inner, UI::UIHitTest::ChildrenOnly );
 
     UIViewContext ctx{ s_Resources };
     Frame( t, ctx, kOffAll );
@@ -440,8 +441,8 @@ TEST( UIEventHover, AChildrenOnlyElementIsNotToldThePointerArrived )
 // struct's initialisers to stay put.
 TEST( UIEventRoute, TheDefaultsAreBubbleAndDoNotStop )
 {
-    const ECS::UIPointerEventsData fresh;
-    EXPECT_EQ( fresh.Phase, ECS::UIEventPhase::Bubble );
+    const UI::UIPointerEventsData fresh;
+    EXPECT_EQ( fresh.Phase, UI::UIEventPhase::Bubble );
     EXPECT_FALSE( fresh.StopPropagation );
 
     // And the behaviour that follows from them: one listener, on the element the pointer is over, fires --
@@ -470,18 +471,18 @@ TEST( UIEventPersistence, PhaseAndStopPropagationSurviveTheRoundTrip )
     const TypeInfo* type = ReflectionRegistry::Get().Find( "UIPointerEventsData" );
     ASSERT_NE( type, nullptr ) << "UIPointerEventsData is not reflected, so it is not serialized either";
 
-    ECS::UIPointerEventsData authored;
+    UI::UIPointerEventsData authored;
     authored.OnDownMessage   = "open:settings";
-    authored.Phase           = ECS::UIEventPhase::Tunnel;
+    authored.Phase           = UI::UIEventPhase::Tunnel;
     authored.StopPropagation = true;
 
     const Common::Json::Object written = SerializeReflected( *type, &authored, nullptr );
 
-    ECS::UIPointerEventsData reloaded;
+    UI::UIPointerEventsData reloaded;
     ReadReflectedValue( *type, &reloaded, written, nullptr );
 
     EXPECT_EQ( reloaded.OnDownMessage, "open:settings" );
-    EXPECT_EQ( reloaded.Phase, ECS::UIEventPhase::Tunnel ) << "the phase did not survive a save and load";
+    EXPECT_EQ( reloaded.Phase, UI::UIEventPhase::Tunnel ) << "the phase did not survive a save and load";
     EXPECT_TRUE( reloaded.StopPropagation ) << "StopPropagation did not survive a save and load";
 }
 
@@ -500,11 +501,11 @@ TEST( UIEventPersistence, AListenerSavedBeforeTheseFieldsExistedComesBackWithThe
 
     // Default-constructed, because that is what the load path hands the deserializer: ComponentRegistry's
     // MakeReflected deserializes into `AddComponent<T>()` on an entity that does not have one yet.
-    ECS::UIPointerEventsData reloaded;
+    UI::UIPointerEventsData reloaded;
     ReadReflectedValue( *type, &reloaded, old, nullptr );
 
     EXPECT_EQ( reloaded.OnDownMessage, "open:settings" );
-    EXPECT_EQ( reloaded.Phase, ECS::UIEventPhase::Bubble );
+    EXPECT_EQ( reloaded.Phase, UI::UIEventPhase::Bubble );
     EXPECT_FALSE( reloaded.StopPropagation );
 }
 
@@ -523,11 +524,11 @@ TEST( UIEventPersistence, AnAbsentKeyLeavesTheTargetUntouchedRatherThanResetting
     Common::Json::Object old;
     old["OnDownMessage"] = Common::Json::Value( std::string( "open:settings" ) );
 
-    ECS::UIPointerEventsData live;
-    live.Phase           = ECS::UIEventPhase::Tunnel;
+    UI::UIPointerEventsData live;
+    live.Phase           = UI::UIEventPhase::Tunnel;
     live.StopPropagation = true;
     ReadReflectedValue( *type, &live, old, nullptr );
 
-    EXPECT_EQ( live.Phase, ECS::UIEventPhase::Tunnel );
+    EXPECT_EQ( live.Phase, UI::UIEventPhase::Tunnel );
     EXPECT_TRUE( live.StopPropagation );
 }

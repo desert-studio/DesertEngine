@@ -112,7 +112,7 @@ namespace Desert::UI
             // graph pass.
             if ( ctx.Retaining != e && reg.has<ECS::UIRetainerComponent>( e ) )
             {
-                const ECS::UIRetainerData& rd    = reg.get<ECS::UIRetainerComponent>( e ).Data;
+                const UIRetainerData&      rd    = reg.get<ECS::UIRetainerComponent>( e ).Data;
                 uint32_t                   index = 0;
                 auto&                      layer = dl.BeginRetainedLayer( &index );
                 if ( dl.HasTransform() )
@@ -290,16 +290,15 @@ namespace Desert::UI
             // takes the default. Four values, resolved into the three questions the walk actually asks —
             // may I be elected, may I react, and what may my children do — and each is narrowed by what
             // an ancestor already allowed, so permissions only ever shrink going down.
-            const ECS::UIHitTest hitTest =
-                 hasLayout ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest : ECS::UIHitTest::All;
+            const UIHitTest hitTest =
+                 hasLayout ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest : UIHitTest::All;
 
             // Blocking elects itself precisely so the pointer STOPS here: it is the greyed-out form and the
             // modal dialog, which must swallow the click rather than let it reach what is behind them.
-            const bool electsSelf =
-                 scope.Elect && ( hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::Blocking );
+            const bool electsSelf = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::Blocking );
             // This element's own value only; the inherited half arrives through `electsSelf` above and is
             // ANDed in by `interactive` below.
-            const bool responds = hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::ChildrenOnly;
+            const bool responds = hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly;
 
             // ONE PREDICATE FOR BOTH INPUT PATHS, and it is the whole point of this line existing.
             //
@@ -321,8 +320,8 @@ namespace Desert::UI
 
             // Blocking and None both close the sub-tree to the pointer; they differ only in whether the
             // element itself stops it, which is `electsSelf` above.
-            const HitScope childScope{
-                 scope.Elect && ( hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::ChildrenOnly ) };
+            const HitScope childScope{ scope.Elect &&
+                                       ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly ) };
 
             // What the widget below draws from — every value it reads was resolved above, once.
             ElementFrame frame{ ctx,        reg,     e,      scale,      dl,         input,
@@ -551,7 +550,7 @@ namespace Desert::UI
         // UICanvasData::Visible being false — that one is the author saying never. Success(false), because
         // the canvas was named correctly and simply has no pixels this frame, exactly like a WorldSpace
         // canvas behind the camera.
-        const ECS::UIOverlayData* overlay = OverlayDataOf( reg, canvasEntity );
+        const UIOverlayData* overlay = OverlayDataOf( reg, canvasEntity );
         if ( overlay != nullptr && !ctx.Canvas.OverlayOpen )
             return Common::MakeSuccess( false );
         // THE CANVAS'S THEME, RESOLVED ONCE PER WALK (Ю13). Asked of the service by handle every frame
@@ -575,7 +574,7 @@ namespace Desert::UI
 
         Rect  canvasRect;
         float scale;
-        if ( canvasData.RenderMode == ECS::UICanvasRenderMode::WorldSpace && worldViewProj &&
+        if ( canvasData.RenderMode == UICanvasRenderMode::WorldSpace && worldViewProj &&
              reg.has<ECS::TransformComponent>( canvasEntity ) )
         {
             // Billboard: project the canvas entity's world position to the screen, centre + distance-scale it
@@ -612,7 +611,7 @@ namespace Desert::UI
             canvasRect.X += ctx.Canvas.OverlayShift.x;
             canvasRect.Y += ctx.Canvas.OverlayShift.y;
 
-            if ( overlay->Kind == ECS::UIOverlayKind::Modal )
+            if ( overlay->Kind == UIOverlayKind::Modal )
             {
                 // THE SCRIM IS WHAT MAKES A MODAL MODAL, and it is two things at once.
                 //
@@ -788,8 +787,8 @@ namespace Desert::UI
         // either, so Tab cannot walk into a notification that is about to disappear.
         //
         // A context menu and a modal are the opposite: capturing the pointer IS what they are for.
-        const bool inert = overlay != nullptr && ( overlay->Kind == ECS::UIOverlayKind::Tooltip ||
-                                                   overlay->Kind == ECS::UIOverlayKind::Toast );
+        const bool inert = overlay != nullptr &&
+                           ( overlay->Kind == UIOverlayKind::Tooltip || overlay->Kind == UIOverlayKind::Toast );
         if ( reg.has<ECS::RelationshipComponent>( canvasEntity ) )
             for ( auto c : reg.get<ECS::RelationshipComponent>( canvasEntity ).Children )
                 if ( reg.valid( c ) )
@@ -847,12 +846,12 @@ namespace Desert::UI
                     dl.AddRectFilled(
                          { row.X, row.Y }, { row.X + row.W, row.Y + row.H },
                          glm::vec4( pi.Style.Color( StyleSlot::DropdownHighlight, d.Highlight ), 1.0f ) );
-                ECS::UITextData td;
+                UITextData td;
                 td.Text     = options[i];
                 td.FontSize = pi.Style.FontSize( StyleSlot::DropdownFont, d.FontSize );
                 td.Color    = pi.Style.Color( StyleSlot::DropdownText, d.TextColor );
                 td.Font     = pi.Style.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
-                td.Align    = ECS::UITextAlign::Left;
+                td.Align    = UITextAlign::Left;
                 DrawText2D( ctx.View.Resources(), dl, td, row, pi.Scale, ctx.View.Tint, ctx.View.Time );
                 if ( hover && input->MouseReleased )
                 {
@@ -904,7 +903,7 @@ namespace Desert::UI
                 else if ( outClicked && outClicked->empty() )
                     *outClicked = msg;
             };
-            auto events = [&]( entt::entity e ) -> const ECS::UIPointerEventsData*
+            auto events = [&]( entt::entity e ) -> const UIPointerEventsData*
             {
                 return ( e != entt::null && reg.valid( e ) && reg.has<ECS::UIPointerEventsComponent>( e ) )
                             ? &reg.get<ECS::UIPointerEventsComponent>( e ).Data
@@ -918,7 +917,7 @@ namespace Desert::UI
             {
                 return ( e != entt::null && reg.valid( e ) && reg.has<ECS::UILayoutComponent>( e ) )
                             ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest
-                            : ECS::UIHitTest::All;
+                            : UIHitTest::All;
             };
 
             // May @p e hear a pointer event about ITSELF? Only All. ChildrenOnly is transparent to the
@@ -926,7 +925,7 @@ namespace Desert::UI
             // it cannot; Blocking responds to nothing by definition. Either may still sit on the route of a
             // descendant that does respond — being silent is not the same as being absent.
             auto respondsToPointer = [&]( entt::entity e )
-            { return e != entt::null && reg.valid( e ) && hitTestOf( e ) == ECS::UIHitTest::All; };
+            { return e != entt::null && reg.valid( e ) && hitTestOf( e ) == UIHitTest::All; };
 
             // The route of an event aimed at @p target: the chain from the canvas down to it, ANCESTORS
             // FIRST. Built by walking Parent and reversing, because that is the only direction the
@@ -947,7 +946,7 @@ namespace Desert::UI
             // One step of a route. Returns true when the route must end here — which is a property of the
             // listener and NOT of whether it had anything to say, so an element may swallow an event while
             // emitting nothing.
-            auto step = [&]( entt::entity e, ECS::UIEventPhase phase, std::string ECS::UIPointerEventsData::*msg )
+            auto step = [&]( entt::entity e, UIEventPhase phase, std::string UIPointerEventsData::*msg )
             {
                 const auto* ev = events( e );
                 if ( ev == nullptr || ev->Phase != phase || !respondsToPointer( e ) )
@@ -958,7 +957,7 @@ namespace Desert::UI
 
             // Tunnel down the chain, then bubble back up it. Two passes over one chain rather than two
             // chains, so an element cannot be reached in one pass and missed in the other.
-            auto route = [&]( entt::entity target, std::string ECS::UIPointerEventsData::*msg )
+            auto route = [&]( entt::entity target, std::string UIPointerEventsData::*msg )
             {
                 // Blocking STOPS THE POINTER, and a routed press IS that pointer, so it stops here for the
                 // ancestors too: a greyed-out form or a modal scrim that let the canvas behind it hear the
@@ -971,15 +970,15 @@ namespace Desert::UI
                 // is a statement about. Silencing the whole chain on hover instead would fire Exit on every
                 // ancestor the moment the pointer crossed onto a blocked child and Enter again when it
                 // left — the very flicker the chain-difference rule exists to prevent.
-                if ( hitTestOf( target ) == ECS::UIHitTest::Blocking )
+                if ( hitTestOf( target ) == UIHitTest::Blocking )
                     return;
 
                 const std::vector<entt::entity> chain = chainOf( target );
                 for ( std::size_t i = 0; i < chain.size(); ++i )
-                    if ( step( chain[i], ECS::UIEventPhase::Tunnel, msg ) )
+                    if ( step( chain[i], UIEventPhase::Tunnel, msg ) )
                         return;
                 for ( std::size_t i = chain.size(); i-- > 0; )
-                    if ( step( chain[i], ECS::UIEventPhase::Bubble, msg ) )
+                    if ( step( chain[i], UIEventPhase::Bubble, msg ) )
                         return;
             };
 
@@ -1008,7 +1007,7 @@ namespace Desert::UI
             const bool pressed = input->MouseDown && !view.PrevDown; // UIInput carries held + release only
             if ( pressed )
             {
-                route( view.HotNext, &ECS::UIPointerEventsData::OnDownMessage );
+                route( view.HotNext, &UIPointerEventsData::OnDownMessage );
 
                 // Start a drag from a draggable element. The ghost is the source's own footprint, so the
                 // cursor carries something the size of what it picked up.
@@ -1035,7 +1034,7 @@ namespace Desert::UI
 
             if ( input->MouseReleased )
             {
-                route( view.HotNext, &ECS::UIPointerEventsData::OnUpMessage );
+                route( view.HotNext, &UIPointerEventsData::OnUpMessage );
 
                 if ( view.Drag.Active )
                 {

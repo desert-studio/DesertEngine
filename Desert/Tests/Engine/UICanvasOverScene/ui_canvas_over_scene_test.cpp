@@ -137,7 +137,7 @@ namespace
 
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kW;
             canvas.ReferenceHeight = kH;
             Registry.emplace<ECS::RelationshipComponent>( Canvas );
@@ -279,7 +279,7 @@ TEST( CanvasOverScene, AnOverlayThatDrawsWithoutAnsweringThePointerIsItsOwnFailu
     UIViewContext before{ s_Resources };
     ASSERT_EQ( HotAt( scene, before, OverScene::MarkerCentre() ), scene.Marker );
 
-    scene.Registry.get<ECS::UILayoutComponent>( scene.Marker ).Data.HitTest = ECS::UIHitTest::None;
+    scene.Registry.get<ECS::UILayoutComponent>( scene.Marker ).Data.HitTest = UI::UIHitTest::None;
     UIViewContext after{ s_Resources };
     EXPECT_EQ( HotAt( scene, after, OverScene::MarkerCentre() ), kNoEntity );
 
@@ -415,7 +415,7 @@ TEST( CanvasOverSceneViewChange, AWorldSpaceCanvasIsStillDrawnByTheUIPhase )
     EXPECT_FALSE( dl.GetVertices().empty() );
 
     auto& canvas      = scene.Registry.get<ECS::UICanvasComponent>( scene.Canvas ).Data;
-    canvas.RenderMode = ECS::UICanvasRenderMode::WorldSpace;
+    canvas.RenderMode = UI::UICanvasRenderMode::WorldSpace;
 
     // A world-space canvas needs the camera's matrix; without one the walk must still answer, and the
     // element must still be enumerated where the pointer can find it.

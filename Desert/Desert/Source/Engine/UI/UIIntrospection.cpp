@@ -289,8 +289,8 @@ namespace Desert::UI
             // exactly as it entered it.
             struct VisibilityRestore
             {
-                ECS::UIVisibility& Field;
-                ECS::UIVisibility  Previous;
+                UIVisibility& Field;
+                UIVisibility  Previous;
                 ~VisibilityRestore()
                 {
                     Field = Previous;
@@ -298,7 +298,7 @@ namespace Desert::UI
             };
             auto&             field = reg.get<ECS::UILayoutComponent>( element ).Data.Visibility;
             VisibilityRestore restore{ field, field };
-            field = ECS::UIVisibility::Hidden;
+            field = UIVisibility::Hidden;
 
             if ( !RunWalk( without ) )
             {

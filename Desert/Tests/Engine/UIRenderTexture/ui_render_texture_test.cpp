@@ -51,6 +51,7 @@ namespace
 // view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 namespace ECS = Desert::ECS;
+namespace UI  = Desert::UI;
 namespace R2D = Desert::Graphic::Render2D;
 
 using Desert::UI::Rect;
@@ -118,7 +119,7 @@ namespace
         explicit Fixture( const char* scenePath = "Resources/Assets/Scenes/W.desce" )
         {
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
 
@@ -135,11 +136,11 @@ namespace
             Registry.emplace<ECS::RelationshipComponent>( Element ).Parent = Canvas;
         }
 
-        ECS::UIRenderTextureData& Data()
+        UI::UIRenderTextureData& Data()
         {
             return Registry.get<ECS::UIRenderTextureComponent>( Element ).Data;
         }
-        ECS::UILayoutData& Layout()
+        UI::UILayoutData& Layout()
         {
             return Registry.get<ECS::UILayoutComponent>( Element ).Data;
         }
@@ -270,7 +271,7 @@ TEST( UIRenderTexture, AHiddenElementIsNotAskedAboutAtAllAndThatIsHowItsSlotCome
     UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
-    f.Layout().Visibility = ECS::UIVisibility::Hidden;
+    f.Layout().Visibility = UI::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
     Draw( ctx, f, dl );
@@ -295,12 +296,12 @@ TEST( UIRenderTexture, ShowingAndHidingTheSameElementTogglesTheDemand )
     Draw( ctx, f, visible );
     const std::size_t afterShown = source.Asks.size();
 
-    f.Layout().Visibility = ECS::UIVisibility::Hidden;
+    f.Layout().Visibility = UI::UIVisibility::Hidden;
     R2D::DrawList2D hidden;
     Draw( ctx, f, hidden );
     const std::size_t afterHidden = source.Asks.size();
 
-    f.Layout().Visibility = ECS::UIVisibility::Visible;
+    f.Layout().Visibility = UI::UIVisibility::Visible;
     R2D::DrawList2D shownAgain;
     Draw( ctx, f, shownAgain );
     const std::size_t afterReshown = source.Asks.size();

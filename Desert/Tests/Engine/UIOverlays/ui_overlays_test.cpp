@@ -102,7 +102,7 @@ namespace
         {
             const entt::entity e = Registry.create();
             auto&              c = Registry.emplace<ECS::UICanvasComponent>( e ).Data;
-            c.ScaleMode          = ECS::UICanvasScaleMode::Stretch;
+            c.ScaleMode          = DUI::UICanvasScaleMode::Stretch;
             c.ReferenceWidth     = kSide;
             c.ReferenceHeight    = kSide;
             c.SortOrder          = sortOrder;
@@ -112,7 +112,7 @@ namespace
 
         // An overlay canvas of @p kind named @p name, with ONE panel of @p size at the canvas origin —
         // enough content for the placement to have something to measure and move.
-        entt::entity MakeOverlay( ECS::UIOverlayKind kind, const char* name, int sortOrder,
+        entt::entity MakeOverlay( DUI::UIOverlayKind kind, const char* name, int sortOrder,
                                   glm::vec2 size = { 200.0f, 80.0f } )
         {
             const entt::entity c = MakeCanvas( sortOrder );
@@ -139,7 +139,7 @@ namespace
             return e;
         }
 
-        ECS::UIOverlayTriggerData& Trigger( entt::entity e, const char* overlay, ECS::UIOverlayTriggerEvent on,
+        DUI::UIOverlayTriggerData& Trigger( entt::entity e, const char* overlay, DUI::UIOverlayTriggerEvent on,
                                             const char* text = "" )
         {
             auto& t   = Registry.emplace<ECS::UIOverlayTriggerComponent>( e ).Data;
@@ -277,7 +277,7 @@ TEST( OverlayPlacement, ABoxLargerThanTheViewIsPinnedInsteadOfBeingPushedOutOfIt
 TEST( OverlayModal, APressThatMissesTheDialogDoesNotReachTheElementUnderIt )
 {
     World              w;
-    const entt::entity modal = w.MakeOverlay( ECS::UIOverlayKind::Modal, "Confirm", 200 );
+    const entt::entity modal = w.MakeOverlay( DUI::UIOverlayKind::Modal, "Confirm", 200 );
     // The dialog itself sits far from the HUD button, so the point tested is inside the HUD button and
     // outside the dialog — which is exactly "a click that missed".
     w.Registry.get<ECS::UILayoutComponent>( w.Registry.get<ECS::RelationshipComponent>( modal ).Children.front() )
@@ -319,7 +319,7 @@ TEST( OverlayModal, APressThatMissesTheDialogDoesNotReachTheElementUnderIt )
 TEST( OverlayModal, AFullyTransparentScrimStillCaptures )
 {
     World              w;
-    const entt::entity modal = w.MakeOverlay( ECS::UIOverlayKind::Modal, "Confirm", 200 );
+    const entt::entity modal = w.MakeOverlay( DUI::UIOverlayKind::Modal, "Confirm", 200 );
     w.Registry.get<ECS::UIOverlayComponent>( modal ).Data.ScrimOpacity = 0.0f;
     // The dialog itself is far from the press point, so what is tested is the scrim and not the content.
     auto& dialog =
@@ -343,7 +343,7 @@ TEST( OverlayModal, AFullyTransparentScrimStillCaptures )
 TEST( OverlayModal, AClosedOverlayDrawsNothingAndIsNotTheSameStatementAsAnInvisibleCanvas )
 {
     World              w;
-    const entt::entity modal = w.MakeOverlay( ECS::UIOverlayKind::Modal, "Confirm", 200 );
+    const entt::entity modal = w.MakeOverlay( DUI::UIOverlayKind::Modal, "Confirm", 200 );
 
     UIViewContext   view{ s_Resources };
     R2D::DrawList2D dl;
@@ -374,8 +374,8 @@ TEST( OverlayModal, AClosedOverlayDrawsNothingAndIsNotTheSameStatementAsAnInvisi
 TEST( OverlayTooltip, ItOpensOnlyAfterTheAuthoredDelayAndClosesWhenThePointerLeaves )
 {
     World              w;
-    const entt::entity tip = w.MakeOverlay( ECS::UIOverlayKind::Tooltip, "Tip", 400 );
-    w.Trigger( w.HudButton, "Tip", ECS::UIOverlayTriggerEvent::Hover, "Explains the button" );
+    const entt::entity tip = w.MakeOverlay( DUI::UIOverlayKind::Tooltip, "Tip", 400 );
+    w.Trigger( w.HudButton, "Tip", DUI::UIOverlayTriggerEvent::Hover, "Explains the button" );
 
     UIViewContext view{ s_Resources };
     const UIInput onButton = At( 50.0f, 50.0f );
@@ -408,12 +408,12 @@ TEST( OverlayTooltip, ItOpensOnlyAfterTheAuthoredDelayAndClosesWhenThePointerLea
 TEST( OverlayTooltip, AtTheRightEdgeTheOpenedTooltipFlipsAndStaysInsideTheView )
 {
     World              w;
-    const entt::entity tip = w.MakeOverlay( ECS::UIOverlayKind::Tooltip, "Tip", 400, { 300.0f, 60.0f } );
+    const entt::entity tip = w.MakeOverlay( DUI::UIOverlayKind::Tooltip, "Tip", 400, { 300.0f, 60.0f } );
     w.Registry.get<ECS::UIOverlayComponent>( tip ).Data.OpenDelay = 0.0f;
     // A trigger that spans the whole canvas, so the pointer can rest anywhere including at the border.
     auto& l     = w.Registry.get<ECS::UILayoutComponent>( w.HudButton ).Data;
     l.OffsetMax = { kSide, kSide };
-    w.Trigger( w.HudButton, "Tip", ECS::UIOverlayTriggerEvent::Hover, "hint" );
+    w.Trigger( w.HudButton, "Tip", DUI::UIOverlayTriggerEvent::Hover, "hint" );
 
     // --- Control first: in the middle of the view it does NOT flip.
     UIViewContext middleView{ s_Resources };
@@ -440,10 +440,10 @@ TEST( OverlayTooltip, AtTheRightEdgeTheOpenedTooltipFlipsAndStaysInsideTheView )
 TEST( OverlayTooltip, AnOpenTooltipNeverTakesThePointerFromWhatItDescribes )
 {
     World              w;
-    const entt::entity tip = w.MakeOverlay( ECS::UIOverlayKind::Tooltip, "Tip", 400, { kSide, kSide } );
+    const entt::entity tip = w.MakeOverlay( DUI::UIOverlayKind::Tooltip, "Tip", 400, { kSide, kSide } );
     w.Registry.get<ECS::UIOverlayComponent>( tip ).Data.OpenDelay     = 0.0f;
     w.Registry.get<ECS::UIOverlayComponent>( tip ).Data.FollowPointer = false;
-    w.Trigger( w.HudButton, "Tip", ECS::UIOverlayTriggerEvent::Hover, "hint" );
+    w.Trigger( w.HudButton, "Tip", DUI::UIOverlayTriggerEvent::Hover, "hint" );
 
     UIViewContext view{ s_Resources };
     const UIInput onButton = At( 50.0f, 50.0f );
@@ -461,8 +461,8 @@ TEST( OverlayTooltip, AnOpenTooltipNeverTakesThePointerFromWhatItDescribes )
 TEST( OverlayContextMenu, ItOpensOnTheRightButtonAndClosesOnEscape )
 {
     World              w;
-    const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
-    w.Trigger( w.HudButton, "Menu", ECS::UIOverlayTriggerEvent::RightClick );
+    const entt::entity menu = w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 300 );
+    w.Trigger( w.HudButton, "Menu", DUI::UIOverlayTriggerEvent::RightClick );
 
     UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
@@ -488,8 +488,8 @@ TEST( OverlayContextMenu, ItOpensOnTheRightButtonAndClosesOnEscape )
 TEST( OverlayContextMenu, APressOutsideTheMenuClosesItAndAPressInsideDoesNot )
 {
     World              w;
-    const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
-    w.Trigger( w.HudButton, "Menu", ECS::UIOverlayTriggerEvent::RightClick );
+    const entt::entity menu = w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 300 );
+    w.Trigger( w.HudButton, "Menu", DUI::UIOverlayTriggerEvent::RightClick );
 
     UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
@@ -511,14 +511,14 @@ TEST( OverlayContextMenu, APressOutsideTheMenuClosesItAndAPressInsideDoesNot )
 TEST( OverlayContextMenu, ASubmenuIsAnotherOverlayOpenedFromAnItemAndClosesWithItsParent )
 {
     World              w;
-    const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
-    const entt::entity sub  = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Sub", 310 );
+    const entt::entity menu = w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 300 );
+    const entt::entity sub  = w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Sub", 310 );
     w.Registry.get<ECS::UIOverlayComponent>( sub ).Data.OpenDelay = 0.0f;
-    w.Trigger( w.HudButton, "Menu", ECS::UIOverlayTriggerEvent::RightClick );
+    w.Trigger( w.HudButton, "Menu", DUI::UIOverlayTriggerEvent::RightClick );
 
     // The item of the parent menu that opens the submenu, on hover.
     const entt::entity item = w.Registry.get<ECS::RelationshipComponent>( menu ).Children.front();
-    w.Trigger( item, "Sub", ECS::UIOverlayTriggerEvent::Hover );
+    w.Trigger( item, "Sub", DUI::UIOverlayTriggerEvent::Hover );
 
     UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
@@ -546,7 +546,7 @@ TEST( OverlayContextMenu, ASubmenuIsAnotherOverlayOpenedFromAnItemAndClosesWithI
 TEST( OverlayToast, ANotificationLeavesOnItsOwnClock )
 {
     World              w;
-    const entt::entity toasts = w.MakeOverlay( ECS::UIOverlayKind::Toast, "Toasts", 100 );
+    const entt::entity toasts = w.MakeOverlay( DUI::UIOverlayKind::Toast, "Toasts", 100 );
     auto&              o      = w.Registry.get<ECS::UIOverlayComponent>( toasts ).Data;
     o.ToastLifetime           = 0.5f;
     o.ToastSlots              = 3;
@@ -572,7 +572,7 @@ TEST( OverlayToast, ANotificationLeavesOnItsOwnClock )
 TEST( OverlayToast, TheVisibleStackIsBoundedByTheAuthoredSlotsAndTheQueueBehindItIsBoundedToo )
 {
     World              w;
-    const entt::entity toasts = w.MakeOverlay( ECS::UIOverlayKind::Toast, "Toasts", 100 );
+    const entt::entity toasts = w.MakeOverlay( DUI::UIOverlayKind::Toast, "Toasts", 100 );
     auto&              o      = w.Registry.get<ECS::UIOverlayComponent>( toasts ).Data;
     o.ToastLifetime           = 10.0f; // long enough that nothing expires during the test
     o.ToastSlots              = 2;
@@ -600,7 +600,7 @@ TEST( OverlayToast, AToastNeverTakesThePointerFromWhatIsUnderIt )
     World w;
     // A toast canvas covering the whole view — the worst case, and the one an author can create by
     // accident with a stack anchored to a corner and a fitter.
-    const entt::entity toasts = w.MakeOverlay( ECS::UIOverlayKind::Toast, "Toasts", 100, { kSide, kSide } );
+    const entt::entity toasts = w.MakeOverlay( DUI::UIOverlayKind::Toast, "Toasts", 100, { kSide, kSide } );
     w.Registry.get<ECS::UIOverlayComponent>( toasts ).Data.ToastLifetime = 10.0f;
 
     UIViewContext view{ s_Resources };
@@ -626,8 +626,8 @@ TEST( OverlayToast, AToastNeverTakesThePointerFromWhatIsUnderIt )
 TEST( OverlayPlacement, WhereItDrawsAndWhereItCanBeClickedAreOneAnswer )
 {
     World              w;
-    const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
-    w.Trigger( w.HudButton, "Menu", ECS::UIOverlayTriggerEvent::RightClick );
+    const entt::entity menu = w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 300 );
+    w.Trigger( w.HudButton, "Menu", DUI::UIOverlayTriggerEvent::RightClick );
 
     UIViewContext view{ s_Resources };
     Click( w, view, 120.0f, 80.0f, /*right=*/true ); // inside the HUD button, which carries the trigger
@@ -661,8 +661,8 @@ TEST( OverlayPlacement, WhereItDrawsAndWhereItCanBeClickedAreOneAnswer )
 // two go through the SAME reflection data the scene serializer uses.
 TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
 {
-    ECS::UIOverlayData authored;
-    authored.Kind                = ECS::UIOverlayKind::Toast;
+    DUI::UIOverlayData authored;
+    authored.Kind                = DUI::UIOverlayKind::Toast;
     authored.Name                = "Notifications";
     authored.Gap                 = { 7.0f, 9.0f };
     authored.OpenDelay           = 1.25f;
@@ -680,7 +680,7 @@ TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
 
     const Common::Json::Object written = SerializeReflected( *type, &authored, nullptr );
 
-    ECS::UIOverlayData reloaded;
+    DUI::UIOverlayData reloaded;
     ReadReflectedValue( *type, &reloaded, written, nullptr );
 
     EXPECT_EQ( reloaded.Kind, authored.Kind );
@@ -695,15 +695,15 @@ TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
     EXPECT_FLOAT_EQ( reloaded.ToastLifetime, authored.ToastLifetime );
     EXPECT_EQ( reloaded.ToastSlots, authored.ToastSlots );
 
-    ECS::UIOverlayTriggerData trigger;
+    DUI::UIOverlayTriggerData trigger;
     trigger.Overlay = "Notifications";
-    trigger.On      = ECS::UIOverlayTriggerEvent::RightClick;
+    trigger.On      = DUI::UIOverlayTriggerEvent::RightClick;
     trigger.Text    = "Saved to disk";
 
     const TypeInfo* ttype = ReflectionRegistry::Get().Find( "UIOverlayTriggerData" );
     ASSERT_NE( ttype, nullptr ) << "UIOverlayTriggerData is not reflected, so it is not serialized either";
     const Common::Json::Object twritten = SerializeReflected( *ttype, &trigger, nullptr );
-    ECS::UIOverlayTriggerData  treloaded;
+    DUI::UIOverlayTriggerData  treloaded;
     ReadReflectedValue( *ttype, &treloaded, twritten, nullptr );
     EXPECT_EQ( treloaded.Overlay, trigger.Overlay );
     EXPECT_EQ( treloaded.On, trigger.On );
@@ -715,8 +715,8 @@ TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
 TEST( OverlayPersistence, ADuplicateOverlayNameIsRefusedByNameRatherThanResolvedToOneOfThem )
 {
     World w;
-    w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
-    w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 310 );
+    w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 300 );
+    w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 310 );
 
     const auto found = DUI::OverlayByName( w.Registry, "Menu" );
     EXPECT_FALSE( found.IsSuccess() );
@@ -733,7 +733,7 @@ TEST( OverlayPersistence, ADuplicateOverlayNameIsRefusedByNameRatherThanResolved
 TEST( OverlayAuthoring, ADesignViewShowsEveryOverlayWhereItWasAuthored )
 {
     World              w;
-    const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
+    const entt::entity menu = w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 300 );
 
     UIViewContext view{ s_Resources };
     view.AuthoringPreview = true;
@@ -769,7 +769,7 @@ namespace
 TEST( OverlayAuthoring, AnElementInsideAnOverlayGetsItsMaterialLikeAnyOtherElement )
 {
     World              w;
-    const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
+    const entt::entity menu = w.MakeOverlay( DUI::UIOverlayKind::ContextMenu, "Menu", 300 );
     const entt::entity item = w.Registry.get<ECS::RelationshipComponent>( menu ).Children.front();
     w.Registry.get<ECS::UIPanelComponent>( item ).Data.Material = Desert::Assets::AssetHandle( 0xC0FFEEull );
 

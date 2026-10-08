@@ -55,7 +55,7 @@ namespace Desert::UI::Walk
         // made Ю13's theming of text silently do nothing. The two halves compose rather than
         // compete: theme first (it decides colour, size and font), then resolve the string
         // (ResolveLabel already subsumes `binding.Text` — see its own comment).
-        ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
+        UITextData text      = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
         text.Text            = ResolveLabel( text.Text, binding );
         DrawText2D( ctx.View.Resources(), dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
     }
@@ -69,7 +69,7 @@ namespace Desert::UI::Walk
         auto& st   = frame.St;
         auto& rect = frame.ElementRect;
 
-        ECS::UIIconData icon = reg.get<ECS::UIIconComponent>( e ).Data;
+        UIIconData icon      = reg.get<ECS::UIIconComponent>( e ).Data;
         icon.Color           = st.Color( StyleSlot::IconColor, icon.Color );
         DrawIcon( ctx.View.Resources(), dl, icon, rect, ctx.View.Tint );
     }

@@ -46,7 +46,7 @@ namespace Desert::UI::Walk
         auto& mn      = frame.Mn;
         auto& mx      = frame.Mx;
 
-        ECS::UIProgressBarData pb = reg.get<ECS::UIProgressBarComponent>( e ).Data;
+        UIProgressBarData pb = reg.get<ECS::UIProgressBarComponent>( e ).Data;
         if ( binding.Value )
             pb.Value = *binding.Value; // bound: the store drives the fill
         const float r = st.Metric( StyleSlot::ProgressCornerRadius, pb.CornerRadius ) * scale;

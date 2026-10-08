@@ -62,6 +62,7 @@ using Desert::UI::UICanvasContext;
 using Desert::UI::UIInput;
 using Desert::UI::UIViewContext;
 namespace ECS = Desert::ECS;
+namespace UI  = Desert::UI;
 namespace R2D = Desert::Graphic::Render2D;
 
 namespace
@@ -82,7 +83,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
 
@@ -304,7 +305,7 @@ TEST( UICanvasContext, ScreenNavigationBelongsToTheViewThatDidIt )
     f.Registry.get<ECS::RelationshipComponent>( f.Button ).Parent = home;
 
     auto& button          = f.Registry.get<ECS::UIButtonComponent>( f.Button ).Data;
-    button.Action         = ECS::UIButtonAction::ShowScreen;
+    button.Action         = UI::UIButtonAction::ShowScreen;
     button.OnClickMessage = "Settings";
 
     UIViewContext viewport{ s_Resources };
@@ -452,8 +453,8 @@ TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )
     v40.Duration = 1.0F;
     v40.Tracks.push_back(
          { /*Offset*/ 0,
-           { { 0.0F, glm::vec4( 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) },
-             { 1.0F, glm::vec4( 100.0F, 0.0F, 0.0F, 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) } } } );
+           { { 0.0F, glm::vec4( 0.0F ), static_cast<int>( UI::UIEasing::Linear ) },
+             { 1.0F, glm::vec4( 100.0F, 0.0F, 0.0F, 0.0F ), static_cast<int>( UI::UIEasing::Linear ) } } } );
     auto lifted = TL::LiftUIAnimation( v40, buttonUuid, AN::PROJECT_TICK_RATE, AN::DEFAULT_DISPLAY_RATE );
     ASSERT_TRUE( lifted ) << lifted.GetError();
     auto& clip    = f.Registry.emplace<ECS::UIAnimComponent>( f.Canvas ).Data;
@@ -611,7 +612,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
 
@@ -623,7 +624,7 @@ namespace
             boxLayout.OffsetMax = { 0.0f, 0.0f };
 
             auto& group        = Registry.emplace<ECS::UILayoutGroupComponent>( Box ).Data;
-            group.Type         = ECS::UILayoutType::Vertical;
+            group.Type         = UI::UILayoutType::Vertical;
             group.Spacing      = 0.0f;
             group.Padding      = glm::vec4( 0.0f );
             group.StretchCross = true;
@@ -655,7 +656,7 @@ namespace
                 Registry.get<ECS::RelationshipComponent>( Box ).Children.push_back( Item[i] );
         }
 
-        void SetVisibility( int item, ECS::UIVisibility v )
+        void SetVisibility( int item, UI::UIVisibility v )
         {
             Registry.get<ECS::UILayoutComponent>( Item[item] ).Data.Visibility = v;
         }
@@ -701,8 +702,8 @@ namespace
 TEST( UICanvasVisibility, CollapsedCostsTheSiblingsExactlyOneSlotAndHiddenCostsThemNothing )
 {
     Stack visible, hidden, collapsed;
-    hidden.SetVisibility( 1, ECS::UIVisibility::Hidden );
-    collapsed.SetVisibility( 1, ECS::UIVisibility::Collapsed );
+    hidden.SetVisibility( 1, UI::UIVisibility::Hidden );
+    collapsed.SetVisibility( 1, UI::UIVisibility::Collapsed );
 
     const auto v = Layout( visible );
     const auto h = Layout( hidden );
@@ -741,7 +742,7 @@ TEST( UICanvasVisibility, CollapsedCostsTheSiblingsExactlyOneSlotAndHiddenCostsT
 TEST( UICanvasVisibility, TheEditorPickAgreesWithTheDrawAboutACollapsedSlot )
 {
     Stack s;
-    s.SetVisibility( 1, ECS::UIVisibility::Collapsed );
+    s.SetVisibility( 1, UI::UIVisibility::Collapsed );
 
     const auto drawn = Layout( s );
     ASSERT_TRUE( drawn[2].has_value() );
@@ -777,7 +778,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
 
@@ -808,7 +809,7 @@ namespace
             Registry.emplace<ECS::RelationshipComponent>( Button ).Parent = Panel;
         }
 
-        void SetHitTest( entt::entity e, ECS::UIHitTest h )
+        void SetHitTest( entt::entity e, UI::UIHitTest h )
         {
             Registry.get<ECS::UILayoutComponent>( e ).Data.HitTest = h;
         }
@@ -864,7 +865,7 @@ TEST( UICanvasHitTest, AllElectsTheElementAndItsChildren )
 TEST( UICanvasHitTest, ChildrenOnlyDoesNotElectItselfButStillElectsItsChild )
 {
     Nested n;
-    n.SetHitTest( n.Panel, ECS::UIHitTest::ChildrenOnly );
+    n.SetHitTest( n.Panel, UI::UIHitTest::ChildrenOnly );
 
     EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == entt::null )
          << "a ChildrenOnly element was elected where nothing but it is under the pointer";
@@ -883,7 +884,7 @@ TEST( UICanvasHitTest, ChildrenOnlyDoesNotElectItselfButStillElectsItsChild )
 TEST( UICanvasHitTest, NothingInTheSubTreeOfANoneCanBecomeHot )
 {
     Nested n;
-    n.SetHitTest( n.Panel, ECS::UIHitTest::None );
+    n.SetHitTest( n.Panel, UI::UIHitTest::None );
 
     EXPECT_TRUE( Press( n, 900.0f, 900.0f ).Hot == entt::null );
 
@@ -893,7 +894,7 @@ TEST( UICanvasHitTest, NothingInTheSubTreeOfANoneCanBecomeHot )
          << "the button under a HitTest::None panel still reacted to the pointer";
 
     // And it is the ANCESTOR's value doing it: the button's own is untouched and says All.
-    EXPECT_EQ( n.Registry.get<ECS::UILayoutComponent>( n.Button ).Data.HitTest, ECS::UIHitTest::All );
+    EXPECT_EQ( n.Registry.get<ECS::UILayoutComponent>( n.Button ).Data.HitTest, UI::UIHitTest::All );
 }
 
 // --- (15) Blocking: what Interactable = false became, plus the propagation it never had ----------------
@@ -904,7 +905,7 @@ TEST( UICanvasHitTest, NothingInTheSubTreeOfANoneCanBecomeHot )
 TEST( UICanvasHitTest, BlockingStopsThePointerAndSilencesTheWholeSubTree )
 {
     Nested n;
-    n.SetHitTest( n.Panel, ECS::UIHitTest::Blocking );
+    n.SetHitTest( n.Panel, UI::UIHitTest::Blocking );
 
     EXPECT_EQ( Press( n, 900.0f, 900.0f ).Hot, n.Panel ) << "a Blocking element let the pointer past it";
 
@@ -924,10 +925,10 @@ TEST( UICanvasHitTest, BlockingStopsThePointerAndSilencesTheWholeSubTree )
 // nor Collapsed is hit-testable there either).
 TEST( UICanvasHitTest, AnElementThatIsNotVisibleIsNotHitTestableWhateverItsHitTestSays )
 {
-    for ( const ECS::UIVisibility invisible : { ECS::UIVisibility::Hidden, ECS::UIVisibility::Collapsed } )
+    for ( const UI::UIVisibility invisible : { UI::UIVisibility::Hidden, UI::UIVisibility::Collapsed } )
     {
-        for ( const ECS::UIHitTest hit : { ECS::UIHitTest::All, ECS::UIHitTest::ChildrenOnly,
-                                           ECS::UIHitTest::Blocking, ECS::UIHitTest::None } )
+        for ( const UI::UIHitTest hit :
+              { UI::UIHitTest::All, UI::UIHitTest::ChildrenOnly, UI::UIHitTest::Blocking, UI::UIHitTest::None } )
         {
             Nested n;
             n.Registry.get<ECS::UILayoutComponent>( n.Panel ).Data.Visibility = invisible;
@@ -960,13 +961,13 @@ namespace
     void ArmButton( Nested& n )
     {
         auto& b          = n.Registry.get<ECS::UIButtonComponent>( n.Button ).Data;
-        b.Action         = ECS::UIButtonAction::SendEvent;
+        b.Action         = UI::UIButtonAction::SendEvent;
         b.OnClickMessage = kFired;
     }
 
     // Did the POINTER manage to fire the button, with the panel set to @p hit? Frame one elects (the hot
     // element is resolved a frame late by design), frame two releases over it.
-    bool PointerFires( ECS::UIHitTest hit )
+    bool PointerFires( UI::UIHitTest hit )
     {
         Nested n;
         n.SetHitTest( n.Panel, hit );
@@ -987,7 +988,7 @@ namespace
     // Did the KEYBOARD? Frame one presses Tab, which fills the focus list and moves focus into it; frame two
     // presses Enter. The pointer is parked at (900,900) — over the panel, never over the button — and never
     // released, so nothing here can fire through the pointer path by accident.
-    bool KeyboardFires( ECS::UIHitTest hit )
+    bool KeyboardFires( UI::UIHitTest hit )
     {
         Nested n;
         n.SetHitTest( n.Panel, hit );
@@ -1012,7 +1013,7 @@ namespace
     // gates are separate: Enter being inert on an unreachable control and Tab refusing to stop on it are
     // different properties, and a build with only the first still makes the user press Tab twice to get past
     // a control they cannot use. Measured: gating Enter alone leaves every assertion in (17) green.
-    entt::entity FocusAfterTab( Nested& n, ECS::UIHitTest hit )
+    entt::entity FocusAfterTab( Nested& n, UI::UIHitTest hit )
     {
         n.SetHitTest( n.Panel, hit );
 
@@ -1029,8 +1030,8 @@ namespace
 // --- (17) The relation, over all four values ------------------------------------------------------------
 TEST( UICanvasHitTest, TheKeyboardReachesExactlyWhatThePointerReaches )
 {
-    for ( const ECS::UIHitTest hit :
-          { ECS::UIHitTest::All, ECS::UIHitTest::ChildrenOnly, ECS::UIHitTest::Blocking, ECS::UIHitTest::None } )
+    for ( const UI::UIHitTest hit :
+          { UI::UIHitTest::All, UI::UIHitTest::ChildrenOnly, UI::UIHitTest::Blocking, UI::UIHitTest::None } )
     {
         const bool pointer  = PointerFires( hit );
         const bool keyboard = KeyboardFires( hit );
@@ -1044,9 +1045,9 @@ TEST( UICanvasHitTest, TheKeyboardReachesExactlyWhatThePointerReaches )
 
     // THE PINNED ROWS. An equality is satisfied just as well by both paths being dead, so say which way
     // round each end is. All must fire through both doors; Blocking must fire through neither.
-    EXPECT_TRUE( PointerFires( ECS::UIHitTest::All ) ) << "the pointer stopped working entirely";
-    EXPECT_TRUE( KeyboardFires( ECS::UIHitTest::All ) ) << "Tab+Enter no longer reaches a plain button";
-    EXPECT_FALSE( KeyboardFires( ECS::UIHitTest::Blocking ) )
+    EXPECT_TRUE( PointerFires( UI::UIHitTest::All ) ) << "the pointer stopped working entirely";
+    EXPECT_TRUE( KeyboardFires( UI::UIHitTest::All ) ) << "Tab+Enter no longer reaches a plain button";
+    EXPECT_FALSE( KeyboardFires( UI::UIHitTest::Blocking ) )
          << "Tab walked into a Blocking panel and Enter fired the button inside it";
 }
 
@@ -1058,10 +1059,10 @@ TEST( UICanvasHitTest, TheKeyboardReachesExactlyWhatThePointerReaches )
 TEST( UICanvasHitTest, TabDoesNotStopOnAControlThePointerCannotReach )
 {
     Nested all, blocking, none;
-    EXPECT_EQ( FocusAfterTab( all, ECS::UIHitTest::All ), all.Button ) << "Tab no longer reaches a plain button";
-    EXPECT_TRUE( FocusAfterTab( blocking, ECS::UIHitTest::Blocking ) == entt::null )
+    EXPECT_EQ( FocusAfterTab( all, UI::UIHitTest::All ), all.Button ) << "Tab no longer reaches a plain button";
+    EXPECT_TRUE( FocusAfterTab( blocking, UI::UIHitTest::Blocking ) == entt::null )
          << "Tab parked focus inside a Blocking panel";
-    EXPECT_TRUE( FocusAfterTab( none, ECS::UIHitTest::None ) == entt::null )
+    EXPECT_TRUE( FocusAfterTab( none, UI::UIHitTest::None ) == entt::null )
          << "Tab parked focus inside a HitTest::None sub-tree";
 }
 
@@ -1074,7 +1075,7 @@ TEST( UICanvasHitTest, TabDoesNotStopOnAControlThePointerCannotReach )
 // removing it leaves (17) and (17b) entirely green.
 TEST( UICanvasHitTest, EnterOnAFocusHeldFromBeforeDoesNotFireAnUnreachableButton )
 {
-    auto fires = []( ECS::UIHitTest hit )
+    auto fires = []( UI::UIHitTest hit )
     {
         Nested n;
         n.SetHitTest( n.Panel, hit );
@@ -1090,10 +1091,10 @@ TEST( UICanvasHitTest, EnterOnAFocusHeldFromBeforeDoesNotFireAnUnreachableButton
         return clicked == kFired;
     };
 
-    EXPECT_TRUE( fires( ECS::UIHitTest::All ) ) << "Enter stopped working on a reachable focused button";
-    EXPECT_FALSE( fires( ECS::UIHitTest::Blocking ) )
+    EXPECT_TRUE( fires( UI::UIHitTest::All ) ) << "Enter stopped working on a reachable focused button";
+    EXPECT_FALSE( fires( UI::UIHitTest::Blocking ) )
          << "Enter fired a button inside a Blocking panel because focus predated the panel's change";
-    EXPECT_FALSE( fires( ECS::UIHitTest::None ) ) << "Enter fired a button inside a HitTest::None sub-tree";
+    EXPECT_FALSE( fires( UI::UIHitTest::None ) ) << "Enter fired a button inside a HitTest::None sub-tree";
 }
 
 // --- (18) The fourth keyboard door: typing ---------------------------------------------------------------
@@ -1104,7 +1105,7 @@ TEST( UICanvasHitTest, EnterOnAFocusHeldFromBeforeDoesNotFireAnUnreachableButton
 // pointer path can express that, which is why it is a test of its own rather than a row in (17).
 TEST( UICanvasHitTest, AFieldOutOfTheHitTestsReachStopsAcceptingTypedText )
 {
-    auto typeInto = [&]( ECS::UIHitTest hit ) -> std::string
+    auto typeInto = [&]( UI::UIHitTest hit ) -> std::string
     {
         Nested n;
         n.SetHitTest( n.Panel, hit );
@@ -1131,10 +1132,10 @@ TEST( UICanvasHitTest, AFieldOutOfTheHitTestsReachStopsAcceptingTypedText )
         return n.Registry.get<ECS::UIInputFieldComponent>( field ).Data.Text;
     };
 
-    EXPECT_EQ( typeInto( ECS::UIHitTest::All ), "x" ) << "a reachable field stopped accepting text";
-    EXPECT_EQ( typeInto( ECS::UIHitTest::Blocking ), "" )
+    EXPECT_EQ( typeInto( UI::UIHitTest::All ), "x" ) << "a reachable field stopped accepting text";
+    EXPECT_EQ( typeInto( UI::UIHitTest::Blocking ), "" )
          << "a field inside a Blocking panel took keystrokes the pointer could never have delivered to it";
-    EXPECT_EQ( typeInto( ECS::UIHitTest::None ), "" ) << "a field inside a HitTest::None sub-tree took keystrokes";
+    EXPECT_EQ( typeInto( UI::UIHitTest::None ), "" ) << "a field inside a HitTest::None sub-tree took keystrokes";
 }
 
 // =========================================================================================================
@@ -1174,7 +1175,7 @@ namespace
         {
             const entt::entity canvas = Registry.create();
             auto&              cd     = Registry.emplace<ECS::UICanvasComponent>( canvas ).Data;
-            cd.ScaleMode              = ECS::UICanvasScaleMode::Stretch;
+            cd.ScaleMode              = UI::UICanvasScaleMode::Stretch;
             cd.ReferenceWidth         = kSide;
             cd.ReferenceHeight        = kSide;
 
@@ -1324,7 +1325,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
 
@@ -1343,7 +1344,7 @@ namespace
             Registry.emplace<ECS::RelationshipComponent>( Panel ).Parent = Canvas;
         }
 
-        ECS::UILayoutData& Layout( entt::entity e )
+        UI::UILayoutData& Layout( entt::entity e )
         {
             return Registry.get<ECS::UILayoutComponent>( e ).Data;
         }
@@ -1910,7 +1911,7 @@ namespace
         {
             const entt::entity e = Registry.create();
             auto&              c = Registry.emplace<ECS::UICanvasComponent>( e ).Data;
-            c.ScaleMode          = ECS::UICanvasScaleMode::Stretch;
+            c.ScaleMode          = UI::UICanvasScaleMode::Stretch;
             c.ReferenceWidth     = kSide;
             c.ReferenceHeight    = kSide;
             c.SortOrder          = sortOrder;
@@ -1974,7 +1975,7 @@ namespace
             // HitTest it would be elected by any pointer inside the canvas and the topmost canvas's screen
             // would swallow every click in the frame. ChildrenOnly is what a real screen carries, and it is
             // the engine behaving correctly rather than a workaround — measured here first.
-            l.HitTest                                           = ECS::UIHitTest::ChildrenOnly;
+            l.HitTest                                           = UI::UIHitTest::ChildrenOnly;
             reg.emplace<ECS::RelationshipComponent>( s ).Parent = canvas;
             auto& kids = reg.get<ECS::RelationshipComponent>( canvas ).Children;
             if ( name == a && moveUnderFirst != entt::null )
@@ -2048,7 +2049,7 @@ TEST( UICanvasContextPair, EachCanvasNavigatesItsOwnScreensInsideOneView )
     AddTwoScreens( f.Registry, f.Upper, "Idle", "Alert" );
 
     auto& button          = f.Registry.get<ECS::UIButtonComponent>( f.LowerButton ).Data;
-    button.Action         = ECS::UIButtonAction::ShowScreen;
+    button.Action         = UI::UIButtonAction::ShowScreen;
     button.OnClickMessage = "Settings";
 
     UIViewContext view{ s_Resources };

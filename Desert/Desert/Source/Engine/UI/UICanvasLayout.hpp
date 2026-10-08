@@ -84,7 +84,7 @@ namespace Desert::UI
     // drawn where nothing can click it, which is this project's recurring defect shape. So the two
     // questions are asked through these two functions and nowhere else.
 
-    // Does @p e occupy a slot in its parent's auto-layout group? Only ECS::UIVisibility::Collapsed drops
+    // Does @p e occupy a slot in its parent's auto-layout group? Only UIVisibility::Collapsed drops
     // out; Hidden keeps its slot, and that difference IS the layout axis. An element with no UILayout has
     // nothing to say and takes its slot.
     [[nodiscard]] bool TakesLayoutSpace( entt::registry& reg, entt::entity e );
@@ -178,7 +178,7 @@ namespace Desert::UI
         bool Clipped = false;
 
         bool           TakesSlot     = true; // counted by a parent auto-layout group (Collapsed drops out)
-        ECS::UIHitTest HitTest       = ECS::UIHitTest::All;
+        UIHitTest      HitTest       = UIHitTest::All;
         bool           ElectsSelf    = false; // may the pointer STOP here — own value narrowed by its ancestors'
         bool           ClipsChildren = false;
     };

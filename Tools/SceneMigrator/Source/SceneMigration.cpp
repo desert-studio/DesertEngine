@@ -261,7 +261,7 @@ namespace Desert::Migration
                             static_cast<int>( ECS::LightFalloff::Quadratic ) == 1 &&
                             static_cast<int>( ECS::LightFalloff::InverseSquare ) == 2,
                        "LightFalloff moved: kLightFalloffNames states the numbers a Falloff name becomes" );
-        constexpr int kSendEventAction = static_cast<int>( ECS::UIButtonAction::SendEvent );
+        constexpr int kSendEventAction = static_cast<int>( UI::UIButtonAction::SendEvent );
 
         // Applies @p edit to the object block @p component of @p components, if it is stated as an object.
         template <typename Edit>

@@ -34,7 +34,7 @@ namespace Desert::Animation::Timeline
     /**
      * @brief The `UIAnim` block as scene v40 stated it — the INPUT of the v40 -> v41 lift, read by the scene
      * migrator and by nothing at runtime. Enums travel as the integers the block stored: `Property` is
-     * `ECS::UITweenProperty` (Offset 0, Size 1, Opacity 2, Color 3), `Easing` is `ECS::UIEasing`.
+     * `UI::UITweenProperty` (Offset 0, Size 1, Opacity 2, Color 3), `Easing` is `UI::UIEasing`.
      */
     struct UIAnimationKeyV40
     {

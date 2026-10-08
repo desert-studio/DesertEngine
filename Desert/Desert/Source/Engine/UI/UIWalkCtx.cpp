@@ -91,10 +91,10 @@ namespace Desert::UI::Walk
     // values — what its author actually typed — rather than an invented default or nothing drawn.
     ElementStyle StyleFor( WalkCtx& ctx, const entt::registry& reg, entt::entity e )
     {
-        const ECS::UIStyleData* authored =
+        const UIStyleData* authored =
              reg.has<ECS::UIStyleComponent>( e ) ? &reg.get<ECS::UIStyleComponent>( e ).Data : nullptr;
 
-        if ( authored != nullptr && authored->Source == ECS::UIStyleSource::Local )
+        if ( authored != nullptr && authored->Source == UIStyleSource::Local )
             return ElementStyle( nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() );
 
         // A copy rather than a reference: the alternative binds a reference to a temporary built from
@@ -120,7 +120,7 @@ namespace Desert::UI::Walk
     // separate locals because DrawText2D reads the block as a whole (wrap, auto-size, effects all
     // depend on the size), so resolving into the block is what keeps ONE path through the text layout
     // instead of a themed one and a local one.
-    ECS::UITextData Themed( const ElementStyle& st, ECS::UITextData t )
+    UITextData Themed( const ElementStyle& st, UITextData t )
     {
         t.Color        = st.Color( StyleSlot::TextColor, t.Color );
         t.ShadowColor  = st.Color( StyleSlot::TextShadow, t.ShadowColor );
@@ -156,36 +156,36 @@ namespace Desert::UI::Walk
         ctx.Canvas.ScreenReqBack = back;
     }
 
-    float Ease( ECS::UIEasing e, float t )
+    float Ease( UIEasing e, float t )
     {
         t = std::clamp( t, 0.0f, 1.0f );
         switch ( e )
         {
-            case ECS::UIEasing::QuadIn:
+            case UIEasing::QuadIn:
                 return t * t;
-            case ECS::UIEasing::QuadOut:
+            case UIEasing::QuadOut:
                 return 1.0f - ( 1.0f - t ) * ( 1.0f - t );
-            case ECS::UIEasing::QuadInOut:
+            case UIEasing::QuadInOut:
                 return t < 0.5f ? 2.0f * t * t : 1.0f - 2.0f * ( 1.0f - t ) * ( 1.0f - t );
-            case ECS::UIEasing::CubicIn:
+            case UIEasing::CubicIn:
                 return t * t * t;
-            case ECS::UIEasing::CubicOut:
+            case UIEasing::CubicOut:
                 return 1.0f - std::pow( 1.0f - t, 3.0f );
-            case ECS::UIEasing::CubicInOut:
+            case UIEasing::CubicInOut:
                 return t < 0.5f ? 4.0f * t * t * t : 1.0f - std::pow( -2.0f * t + 2.0f, 3.0f ) * 0.5f;
-            case ECS::UIEasing::BackOut:
+            case UIEasing::BackOut:
             {
                 constexpr float c1 = 1.70158f, c3 = c1 + 1.0f;
                 return 1.0f + c3 * std::pow( t - 1.0f, 3.0f ) + c1 * std::pow( t - 1.0f, 2.0f );
             }
-            case ECS::UIEasing::ElasticOut:
+            case UIEasing::ElasticOut:
             {
                 if ( t <= 0.0f || t >= 1.0f )
                     return t;
                 constexpr float c4 = 2.0f * 3.14159265f / 3.0f;
                 return std::pow( 2.0f, -10.0f * t ) * std::sin( ( t * 10.0f - 0.75f ) * c4 ) + 1.0f;
             }
-            case ECS::UIEasing::BounceOut:
+            case UIEasing::BounceOut:
             {
                 constexpr float n1 = 7.5625f, d1 = 2.75f;
                 if ( t < 1.0f / d1 )
@@ -203,7 +203,7 @@ namespace Desert::UI::Walk
                 t -= 2.625f / d1;
                 return n1 * t * t + 0.984375f;
             }
-            case ECS::UIEasing::Linear:
+            case UIEasing::Linear:
             default:
                 return t;
         }
@@ -235,10 +235,10 @@ namespace Desert::UI::Walk
         float       t   = ( clock - tw.Delay ) / dur; // <0 while delayed
         switch ( tw.Loop )
         {
-            case ECS::UITweenLoop::Loop:
+            case UITweenLoop::Loop:
                 t = t > 0.0f ? std::fmod( t, 1.0f ) : 0.0f;
                 break;
-            case ECS::UITweenLoop::PingPong:
+            case UITweenLoop::PingPong:
             {
                 if ( t > 0.0f )
                 {
@@ -249,7 +249,7 @@ namespace Desert::UI::Walk
                     t = 0.0f;
                 break;
             }
-            case ECS::UITweenLoop::Once:
+            case UITweenLoop::Once:
             default:
                 t = std::clamp( t, 0.0f, 1.0f );
                 break;
@@ -258,16 +258,16 @@ namespace Desert::UI::Walk
         const glm::vec4 v = glm::mix( tw.From, tw.To, Ease( tw.Easing, t ) );
         switch ( tw.Property )
         {
-            case ECS::UITweenProperty::Offset:
+            case UITweenProperty::Offset:
                 out.Offset = glm::vec2( v );
                 break;
-            case ECS::UITweenProperty::Size:
+            case UITweenProperty::Size:
                 out.Size = glm::vec2( v );
                 break;
-            case ECS::UITweenProperty::Opacity:
+            case UITweenProperty::Opacity:
                 out.Tint.a = v.x;
                 break;
-            case ECS::UITweenProperty::Color:
+            case UITweenProperty::Color:
                 out.Tint = glm::vec4( glm::vec3( v ), 1.0f );
                 break;
         }
@@ -302,7 +302,7 @@ namespace Desert::UI::Walk
         const UIDataStore& store = BindingStore( &cell, b.Key, cell.RowRecord );
         switch ( b.Target )
         {
-            case ECS::UIBindTarget::Text:
+            case UIBindTarget::Text:
             {
                 // A NUMBER AND A STRING ARE DIFFERENT ARGUMENTS, not two spellings of one. A number is
                 // the count a translation's plural form is chosen from and what `{n}` prints in the
@@ -322,19 +322,19 @@ namespace Desert::UI::Walk
                     out.Text = *t;
                 break;
             }
-            case ECS::UIBindTarget::Value:
+            case UIBindTarget::Value:
                 if ( const auto n = store.Number( b.Key ) )
                     out.Value = static_cast<float>( *n );
                 break;
-            case ECS::UIBindTarget::Opacity:
+            case UIBindTarget::Opacity:
                 if ( const auto n = store.Number( b.Key ) )
                     tw.Tint.a *= std::clamp( static_cast<float>( *n ), 0.0f, 1.0f );
                 break;
-            case ECS::UIBindTarget::Color:
+            case UIBindTarget::Color:
                 if ( const auto c = store.Color( b.Key ) )
                     tw.Tint *= glm::vec4( *c, 1.0f );
                 break;
-            case ECS::UIBindTarget::Visible:
+            case UIBindTarget::Visible:
                 if ( const auto v = store.Bool( b.Key ) )
                     out.Hide = !*v;
                 break;
@@ -397,7 +397,7 @@ namespace Desert::UI::Walk
     }
 
     // Does this target accept the payload in flight? An empty filter takes anything.
-    bool Accepts( const ECS::UIDropTargetData& t, const std::string& payload )
+    bool Accepts( const UIDropTargetData& t, const std::string& payload )
     {
         return t.Accepts.empty() || payload.rfind( t.Accepts, 0 ) == 0;
     }
@@ -485,7 +485,7 @@ namespace Desert::UI::Walk
     // (`ctx.View.RenderTextures == nullptr`) — a unit test, or a host that never wired one. Reported
     // once per view, because a per-frame line buries the log and gets the whole message ignored; the
     // magenta is what keeps saying it, every frame.
-    const void* ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const ECS::UIRenderTextureData& data,
+    const void* ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const UIRenderTextureData& data,
                                       const Rect& rect )
     {
         if ( ctx.View.RenderTextures == nullptr )
@@ -575,24 +575,24 @@ namespace Desert::UI::Walk
             s.pop_back();
     }
 
-    CanvasFit ResolveCanvas( const ECS::UICanvasData& d, const Rect& viewportPx )
+    CanvasFit ResolveCanvas( const UICanvasData& d, const Rect& viewportPx )
     {
         switch ( d.ScaleMode )
         {
-            case ECS::UICanvasScaleMode::ScaleWithScreen:
+            case UICanvasScaleMode::ScaleWithScreen:
             {
                 const float sx = d.ReferenceWidth > 0.0f ? viewportPx.W / d.ReferenceWidth : 1.0f;
                 const float sy = d.ReferenceHeight > 0.0f ? viewportPx.H / d.ReferenceHeight : 1.0f;
                 const float m  = std::clamp( d.MatchWidthHeight, 0.0f, 1.0f );
                 return { viewportPx, sx * ( 1.0f - m ) + sy * m };
             }
-            case ECS::UICanvasScaleMode::Letterbox:
+            case UICanvasScaleMode::Letterbox:
             {
                 const Rect  fit   = CanvasRect( d.ReferenceWidth, d.ReferenceHeight, viewportPx.W, viewportPx.H );
                 const float scale = d.ReferenceWidth > 0.0f ? fit.W / d.ReferenceWidth : 1.0f;
                 return { Rect{ viewportPx.X + fit.X, viewportPx.Y + fit.Y, fit.W, fit.H }, scale };
             }
-            case ECS::UICanvasScaleMode::Stretch:
+            case UICanvasScaleMode::Stretch:
             default:
                 return { viewportPx, 1.0f };
         }
@@ -602,7 +602,7 @@ namespace Desert::UI::Walk
     // imported into an SDF once (Runtime::IconService), so this is a single quad through the very same
     // shader as text — crisp at any size, and outline/glow/shadow come along for free.
     // @p tint as in DrawText2D: the caller's accumulated element tint, an argument rather than a global.
-    void DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UIIconData& ic,
+    void DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const UIIconData& ic,
                    const Rect& rect, const glm::vec4& tint )
     {
         Runtime::Icon*          icon  = res.Icon( static_cast<uint64_t>( ic.Icon ) );
@@ -640,12 +640,12 @@ namespace Desert::UI::Walk
     // the moment a theme can move the padding, because a themed padding applied in one of them and not
     // the other is a container that hugs its children at the wrong size. Same shape as every "two
     // values that must agree" defect in this engine, so there is one value.
-    LayoutGroupParams GroupParams( const ECS::UILayoutGroupData& g, const ElementStyle& st, float scale )
+    LayoutGroupParams GroupParams( const UILayoutGroupData& g, const ElementStyle& st, float scale )
     {
         LayoutGroupParams params;
-        params.Type = g.Type == ECS::UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                      : g.Type == ECS::UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                              : LayoutGroupType::Vertical;
+        params.Type = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
+                      : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
+                                                         : LayoutGroupType::Vertical;
 
         // A THEMED PADDING IS ONE NUMBER ON ALL FOUR EDGES. A theme says "panels breathe by 12 px",
         // which is a symmetric statement; the asymmetric cases (a title bar with a deeper top inset)

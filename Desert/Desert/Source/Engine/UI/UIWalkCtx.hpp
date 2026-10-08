@@ -144,10 +144,10 @@ namespace Desert::UI::Walk
     bool                     HandleSet( const Assets::AssetHandle& h );
     void                     ResolveRetainerMasks( WalkCtx& ctx, entt::registry& reg );
     ElementStyle             StyleFor( WalkCtx& ctx, const entt::registry& reg, entt::entity e );
-    ECS::UITextData          Themed( const ElementStyle& st, ECS::UITextData t );
+    UITextData               Themed( const ElementStyle& st, UITextData t );
     float                    HoverEase( WalkCtx& ctx, entt::entity e, bool hovered );
     void                     RequestScreen( WalkCtx& ctx, const std::string& name, bool back );
-    float                    Ease( ECS::UIEasing e, float t );
+    float                    Ease( UIEasing e, float t );
     TweenSample              SampleTween( WalkCtx& ctx, entt::registry& reg, entt::entity e );
     void                     ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out );
     BindingSample            SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw,
@@ -155,22 +155,22 @@ namespace Desert::UI::Walk
     std::string              ResolveLabel( const std::string& authored, const BindingSample& binding );
     glm::vec4                Tinted( const WalkCtx& ctx, const glm::vec4& c );
     bool                     PointIn( const Rect& r, const glm::vec2& p );
-    bool                     Accepts( const ECS::UIDropTargetData& t, const std::string& payload );
+    bool                     Accepts( const UIDropTargetData& t, const std::string& payload );
     std::vector<std::string> SplitOptions( const std::string& s );
     bool                     IsFocusable( entt::registry& reg, entt::entity e );
     Graphic::Image2D*        ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle );
     const void*              ResolveUIMaterial( WalkCtx& ctx, entt::entity e, const Assets::AssetHandle& handle );
-    const void*       ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const ECS::UIRenderTextureData& data,
-                                            const Rect& rect );
+    const void*              ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const UIRenderTextureData& data,
+                                                   const Rect& rect );
     Graphic::Image2D* ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle );
     void              DrawBox( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn,
                                const glm::vec2& mx, const glm::vec4& color, const Assets::AssetHandle& sprite,
                                const glm::vec4& srcBorder, float scale, float rounding );
     void              Utf8PopBack( std::string& s );
-    CanvasFit         ResolveCanvas( const ECS::UICanvasData& d, const Rect& viewportPx );
-    void DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UIIconData& ic,
-                   const Rect& rect, const glm::vec4& tint );
-    LayoutGroupParams GroupParams( const ECS::UILayoutGroupData& g, const ElementStyle& st, float scale );
+    CanvasFit                ResolveCanvas( const UICanvasData& d, const Rect& viewportPx );
+    void              DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const UIIconData& ic,
+                                const Rect& rect, const glm::vec4& tint );
+    LayoutGroupParams GroupParams( const UILayoutGroupData& g, const ElementStyle& st, float scale );
     glm::vec2         GroupContentPx( entt::registry& reg, entt::entity e, const ElementStyle& st, float scale );
 
     // Draw @p e and its sub-tree (UICanvasRenderer2D.cpp): resolves the element, dispatches it to its widget,

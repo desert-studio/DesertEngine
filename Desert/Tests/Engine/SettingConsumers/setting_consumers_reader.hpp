@@ -14,7 +14,7 @@
 //
 //   * it is an ANCHOR itself - the type's own name, the ECS wrapper whose `Data` member holds it, or a
 //     named accessor that returns it (`scene->GetSettings().ShowGrid`);
-//   * it is an IDENTIFIER the file binds to an anchor - a parameter (`const ECS::UICanvasData& d`), a
+//   * it is an IDENTIFIER the file binds to an anchor - a parameter (`const Desert::UI::UICanvasData& d`), a
 //     local (`const auto& canvasData = reg.get<ECS::UICanvasComponent>( e ).Data;`), an alias of one, or
 //     a parameter of the lambda handed to an entt view's `each`.
 //
@@ -459,7 +459,7 @@ namespace Desert::Tests::ConsumerText
         {
             std::size_t i = SkipSpace( s, at + anchor.size() );
 
-            // A POINTER TO MEMBER, `&ECS::UIPointerEventsData::OnDownMessage`, names the field on the type
+            // A POINTER TO MEMBER, `&Desert::UI::UIPointerEventsData::OnDownMessage`, names the field on the type
             // explicitly, so it is a STRICTER anchor than `x.Field` and not a looser one: the type and the
             // field have to stand next to each other for it to match at all. It is here because
             // UICanvasRenderer2D routes press and release through one function that takes the member as a
@@ -514,7 +514,7 @@ namespace Desert::Tests::ConsumerText
         {
             for ( std::size_t at : WordPositions( s, anchor ) )
             {
-                // A declaration or parameter: `const ECS::UICanvasData& d`, `VolumetricCloudData m_Data`.
+                // A declaration or parameter: `const Desert::UI::UICanvasData& d`, `VolumetricCloudData m_Data`.
                 std::size_t i    = SkipSpace( s, at + anchor.size() );
                 const char  head = i < s.size() ? s[i] : '\0';
                 if ( head != '>' && head != ':' && head != '(' && head != '.' && head != ',' && head != ';' &&

@@ -38,7 +38,7 @@ namespace Desert::UI
 {
     // The overlay policy of @p canvas, or nullptr when it is not an overlay. Reads the component; every
     // caller in the engine goes through this so "is this an overlay" is one question with one answer.
-    [[nodiscard]] const ECS::UIOverlayData* OverlayDataOf( entt::registry& reg, entt::entity canvas );
+    [[nodiscard]] const UIOverlayData* OverlayDataOf( entt::registry& reg, entt::entity canvas );
 
     // The overlay canvas named @p name. REFUSES when there is none and when there is more than one, with
     // the count in the message — the same rule as UI::SoleCanvas, for the same reason: picking one of two

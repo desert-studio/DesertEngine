@@ -68,21 +68,21 @@ namespace Desert::UI::Walk
 
         // Text (or dimmed placeholder), clipped to the field; caret at the end when focused.
         const bool      showPlaceholder = f.Text.empty() && !isFocused;
-        ECS::UITextData td;
+        UITextData      td;
         td.Text     = showPlaceholder ? f.Placeholder : f.Text;
         td.FontSize = fieldSize;
         td.Color    = showPlaceholder ? st.Color( StyleSlot::InputPlaceholder, f.PlaceholderColor ) : fieldText;
         // An empty handle is "the built-in face", which is what this synthetic block has always
         // drawn with — so an unthemed field is byte-identical to what it was.
         td.Font  = st.Font( StyleSlot::InputFont, Assets::AssetHandle{} );
-        td.Align = ECS::UITextAlign::Left;
+        td.Align = UITextAlign::Left;
         // The PLACEHOLDER is authored and therefore localisable; `f.Text` is what the player
         // typed and is drawn exactly as typed — translating a person's own input would be
         // absurd, and it is the one string on a canvas that must never go through the table.
         td.Text     = showPlaceholder ? Localization::Localization::Get().Resolve( f.Placeholder ).Text : f.Text;
         td.FontSize = f.FontSize;
         td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
-        td.Align    = ECS::UITextAlign::Left;
+        td.Align    = UITextAlign::Left;
         dl.PushClipRect( mn, mx );
         DrawText2D( ctx.View.Resources(), dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
         if ( isFocused )

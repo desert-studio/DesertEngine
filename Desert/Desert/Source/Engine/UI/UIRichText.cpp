@@ -225,7 +225,7 @@ namespace Desert::UI::Walk
     // @p viewSeconds is the view's UI time (UIViewContext::Time) — the marquee's phase, so it scrolls
     // by frame steps the host handed in rather than by a wall clock, and frame N of a fixed-step run
     // draws the same scroll every run.
-    void DrawText2D( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t,
+    void DrawText2D( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const UITextData& t,
                      const Rect& rect, float scale, const glm::vec4& tint, double viewSeconds )
     {
         if ( t.Text.empty() )
@@ -339,19 +339,19 @@ namespace Desert::UI::Walk
 
         // Overflow: drop the lines that fall past the bottom (Ellipsis/Clip), tagging the tail as truncated.
         bool truncated = false;
-        if ( t.Overflow != ECS::UITextOverflow::Overflow )
+        if ( t.Overflow != UITextOverflow::Overflow )
         {
             const size_t maxVisible =
                  std::max<size_t>( 1, static_cast<size_t>( std::floor( availH / lineStep ) ) );
             if ( lines.size() > maxVisible )
             {
                 lines.resize( maxVisible );
-                truncated = ( t.Overflow == ECS::UITextOverflow::Ellipsis );
+                truncated = ( t.Overflow == UITextOverflow::Ellipsis );
             }
         }
 
         // Ellipsis: trim trailing glyphs off any over-wide line (and the truncated tail) and append "...".
-        if ( t.Overflow == ECS::UITextOverflow::Ellipsis )
+        if ( t.Overflow == UITextOverflow::Ellipsis )
         {
             const float dotAdv    = advEm( '.' );
             auto        ellipsize = [&]( TextLine& ln )
@@ -386,9 +386,9 @@ namespace Desert::UI::Walk
                   ? 0.0f
                   : ( static_cast<float>( lines.size() - 1 ) * lineStep + ( bf.Ascent - bf.Descent ) * s );
         float blockTop = rect.Y + pad; // Top
-        if ( t.VerticalAlign == ECS::UITextVAlign::Middle )
+        if ( t.VerticalAlign == UITextVAlign::Middle )
             blockTop = rect.Y + ( rect.H - blockH ) * 0.5f;
-        else if ( t.VerticalAlign == ECS::UITextVAlign::Bottom )
+        else if ( t.VerticalAlign == UITextVAlign::Bottom )
             blockTop = rect.Y + rect.H - pad - blockH;
 
         // Position every glyph (per-line horizontal alignment), collecting quads for the draw passes.
@@ -397,9 +397,9 @@ namespace Desert::UI::Walk
         {
             const float lineWpx = lines[i].width * s;
             float       penX    = rect.X + pad; // Left
-            if ( t.Align == ECS::UITextAlign::Center )
+            if ( t.Align == UITextAlign::Center )
                 penX = rect.X + ( rect.W - lineWpx ) * 0.5f;
-            else if ( t.Align == ECS::UITextAlign::Right )
+            else if ( t.Align == UITextAlign::Right )
                 penX = rect.X + rect.W - pad - lineWpx;
             const float baselineY = blockTop + static_cast<float>( i ) * lineStep + bf.Ascent * s;
 
@@ -420,7 +420,7 @@ namespace Desert::UI::Walk
             }
         }
 
-        const bool clip = ( t.Overflow == ECS::UITextOverflow::Clip );
+        const bool clip = ( t.Overflow == UITextOverflow::Clip );
         if ( clip )
             dl.PushClipRect( { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H } );
 

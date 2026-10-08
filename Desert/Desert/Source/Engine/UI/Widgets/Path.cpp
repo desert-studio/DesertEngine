@@ -43,7 +43,7 @@ namespace Desert::UI::Walk
         auto& mn    = frame.Mn;
         auto& mx    = frame.Mx;
 
-        const ECS::UIPathData& path = reg.get<ECS::UIPathComponent>( e ).Data;
+        const UIPathData& path        = reg.get<ECS::UIPathComponent>( e ).Data;
         const glm::vec2 slots[8]    = { path.P0, path.P1, path.P2, path.P3, path.P4, path.P5, path.P6, path.P7 };
         const int       count       = std::clamp( path.PointCount, 2, 8 );
 
@@ -54,7 +54,7 @@ namespace Desert::UI::Walk
 
         const UIPathPolyline line =
              TessellateUIPath( std::span<const glm::vec2>( control.data(), static_cast<size_t>( count ) ),
-                               path.Curve == ECS::UIPathCurve::Smooth );
+                               path.Curve == UIPathCurve::Smooth );
 
         // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
         float      reveal = path.Reveal;

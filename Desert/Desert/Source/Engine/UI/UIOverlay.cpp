@@ -33,7 +33,7 @@ namespace Desert::UI
         // The nearest trigger at or above @p e that answers to @p on. Filtered by the EVENT and not merely
         // by the component, because a button may carry a right-click trigger while the panel above it
         // carries a hover one, and the two are different questions asked of the same chain.
-        entt::entity TriggerAtOrAbove( entt::registry& reg, entt::entity e, ECS::UIOverlayTriggerEvent on )
+        entt::entity TriggerAtOrAbove( entt::registry& reg, entt::entity e, UIOverlayTriggerEvent on )
         {
             std::size_t guard = 0;
             for ( entt::entity t = e; t != entt::null && reg.valid( t ) && guard++ <= reg.size(); )
@@ -51,12 +51,12 @@ namespace Desert::UI
         // What opened this overlay, as an event. entt::null (opened by name, not by a trigger) answers
         // LeftClick, which is the conservative reading: it is not a hover overlay, so it does not close
         // itself when the pointer wanders off.
-        ECS::UIOverlayTriggerEvent OpenerEvent( entt::registry& reg, entt::entity opener )
+        UIOverlayTriggerEvent OpenerEvent( entt::registry& reg, entt::entity opener )
         {
             return ( opener != entt::null && reg.valid( opener ) &&
                      reg.has<ECS::UIOverlayTriggerComponent>( opener ) )
                         ? reg.get<ECS::UIOverlayTriggerComponent>( opener ).Data.On
-                        : ECS::UIOverlayTriggerEvent::LeftClick;
+                        : UIOverlayTriggerEvent::LeftClick;
         }
 
         // The axis-aligned screen box of one element, resolved through the SAME walk the renderer uses and
@@ -131,8 +131,8 @@ namespace Desert::UI
                                  const UIInput& input )
         {
             UICanvasContext&          cell = view.CanvasState( canvas );
-            const ECS::UIOverlayData* d    = OverlayDataOf( reg, canvas );
-            if ( d == nullptr || d->Kind == ECS::UIOverlayKind::Modal || d->Kind == ECS::UIOverlayKind::Toast )
+            const UIOverlayData*      d    = OverlayDataOf( reg, canvas );
+            if ( d == nullptr || d->Kind == UIOverlayKind::Modal || d->Kind == UIOverlayKind::Toast )
             {
                 cell.OverlayShift = glm::vec2( 0.0f );
                 return;
@@ -147,8 +147,8 @@ namespace Desert::UI
 
             // A pointer origin is a zero-size rect at the cursor; an element origin is the element's own
             // box. One parameter, because "flip about the thing I am attached to" is one sentence.
-            const bool byHover = OpenerEvent( reg, cell.OverlayOpenedBy ) == ECS::UIOverlayTriggerEvent::Hover;
-            const bool pinToElement = ( d->Kind == ECS::UIOverlayKind::Tooltip ) ? !d->FollowPointer : byHover;
+            const bool byHover      = OpenerEvent( reg, cell.OverlayOpenedBy ) == UIOverlayTriggerEvent::Hover;
+            const bool pinToElement = ( d->Kind == UIOverlayKind::Tooltip ) ? !d->FollowPointer : byHover;
 
             Rect        origin{ input.MousePx.x, input.MousePx.y, 0.0f, 0.0f };
             OverlayAxis axis = OverlayAxis::Vertical;
@@ -161,7 +161,7 @@ namespace Desert::UI
                     // A submenu gets clear of its parent item SIDEWAYS; a pinned tooltip still drops below
                     // the element it describes, because covering that element is the one thing it must not
                     // do and stepping aside is not enough to avoid it.
-                    if ( d->Kind == ECS::UIOverlayKind::ContextMenu )
+                    if ( d->Kind == UIOverlayKind::ContextMenu )
                         axis = OverlayAxis::Horizontal;
                 }
             }
@@ -189,7 +189,7 @@ namespace Desert::UI
                 if ( reg.valid( c ) )
                 {
                     if ( dismissed && OpenerEvent( reg, view.CanvasState( c ).OverlayOpenedBy ) ==
-                                           ECS::UIOverlayTriggerEvent::Hover )
+                                           UIOverlayTriggerEvent::Hover )
                         view.OverlayHoverSuppressed = view.CanvasState( c ).OverlayOpenedBy;
                     UICanvasContext& cell = view.CanvasState( c );
                     cell.OverlayOpen      = false;
@@ -235,7 +235,7 @@ namespace Desert::UI
         void OpenOverlay( entt::registry& reg, UIViewContext& view, entt::entity canvas, entt::entity trigger,
                           const std::string& text, const UIInput& input )
         {
-            const ECS::UIOverlayData* d = OverlayDataOf( reg, canvas );
+            const UIOverlayData* d = OverlayDataOf( reg, canvas );
             if ( d == nullptr )
                 return;
 
@@ -247,7 +247,7 @@ namespace Desert::UI
             else
                 cell.Locals.Set( kOverlayTextKey, text );
 
-            if ( d->Kind == ECS::UIOverlayKind::Tooltip )
+            if ( d->Kind == UIOverlayKind::Tooltip )
             {
                 if ( view.OverlayTooltip != canvas )
                     CloseTooltip( view, reg );
@@ -281,7 +281,7 @@ namespace Desert::UI
 
         void RaiseToastOn( entt::registry& reg, UIViewContext& view, entt::entity canvas, std::string text )
         {
-            const ECS::UIOverlayData* d = OverlayDataOf( reg, canvas );
+            const UIOverlayData* d = OverlayDataOf( reg, canvas );
             if ( d == nullptr )
                 return;
             UICanvasContext& cell  = view.CanvasState( canvas );
@@ -324,8 +324,8 @@ namespace Desert::UI
                                    canvas.GetError() );
                         continue;
                     }
-                    const ECS::UIOverlayData* d = OverlayDataOf( reg, canvas.GetValue() );
-                    if ( d == nullptr || d->Kind != ECS::UIOverlayKind::Toast )
+                    const UIOverlayData* d = OverlayDataOf( reg, canvas.GetValue() );
+                    if ( d == nullptr || d->Kind != UIOverlayKind::Toast )
                     {
                         LOG_ERROR( "[UI] a notification was raised for overlay '{}', which is not a Toast; "
                                    "notifications are queued only by Toast overlays",
@@ -339,7 +339,7 @@ namespace Desert::UI
             for ( const entt::entity canvas : reg.view<ECS::UIOverlayComponent>() )
             {
                 const auto& d = reg.get<ECS::UIOverlayComponent>( canvas ).Data;
-                if ( d.Kind != ECS::UIOverlayKind::Toast )
+                if ( d.Kind != UIOverlayKind::Toast )
                     continue;
                 UICanvasContext& cell  = view.CanvasState( canvas );
                 const int        slots = std::clamp( d.ToastSlots, 1, 8 );
@@ -398,7 +398,7 @@ namespace Desert::UI
         }
     } // namespace
 
-    const ECS::UIOverlayData* OverlayDataOf( entt::registry& reg, entt::entity canvas )
+    const UIOverlayData* OverlayDataOf( entt::registry& reg, entt::entity canvas )
     {
         if ( canvas == entt::null || !reg.valid( canvas ) || !reg.has<ECS::UIOverlayComponent>( canvas ) )
             return nullptr;
@@ -488,7 +488,7 @@ namespace Desert::UI
         if ( input.Pressed( Common::KeyCode::Escape ) && !view.OverlayStack.empty() )
         {
             const std::size_t         top = view.OverlayStack.size() - 1;
-            const ECS::UIOverlayData* d   = OverlayDataOf( reg, view.OverlayStack[top] );
+            const UIOverlayData*      d   = OverlayDataOf( reg, view.OverlayStack[top] );
             if ( d != nullptr && d->CloseOnEscape )
                 CloseStackDownTo( view, reg, top, /*dismissed=*/true );
         }
@@ -500,7 +500,7 @@ namespace Desert::UI
             const std::size_t keepBelow = owner < 0 ? 0U : static_cast<std::size_t>( owner ) + 1U;
             for ( std::size_t i = view.OverlayStack.size(); i-- > keepBelow; )
             {
-                const ECS::UIOverlayData* d = OverlayDataOf( reg, view.OverlayStack[i] );
+                const UIOverlayData* d = OverlayDataOf( reg, view.OverlayStack[i] );
                 if ( d == nullptr || !d->CloseOnClickOutside )
                     break;
                 CloseStackDownTo( view, reg, i, /*dismissed=*/true );
@@ -514,7 +514,7 @@ namespace Desert::UI
             {
                 const entt::entity     canvas = view.OverlayStack[i];
                 const UICanvasContext& cell   = view.CanvasState( canvas );
-                if ( OpenerEvent( reg, cell.OverlayOpenedBy ) != ECS::UIOverlayTriggerEvent::Hover )
+                if ( OpenerEvent( reg, cell.OverlayOpenedBy ) != UIOverlayTriggerEvent::Hover )
                     continue;
                 const bool onOpener = IsSelfOrAncestor( reg, cell.OverlayOpenedBy, hot );
                 const bool inside   = under >= static_cast<int>( i );
@@ -524,7 +524,7 @@ namespace Desert::UI
         }
 
         // --- The hover clock, and what it opens --------------------------------------------------------
-        const entt::entity hoverTrigger = TriggerAtOrAbove( reg, hot, ECS::UIOverlayTriggerEvent::Hover );
+        const entt::entity hoverTrigger = TriggerAtOrAbove( reg, hot, UIOverlayTriggerEvent::Hover );
         if ( hoverTrigger != view.OverlayHoverTrigger )
         {
             // A different trigger (or none): the delay is a delay, not an accumulator over everything the
@@ -565,7 +565,7 @@ namespace Desert::UI
             }
             else
             {
-                const ECS::UIOverlayData* d    = OverlayDataOf( reg, canvas.GetValue() );
+                const UIOverlayData*      d    = OverlayDataOf( reg, canvas.GetValue() );
                 const bool                open = view.CanvasState( canvas.GetValue() ).OverlayOpen;
                 if ( d != nullptr && !open && view.OverlayHoverSuppressed != hoverTrigger &&
                      view.OverlayHoverHeld >= std::max( 0.0f, d->OpenDelay ) )
@@ -574,7 +574,7 @@ namespace Desert::UI
         }
 
         // --- The click triggers ------------------------------------------------------------------------
-        const auto fireClick = [&]( ECS::UIOverlayTriggerEvent on )
+        const auto fireClick = [&]( UIOverlayTriggerEvent on )
         {
             const entt::entity trigger = TriggerAtOrAbove( reg, hot, on );
             if ( trigger == entt::null )
@@ -587,25 +587,25 @@ namespace Desert::UI
                            canvas.GetError() );
                 return;
             }
-            const ECS::UIOverlayData* d = OverlayDataOf( reg, canvas.GetValue() );
+            const UIOverlayData* d = OverlayDataOf( reg, canvas.GetValue() );
             if ( d == nullptr )
                 return;
             // A trigger aimed at a Toast RAISES one. It does not "open" it: a toast canvas is open exactly
             // while it has something to show, and that is decided by the queue and the clock.
-            if ( d->Kind == ECS::UIOverlayKind::Toast )
+            if ( d->Kind == UIOverlayKind::Toast )
                 RaiseToastOn( reg, view, canvas.GetValue(), t.Text );
             else
                 OpenOverlay( reg, view, canvas.GetValue(), trigger, t.Text, input );
         };
         if ( pressedLeft )
-            fireClick( ECS::UIOverlayTriggerEvent::LeftClick );
+            fireClick( UIOverlayTriggerEvent::LeftClick );
         if ( pressedRight )
-            fireClick( ECS::UIOverlayTriggerEvent::RightClick );
+            fireClick( UIOverlayTriggerEvent::RightClick );
 
         // --- A following tooltip is re-placed every frame ----------------------------------------------
         if ( view.OverlayTooltip != entt::null )
         {
-            const ECS::UIOverlayData* d = OverlayDataOf( reg, view.OverlayTooltip );
+            const UIOverlayData* d = OverlayDataOf( reg, view.OverlayTooltip );
             if ( d != nullptr && d->FollowPointer )
                 PlaceOverlayCanvas( reg, view, view.OverlayTooltip, input );
         }
