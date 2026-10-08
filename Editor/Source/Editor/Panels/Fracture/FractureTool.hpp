@@ -2,6 +2,9 @@
 
 #include <Engine/Destruction/FractureEdit.hpp>
 
+#include <entt/entt.hpp>
+#include <memory>
+
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -16,6 +19,15 @@ namespace Desert::Editor
     /// The Generate methods by FractureMethod value, as the panel's combo and the palette name them.
     inline constexpr std::array<const char*, 4> kFractureMethodNames = { "Uniform Voronoi", "Clustered Voronoi",
                                                                          "Planar", "Brick" };
+
+    /// THE FRACTURE MODE'S LEVEL PREVIEW (DST-06): with a @p fracture (the mode open and a file read) the
+    /// @p selected entity carries ECS::FracturePreviewComponent { fracture, view } and no other entity does; with
+    /// none (the mode closed, nothing read, nothing selected) no entity does. Straight on the registry, never
+    /// through CommandHistory: preview state is not an edit, so undo never records it, and the component is not
+    /// reflected, so a save never writes it (FracturePieces.TheExplodeOffsetIsPreviewStateOnly).
+    void SyncFracturePreview( entt::registry& registry, entt::entity selected,
+                              const std::shared_ptr<const Destruction::FractureData>& fracture,
+                              const Destruction::FractureViewSettings&                view );
 
     /**
      * @brief THE FRACTURE MODE'S STATE AND ACTIONS (DST-02), below its panel: UE's Fracture Mode keeps the tool
@@ -47,6 +59,13 @@ namespace Desert::Editor
         [[nodiscard]] const Destruction::FractureData& Fracture() const
         {
             return m_Fracture;
+        }
+        /// The same fracture as one immutable shared object, re-made only when a read changes it (Adopt): the
+        /// level preview hands it to the piece draw, whose meshes are cached per FractureData, so a preview
+        /// builds its piece meshes once per read, not once per frame. Null until a file is read.
+        [[nodiscard]] const std::shared_ptr<const Destruction::FractureData>& SharedFracture() const
+        {
+            return m_Shared;
         }
         [[nodiscard]] bool Loaded() const
         {
@@ -90,6 +109,7 @@ namespace Desert::Editor
 
         Destruction::FractureData m_Fracture;
         bool                      m_Loaded = false;
+        std::shared_ptr<const Destruction::FractureData> m_Shared; // m_Fracture as last adopted
         std::string               m_Status;
 
         // What Refresh compares: the file read last, its bytes, its stamp and the undo revision then.

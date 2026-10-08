@@ -8,6 +8,7 @@
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/FracturePreviewComponent.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -756,6 +757,8 @@ namespace Desert::Core
         r.prepare<ECS::WaterBodyComponent>();
         r.prepare<ECS::RagdollComponent>();
         r.prepare<ECS::WaterZoneComponent>();
+        // The editor's Fracture preview: viewed by FracturePieceDraw inside MeshECSSystem's parallel group.
+        r.prepare<ECS::FracturePreviewComponent>();
         r.prepare<ECS::RadialImpulseFieldComponent>();
         r.prepare<ECS::StrainFieldComponent>();
         r.prepare<ECS::KillFieldComponent>();

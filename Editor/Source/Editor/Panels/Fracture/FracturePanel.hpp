@@ -29,10 +29,11 @@ namespace Desert::Editor
             return true;
         }
         bool IsRelevant() const override;
-        void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override
-        {
-            m_Scene = scene;
-        }
+        /// Every frame, open or not: the selected entity previews the tool's fracture while the mode is open
+        /// (SyncFracturePreview), and nothing does once it closes or the selection moves.
+        void OnPreUpdate() override;
+        /// A scene the panel leaves keeps no preview.
+        void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override;
 
     private:
         void DrawTarget();
