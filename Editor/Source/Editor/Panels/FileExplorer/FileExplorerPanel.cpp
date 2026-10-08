@@ -131,7 +131,9 @@ namespace Desert::Editor
                   },
                   .MeshSourceOf = [this]( const DirectoryInformation& entry )
                   { return m_ThumbnailPool.MeshSourceFor( entry.AssetPath, entry.Type ); },
-                  .TextureOf  = [this]( const std::string& png ) { return m_TileThumbnail.TextureOf( png ); },
+                  .Thumbnails = [this]() -> ThumbnailCache& { return m_ThumbnailPool.Thumbnails(); },
+                  .TextureIdOf = [this]( const std::shared_ptr<Graphic::Image2D>& image )
+                  { return m_TileThumbnail.TextureIdOf( image ); },
                   .OnCaptured = [this]( const std::string& png, const std::string& assetPath )
                   { m_ThumbnailPool.OnCaptured( png, assetPath ); } } ),
            m_NewAssetMenu(

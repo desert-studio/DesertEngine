@@ -263,7 +263,7 @@ namespace
     {
         std::multiset<std::string> callers;
         const std::regex           member(
-             R"(^    (?:[^ /][^(]*)?(?:EditorLayer|SceneFiles|DockLayout|ShotDirector)::(\w+)\()" );
+             R"(^    (?:[^ /][^(]*)?(?:EditorLayer|EditorStartup|SceneFiles|DockLayout|ShotDirector)::(\w+)\()" );
         const std::regex           call( R"((^|[^:\w])RequestLoad\()" );
         std::istringstream         lines( layer );
         std::string                line;
@@ -293,17 +293,19 @@ namespace
 TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
 {
     // EDL-4: the scene-file code moved into SceneFiles; EDL-9: the recovery popup moved into DockLayout and
-    // the shot's scene into ShotDirector. The register reads the layer and every file that calls RequestLoad.
+    // the shot's scene into ShotDirector; EDL-C1: the project's default scene at startup into
+    // EditorStartup::ChooseInitialLevel. The register reads the layer and every file that calls RequestLoad.
     const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" ) +
                               ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" ) +
                               ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFileDialogs.cpp" ) +
                               ReadRepoFile( "Editor/Source/Editor/LevelEditor/DockLayout.cpp" ) +
-                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/ShotDirector.cpp" );
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/ShotDirector.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/EditorStartup.cpp" );
     ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
 
     // clang-format off
     const std::multiset<std::string> allowed = {
-        "EditorLayer",               // constructor: --scene, before any edit exists
+        "ChooseInitialLevel",        // EditorStartup: the project's default scene, before any edit exists
         "QueueScene",                // ShotDirector: the shot's scene, before any edit exists
         "ConsumeOpenRequest",        // the SceneOpenRequest consumer, after the unsaved-changes check
         "DrawRecoveryPopup",         // restoring an autosave the user just chose to recover

@@ -11,6 +11,11 @@ namespace Desert::Assets
     class AssetManager;
 }
 
+namespace Desert::Graphic
+{
+    class Image2D;
+}
+
 namespace Desert::Editor
 {
     namespace UI
@@ -46,8 +51,8 @@ namespace Desert::Editor
         // coloured type icon, with the filename beside it.
         void DrawDragPreview( const DirectoryInformation& entry );
 
-        // A resident picture as an ImGui texture (ThumbnailEditMode's orbit preview); null when not resident.
-        ImTextureID TextureOf( const std::string& png );
+        // A decoded picture as an ImGui texture (ThumbnailEditMode's orbit preview); null for a null image.
+        ImTextureID TextureIdOf( const std::shared_ptr<Graphic::Image2D>& image );
 
     private:
         bool DrawTextureThumbnail( DirectoryInformation* entry, const ImVec2& size );

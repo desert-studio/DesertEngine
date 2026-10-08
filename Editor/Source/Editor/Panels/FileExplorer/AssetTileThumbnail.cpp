@@ -41,10 +41,9 @@ namespace Desert::Editor
 
     AssetTileThumbnail::~AssetTileThumbnail() = default;
 
-    ImTextureID AssetTileThumbnail::TextureOf( const std::string& png )
+    ImTextureID AssetTileThumbnail::TextureIdOf( const std::shared_ptr<Graphic::Image2D>& image )
     {
-        const auto img = m_Pool.Cache().Get( png );
-        return img ? m_UIHelper->GetTextureID( img ) : nullptr;
+        return image ? m_UIHelper->GetTextureID( image ) : nullptr;
     }
 
     void AssetTileThumbnail::ForgetTooltip( const DirectoryInformation* entry )
@@ -60,9 +59,9 @@ namespace Desert::Editor
         // coloured type icon, with the filename beside it — mirrors what the user grabbed.
         std::shared_ptr<Graphic::Image2D> img;
         if ( entry.Type == FileType::Texture )
-            img = m_Pool.Cache().Get( assetPath );
+            img = m_Pool.Thumbnails().Get( assetPath );
         else if ( entry.Type == FileType::Material || entry.Type == FileType::Cloud )
-            img = m_Pool.Cache().Get( ThumbnailKey::DiskPath( assetPath ) );
+            img = m_Pool.Thumbnails().Get( ThumbnailKey::DiskPath( assetPath ) );
         else if ( entry.Type == FileType::Model )
         {
             // THE COOKED KEY, not the source one. This branch used to share the material's line,
@@ -72,7 +71,7 @@ namespace Desert::Editor
             // exactly the kind of "it still works, just worse" a re-read site decays into.
             if ( const std::optional<AssetThumbnailPool::MeshPicture> picture =
                       m_Pool.MeshPictureFor( assetPath, entry.Type ) )
-                img = m_Pool.Cache().Get( ThumbnailKey::DiskPath( picture->Cooked ) );
+                img = m_Pool.Thumbnails().Get( ThumbnailKey::DiskPath( picture->Cooked ) );
         }
 
         constexpr float previewSize = 48.0f;
@@ -121,10 +120,10 @@ namespace Desert::Editor
                 if ( ThumbnailService::JudgeSkyboxPicture( entry->AssetPath ) !=
                      ThumbnailFreshness::Verdict::Show )
                 {
-                    m_Pool.Cache().Invalidate( png );
+                    m_Pool.Thumbnails().Invalidate( png );
                     return false;
                 }
-                if ( auto img = m_Pool.Cache().Get( png ) )
+                if ( auto img = m_Pool.Thumbnails().Get( png ) )
                 {
                     m_UIHelper->ImageButton( "##thumb", img, size );
                     return true;
@@ -145,7 +144,7 @@ namespace Desert::Editor
 
         // Decode the source image directly (cached), independent of the cook pipeline — so EVERY image
         // previews, not just already-cooked ones.
-        auto img = m_Pool.Cache().Get( entry->AssetPath );
+        auto img = m_Pool.Thumbnails().Get( entry->AssetPath );
         if ( !img )
             return false;
 
@@ -172,7 +171,7 @@ namespace Desert::Editor
         bool       drew = false;
         if ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::CachedPng )
         {
-            if ( auto img = m_Pool.Cache().Get( pngPath ) )
+            if ( auto img = m_Pool.Thumbnails().Get( pngPath ) )
             {
                 m_UIHelper->ImageButton( "##thumb", img, size );
                 drew = true;
@@ -286,10 +285,10 @@ namespace Desert::Editor
         const bool haveFresh =
              ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
-            m_Pool.Cache().Invalidate( pngPath );
+            m_Pool.Thumbnails().Invalidate( pngPath );
         if ( haveFresh )
         {
-            if ( auto img = m_Pool.Cache().Get( pngPath ) )
+            if ( auto img = m_Pool.Thumbnails().Get( pngPath ) )
             {
                 m_UIHelper->ImageButton( "##thumb", img, size );
                 return true;
@@ -332,8 +331,8 @@ namespace Desert::Editor
         const std::string& pngPath = m_Pool.ThumbnailPngFor( subject );
         const bool haveFresh = ThumbnailService::JudgeMeshPicture( subject ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
-            m_Pool.Cache().Invalidate( pngPath );
-        else if ( auto img = m_Pool.Cache().Get( pngPath ) )
+            m_Pool.Thumbnails().Invalidate( pngPath );
+        else if ( auto img = m_Pool.Thumbnails().Get( pngPath ) )
         {
             m_UIHelper->ImageButton( "##thumb", img, size );
             return true;
@@ -367,11 +366,11 @@ namespace Desert::Editor
              ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, entry->AssetPath ) ) ==
              ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
-            m_Pool.Cache().Invalidate( pngPath );
+            m_Pool.Thumbnails().Invalidate( pngPath );
 
         if ( haveFresh )
         {
-            if ( auto img = m_Pool.Cache().Get( pngPath ) )
+            if ( auto img = m_Pool.Thumbnails().Get( pngPath ) )
             {
                 m_UIHelper->ImageButton( "##thumb", img, size );
                 return true;

@@ -5,6 +5,7 @@
 
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
 #include <Editor/Import/CookPaths.hpp>
+#include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailEdit.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
@@ -260,8 +261,9 @@ namespace Desert::Editor
 
             // THE LIVE PICTURE over the tile, once this gesture's first preview has landed.
             if ( !g.PreviewPng.empty() && ThumbnailService::Get().PreviewLanded( g.PreviewKey ) )
-                if ( ImTextureID tex = m_On.TextureOf( g.PreviewPng ); tex != nullptr )
-                    ImGui::GetWindowDrawList()->AddImage( tex, min, max );
+                if ( const auto img = m_On.Thumbnails().Get( g.PreviewPng ) )
+                    if ( ImTextureID tex = m_On.TextureIdOf( img ); tex != nullptr )
+                        ImGui::GetWindowDrawList()->AddImage( tex, min, max );
 
             const bool wheelRests = g.Wheel != 0.0f && ImGui::GetTime() - g.LastWheel > kWheelRestSeconds;
             if ( !active && ( ImGui::IsItemDeactivated() || !hovered || wheelRests ) )

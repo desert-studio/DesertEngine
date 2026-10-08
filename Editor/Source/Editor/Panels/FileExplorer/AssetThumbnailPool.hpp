@@ -37,8 +37,9 @@ namespace Desert::Editor
         AssetThumbnailPool( const AssetThumbnailPool& )            = delete;
         AssetThumbnailPool& operator=( const AssetThumbnailPool& ) = delete;
 
-        /// The decoded pictures (GPU-resident). Never null.
-        [[nodiscard]] ThumbnailCache& Cache() const
+        /// The decoded pictures (GPU-resident). Never null. Named for what it holds: the ThumbnailRequesters
+        /// census finds a drawing site by a `Get(` on a receiver whose name says thumbnail.
+        [[nodiscard]] ThumbnailCache& Thumbnails() const
         {
             return *m_Thumbnails;
         }

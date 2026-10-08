@@ -23,9 +23,15 @@ namespace Desert::Core
     class Scene;
 }
 
+namespace Desert::Graphic
+{
+    class Image2D;
+}
+
 namespace Desert::Editor
 {
     struct DirectoryInformation;
+    class ThumbnailCache;
 
     /// A TILE'S PICTURE, AUTHORED FROM THE BROWSER (UE: SThumbnailEditModeTools + "Capture Thumbnail"). Two
     /// tools on one picture: Capture takes the main viewport's frame as the asset's thumbnail; Edit Thumbnail
@@ -55,8 +61,11 @@ namespace Desert::Editor
                  CookedPictureOf;
             /// The model a RenderedMesh tile photographs (a model itself, or a foliage type's mesh).
             std::function<std::optional<std::string>( const DirectoryInformation& )> MeshSourceOf;
-            /// The GPU texture of a picture file, decoded through the browser's cache; null while it is not.
-            std::function<ImTextureID( const std::string& png )> TextureOf;
+            /// The browser's decoded pictures. Draw decodes the orbit preview through it itself, so the decode
+            /// sits beside the PreviewLanded gate that makes it a re-read (ThumbnailRequesters census).
+            std::function<ThumbnailCache&()> Thumbnails;
+            /// The ImGui texture of a decoded picture; null while it has none.
+            std::function<ImTextureID( const std::shared_ptr<Graphic::Image2D>& image )> TextureIdOf;
             /// A picture was written for @p assetPath under @p png: drop the cached decode and any refusal.
             std::function<void( const std::string& png, const std::string& assetPath )> OnCaptured;
         };
