@@ -508,13 +508,15 @@ namespace
         const float      fovX = Desert::Core::kEditorViewportFovXDegrees;
         const FramedView view = FrameBox( box, forward, fovX, aspect );
 
-        const glm::vec3 up       = std::abs( view.Forward.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
-        const glm::mat4 viewMat  = glm::lookAt( view.Position, view.Position + view.Forward, up );
-        const glm::mat4 proj     = Desert::Core::MakePerspective(
-             Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovX ), aspect ), aspect, view.Near, view.Far );
+        const glm::vec3 up = std::abs( view.Forward.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
+        const glm::mat4 viewMat = glm::lookAt( view.Position, view.Position + view.Forward, up );
+        const glm::mat4 proj    = Desert::Core::MakePerspective(
+             Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovX ), aspect ), aspect, view.Near,
+             view.Far );
         for ( int corner = 0; corner < 8; ++corner )
         {
-            const glm::vec3 p( ( corner & 1 ) != 0 ? box.Max.x : box.Min.x, ( corner & 2 ) != 0 ? box.Max.y : box.Min.y,
+            const glm::vec3 p( ( corner & 1 ) != 0 ? box.Max.x : box.Min.x,
+                               ( corner & 2 ) != 0 ? box.Max.y : box.Min.y,
                                ( corner & 4 ) != 0 ? box.Max.z : box.Min.z );
             const glm::vec4 clip = proj * viewMat * glm::vec4( p, 1.0f );
             ASSERT_GT( clip.w, 0.0f ) << "corner " << corner << " is behind the camera";

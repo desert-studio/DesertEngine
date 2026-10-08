@@ -220,8 +220,9 @@ namespace Desert::Editor
         const glm::vec3 centre = 0.5f * ( box.Min + box.Max );
         const float     radius = glm::max( glm::length( 0.5f * ( box.Max - box.Min ) ), kMinimumFramedRadius );
 
-        const float halfX      = 0.5f * glm::radians( fovXDegrees );
-        const float halfY      = 0.5f * ::Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovXDegrees ), aspect );
+        const float halfX = 0.5f * glm::radians( fovXDegrees );
+        const float halfY =
+             0.5f * ::Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovXDegrees ), aspect );
         const float halfNarrow = glm::min( halfX, halfY );
         const float distance   = radius / std::sin( halfNarrow );
 

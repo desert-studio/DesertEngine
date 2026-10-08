@@ -38,9 +38,10 @@ namespace Desert::Editor
         // parsed yet is COUNTED and reported, not silently left out of the frame.
         struct SceneBounds
         {
-            ::Common::Math::AABB Box{ glm::vec3( Geometry::kNoBoundsSentinel ), glm::vec3( -Geometry::kNoBoundsSentinel ) };
-            int                Meshes  = 0;
-            int                Missing = 0;
+            ::Common::Math::AABB Box{ glm::vec3( Geometry::kNoBoundsSentinel ),
+                                      glm::vec3( -Geometry::kNoBoundsSentinel ) };
+            int                  Meshes  = 0;
+            int                  Missing = 0;
         };
 
         void Include( SceneBounds& bounds, const ECS::Entity& entity, const std::vector<Submesh>* submeshes )
@@ -50,7 +51,8 @@ namespace Desert::Editor
                 ++bounds.Missing;
                 return;
             }
-            const auto world = Geometry::TransformBounds( entity.GetWorldTransform(), Geometry::LocalBounds( *submeshes ) );
+            const auto world =
+                 Geometry::TransformBounds( entity.GetWorldTransform(), Geometry::LocalBounds( *submeshes ) );
             if ( Geometry::IsEmpty( world ) )
                 return;
             bounds.Box.Min = glm::min( bounds.Box.Min, world.Min );
@@ -283,11 +285,12 @@ namespace Desert::Editor
         // the scene load, the background cook and the content stream have settled — so every mesh the
         // picture will show is parsed and measured, and the record size (the aspect) is final. The view
         // direction is the camera's own, as F keeps it.
-        const auto&                    scene = m_Workspace.ActiveScene();
+        const auto&                   scene = m_Workspace.ActiveScene();
         ::Desert::Core::EditorCamera* cam   = m_Workspace.ActiveEditorCamera();
         if ( !scene || cam == nullptr )
         {
-            LOG_ERROR( "[Shot] no --camera/--look and no active scene view to frame: the camera stays where it is" );
+            LOG_ERROR(
+                 "[Shot] no --camera/--look and no active scene view to frame: the camera stays where it is" );
             return;
         }
         if ( cam->GetProjectionType() != ::Desert::Core::ProjectionType::Perspective )
@@ -298,14 +301,16 @@ namespace Desert::Editor
         }
         const SceneBounds bounds = MeasureScene( *scene );
         if ( bounds.Missing > 0 )
-            LOG_WARN( "[Shot] framing: {} mesh(es) not parsed yet are outside the measured bounds", bounds.Missing );
+            LOG_WARN( "[Shot] framing: {} mesh(es) not parsed yet are outside the measured bounds",
+                      bounds.Missing );
         if ( Geometry::IsEmpty( bounds.Box ) )
         {
             LOG_ERROR( "[Shot] no --camera/--look and the scene has no measurable mesh to frame: the camera "
                        "stays where it is" );
             return;
         }
-        const float aspect = static_cast<float>( m_Gate.RecordWidth() ) / static_cast<float>( m_Gate.RecordHeight() );
+        const float aspect =
+             static_cast<float>( m_Gate.RecordWidth() ) / static_cast<float>( m_Gate.RecordHeight() );
         const FramedView view = FrameBox( bounds.Box, cam->GetDirection(), cam->GetFOV(), aspect );
         cam->SetNear( view.Near );
         cam->SetFar( view.Far );
