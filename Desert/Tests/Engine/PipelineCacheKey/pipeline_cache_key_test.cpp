@@ -762,6 +762,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::MaterialComplexity ), 9 );
     EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::ShadingModel ), 10 );
     EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::SunShadowReceive ), 11 );
+    EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::Velocity ), 12 );
 
     // C++: the only binding of the word by name, fed from G-buffer slot 2.
     std::vector<std::string> binders;

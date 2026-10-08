@@ -202,6 +202,24 @@ namespace Desert::Editor
                                                         rfl::enum_to_string( path.Method ), path.Reason )
                                                 .c_str() );
 
+            // UE's sg.AntiAliasingQuality for the temporal method: the history's quality (Low / Medium / High).
+            // Shown only when this scene's path runs TAA - under any other method it has no reader.
+            if ( path.Method == SC::AntiAliasingMethod::TAA )
+            {
+                static constexpr std::array<const char*, 3> kTemporalQualities = { "Low", "Medium", "High" };
+                const int requestedQuality = Requested( SC::Parameter::TemporalAAQuality );
+                if ( const auto picked = ValueCombo(
+                          "Temporal AA Quality",
+                          requestedQuality >= 0 && requestedQuality < static_cast<int>( kTemporalQualities.size() )
+                               ? static_cast<std::size_t>( requestedQuality )
+                               : kTemporalQualities.size(),
+                          kTemporalQualities.size(),
+                          []( std::size_t i ) { return std::string( kTemporalQualities[i] ); } ) )
+                    SC::QualityState::SetOverride( SC::Parameter::TemporalAAQuality,
+                                                   static_cast<SC::ParameterValue>( *picked ) );
+                ShowFallback( resolved, SC::Parameter::TemporalAAQuality );
+            }
+
             if ( resolved.As<SC::AntiAliasingMethod>( SC::Parameter::AntiAliasingMethod ) ==
                  SC::AntiAliasingMethod::MSAA )
             {

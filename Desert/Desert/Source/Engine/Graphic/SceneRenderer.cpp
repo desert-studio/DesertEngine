@@ -363,6 +363,13 @@ namespace Desert::Graphic
         if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
             LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
 
+        RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer,
+                                                      m_RenderGraphBuilder );
+        if ( const auto velocityViewInit =
+                  SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )->Initialize();
+             !velocityViewInit )
+            LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
+
         // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
         // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
         // Transparency phase, self-ordered below the particles by RenderPassOrder::AtmosphericFog.
@@ -892,7 +899,7 @@ namespace Desert::Graphic
         // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
         using Common::Scalability::Parameter;
         const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
-             m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), std::nullopt,
+             m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), m_DebugView.ScreenPercentage,
              m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
              [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
              {
@@ -1095,6 +1102,7 @@ namespace Desert::Graphic
         const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
+        AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false, overlay );

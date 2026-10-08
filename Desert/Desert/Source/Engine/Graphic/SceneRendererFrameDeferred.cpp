@@ -443,6 +443,43 @@ namespace Desert::Graphic
              { return deferred->Record( context ); } );
     }
 
+    void SceneRenderer::AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures,
+                                              const RDG::TextureRef target )
+    {
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::Velocity || m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        const auto            it       = m_RenderSystems.find( "VelocityViewSystem" );
+        auto* const view = it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::VelocityViewRenderer, it->second )
+                                                       : nullptr;
+        if ( view == nullptr || !target.IsValid() || !velocity.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Velocity not drawn: {}",
+                       view == nullptr ? "no VelocityViewSystem" : "the frame has no velocity or no post input" );
+            return;
+        }
+        const auto desc = graph.GetTextureDesc( target );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Velocity: {}", desc.GetError() );
+            return;
+        }
+        if ( const auto prepared = view->Prepare( desc.GetValue().Format, desc.GetValue().Samples ); !prepared )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Velocity: {}", prepared.GetError() );
+            return;
+        }
+        graph.AddPass(
+             "Debug: Velocity", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 view->DeclareBindings( pass, velocity );
+                 pass.ColorTarget( 0, target, EngineClearColor() );
+             },
+             [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
+    }
+
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                                       const std::vector<RDG::TextureRef>& sceneColor,
                                                       System::CopyRenderer*               copy )

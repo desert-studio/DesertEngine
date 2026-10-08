@@ -18,6 +18,7 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
+#include <format>
 #include <Common/Content/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/AsyncMeshLoader.hpp>
@@ -1194,6 +1195,7 @@ namespace Desert::Editor
                 VM_MaterialComplexity,
                 VM_ShadingModel,
                 VM_SunShadowReceive,
+                VM_Velocity,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1212,6 +1214,7 @@ namespace Desert::Editor
                                          ICON_MDI_TEXTURE "  Material Complexity",
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
+                                         ICON_MDI_ARROW_ALL "  Velocity",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1249,6 +1252,8 @@ namespace Desert::Editor
                 vm = VM_ShadingModel;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SunShadowReceive )
                 vm = VM_SunShadowReceive;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Velocity )
+                vm = VM_Velocity;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1311,6 +1316,49 @@ namespace Desert::Editor
                 // afterwards, because 2D mode kept its suppression in the field being written. Eleven
                 // other Save() call sites had no such wrapper and would each have made the suppression
                 // permanent. There is nothing left to wrap: the struct always holds the user's answer.
+                // UE's viewport "Screen Percentage" (EditorViewportClient): THIS view's render scale, a view
+                // setting beside the Show flags and never the game's Resolution.Percent — picking 50 here
+                // changes no Scalability value. "Use project setting" clears it back to the game's answer.
+                // Values are this device's catalog RenderScale range (the Scalability panel's Render Scale
+                // slider's), so the menu cannot write one the resolver refuses.
+                {
+                    const auto& renderScale = Common::Scalability::QualityState::Catalog().RenderScale;
+                    const int   scaleMin    = renderScale.MinPercent;
+                    const int   scaleMax    = renderScale.MaxPercent;
+                    const std::string label =
+                         view.ScreenPercentage ? std::format( "Screen Percentage: {} %", *view.ScreenPercentage )
+                                               : std::string( "Screen Percentage: project setting" );
+                    if ( ImGui::BeginMenu( label.c_str() ) )
+                    {
+                        if ( ImGui::MenuItem( "Use project setting", nullptr, !view.ScreenPercentage.has_value() ) )
+                        {
+                            view.ScreenPercentage.reset();
+                            viewChanged = true;
+                        }
+                        ImGui::Separator();
+                        for ( const int preset : { 50, 75, 100, 125, 150, 200 } )
+                        {
+                            if ( preset < scaleMin || preset > scaleMax )
+                                continue;
+                            const std::string presetLabel = std::format( "{} %", preset );
+                            if ( ImGui::MenuItem( presetLabel.c_str(), nullptr, view.ScreenPercentage == preset ) )
+                            {
+                                view.ScreenPercentage = preset;
+                                viewChanged           = true;
+                            }
+                        }
+                        ImGui::Separator();
+                        int custom = view.ScreenPercentage.value_or( 100 );
+                        ImGui::SetNextItemWidth( 160.0f );
+                        if ( ImGui::SliderInt( "##ScreenPercentage", &custom, scaleMin, scaleMax, "%d %%",
+                                               ImGuiSliderFlags_AlwaysClamp ) )
+                        {
+                            view.ScreenPercentage = custom;
+                            viewChanged           = true;
+                        }
+                        ImGui::EndMenu();
+                    }
+                }
                 if ( viewChanged )
                     EditorPreferences::Save();
 
@@ -1390,6 +1438,9 @@ namespace Desert::Editor
                         break;
                     case VM_SunShadowReceive:
                         view.DeferredDebug = Graphic::DeferredDebugMode::SunShadowReceive;
+                        break;
+                    case VM_Velocity:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::Velocity;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;
