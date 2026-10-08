@@ -182,25 +182,27 @@ namespace Desert::Editor
 
     void StaticMeshViewerDocument::ExtendToolbar( AssetEditorToolbar& toolbar )
     {
-        const std::size_t                     lods = m_Stats ? m_Stats->LODs() : 1u;
+        const std::size_t                       lods = m_Stats ? m_Stats->LODs() : 1u;
         std::vector<AssetEditorToolbar::Choice> choices;
         choices.push_back( { "LOD Auto", [this]() { m_ForcedLOD = -1; } } );
         for ( std::size_t lod = 0; lod < lods; ++lod )
             choices.push_back(
                  { std::format( "LOD {}", lod ), [this, lod]() { m_ForcedLOD = static_cast<int>( lod ); } } );
-        const std::string current = m_ForcedLOD < 0 ? std::string( "LOD Auto" ) : std::format( "LOD {}", m_ForcedLOD );
+        const std::string current =
+             m_ForcedLOD < 0 ? std::string( "LOD Auto" ) : std::format( "LOD {}", m_ForcedLOD );
         toolbar.AddCombo( ICON_MDI_LAYERS_TRIPLE_OUTLINE, current, "Which LOD the preview draws (viewing only)",
                           std::move( choices ), static_cast<std::size_t>( m_ForcedLOD + 1 ) );
-        toolbar.AddButton( ICON_MDI_CHART_BOX_OUTLINE, "Stats", "Show the mesh statistics over the viewport",
-                           [this]() { m_ShowStats = !m_ShowStats; }, [this]() { return m_ShowStats; } );
+        toolbar.AddButton(
+             ICON_MDI_CHART_BOX_OUTLINE, "Stats", "Show the mesh statistics over the viewport",
+             [this]() { m_ShowStats = !m_ShowStats; }, [this]() { return m_ShowStats; } );
     }
 
     std::string StaticMeshViewerDocument::StatusText() const
     {
         if ( !m_Stats )
             return {};
-        return std::format( "{} tris \xc2\xb7 {} verts \xc2\xb7 {} sections", m_Stats->Triangles, m_Stats->Vertices,
-                            m_Stats->Sections );
+        return std::format( "{} tris \xc2\xb7 {} verts \xc2\xb7 {} sections", m_Stats->Triangles,
+                            m_Stats->Vertices, m_Stats->Sections );
     }
 
     void StaticMeshViewerDocument::DrawViewportStats( const ImVec2& origin ) const
@@ -210,12 +212,13 @@ namespace Desert::Editor
         const StaticMeshStats& stats = *m_Stats;
         // AUTO DOES NOT NAME A LEVEL: the preview does not report which LOD distance picked, so the counts are
         // LOD 0's and the line says so rather than presenting them as the drawn level's.
-        const std::size_t shown = m_ForcedLOD < 0 ? 0u : std::min( static_cast<std::size_t>( m_ForcedLOD ), stats.LODs() - 1u );
+        const std::size_t shown =
+             m_ForcedLOD < 0 ? 0u : std::min( static_cast<std::size_t>( m_ForcedLOD ), stats.LODs() - 1u );
         std::vector<std::string> lines;
         lines.push_back( m_ForcedLOD < 0 ? std::format( "LOD:  Auto (counts are LOD 0 of {})", stats.LODs() )
                                          : std::format( "LOD:  {} of {}", shown, stats.LODs() ) );
-        lines.push_back( std::format( "Triangles:  {}", stats.TrianglesPerLOD.empty() ? stats.Triangles
-                                                                                       : stats.TrianglesPerLOD[shown] ) );
+        lines.push_back( std::format(
+             "Triangles:  {}", stats.TrianglesPerLOD.empty() ? stats.Triangles : stats.TrianglesPerLOD[shown] ) );
         lines.push_back( std::format( "Vertices:  {}", stats.Vertices ) );
         lines.push_back( std::format( "UV Channels:  {}", stats.UVChannels ) );
         lines.push_back( std::format( "Sections:  {}", stats.Sections ) );
@@ -227,11 +230,11 @@ namespace Desert::Editor
         else
             lines.push_back( "Approx Size:  no sections" );
 
-        ImDrawList*  draw = ImGui::GetWindowDrawList();
-        const float  step = ImGui::GetTextLineHeight() + 2.0f;
-        ImVec2       at( origin.x + 10.0f, origin.y + 8.0f );
-        const ImU32  text = ImGui::GetColorU32( ImVec4( 0.784f, 0.784f, 0.784f, 1.0f ) ); // #C8C8C8
-        const ImU32  drop = IM_COL32( 0, 0, 0, 200 );
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const float step = ImGui::GetTextLineHeight() + 2.0f;
+        ImVec2      at( origin.x + 10.0f, origin.y + 8.0f );
+        const ImU32 text = ImGui::GetColorU32( ImVec4( 0.784f, 0.784f, 0.784f, 1.0f ) ); // #C8C8C8
+        const ImU32 drop = IM_COL32( 0, 0, 0, 200 );
         for ( const std::string& line : lines )
         {
             draw->AddText( ImVec2( at.x + 1.0f, at.y + 1.0f ), drop, line.c_str() );

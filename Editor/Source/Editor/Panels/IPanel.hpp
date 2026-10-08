@@ -261,7 +261,9 @@ namespace Desert::Editor
         // Browse first, then whatever the editor appends here (UE: FAssetEditorToolkit::AddToolbarExtender),
         // and a status line under the body. Empty by default: an editor with no entries of its own still has
         // the common ones, which is the point of the frame owning them.
-        virtual void ExtendToolbar( AssetEditorToolbar& /*toolbar*/ ) {}
+        virtual void ExtendToolbar( AssetEditorToolbar& /*toolbar*/ )
+        {
+        }
 
         // The editor's own words on the right of the status bar ("1,204 tris · 812 verts"); empty = nothing to
         // add to the asset's path and saved state, which the frame draws for every asset editor.

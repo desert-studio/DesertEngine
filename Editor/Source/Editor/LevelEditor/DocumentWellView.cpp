@@ -470,8 +470,9 @@ namespace Desert::Editor
                     if ( subject.Domain == SubjectDomain::Asset )
                     {
                         const Assets::AssetMetadata* asset =
-                             m_AssetManager ? m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) )
-                                            : nullptr;
+                             m_AssetManager
+                                  ? m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) )
+                                  : nullptr;
                         AssetEditorFrame::DrawToolbar( *document, asset );
                         if ( AssetEditorFrame::BeginBody() )
                             document->OnUIRender();

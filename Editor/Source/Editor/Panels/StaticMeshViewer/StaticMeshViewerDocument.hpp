@@ -76,7 +76,7 @@ namespace Desert::Editor
 
         // The asset-editor toolbar's mesh entries (UE FStaticMeshEditor::ExtendToolBar): the LOD pick and the
         // viewport's statistics overlay. Save / Browse are the frame's.
-        void ExtendToolbar( AssetEditorToolbar& toolbar ) override;
+        void                      ExtendToolbar( AssetEditorToolbar& toolbar ) override;
         [[nodiscard]] std::string StatusText() const override;
 
     private:
