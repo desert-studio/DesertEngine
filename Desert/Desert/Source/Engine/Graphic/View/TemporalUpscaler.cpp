@@ -174,12 +174,14 @@ namespace Desert::Graphic
         if ( !upscalerAt( requested ) )
         {
             // Below 100 % with no temporal method: nothing can upscale (no spatial upscaler) - Resolve's rule.
-            auto native = choose( 100 );
-            if ( native )
-                native.GetValue().Clamped = std::format( "no spatial upscaler: {} % needs a temporal AA method, "
-                                                         "the view's is not one: clamped to 100 %",
-                                                         requested );
-            return native;
+            const auto native = choose( 100 );
+            if ( !native )
+                return native;
+            ViewResolution clamped = native.GetValue();
+            clamped.Clamped        = std::format(
+                 "no spatial upscaler: {} % needs a temporal AA method, the view's is not one: clamped to 100 %",
+                 requested );
+            return Common::MakeSuccess( clamped );
         }
         auto chosen = choose( requested );
         if ( !chosen )
