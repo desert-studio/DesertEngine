@@ -113,6 +113,16 @@ namespace Desert::Assets::Serialization
         if ( importsMesh && !data.Bounds )
             return Common::MakeFormattedError<ImportRecordData>( "import record of a {} states no Bounds",
                                                                  Common::Content::KindName( kind ) );
+        if ( data.Nodes )
+            for ( const ImportRecordNode& node : *data.Nodes )
+            {
+                if ( node.Name.empty() )
+                    return Common::MakeFormattedError<ImportRecordData>( "import record names a node with no Name" );
+                if ( !std::isfinite( node.Placement[0] ) || !std::isfinite( node.Placement[1] ) ||
+                     !std::isfinite( node.Placement[2] ) )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record: the Placement of node '{}' is not finite", node.Name );
+            }
         if ( data.Thumbnail )
         {
             if ( data.Thumbnail->empty() )
@@ -298,8 +308,8 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : Resolve( it->second ) );
     }
 
-    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
-                                                const std::optional<std::vector<std::string>>& nodes )
+    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                        source,
+                                                const std::optional<std::vector<ImportRecordNode>>& nodes )
     {
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
         auto                        data   = ReadImportRecord( source );

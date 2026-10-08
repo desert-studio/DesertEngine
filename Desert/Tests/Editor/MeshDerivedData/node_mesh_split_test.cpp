@@ -12,7 +12,10 @@
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/MaterialAdoption.hpp>
+#include <Editor/Import/NodeActors.hpp>
 #include <Editor/Import/NodeMeshSplit.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
@@ -492,4 +495,53 @@ TEST( NodeMeshSplit, ASkinnedImportIsRecordedWithItsOptions )
     const auto sameGuid = Ser::ReadImportRecordGuid( project.Source );
     ASSERT_TRUE( sameGuid.IsSuccess() ) << sameGuid.GetError();
     EXPECT_EQ( sameGuid.GetValue(), guid.GetValue() );
+}
+
+// IMP-NODES: a split source placed in a level is one entity per node mesh under one root, each where the file put
+// its node - the placed node mesh draws every vertex where the combined mesh drew it (UE: Combine Meshes off, one
+// StaticMeshActor per node at the node's transform).
+TEST( NodeMeshSplit, APlacedSplitSourceStandsEveryNodeWhereTheFilePutIt )
+{
+    const GrassProject project;
+    const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
+    const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
+    fs::create_directories( material.parent_path() );
+    std::ofstream( material ) << "{}";
+    Assets::SourceImportSettings settings;
+    settings.Mesh.UniformScale = 2.0f; // the placement is in the engine's space, the options applied
+    auto written = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, settings );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    const auto record = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    if ( !record.GetValue() || !record.GetValue()->Nodes )
+        FAIL() << "a split import recorded no nodes";
+    const auto& recorded = *record.GetValue()->Nodes;
+    ASSERT_EQ( recorded.size(), written.GetValue().size() );
+
+    std::vector<Editor::PlacedNodeMesh> placed;
+    for ( const auto& node : recorded )
+        placed.push_back( { node.Name, Assets::AssetHandle( Common::UUID() ),
+                            glm::vec3( node.Placement[0], node.Placement[1], node.Placement[2] ) } );
+    Core::Scene  scene( "Placed", nullptr );
+    ECS::Entity  root     = scene.CreateNewEntity( "Grass" );
+    const auto   children = Editor::PlaceNodeActors( scene, root, placed );
+    ASSERT_EQ( children.size(), recorded.size() ) << "one entity per node mesh";
+    EXPECT_EQ( root.GetComponent<ECS::RelationshipComponent>().Children.size(), recorded.size() );
+
+    for ( std::size_t i = 0; i < children.size(); ++i )
+    {
+        const auto& [node, path] = written.GetValue()[i];
+        ASSERT_EQ( recorded[i].Name, node.Node );
+        ASSERT_TRUE( children[i].HasComponent<ECS::StaticMeshComponent>() ) << node.Node;
+        EXPECT_EQ( children[i].GetComponent<ECS::StaticMeshComponent>().MeshHandle, placed[i].Mesh );
+        // The node mesh's vertex 0, derived (scaled) and placed, is the combined mesh's vertex 0 of that node,
+        // scaled: the round trip split -> record -> placed entity loses no position.
+        const glm::vec3 local = node.Mesh.StaticVertices[0].Position * settings.Mesh.UniformScale;
+        const glm::vec3 world = glm::vec3( children[i].GetWorldTransform() * glm::vec4( local, 1.0f ) );
+        const glm::vec3 expected{ GrassProject::TuftX( node.Node ) * settings.Mesh.UniformScale,
+                                  5.0f * settings.Mesh.UniformScale, 0.0f };
+        EXPECT_NEAR( world.x, expected.x, 1e-3f ) << node.Node;
+        EXPECT_NEAR( world.y, expected.y, 1e-3f ) << node.Node;
+        EXPECT_NEAR( world.z, expected.z, 1e-3f ) << node.Node;
+    }
 }

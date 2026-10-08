@@ -920,7 +920,10 @@ TEST_F( InstancedNodeImport, EveryNodeOfASharedMeshIsItsOwnMesh )
     const auto& nodes = imported->Nodes;
     if ( !nodes.has_value() )
         FAIL() << "the record names no nodes";
-    EXPECT_EQ( *nodes, ( std::vector<std::string>{ "LampA", "LampB", "LampC" } ) );
+    std::vector<std::string> names;
+    for ( const auto& node : *nodes )
+        names.push_back( node.Name );
+    EXPECT_EQ( names, ( std::vector<std::string>{ "LampA", "LampB", "LampC" } ) );
 }
 
 TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )

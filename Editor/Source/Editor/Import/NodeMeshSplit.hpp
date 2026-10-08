@@ -23,6 +23,9 @@
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 
+#include <glm/glm.hpp>
+
+#include <array>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -35,7 +38,15 @@ namespace Desert::Editor
     {
         std::string                          Node; // the node name, LOD suffix stripped (X_LOD0, X_LOD1 -> X)
         Assets::Serialization::MeshAssetData Mesh;
+        // Where the mesh's pivot (its origin after the rebase) stood in the combined mesh: SOURCE space, before
+        // the import options. The record states it in the engine's space (NodePlacement).
+        glm::vec3 Pivot{ 0.0f };
     };
+
+    // Where @p node stands under the placed source's root: its pivot under the import options (SourceToEngine) -
+    // the record's `Placement` (ImportRecord.hpp `Nodes`). The node mesh's derived vertices are
+    // SourceToEngine(v - pivot), so the node placed here draws every vertex where the combined mesh drew it.
+    [[nodiscard]] std::array<float, 3> NodePlacement( const NodeMesh& node, const Assets::MeshImportSettings& settings );
 
     // The submeshes of @p combined grouped by the node that placed them (@p submeshNodes: one name per submesh),
     // in order of first appearance; each group rebased onto its own bottom-centre pivot. Refused, by name, when
@@ -80,7 +91,7 @@ namespace Desert::Editor
 
     // THE STATIC MESH IMPORT'S WRITE, BOTH MODES (THM1j; UE: UFbxStaticMeshImportData::bCombineMeshes). The record
     // first (identity, box). Split (Combine Meshes off, more than one node): each node's mesh beside the source
-    // and the node names in the record - and NO combined mesh, exactly as UE imports no combined asset then.
+    // and the nodes (name, NodePlacement) in the record - and NO combined mesh, exactly as UE imports no combined asset then.
     // Combined: the one mesh (WriteImportedMeshAsset) and no node list. Returns the node meshes written (empty
     // when combined); the first failure otherwise, after every node was attempted. @p settings are the options
     // the import runs with (THM1l): written into the record first, and every mesh written reads them there.

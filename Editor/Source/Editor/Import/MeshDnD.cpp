@@ -5,6 +5,7 @@
 #include "ImportOptionsDialog.hpp"
 #include "ImportedMeshAsset.hpp"
 #include "CookPaths.hpp"
+#include "NodeMeshSplit.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -16,6 +17,9 @@
 #include <Common/Core/Constants.hpp>
 
 #include <filesystem>
+#include <memory>
+#include <optional>
+#include <vector>
 
 namespace Desert::Editor::MeshDnD
 {
@@ -170,6 +174,43 @@ namespace Desert::Editor::MeshDnD
 
     namespace
     {
+        // A SPLIT SOURCE'S NODES (IMP-NODES): each node mesh its record names (`<stem>_<node>.stmesh` beside the
+        // source), registered as a static mesh is, with the placement the record states. nullopt when the source
+        // was not split (no record, or a record with no `Nodes`): the one-mesh paths below decide.
+        std::optional<std::vector<PlacedNodeMesh>> SplitNodes( Assets::AssetManager&        mgr,
+                                                               const std::filesystem::path& sourcePath )
+        {
+            const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
+            if ( !record )
+            {
+                LOG_ERROR( "[MeshDnD] {}", record.GetError() );
+                return std::nullopt;
+            }
+            const auto& stated = record.GetValue();
+            if ( !stated || !stated->Nodes )
+                return std::nullopt;
+            std::vector<PlacedNodeMesh> nodes;
+            nodes.reserve( stated->Nodes->size() );
+            for ( const auto& node : *stated->Nodes )
+            {
+                const std::string path = NodeMeshAssetPath( sourcePath, node.Name ).generic_string();
+                std::shared_ptr<Assets::MeshAsset> asset = mgr.FindByPath<Assets::MeshAsset>( path );
+                if ( !asset )
+                    asset = mgr.CreateAsset<Assets::StaticMeshAsset>( path, /*loadAfterCreate=*/false );
+                if ( !asset )
+                {
+                    LOG_ERROR( "[MeshDnD] '{}': node mesh '{}' could not be registered, so node '{}' is not placed",
+                               sourcePath.generic_string(), path, node.Name );
+                    continue;
+                }
+                Runtime::EnsureMeshRegistered( asset, mgr ); // read by the loader, drawn when it lands
+                nodes.push_back( { node.Name, asset->GetMetadata().Handle,
+                                   glm::vec3( node.Placement[0], node.Placement[1], node.Placement[2] ) } );
+            }
+            RegisterCookedMaterials( mgr, sourcePath );
+            return nodes;
+        }
+
         // A skinned mesh is REGISTERED here, not read: MeshService requests it and its rig (named by the
         // registry's Rig tag) from the loader, and the entity draws from the frame after they land (AL1-5).
         // The cooked materials beside it are registered only after a fresh import, which is the one case that
@@ -208,6 +249,9 @@ namespace Desert::Editor::MeshDnD
 
         const bool isSkinned = std::filesystem::exists( skinnedStr );
         const bool isStatic  = StaticMeshCookAvailable( staticStr, sourcePath );
+        if ( !isSkinned && !isStatic )
+            if ( auto nodes = SplitNodes( mgr, sourcePath ); nodes && !nodes->empty() )
+                return { Common::UUID::Null(), false, std::move( *nodes ) };
         if ( !isSkinned && !isStatic )
             return { Common::UUID::Null(), false }; // cook failed
 
