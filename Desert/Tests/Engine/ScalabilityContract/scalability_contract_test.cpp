@@ -18,6 +18,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -513,6 +514,69 @@ TEST( ScalabilityContract, BelowNativeScaleAnUpscalerIsMandatoryAndItAntiAliases
     EXPECT_TRUE( HasFallback( r, Parameter::Upscaler ) );
 }
 
+// THE UPSCALER IS CHOSEN IN RESOLVE (TAA1-B 6a): below 100 % temporal AA upscales with TAAU, without temporal AA
+// there is no upscaler at all (no spatial one) and the scale stays 100 %, reported. Mutation: dropping the
+// "!temporal" fallback turns the FXAA/None case into Upscale; dropping the TAAU pick leaves Upscaler None.
+namespace
+{
+    ResolvedQuality ResolveAtHigh( std::optional<AntiAliasingMethod> method, ParameterValue percent )
+    {
+        QualitySelection s = AllAt( Level::High );
+        if ( method )
+            s.Overrides.push_back( { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
+                                     static_cast<ParameterValue>( *method ) } );
+        s.Overrides.push_back( { std::string( SpecOf( Parameter::RenderScalePercent ).Key ), percent } );
+        return Resolve( s, Table(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
+    }
+} // namespace
+
+TEST( ScalabilityContract, TaaAtHalfScaleUpscalesWithTaauAtTheAskedPercent )
+{
+    const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 50 );
+    EXPECT_EQ( r.Scale, ScaleMode::Upscale );
+    EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 50 );
+    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::TAAU );
+    EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
+    EXPECT_FALSE( HasFallback( r, Parameter::RenderScalePercent ) );
+}
+
+TEST( ScalabilityContract, WithoutTemporalAaHalfScaleStaysNativeWithOneFallbackSayingWhy )
+{
+    for ( const AntiAliasingMethod method : { AntiAliasingMethod::FXAA, AntiAliasingMethod::None } )
+    {
+        const ResolvedQuality r = ResolveAtHigh( method, 50 );
+        EXPECT_EQ( r.Scale, ScaleMode::Native ) << static_cast<int>( method );
+        EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 100 );
+        EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+        EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), method );
+        ASSERT_EQ( r.Fallbacks.size(), 1u ) << static_cast<int>( method );
+        const Fallback& f = r.Fallbacks.front();
+        EXPECT_EQ( f.Id, Parameter::RenderScalePercent );
+        EXPECT_EQ( f.Requested, 50 );
+        EXPECT_EQ( f.Effective, 100 );
+        EXPECT_NE( FormatFallback( f ).find( "no spatial upscaler: render scale needs TAA" ), std::string::npos )
+             << FormatFallback( f );
+    }
+}
+
+TEST( ScalabilityContract, TaaAtNativeScaleRunsNoUpscaler )
+{
+    const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 100 );
+    EXPECT_EQ( r.Scale, ScaleMode::Native );
+    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+    EXPECT_TRUE( r.Fallbacks.empty() );
+}
+
+TEST( ScalabilityContract, TaaAboveNativeScaleIsSupersampledUnchanged )
+{
+    const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 150 );
+    EXPECT_EQ( r.Scale, ScaleMode::Supersample );
+    EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 150 );
+    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+    EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
+    EXPECT_TRUE( r.Fallbacks.empty() );
+}
+
 TEST( ScalabilityContract, AboveNativeScaleIsSupersampledWithoutAnUpscaler )
 {
     const ResolvedQuality r =
@@ -584,6 +648,28 @@ TEST( ScalabilityContract, TheShippedTableParsesAndHighNeedsNoFallbackOnACapable
     for ( const Fallback& f : r.Fallbacks )
         ADD_FAILURE() << FormatFallback( f );
     EXPECT_EQ( r.Scale, ScaleMode::Native );
+}
+
+// Render scale is a person's choice, not a level's: every shipped level renders at 100 % (no frame change).
+TEST( ScalabilityContract, EveryShippedLevelResolvesToNativeScale )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::ifstream in( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
+                            std::ios::binary );
+    std::ostringstream  text;
+    text << in.rdbuf();
+    const auto parsed = ScalabilityTable::Parse( text.str() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    for ( std::size_t l = 0; l < kLevelCount; ++l )
+    {
+        const auto            level = static_cast<Level>( l );
+        const ResolvedQuality r =
+             Resolve( AllAt( level ), parsed.GetValue(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
+        EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 100 ) << LevelKey( level );
+        EXPECT_EQ( r.Scale, ScaleMode::Native ) << LevelKey( level );
+        EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None ) << LevelKey( level );
+    }
 }
 
 // HIGH IS TODAY'S FRAME. A machine that never chose a level starts on High, so every High value of the shipped
