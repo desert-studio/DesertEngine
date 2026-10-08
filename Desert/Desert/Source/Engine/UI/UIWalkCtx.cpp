@@ -94,8 +94,7 @@ namespace Desert::UI::Walk
         // A copy rather than a reference: the alternative binds a reference to a temporary built from
         // the default-name constant. "Default" fits in a std::string's small buffer, so it costs no
         // allocation.
-        const std::string name =
-             authored != nullptr ? authored->Style : std::string( kUIThemeDefaultStyle );
+        const std::string name = authored != nullptr ? authored->Style : std::string( kUIThemeDefaultStyle );
 
         bool               unknown = false;
         const ElementStyle style   = ctx.Style.For( name, unknown );
@@ -269,8 +268,8 @@ namespace Desert::UI::Walk
     }
 
     // A keyed CLIP (UIAnim) on top of the one-shot tween. The clips were stepped and evaluated once for the
-    // whole frame (BeginUIFrame → IUIAnimationSource::Evaluate), because a clip may drive an element other than its
-    // own; here the element only folds in what the frame computed for it.
+    // whole frame (BeginUIFrame → IUIAnimationSource::Evaluate), because a clip may drive an element other than
+    // its own; here the element only folds in what the frame computed for it.
     void ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out )
     {
         const UIClipSample* clip = ctx.View.Animation().Sample( e );

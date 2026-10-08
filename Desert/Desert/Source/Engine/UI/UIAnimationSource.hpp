@@ -70,7 +70,8 @@ namespace Desert::UI
     class UIAnimationSourceSlot
     {
     public:
-        explicit UIAnimationSourceSlot( std::unique_ptr<IUIAnimationSource> source ) : m_Source( std::move( source ) )
+        explicit UIAnimationSourceSlot( std::unique_ptr<IUIAnimationSource> source )
+             : m_Source( std::move( source ) )
         {
         }
         UIAnimationSourceSlot( const UIAnimationSourceSlot& other ) : m_Source( other.m_Source->Clone() )

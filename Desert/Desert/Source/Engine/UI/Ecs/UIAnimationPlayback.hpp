@@ -7,8 +7,8 @@
  * not interpolate keys of its own. Once per view frame, before any canvas is walked, every `UIAnimComponent`
  * is stepped by its `Player` and evaluated, and its Widget bindings (locator = element entity UUID) are
  * resolved against the scene; the results land in the view's own source (UI/UIAnimationSource.hpp), which the
- * walk folds into each element's tween sample. A pre-pass rather than a per-element lookup because a clip on one element may drive
- * another element that is walked first.
+ * walk folds into each element's tween sample. A pre-pass rather than a per-element lookup because a clip on one
+ * element may drive another element that is walked first.
  *
  * The player lives in the component (scene state, scrubbed by the Sequencer) and only the view that drives
  * scene animation creates and advances it; every other view evaluates the same playhead without moving it.

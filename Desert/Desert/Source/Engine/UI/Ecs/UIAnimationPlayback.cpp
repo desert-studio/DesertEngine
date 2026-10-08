@@ -75,7 +75,7 @@ namespace Desert::UI
 
         private:
             const std::unordered_map<std::string, entt::entity>& m_ByUuid;
-            TimelineUIAnimationSource&                                         m_Frame;
+            TimelineUIAnimationSource&                           m_Frame;
         };
 
         void ReportUnresolved( const TL::ApplyReport& report, TimelineUIAnimationSource& frame )
