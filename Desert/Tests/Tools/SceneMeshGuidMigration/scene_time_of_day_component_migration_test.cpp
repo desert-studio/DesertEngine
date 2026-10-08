@@ -38,9 +38,9 @@ namespace
     }
 } // namespace
 
-TEST( SceneTimeOfDayComponentMigration, VersionIsTheGenerationAfterUIAnimationSequences )
+TEST( SceneTimeOfDayComponentMigration, VersionIsTheGenerationAfterWindSource )
 {
-    EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Migration::kSceneVersionUIAnimationSequences + 1 );
+    EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Migration::kSceneVersionWindSource + 1 );
     EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
 }
 

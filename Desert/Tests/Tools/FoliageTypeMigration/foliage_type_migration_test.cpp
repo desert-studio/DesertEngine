@@ -95,7 +95,8 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 
     // Everything else crosses as it was; the new fields take UE's defaults; the identity is kept.
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 7u );
+    // Raised through the whole chain to the engine's generation (8 since WIND-SRC dropped Wind.DirectionDegrees).
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 8u );
     // FOLT 7 (S1): the procedural block takes UE UFoliageType's defaults.
     EXPECT_EQ( data.Procedural, Assets::Serialization::FoliageProcedural{} );
     // FOLT 6 (FO-8): every raised type draws a mesh, as every v5 type did.
@@ -306,7 +307,7 @@ TEST( FoliageTypeMigration, VersionSixIsRaisedToSevenWithUEProceduralDefaults )
 })";
     const auto        toV7 = Migration::MigrateFoliageTypeV6ToV7( v6 );
     ASSERT_TRUE( toV7 ) << toV7.GetError();
-    EXPECT_NE( toV7.GetValue().find( "\"FOLT\": 7" ), std::string::npos ) << toV7.GetValue();
+    EXPECT_NE( toV7.GetValue().find( "\"FOLT\":7" ), std::string::npos ) << toV7.GetValue(); // the header is written compact
     const auto toV8 = Migration::MigrateFoliageTypeV7ToV8( toV7.GetValue() );
     ASSERT_TRUE( toV8 ) << toV8.GetError();
     const auto parsed = Assets::Serialization::ParseFoliageType( toV8.GetValue() );

@@ -54,7 +54,8 @@ namespace
 TEST( SceneWindSourceMigration, VersionIsTheGenerationAfterUIAnimationSequences )
 {
     EXPECT_EQ( Migration::kSceneVersionWindSource, Migration::kSceneVersionUIAnimationSequences + 1 );
-    EXPECT_EQ( Migration::kSceneVersionWindSource, Desert::Core::kSceneVersion );
+    // Not the newest any more: TOD-SPLIT (v43) follows it, and that step pins kSceneVersion.
+    EXPECT_LT( Migration::kSceneVersionWindSource, Desert::Core::kSceneVersion );
 }
 
 TEST( SceneWindSourceMigration, CloudWindBecomesOneWindSourceWithTheSameDirectionAndSpeed )
