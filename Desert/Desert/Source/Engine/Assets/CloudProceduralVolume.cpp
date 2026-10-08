@@ -61,6 +61,10 @@ namespace Desert::Assets
         /// there, so on average a body neither grows nor shrinks and the cover stays the Coverage mapping's.
         constexpr float kCloudShapeNoiseMedian = 0.75f;
 
+        /// The silhouette noise's strength at the type's base against its top (CLOUD-SHAPE), the noise rising
+        /// linearly between: see CloudProceduralShapeNoise.
+        constexpr float kCloudShapeNoiseAtBase = 0.5f;
+
         /// How many blend radii past the nearest lump a lump may be before it is dropped from the join.
         ///
         /// FOURTEEN, AND THE NUMBER IS A QUANTISATION ARGUMENT rather than a feel. A dropped lump's term
@@ -172,6 +176,19 @@ namespace Desert::Assets
         /// spend the Coverage slider and decision D-20 is untouched by it at any setting. What it spends is
         /// the SIZE OF A BODY: a taller lump fuses with its neighbours across a wider front.
         constexpr float kLumpVerticalOverHorizontal = kCloudLumpVerticalOverHorizontal;
+
+        /// HOW MUCH TALLER THAN ITS BASE LUMP THE TOP OF A STACK STANDS (CLOUD-SHAPE): a lump at stack
+        /// parameter `t` is `kLumpVerticalOverHorizontal * (1 + kTurretStretch * t)` tall over its width,
+        /// so the base lump keeps the calibrated 0.75 and the crown's turrets are ~1.35 — Nubis's cumulus
+        /// "flat base, towers above" read as the lumps' own aspect rather than as a second vertical
+        /// multiplier (D-22: the band clamp below still bounds every lump).
+        constexpr float kTurretStretch = 0.8f;
+
+        /// HOW FAR THE TURRETS STAND OUT FROM THE BODY'S AXIS at the top of the stack, against the base's
+        /// half-cluster-radius disc. The disc used to close to 45 % of it (`1 - 0.55 t`), which piled the
+        /// upper lumps onto the axis and made one smooth dome — a ball. At 75 % the crown is several
+        /// distinct turrets that each show their own shoulder above a common floor.
+        constexpr float kTurretDiscAtTop = 0.75f;
 
         /// HOW FAR A FULL ANVIL SPREADS BEYOND THE TOWER IT CAPS, per unit of `AnvilStrength`. It is the
         /// authored meaning of that slider: at 1.0 the canopy is 1.8 times the cluster's radius.
@@ -1419,18 +1436,20 @@ namespace Desert::Assets
 
                         lumpT[step]        = t;
                         lumpRadiusKm[step] = radius;
+                        const float aspect = kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch * t );
                         lumpVerticalKm[step] =
-                             std::max( std::min( kLumpVerticalOverHorizontal * radius * rampFactor * wobbleUp,
-                                                 0.5f * bandFullKm ),
+                             std::max( std::min( aspect * radius * rampFactor * wobbleUp, 0.5f * bandFullKm ),
                                        marchFloorKm );
                     }
 
-                    // The travel is what is left of the band once both end lumps have been let in, divided
-                    // by the last lump's own parameter so that the top lump's crown lands ON the top rather
-                    // than short of it — `t` is a curve and not a fraction of the band.
-                    const float travelKm =
-                         std::max( bandFullKm - lumpVerticalKm[0] - lumpVerticalKm[stackCount - 1], 0.0f ) /
-                         std::max( lumpT[stackCount - 1], 1e-4f );
+                    // THE BASE LUMP'S CENTRE IS ON THE CLOUD BASE (CLOUD-SHAPE), so its lower half lies
+                    // under the type's condensation level and CloudProceduralCutJoin's base plane cuts it
+                    // off flat: the body is a flat floor with a dome and turrets over it, not a ball
+                    // standing its own radius above the base. The travel is what is left of the band once
+                    // the top lump has been let in, divided by the last lump's own parameter so that its
+                    // crown lands ON the top — `t` is a curve and not a fraction of the band.
+                    const float travelKm = std::max( bandFullKm - lumpVerticalKm[stackCount - 1], 0.0f ) /
+                                           std::max( lumpT[stackCount - 1], 1e-4f );
 
                     for ( uint32_t step = 0; step < stackCount; ++step )
                     {
@@ -1469,7 +1488,7 @@ namespace Desert::Assets
                         // clusters of separate dots: fusion is not free just because the join can express it,
                         // the bodies have to be inside one another.
                         const float angle  = phase + 2.39996323f * static_cast<float>( step );
-                        const float spread = clusterRadiusKm * 0.48f * ( 1.0f - 0.55f * t );
+                        const float spread = clusterRadiusKm * 0.48f * ( 1.0f - ( 1.0f - kTurretDiscAtTop ) * t );
 
                         CloudModellingBlob blob;
                         blob.Primitive = CloudModellingPrimitive::Ellipsoid;
@@ -1487,15 +1506,12 @@ namespace Desert::Assets
                                                      HashSigned( HashCombine( lumpSeed, 0xbu ) ) * wobble ) /
                                                    stretch;
 
-                        // WHERE THE LUMP SITS UP THE BAND. Clamped so that it is INSIDE the type's own
-                        // altitudes on both sides — the relation the layout above exists to make true, and
-                        // the one Desert/Tests/Engine/CloudPlacementSpectrum asserts lump by lump. The clamp
-                        // bites only where the resolvable floor has forced a lump taller than half its band,
-                        // which is a type authored thinner than the march can see.
-                        const float halfBandKm = 0.5f * bandFullKm;
-                        const float lowKm      = std::min( lumpVerticalKm[step], halfBandKm );
-                        const float highKm     = std::max( bandFullKm - lumpVerticalKm[step], lowKm );
-                        const float upKm       = std::clamp( lumpVerticalKm[0] + travelKm * t, lowKm, highKm );
+                        // WHERE THE LUMP SITS UP THE BAND. Its centre is never under the base (the base plane
+                        // would leave nothing of it) and its crown never over the top. What hangs below the
+                        // base is cut flat by CloudProceduralCutJoin — the cloud base is a PLANE at the type's
+                        // condensation level, as Nubis's height gradient and every cumulus field have it.
+                        const float highKm = std::max( bandFullKm - lumpVerticalKm[step], 0.0f );
+                        const float upKm   = std::clamp( travelKm * t, 0.0f, highKm );
 
                         blob.CentreKm = glm::vec3( clusterXZ.x + along.x * offsetAlong + across.x * offsetAcross,
                                                    shape.BaseAltitudeKm + upKm,
@@ -1648,7 +1664,16 @@ namespace Desert::Assets
         const float billow = CloudShapeNoiseGlsl::CloudAlligator01( lattice, cells, HashCombine( seed, 0x1u ) );
         const float pw     = billow + ( 1.0f - billow ) * perlin;
 
-        return std::clamp( ( kCloudShapeNoiseMedian - pw ) / ( 1.0f - kCloudShapeNoiseMedian ), -1.0f, 1.0f );
+        const float signedNoise =
+             std::clamp( ( kCloudShapeNoiseMedian - pw ) / ( 1.0f - kCloudShapeNoiseMedian ), -1.0f, 1.0f );
+
+        // TIMES THE HEIGHT PROFILE (CLOUD-SHAPE; Nubis's height gradient on the base shape): half strength at
+        // the type's base and full at its top, so the flanks over the flat floor stay calm and the crown is
+        // where the large noise raises its turrets and carves its clefts.
+        const Graphic::CloudTypeShape& type   = params.Species[slot].Shape;
+        const float                    bandKm = std::max( type.TopAltitudeKm - type.BaseAltitudeKm, 1e-4f );
+        const float height = std::clamp( ( pointKm.y - type.BaseAltitudeKm ) / bandKm, 0.0f, 1.0f );
+        return signedNoise * ( kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height );
     }
 
     namespace
@@ -1719,8 +1744,13 @@ namespace Desert::Assets
         /// the altitude density is cut by ITS OWN reach before the clusters meet by `max` (CUT-AT-BAKE: a cut
         /// after the max would cut every cluster of a voxel by the winner's reach). @p candidates stay in the
         /// lumps' canonical order, which is what makes the join's floating-point sum order-independent.
+        ///
+        /// THE CLOUD BASE IS A PLANE (CLOUD-SHAPE): @p belowBaseKm is the point's signed distance under the
+        /// species' BaseAltitudeKm (positive below it), and each cluster's joined distance is intersected with
+        /// that half-space AFTER the join and the silhouette noise, so neither rounds the floor. The bodies'
+        /// base lumps are centred on the base for exactly this cut to leave a flat underside.
         float CloudProceduralCutJoin( const std::vector<CloudClusterCandidate>& candidates, float density,
-                                      float invBlend, float blendRadiusKm )
+                                      float invBlend, float blendRadiusKm, float belowBaseKm )
         {
             float cut = 0.0f;
             for ( size_t k = 0; k < candidates.size(); ++k )
@@ -1745,7 +1775,8 @@ namespace Desert::Assets
                         sum += CloudModellingJoinTerm( candidates[j].Weight, candidates[j].DistanceKm, nearest,
                                                        invBlend );
 
-                const float clusterJoined = CloudModellingJoinKm( nearest, sum, blendRadiusKm );
+                const float clusterJoined =
+                     std::max( CloudModellingJoinKm( nearest, sum, blendRadiusKm ), belowBaseKm );
                 if ( clusterJoined >= 0.0f )
                     continue;
                 const float profile = std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f ) * density;
@@ -1785,7 +1816,8 @@ namespace Desert::Assets
 
         return CloudProceduralCutJoin( candidates,
                                        CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
-                                       1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm );
+                                       1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
+                                       params.Species[slot].Shape.BaseAltitudeKm - pointKm.y );
     }
 
     size_t CountCloudProceduralBlobs( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
@@ -2114,7 +2146,8 @@ namespace Desert::Assets
                                  const float cut = CloudProceduralCutJoin(
                                       candidates,
                                       CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY ),
-                                      invBlend, params.BlendRadiusKm );
+                                      invBlend, params.BlendRadiusKm,
+                                      params.Species[slot].Shape.BaseAltitudeKm - worldY );
 
                                  if ( cut <= 0.0f )
                                      continue;
