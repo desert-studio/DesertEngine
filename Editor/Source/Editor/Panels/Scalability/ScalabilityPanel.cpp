@@ -240,9 +240,9 @@ namespace Desert::Editor
         {
             // UE's r.ScreenPercentage (sg.ResolutionQuality): the scene renders at this percent of the output.
             // The range is the device catalog's. Which upscaler runs is NOT a choice here: Scalability Resolve
-            // picks it from the AA method (TAA below 100 % -> TAAU; no temporal AA -> stays 100 %, reported
-            // below). Resolution.Upscaler is a vendor override (FSR / DLSS / MetalFX), offered only when the
-            // catalog lists one; Resolution.Sharpness has no reader in this build and is not shown.
+            // picks it from the AA method (TAA below 100 % -> TAAU; no temporal AA -> the spatial upscaler).
+            // Resolution.Upscaler is a vendor override (FSR / DLSS / MetalFX), offered only when the catalog lists
+            // one; Resolution.Sharpness is the post sharpen after the resolve (SceneRenderer, Graphic::Sharpen).
             const int requestedScale =
                  m_DraggedRenderScale.value_or( Requested( SC::Parameter::RenderScalePercent ) );
             int scale = requestedScale;
@@ -255,13 +255,14 @@ namespace Desert::Editor
                 m_DraggedRenderScale.reset();
             }
             Utils::ImGuiUtilities::Tooltip( "Below 100 % the scene renders smaller and TAA upscales it to the "
-                                            "output (needs TAA); above 100 % it is supersampled. Applies on "
-                                            "release." );
+                                            "output (without TAA the spatial upscaler does); above 100 % it is "
+                                            "supersampled. Applies on release." );
             ShowFallback( resolved, SC::Parameter::RenderScalePercent );
 
             std::vector<SC::Upscaler> vendors;
             for ( const SC::Upscaler upscaler : catalog.Upscalers )
-                if ( upscaler != SC::Upscaler::None && upscaler != SC::Upscaler::TAAU )
+                if ( upscaler != SC::Upscaler::None && upscaler != SC::Upscaler::TAAU &&
+                     upscaler != SC::Upscaler::Spatial )
                     vendors.push_back( upscaler );
             if ( !vendors.empty() )
             {
@@ -281,6 +282,15 @@ namespace Desert::Editor
                                                                          SC::Parameter::Upscaler ) ) )
                                             .c_str() );
             ShowFallback( resolved, SC::Parameter::Upscaler );
+
+            int sharpness = Requested( SC::Parameter::UpscalerSharpness );
+            if ( ImGui::SliderInt( "Sharpness", &sharpness, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp ) )
+                SC::QualityState::SetOverride( SC::Parameter::UpscalerSharpness,
+                                               static_cast<SC::ParameterValue>( sharpness ) );
+            Utils::ImGuiUtilities::Tooltip(
+                 "Post sharpen (RCAS) after TAA, TAAU or the spatial upscale; 0 is off. "
+                 "Native frames without TAA are not sharpened." );
+            ShowFallback( resolved, SC::Parameter::UpscalerSharpness );
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Textures" ) )

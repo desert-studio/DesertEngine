@@ -158,7 +158,7 @@ namespace Desert::Graphic
         const int requested = viewportOverridePercent.value_or( settingPercent );
         // The upscaler of THIS view's percent, by Resolve's own rule (Scalability UpscalerForScale): the setting's
         // resolved upscaler is for the setting's percent, and a viewport override may sit on the other side of
-        // 100 %. Only called where the rule has an answer (percent >= 100, or a temporal method).
+        // 100 % (or under another AA method's side: below 100 % without temporal AA it is Spatial).
         const auto upscalerAt = [&]( const int percent )
         { return Common::Scalability::UpscalerForScale( antiAliasing.Method, percent, upscaler ); };
         const auto choose = [&]( const int percent ) -> Common::ResultStr<ViewResolution>
@@ -166,25 +166,13 @@ namespace Desert::Graphic
             const auto split = MakeResolutionSplit( output, percent );
             if ( !split )
                 return Common::MakeFormattedError<ViewResolution>( "{}", split.GetError() );
-            const Common::Scalability::Upscaler upscalerOfView = *upscalerAt( percent );
+            const Common::Scalability::Upscaler upscalerOfView = upscalerAt( percent );
             const auto method = SelectTemporalMethod( antiAliasing, split.GetValue(), upscalerOfView );
             if ( !method )
                 return Common::MakeFormattedError<ViewResolution>( "{}", method.GetError() );
             return Common::MakeSuccess( ViewResolution{
                  .Split = split.GetValue(), .Method = method.GetValue(), .Upscaler = upscalerOfView } );
         };
-        if ( !upscalerAt( requested ) )
-        {
-            // Below 100 % with no temporal method: nothing can upscale (no spatial upscaler) - Resolve's rule.
-            const auto native = choose( 100 );
-            if ( !native )
-                return native;
-            ViewResolution clamped = native.GetValue();
-            clamped.Clamped        = std::format(
-                 "no spatial upscaler: {} % needs a temporal AA method, the view's is not one: clamped to 100 %",
-                 requested );
-            return Common::MakeSuccess( clamped );
-        }
         auto chosen = choose( requested );
         if ( !chosen )
             return chosen;

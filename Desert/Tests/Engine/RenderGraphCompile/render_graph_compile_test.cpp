@@ -2184,7 +2184,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
               { "m_ViewState.History().Register(graph)", ".SceneColor=textures.Import(m_TargetFramebuffer->",
                 ".SceneDepth=textures.Depth(m_TargetFramebuffer,", ".Velocity=textures.Transients.Velocity",
                 ".History=histories", "m_TemporalUpscaler->AddPasses(graph,frame,inputs)",
-                "overlay.Color=added.GetValue().SceneColor;", "returnoverlay;" } );
+                "resolvedColor=added.GetValue().SceneColor;", "overlay.Color=resolvedColor;", "returnoverlay;" } );
+    // SCAL-SPATIAL1: below 100 % without a temporal method the spatial upscale is the resolve, at the same point
+    // and with no history; the sharpen (Resolution.Sharpness) follows any resolve, on its output.
+    declares( "AddFrameTemporal",
+              { "constboolspatial=IsSpatialUpscale(frame);",
+                "spatial?std::vector<HistoryRefs>{}:m_ViewState.History().Register(graph)",
+                "m_SpatialUpscale.AddPasses(graph,frame,inputs.SceneColor)", "resolvedColor=upscaled.GetValue();",
+                "m_Quality.As<int>(Common::Scalability::Parameter::UpscalerSharpness)",
+                "if(SharpenRuns(frame,sharpness))", "m_Sharpen.AddPasses(graph,frame,resolvedColor,sharpness)",
+                "resolvedColor=sharpened.GetValue();", "returnwithoutTemporal(upscaled.GetError());",
+                "returnwithoutTemporal(sharpened.GetError());" } );
     // TAA1-B 6: the overlay target set is at the OUTPUT extent and its depth is the scene depth populated by
     // "Scene: PopulateSceneDepth"; a frame the resolve cannot run on is rendered without it, by name, and the
     // caller then post-processes the scene colour (the fallback is the caller's, not a silent skip).
