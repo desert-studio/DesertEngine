@@ -1091,7 +1091,7 @@ namespace Desert::Graphic::System
                  .Tag    = tag,
                  .Width  = side,
                  .Height = side,
-                 .Format = Core::Formats::ImageFormat::RGBA8,
+                 .Format = Core::Formats::ImageFormat::RGBA8F,
                  .Data   = std::move( texels ),
                  .Usage  = Core::Formats::Image2DUsage::Image2D,
                  // LINEAR ALWAYS and REPEAT: the CPU's BilinearWrapped is exactly this filter, and the
