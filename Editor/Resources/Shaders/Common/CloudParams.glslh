@@ -182,7 +182,7 @@ CloudFieldParams CloudUnpackFieldParams()
 
     p.RegionOriginKm  = vec2( u_CloudRegion.x, u_CloudRegion.y );
     p.InvRegionSizeKm = u_CloudRegion.z;
-    p.Weather         = u_CloudWeather;
+    p.Weather         = u_CloudWeather.yw;
     p.LayoutPlace     = u_CloudLayoutPlace;
     p.LayoutStrength  = u_CloudLayoutStrength.xy;
 

@@ -129,13 +129,15 @@ struct CloudFieldParams
     vec2  RegionOriginKm;
     float InvRegionSizeKm;
 
-    // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather): y the weather strength, w 1 / the weather's period
-    // in km; x and z unread (Graphic::kCloudUnreadSlots) — the Coverage slider is the bake's (CUT-AT-BAKE). A MEMBER AND NOT A MACRO, because
+    // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather .y and .w): x the weather strength, y 1 / the
+    // weather's period in km. A vec2 because the payload's x and z are unread (Graphic::kCloudUnreadSlots) —
+    // the Coverage slider is the bake's (CUT-AT-BAKE) — and the unpack fetches only what is read, as
+    // LayoutStrength does (WX-PAINT-b). A MEMBER AND NOT A MACRO, because
     // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
     // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
     // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
     // as macros; every block value arrives here through CloudUnpackFieldParams.
-    vec4 Weather;
+    vec2 Weather;
     vec4 LayoutPlace;    // Assets::CloudLayoutPlaceUniform: xy offset km, zw (cos, sin) * repeats / region
     vec2 LayoutStrength; // Assets::CloudLayoutStrengthUniform: x pattern, y mask (0 = not read)
 
@@ -340,7 +342,7 @@ vec2 CloudLayoutUv( vec4 place, vec2 windPosXz )
 // pattern is bound (Unreal's Layout, per pixel), else the world weather map W = saturate(1 - 2 s Phi(w)) with
 // true zeros (Assets::CloudWeatherPresence); plus the mask, which adds. The Coverage slider is not in it: the
 // bake chose the clusters by it.
-float CloudLocalWeather( vec4 weather, vec4 layoutPlace, vec2 layoutStrength, int slot, vec2 windPosXz )
+float CloudLocalWeather( vec2 weather, vec4 layoutPlace, vec2 layoutStrength, int slot, vec2 windPosXz )
 {
     float modulated = 1.0f;
     vec2  uv        = CloudLayoutUv( layoutPlace, windPosXz );
@@ -350,10 +352,10 @@ float CloudLocalWeather( vec4 weather, vec4 layoutPlace, vec2 layoutStrength, in
         float painted = clamp( CLOUD_SAMPLE_LAYOUT_PATTERN( uv )[slot], 0.0f, 1.0f );
         modulated     = 1.0f - layoutStrength.x * ( 1.0f - painted );
     }
-    else if ( weather.y > 1e-4f )
+    else if ( weather.x > 1e-4f )
     {
-        float w   = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.w, windPosXz.y * weather.w ) );
-        modulated = clamp( 1.0f - 2.0f * weather.y * CloudNormalCdf( w ), 0.0f, 1.0f );
+        float w   = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.y, windPosXz.y * weather.y ) );
+        modulated = clamp( 1.0f - 2.0f * weather.x * CloudNormalCdf( w ), 0.0f, 1.0f );
     }
 
     if ( layoutStrength.y > 1e-4f )
@@ -444,7 +446,7 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
     // the form, already cut per cluster by the Coverage slider; the weather the world (or the painting) leaves
     // this column remaps it, as Nubis's weather map does — continuous in both factors, so the seam between a
     // live and an absent cloud is the profile's own surface and never a voxel column.
-    vec4  weather    = params.Weather;
+    vec2  weather    = params.Weather;
     float cutProfile = CloudCoverRemap(
          best, CloudLocalWeather( weather, params.LayoutPlace, params.LayoutStrength, winner, vec2( windPos.x, windPos.z ) ) );
     if ( cutProfile <= 0.0f )

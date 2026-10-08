@@ -105,10 +105,15 @@ namespace
     ///
     /// It is deliberately the slow, obvious implementation: a reference that shares the bake's own culling
     /// would agree with it about a mistake.
+    ///
+    /// `shape` is the silhouette noise at the point (CloudProceduralShapeNoise, SHAPE-NOISE): every lump's
+    /// distance moves by its own reach times it BEFORE the join, as in the bake and the preview — the body a
+    /// voxel must lie in is the displaced one.
     float ReferenceProfile( const std::vector<CloudModellingBlob>& blobs, const glm::vec3& pointKm,
-                            float blendRadiusKm, float profileDepthKm, float regionSizeKm )
+                            float blendRadiusKm, float profileDepthKm, float regionSizeKm, float shape )
     {
         std::vector<CloudModellingPreparedBlob> prepared;
+        std::vector<float>                      reaches;
         std::vector<float>                      distances;
 
         // THE WRAPS ARE PART OF THE FIELD, not part of the bake's optimisation: the volume is periodic by
@@ -124,6 +129,7 @@ namespace
                     shifted.CentreKm.x += static_cast<float>( wx ) * regionSizeKm;
                     shifted.CentreKm.z += static_cast<float>( wz ) * regionSizeKm;
                     prepared.push_back( PrepareCloudModellingBlob( shifted ) );
+                    reaches.push_back( CloudProceduralShapeReachKm( blob ) );
                 }
             }
         }
@@ -131,7 +137,7 @@ namespace
         float nearest = 0.0f;
         for ( size_t k = 0; k < prepared.size(); ++k )
         {
-            const float distance = CloudModellingBlobDistanceKm( prepared[k], pointKm );
+            const float distance = CloudModellingBlobDistanceKm( prepared[k], pointKm ) + reaches[k] * shape;
             distances.push_back( distance );
             nearest = ( k == 0 ) ? distance : std::min( nearest, distance );
         }
@@ -237,7 +243,8 @@ namespace
     float ClusteredProfile( const std::vector<std::vector<CloudModellingBlob>>& clusters, const glm::vec3& pointKm,
                             const CloudProceduralFieldParams& params )
     {
-        float best = 0.0f;
+        const float shape = CloudProceduralShapeNoise( params, 0u, pointKm );
+        float       best  = 0.0f;
         for ( const std::vector<CloudModellingBlob>& cluster : clusters )
         {
             // PROFILE-BODY: normalised by the cluster's own body depth, the deepest lump floored at two voxels.
@@ -246,7 +253,7 @@ namespace
                 deepestKm = std::max( deepestKm, CloudProceduralLumpDepthKm( blob ) );
             best = std::max( best, ReferenceProfile( cluster, pointKm, params.BlendRadiusKm,
                                                      CloudProceduralBodyDepthKm( params, deepestKm ),
-                                                     params.RegionSizeKm ) );
+                                                     params.RegionSizeKm, shape ) );
         }
         return best;
     }

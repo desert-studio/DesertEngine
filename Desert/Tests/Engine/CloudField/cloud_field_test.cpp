@@ -358,7 +358,8 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
 
     params.RegionOriginKm  = ModellingVolume().OriginKm;
     params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
-    params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+    const vec4 farWeather  = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+    params.Weather         = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
 
     // FIRST: the coordinate itself never reaches either face.
     const vec3 atTop    = CloudProceduralVolumeUvw( params, 1.0f, vec3( 0.0f ) );
@@ -1231,7 +1232,7 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
     // THE UNION, THEN THE WEATHER (CUT-AT-BAKE). The bake chose the clusters by the Coverage slider and cut
     // each before the join; the march takes the DEEPER species' baked profile and remaps it once by the
     // weather the column holds for the winner — read through the same weather macros the GPU defines.
-    const vec4 weather = params.Weather;
+    const vec2 weather = params.Weather;
 
     constexpr int kColumns = 96;
 
@@ -2519,7 +2520,7 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
 
 // THE SHADER'S WEATHER REMAP IS Assets::CloudProceduralCoverRemap BY Assets::CloudProceduralLocalWeather
 // (CUT-AT-BAKE): GPU = CPU on the baked profile at every sampled voxel, and the weather's zeros stay clear.
-// MUTATION: drop `2.0f * weather.y *` in CloudLocalWeather (Common/CloudField.glslh) and this goes red.
+// MUTATION: drop `2.0f * weather.x *` in CloudLocalWeather (Common/CloudField.glslh) and this goes red.
 TEST( CloudFieldCut, TheShadersWeatherRemapIsTheCpus )
 {
     using namespace Desert::Tests::CloudFieldRef;
@@ -2547,7 +2548,7 @@ TEST( CloudFieldCut, TheShadersWeatherRemapIsTheCpus )
             const vec2 worldKm =
                  state.OriginKm + vec2( ( ix + 0.5f ) / side, ( iz + 0.5f ) / side ) * state.Params.RegionSizeKm;
             const float gpuWeather =
-                 CloudLocalWeather( weather, Desert::Assets::CloudLayoutPlaceUniform( state.Params ),
+                 CloudLocalWeather( vec2( weather.y, weather.w ), Desert::Assets::CloudLayoutPlaceUniform( state.Params ),
                                     Desert::Assets::CloudLayoutStrengthUniform( state.Params ), 0, worldKm );
             const float cpuWeather = Desert::Assets::CloudProceduralLocalWeather( state.Params, 0u, worldKm );
             EXPECT_NEAR( gpuWeather, cpuWeather, 2e-3f ) << "column " << ix << "," << iz;

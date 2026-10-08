@@ -564,7 +564,8 @@ namespace Desert::Tests::CloudFieldRef
 
             params.RegionOriginKm  = ModellingVolume().OriginKm;
             params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
-            params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+            const vec4 farWeather  = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+            params.Weather         = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
             params.LayoutPlace     = Desert::Assets::CloudLayoutPlaceUniform( ModellingVolume().Params );
             params.LayoutStrength  = Desert::Assets::CloudLayoutStrengthUniform( ModellingVolume().Params );
         }
