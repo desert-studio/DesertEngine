@@ -6,7 +6,7 @@
 
 #include "FileExplorerPanel.hpp"
 #include <Editor/Platform/DesktopPlatform.hpp>
-#include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserDragDrop.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Panels/Clouds/CloudDocumentOpen.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserImport.hpp>
@@ -94,7 +94,9 @@ namespace Desert::Editor
          // says, so a list in a different order is a reader being told the wrong sequence.
          : IPanel( "Assets" ),
            m_PathView( { .OnFolderSelected    = [this]( DirectoryInformation* dir ) { ChangeDirectory( dir ); },
-                         .OnFavouriteSelected = [this]( const std::string& path ) { NavigateToPath( path ); } } ),
+                         .OnFavouriteSelected = [this]( const std::string& path ) { NavigateToPath( path ); },
+                         .SelectedPaths       = [this] { return m_Selection.Paths(); },
+                         .OnMoved             = [this] { QueueRefresh(); } } ),
            m_Toolbar( { .OnFolderSelected    = [this]( DirectoryInformation* dir ) { ChangeDirectory( dir ); },
                         .OnFavouriteSelected = [this]( const std::string& path ) { NavigateToPath( path ); },
                         .OnBack              = [this] { GoBack(); },
@@ -324,8 +326,6 @@ namespace Desert::Editor
         if ( m_CurrentDir )
             m_AssetView.Draw( *m_CurrentDir, m_ViewState, m_Model.ShowsHiddenFiles() );
         ImGui::EndChild(); // ##cb_right
-
-        m_PathView.AcceptMoveDropOnLastItem();
     }
 
     void FileExplorerPanel::DrawFileOpStatus()
@@ -379,19 +379,7 @@ namespace Desert::Editor
         if ( ImGui::BeginDragDropSource( ImGuiDragDropFlags_SourceAllowNullID ) )
         {
             const std::string& assetPath = entry.AssetPath;
-            const char*        type      = "AssetFile";
-            if ( entry.Type == FileType::Prefab )
-                type = ::Desert::Editor::DragPayloads::PrefabFile;
-            else if ( entry.Type == FileType::Texture )
-                type = ::Desert::Editor::DragPayloads::TextureAsset;
-            else if ( entry.Type == FileType::Material )
-                type = ::Desert::Editor::DragPayloads::MaterialAsset;
-            else if ( entry.Type == FileType::Model )
-                type = ::Desert::Editor::DragPayloads::MeshAsset;
-            else if ( entry.Type == FileType::Font )
-                type = ::Desert::Editor::DragPayloads::FontFile;
-            else if ( entry.Type == FileType::Scene )
-                type = ::Desert::Editor::DragPayloads::SceneFile;
+            const char*        type      = ContentBrowserDragDrop::PayloadTypeOf( entry.IsFile, entry.Type );
 
             ImGui::SetDragDropPayload( type, assetPath.c_str(), assetPath.size() + 1 );
 
@@ -541,6 +529,8 @@ namespace Desert::Editor
 
             if ( !editingThumbnail )
                 EmitAssetDragSource( *entry );
+            if ( folder )
+                m_PathView.AcceptMoveDropOnLastItem( entry->AssetPath ); // a folder tile takes a move-drop too
             m_ItemMenu.Draw( *entry, m_CurrentDir );
 
             if ( ImGui::IsItemHovered() && !ImGui::IsDragDropActive() )
@@ -628,6 +618,8 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 hovered = true;
             EmitAssetDragSource( *entry );
+            if ( folder )
+                m_PathView.AcceptMoveDropOnLastItem( entry->AssetPath );
             m_ItemMenu.Draw( *entry, m_CurrentDir );
         }
 

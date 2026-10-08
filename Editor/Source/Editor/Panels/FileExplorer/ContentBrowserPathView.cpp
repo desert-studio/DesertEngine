@@ -4,6 +4,7 @@
 
 #include <Editor/Core/EditorPreferences.hpp> // the pinned folders live in editor.json (К5)
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserDragDrop.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserUtils.hpp>
 #include <Editor/Panels/FileExplorer/ContentDirectoryModel.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
@@ -13,6 +14,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -44,6 +46,7 @@ namespace Desert::Editor
                               ( std::string( "  " ) + ICON_MDI_FOLDER " " + ( label.empty() ? fav : label ) )
                                    .c_str() ) )
                         m_On.OnFavouriteSelected( fav );
+                    AcceptMoveDropOnLastItem( fav ); // a pinned folder is a drop target, as in UE's Favorites
                     if ( ImGui::BeginPopupContextItem( "##favctx" ) )
                     {
                         if ( ImGui::MenuItem( "Remove from Favorites" ) )
@@ -58,25 +61,29 @@ namespace Desert::Editor
             DrawFolder( model, current, model.Root(), true );
         }
         ImGui::EndChild();
-
-        // The folder tree is a move-drop target: drag an asset onto a folder to move it there (the hovered
-        // folder sets m_MovePath inside DrawFolder).
-        AcceptMoveDropOnLastItem();
     }
 
-    void ContentBrowserPathView::AcceptMoveDropOnLastItem()
+    void ContentBrowserPathView::AcceptMoveDropOnLastItem( const std::string& targetFolder )
     {
-        if ( ImGui::BeginDragDropTarget() )
+        if ( !ImGui::BeginDragDropTarget() )
+            return;
+        // The source's typed payload (TEXTURE_ASSET, MESH_ASSET, ...) is accepted whatever the kind: on a
+        // folder every kind means "move it here". The payload is the dragged path's bytes with its NUL.
+        for ( const char* type : ContentBrowserDragDrop::MovablePayloads )
         {
-            if ( const ImGuiPayload* data =
-                      ImGui::AcceptDragDropPayload( "selectable", ImGuiDragDropFlags_AcceptNoDrawDefaultRect ) )
-            {
-                const auto* file = static_cast<const std::string*>( data->Data );
-                ContentBrowserUtils::MoveFileTo( *file, m_MovePath );
-                m_IsDragging = false;
-            }
-            ImGui::EndDragDropTarget();
+            const ImGuiPayload* payload = ImGui::AcceptDragDropPayload( type );
+            if ( payload == nullptr || payload->DataSize <= 0 )
+                continue;
+            const std::string dragged( static_cast<const char*>( payload->Data ) );
+            const std::vector<std::string> selection = m_On.SelectedPaths ? m_On.SelectedPaths() : std::vector<std::string>{};
+            bool moved = false;
+            for ( const std::string& path : ContentBrowserDragDrop::PlanFolderDrop( dragged, selection, targetFolder ) )
+                moved = ContentBrowserUtils::MoveFileTo( path, targetFolder ) || moved;
+            if ( moved && m_On.OnMoved )
+                m_On.OnMoved();
+            break;
         }
+        ImGui::EndDragDropTarget();
     }
 
     void ContentBrowserPathView::DrawFolder( const ContentDirectoryModel& model,
@@ -107,6 +114,7 @@ namespace Desert::Editor
                  reinterpret_cast<void*>( reinterpret_cast<intptr_t>( dirInfo ) ), nodeFlags, "" );
             if ( ImGui::IsItemClicked() )
                 m_On.OnFolderSelected( dirInfo );
+            AcceptMoveDropOnLastItem( dirInfo->AssetPath ); // the node row spans the width: drop onto it
 
             const char* folderIcon =
                  ( ( isOpen && !dirInfo->Leaf ) || current == dirInfo ) ? ICON_MDI_FOLDER_OPEN : ICON_MDI_FOLDER;
@@ -162,8 +170,5 @@ namespace Desert::Editor
             if ( isOpen && dirInfo->Leaf )
                 ImGui::TreePop();
         }
-
-        if ( m_IsDragging && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenBlockedByActiveItem ) )
-            m_MovePath = dirInfo->AssetPath;
     }
 } // namespace Desert::Editor
