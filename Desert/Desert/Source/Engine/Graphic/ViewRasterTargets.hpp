@@ -123,12 +123,15 @@ namespace Desert::Graphic
         std::vector<RDG::LoadOp> loads( targets.Colors.size(), pass );
         for ( std::size_t slot = 0; slot < targets.Colors.size(); ++slot )
         {
-            if ( slot >= targets.OwnClears.size() || !targets.OwnClears[slot] )
+            if ( slot >= targets.OwnClears.size() )
+                continue;
+            const auto clear = targets.OwnClears[slot];
+            if ( !clear.has_value() )
                 continue;
             if ( started.insert( targets.Colors[slot].Index ).second )
             {
                 loads[slot].Action = RDG::LoadAction::Clear;
-                loads[slot].Value  = *targets.OwnClears[slot];
+                loads[slot].Value  = *clear;
             }
             else
                 loads[slot] = RDG::LoadOp::Load();

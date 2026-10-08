@@ -34,7 +34,7 @@
 #include <string>
 #include <vector>
 
-namespace GBufferLayoutTest
+namespace
 {
     namespace F = Desert::Graphic::ViewTargetFormats;
     using Desert::Core::Formats::ImageFormat;
@@ -58,15 +58,13 @@ namespace GBufferLayoutTest
 
     std::string ReadText( const std::filesystem::path& path )
     {
-        std::ifstream file( path, std::ios::binary );
+        const std::ifstream file( path, std::ios::binary );
         EXPECT_TRUE( file.good() ) << "cannot read " << path;
         std::ostringstream text;
         text << file.rdbuf();
         return text.str();
     }
-} // namespace GBufferLayoutTest
-
-using namespace GBufferLayoutTest;
+} // namespace
 
 TEST( GBufferLayout, TheGBufferIsBuiltFromTheViewTargetFormatsInSlotOrder )
 {
@@ -90,8 +88,9 @@ TEST( GBufferLayout, TheGBufferIsBuiltFromTheViewTargetFormatsInSlotOrder )
     EXPECT_EQ( attachments, spelled.size() ) << "a G-buffer attachment is not a ViewTargetFormats constant";
 
     std::vector<std::string> expected;
+    expected.reserve( std::size( kGBuffer ) );
     for ( const Slot& s : kGBuffer )
-        expected.push_back( s.Constant );
+        expected.emplace_back( s.Constant );
     EXPECT_EQ( spelled, expected );
 }
 

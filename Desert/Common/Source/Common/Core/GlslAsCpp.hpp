@@ -9,7 +9,7 @@
 // copy. That gives every function in the file internal linkage, and `-Wunused-function` then reports
 // each one the test does not happen to call — while the shader sharing the text calls it every frame.
 // Fourteen of `SkyMedium.glslh`'s functions report this way, eight of `CloudGeometry.glslh`'s, five of
-// `PBRFunctions.glslh`'s.
+// `BRDF.glslh`'s.
 //
 // WHAT IT DOES NOT COVER, deliberately. The suppression brackets the include and nothing else, so a
 // genuinely dead C++ helper written in the reference header itself still reports normally. And it says

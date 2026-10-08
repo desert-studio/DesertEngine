@@ -54,7 +54,7 @@
 //
 // THE FIX WAS THE ASSET, AND WHAT IT MOVED IS RECORDED HERE so the next person does not re-shoot it.
 // CB_Red.demat was restored to the shape of its sibling CB_Green.demat — same albedo, RoughnessFactor
-// 0.9, MetallicFactor dropped (StaticMeshPBR.shader declares its default as 0), MaterialId untouched.
+// 0.9, MetallicFactor dropped (StaticMeshLit.shader declares its default as 0), MaterialId untouched.
 // Three scenes reference that asset and all three were shot before and after:
 //
 //   CornellDemo             11.949 % of pixels, max 227/255 — the left wall and what it bounces onto
@@ -208,8 +208,8 @@ namespace
         return {};
     }
 
-    // A .demat as the shading path sees it: the three PBR schema params, defaulted exactly as
-    // Programs/PBR/StandardSurface.shader declares them (Albedo (1,1,1,1), Metallic 0, Roughness 0.5) so a
+    // A .demat as the shading path sees it: the three lit schema params, defaulted exactly as
+    // Programs/Surface/StandardSurface.shader declares them (Albedo (1,1,1,1), Metallic 0, Roughness 0.5) so a
     // file that omits a param is read the way the GPU reads it and not the way a test would like to.
     struct Material
     {
@@ -304,7 +304,7 @@ namespace
 
     // What the deferred composite computes for one point light on one DefaultLit surface, through the SHIPPED
     // text: the source becomes a DesertLight in Mesh/LightSources.glslh's `DesertPointLightAt` (colour *
-    // intensity * `LightFalloffFactor`, PBRFunctions.glslh), and DefaultLit's Evaluate
+    // intensity * `LightFalloffFactor`, BRDF.glslh), and DefaultLit's Evaluate
     // (ShadingModels/DefaultLit.shadingmodel) is `EvaluateDirectLight` (DirectLighting.glslh) on it times its
     // Shadow. All three are compiled as C++ by the reference header; the model body sits behind a manifest,
     // so its one line is the last statement here.

@@ -83,13 +83,15 @@ TEST( AmbientIBL, TheAntiBlackFloorIsNotAnAmbientModel )
     // occluded face with no environment from reading as a pure-black hole. Pinned so that nobody
     // quietly raises it back into a lighting model when a scene looks dark — that is the "knob that
     // hides a defect" the contract forbids.
-    EXPECT_LT( glm::max( glm::max( PBR_AMBIENT_FLOOR.r, PBR_AMBIENT_FLOOR.g ), PBR_AMBIENT_FLOOR.b ), 0.02f );
-    EXPECT_GT( glm::min( glm::min( PBR_AMBIENT_FLOOR.r, PBR_AMBIENT_FLOOR.g ), PBR_AMBIENT_FLOOR.b ), 0.0f );
+    EXPECT_LT( glm::max( glm::max( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
+               0.02f );
+    EXPECT_GT( glm::min( glm::min( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
+               0.0f );
 
     // Under any sky worth calling lit, the floor is noise: at unit environment radiance the real
     // ambient must dominate it by a wide margin.
     const glm::vec3 lit = AmbientFor( glm::vec3( 1.0f ), glm::vec3( 1.0f ) );
-    EXPECT_GT( lit.r, PBR_AMBIENT_FLOOR.r * 20.0f );
+    EXPECT_GT( lit.r, SURFACE_AMBIENT_FLOOR.r * 20.0f );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -239,14 +241,14 @@ TEST( AmbientIBL, TheCompositionCarriesNoConstantTermOfItsOwn )
     // And with a real sky it is the sky that dominates, not the floor.
     const glm::vec3 ibl     = AmbientFor( glm::vec3( 1.2f ), glm::vec3( 1.2f ) );
     const glm::vec3 ambient = ComposeAmbient( ibl, kAlbedo, 1.0f, glm::vec3( 0.0f ) );
-    EXPECT_GT( ambient.r, kAlbedo.r * PBR_AMBIENT_FLOOR.r * 10.0f );
+    EXPECT_GT( ambient.r, kAlbedo.r * SURFACE_AMBIENT_FLOOR.r * 10.0f );
 }
 
 // THE relation the owner's experiment measured, and the only form in which it can be stated: not that
 // two numbers agree, but that there is only ONE number. Since SHM1 the ambient belongs to the SHADING MODEL
 // (UE: the shading model decides how a surface answers the environment): both render paths sample the
 // environment once (DesertSampleAmbient) and hand it to the model's dispatch
-// (DesertEvaluateShadingModelAmbient); DefaultLit — the model every PBR surface uses — composes it through
+// (DesertEvaluateShadingModelAmbient); DefaultLit — the model every lit surface uses — composes it through
 // ComposeAmbient in Mesh/AmbientIBL.glslh. The test used to demand ComposeAmbient in the PASSES; that pinned
 // the pre-registry design, where each pass was DefaultLit's only author.
 //

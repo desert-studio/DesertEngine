@@ -21,8 +21,8 @@ namespace Desert::Graphic
         // @p parameterSchema is the program whose `Properties` block lists this material's OWN textures
         // (Core::Formats::MaterialTextureParameters): only those become Texture2D/TextureCube properties,
         // each holding its declared default from creation. It is read here and not kept. A pass program
-        // that deliberately declares no Properties (SkinnedMeshPBR, the GBuffer and glass variants) is
-        // given the schema of the program that owns them (StaticMeshPBR) by its creator.
+        // that deliberately declares no Properties (SkinnedMeshLit, the GBuffer and glass variants) is
+        // given the schema of the program that owns them (StaticMeshLit) by its creator.
         // @p pushBlockSize is the shader's reflected push block (ShaderLayout::PushBlockSize), the same bytes
         // its pipeline's layout range is built with: the material holds exactly that block, never more.
         MaterialExecutor( std::string&& debugName, const std::shared_ptr<Shader>& shader,

@@ -31,13 +31,13 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const auto [pbrInst, mat] = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
-            if ( pbrInst == nullptr || IsTranslucent( mat ) )
+            const auto [surfaceInst, mat] = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
+            if ( surfaceInst == nullptr || IsTranslucent( mat ) )
             {
                 continue;
             }
             objs.push_back( &data );
-            AppendRow( gpuMats, EffectiveRow( mat, pbrInst ) );
+            AppendRow( gpuMats, EffectiveRow( mat, surfaceInst ) );
         }
         if ( objs.empty() )
             return;
@@ -210,7 +210,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = CompareOp::LessOrEqual;
         // No culling in the shadow pass: store ALL faces so the map can never come out empty (front-face
         // culling under the engine's negative-height viewport could cull the wrong set and black out the
-        // scene). Self-shadow acne is handled by the normal-offset + slope bias in the PBR sampling.
+        // scene). Self-shadow acne is handled by the normal-offset + slope bias in the lit sampling.
         spec.CullMode = CullMode::None;
         spec.Shader   = m_ShadowShader;
         // All cascade framebuffers share the same attachment formats, so one pipeline is render-pass
@@ -533,7 +533,7 @@ namespace Desert::Graphic::System
     void MeshRenderer::BuildShadowCascadeDraws( const uint32_t c, MeshDrawList& list )
     {
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
-        // Projection and identity as View, matching u_LightViewProj[c] on the PBR side.
+        // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c] );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
 
@@ -616,9 +616,9 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const PBRSlot             slot = rd.MaterialSlots != nullptr
-                                                  ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                                  : PBRSlot{};
+            const SurfaceSlot         slot = rd.MaterialSlots != nullptr
+                                                  ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                                  : SurfaceSlot{};
             MaterialInstance*         inst = slot.Instance;
             const DataDrivenMaterial* mat  = slot.Surface;
             if ( !isMasked( mat ) )
@@ -790,7 +790,7 @@ namespace Desert::Graphic::System
         // custom materials) cast through the SAME pipeline as everything else: a caster is
         // depth, and depth does not care which shader would have coloured the surface. They
         // used to be absent from the cascades entirely, because this pass only ever walked
-        // the PBR queues — a shader-graph object was lit like a solid and shadowed like a
+        // the lit queues — a shader-graph object was lit like a solid and shadowed like a
         // hole in the world.
         //
         // Per-object only, no instanced batching: the batching above keys on StaticMesh*,
@@ -800,9 +800,9 @@ namespace Desert::Graphic::System
         //
         // The whole mesh is drawn, VisibleSubmeshMask ignored — deliberately, and the
         // reason exactly one draw per entity may set CastShadows: the mask splits an
-        // entity's submeshes between this queue and the PBR one, but a caster is not
-        // split, so honouring the mask here would carve the PBR half out of the silhouette
-        // while the PBR record was already casting the whole of it.
+        // entity's submeshes between this queue and the lit one, but a caster is not
+        // split, so honouring the mask here would carve the lit half out of the silhouette
+        // while the lit record was already casting the whole of it.
         for ( const auto& g : m_GenericQueue )
         {
             if ( g.Mesh != nullptr && g.CastShadows &&

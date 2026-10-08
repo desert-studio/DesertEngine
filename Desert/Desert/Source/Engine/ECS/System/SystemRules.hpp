@@ -76,35 +76,35 @@ namespace Desert::ECS::Rules
     // ---------------------------------------------------------------------------------------------------
     //
     // One static-mesh entity can produce up to three kinds of draw: a whole-entity generic draw (a
-    // MaterialComponent naming a non-PBR shader), one generic draw per custom-shader material slot, and
-    // the batched PBR draw for whatever submeshes are left. The shadow pass, though, draws a mesh WHOLE:
+    // MaterialComponent naming a non-lit shader), one generic draw per custom-shader material slot, and
+    // the batched lit draw for whatever submeshes are left. The shadow pass, though, draws a mesh WHOLE:
     // MeshRenderer::RegisterShadowPass takes a Mesh* and a transform and has no submesh mask, because
     // depth is material-independent. So the caster is a property of the ENTITY, not of a draw, and
-    // exactly one draw may carry it — a mesh with one custom slot and one PBR slot would otherwise be
+    // exactly one draw may carry it — a mesh with one custom slot and one lit slot would otherwise be
     // rasterized into every cascade twice, self-shadowing along the seam and paying double.
     enum class MeshShadowCaster
     {
         None,           // the entity does not cast (CastShadows off, or it produces no draw at all)
-        PbrDraw,        // the batched PBR draw carries it — the only case before generic meshes cast
-        ShaderOverride, // whole-entity Shader Override: there is no PBR draw to carry it
+        SurfaceDraw,    // the batched lit draw carries it — the only case before generic meshes cast
+        ShaderOverride, // whole-entity Shader Override: there is no lit draw to carry it
         FirstSlotDraw,  // every submesh went to a custom slot material; the first slot draw carries it
     };
 
-    // @p shaderOverride   the entity has a MaterialComponent naming a non-PBR shader (whole-entity draw)
+    // @p shaderOverride   the entity has a MaterialComponent naming a non-lit shader (whole-entity draw)
     // @p slotDrawCount    number of per-slot custom-material draws emitted for this entity
-    // @p pbrDrawEmitted   the batched PBR draw was emitted (some submesh stayed on the PBR path)
+    // @p surfaceDrawEmitted   the batched lit draw was emitted (some submesh stayed on the lit path)
     inline MeshShadowCaster RouteMeshShadowCaster( bool castShadows, bool shaderOverride, size_t slotDrawCount,
-                                                   bool pbrDrawEmitted )
+                                                   bool surfaceDrawEmitted )
     {
         if ( !castShadows )
             return MeshShadowCaster::None;
-        // The override draw REPLACES the entity's whole PBR draw, so it is the only candidate.
+        // The override draw REPLACES the entity's whole lit draw, so it is the only candidate.
         if ( shaderOverride )
             return MeshShadowCaster::ShaderOverride;
-        // Otherwise the PBR draw wins whenever it exists: it is the pre-existing caster, and keeping it
-        // means this rule cannot change what an all-PBR scene puts in the cascades.
-        if ( pbrDrawEmitted )
-            return MeshShadowCaster::PbrDraw;
+        // Otherwise the lit draw wins whenever it exists: it is the pre-existing caster, and keeping it
+        // means this rule cannot change what an all-lit scene puts in the cascades.
+        if ( surfaceDrawEmitted )
+            return MeshShadowCaster::SurfaceDraw;
         if ( slotDrawCount > 0 )
             return MeshShadowCaster::FirstSlotDraw;
         return MeshShadowCaster::None;

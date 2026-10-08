@@ -295,7 +295,7 @@ namespace Desert::Graphic
         // The mip chain is bounded by the face (more is an invalid vkCreateImage, VUID-...-00958, which
         // VulkanImageCube now refuses with the numbers). A caller asking for a longer chain than its own
         // face supports is a size/mips disagreement — say so and proceed with the legal chain rather than
-        // hand the refusal to every scene as a black environment. (PBR reads the count via
+        // hand the refusal to every scene as a black environment. (Lit reads the count via
         // textureQueryLevels, so fewer mips is safe — the roughness ramp adapts.)
         const uint32_t faceSize = spec.FaceSize;
         const uint32_t maxMips  = Core::Formats::MipChainLength( faceSize );

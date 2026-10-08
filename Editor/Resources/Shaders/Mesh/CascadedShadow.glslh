@@ -5,9 +5,9 @@
 // that shades a surface with the sun.
 //
 // Why it is a header and not four copies. It WAS four copies, and by the time Д20 measured them two of
-// them had already drifted: Programs/PBR/StaticMeshPBR.shader and Programs/Deferred/DeferredLighting.shader
+// them had already drifted: Programs/Surface/StaticMeshLit.shader and Programs/Deferred/DeferredLighting.shader
 // carried the cascade CROSS-FADE (sampleCascade + a blend band at the tight cascade's border), while
-// Programs/PBR/SkinnedMeshPBR.shader and Programs/PBR/StaticMeshPBR_Instanced.shader carried the version
+// Programs/Surface/SkinnedMeshLit.shader and Programs/Surface/StaticMeshLit_Instanced.shader carried the version
 // from before that fix and returned the tight cascade's PCF result raw. A skinned character and an
 // instanced prop therefore carried the hard cascade seam the other two had had smoothed away, standing
 // beside a non-instanced static mesh that did not, in the same frame, lit by the same sun, through the
@@ -46,7 +46,7 @@
 //
 // The NAMES are what has to match, and they do because every material binds by name — see
 // Graphic::SceneShadowBind, which is the single C++ writer of the block and of all four maps, and
-// SceneResources::ShadowUBData, whose layout Desert/Tests/Engine/PBRSceneFrame asserts against the
+// SceneResources::ShadowUBData, whose layout Desert/Tests/Engine/SceneFrameBinding asserts against the
 // reflected GLSL block. The array length above is SceneResources::kMaxCascades and is not restated
 // here as a number the includer may pick.
 //

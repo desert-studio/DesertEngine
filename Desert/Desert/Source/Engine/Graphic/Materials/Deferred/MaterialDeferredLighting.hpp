@@ -40,7 +40,7 @@ namespace Desert::Graphic
     // the light they attenuate.
 
     // THE BAKED SKY, as the deferred composite's ambient source — the same three images
-    // Graphic::PBRSceneFrame hands the forward PBR materials (Graphic::SceneEnvironmentBind), and
+    // Graphic::SceneFrameBinding hands the forward lit materials (Graphic::SceneEnvironmentBind), and
     // deliberately the same struct shape as the two above: data gathered by SceneRenderer, consumed here.
     //
     // All three or none. The split-sum ambient is not separable — the diffuse cube without the
@@ -62,7 +62,7 @@ namespace Desert::Graphic
 
     // Fullscreen deferred-lighting material: binds the scene renderer's G-buffer color targets (albedo/metallic,
     // normal/roughness, world-position) + the sun (+ its CSM shadow maps) + ALL point & spot lights (uploaded
-    // into the shared SSBO layout the mesh PBR shader also uses) + a debug-mode selector, driving
+    // into the shared SSBO layout the mesh lit shader also uses) + a debug-mode selector, driving
     // DeferredLighting.shader. Header-only (no new .cpp -> no premake regen).
     class MaterialDeferredLighting final : public Material
     {
@@ -142,7 +142,7 @@ namespace Desert::Graphic
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
 
-        // Uploads the cloud layer's shadow into CloudShadowUB through the SAME packer the forward PBR
+        // Uploads the cloud layer's shadow into CloudShadowUB through the SAME packer the forward lit
         // materials and the terrain material use (Graphic::CloudShadowUpload), so the two render paths cannot
         // be told different things about one map. The map itself (u_CloudShadowMap) is a graph resource the
         // composite exec binds through RDG::PassBindings (FrameTransients::CloudShadowMap, System.White when

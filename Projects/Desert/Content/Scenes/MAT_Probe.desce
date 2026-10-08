@@ -193,7 +193,7 @@
         {
             "id": 2009,
             "siblingIndex": 3,
-            "Tag": "A_ReferencePBR",
+            "Tag": "A_ReferenceLit",
             "Translation": [-500.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],

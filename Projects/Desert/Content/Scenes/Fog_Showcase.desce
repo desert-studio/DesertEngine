@@ -144,7 +144,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R0.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
                 "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
                 "Primitive": "Sphere"
             }
@@ -170,7 +170,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R0.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
                 "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
                 "Primitive": "Sphere"
             }
@@ -196,7 +196,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R0.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
                 "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
                 "Primitive": "Sphere"
             }

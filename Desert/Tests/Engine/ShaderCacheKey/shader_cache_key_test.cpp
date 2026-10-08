@@ -1167,7 +1167,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyTwoDescri
     EXPECT_TRUE( HasBinding( bindings, 19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_BRDFLUTTexture
 
     // And the cascade block it must NOT have disturbed: the same four maps at the same four slots, with
-    // ShadowUB where PBR.glsl.frag mirrors it.
+    // ShadowUB where Lit.glsl.frag mirrors it.
     EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
     EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
     EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
@@ -1179,7 +1179,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
 {
     // WHAT THIS REPLACED, because the change is the interesting part. Until the deferred pass got a
     // material of its own, this file asserted the OPPOSITE relation — that StaticMeshGBuffer's set 0 was
-    // byte-identical to StaticMeshPBR's — and StaticMeshGBuffer.shader carried fourteen descriptors it
+    // byte-identical to StaticMeshLit's — and StaticMeshGBuffer.shader carried fourteen descriptors it
     // never read, each touched through a `keep` sum multiplied by 1e-20 so SPIR-V reflection would not
     // drop it. That was not decoration: MeshRenderer drew the pass with the (Static x Forward) material,
     // whose sets are allocated from the FORWARD shader's reflection, against a pipeline layout built from
@@ -1193,7 +1193,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
     // THE RELATION NOW: a pass that shades nothing declares the SURFACE and nothing else. Stated as an
     // exact set, because "fewer than the forward shader" would still pass with one cascade map left
     // behind, and a lighting descriptor in a pass with no lighting is a slot the material has no data for.
-    const auto gbuffer = GraphicsSetZero( ShaderPath( "PBR/StandardSurface.shader" ), "Static.GBuffer" );
+    const auto gbuffer = GraphicsSetZero( ShaderPath( "Surface/StandardSurface.shader" ), "Static.GBuffer" );
     ASSERT_FALSE( gbuffer.empty() );
 
     // TAA1-VEL: the G-buffer pass writes the view's velocity (slot 4), so the static cell reads its world and
@@ -1225,7 +1225,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
 
     // The forward shader is the control: it still declares everything a lit draw needs, so a G-buffer set
     // this small is the PASS shrinking and not the whole family losing its lighting.
-    const auto forward = GraphicsSetZero( ShaderPath( "PBR/StandardSurface.shader" ), "Static.Forward" );
+    const auto forward = GraphicsSetZero( ShaderPath( "Surface/StandardSurface.shader" ), "Static.Forward" );
     ASSERT_FALSE( forward.empty() );
     EXPECT_GT( ShaderReflection::CountDescriptors( forward ), ShaderReflection::CountDescriptors( gbuffer ) );
     EXPECT_TRUE( HasBinding( forward, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
@@ -1348,9 +1348,9 @@ TEST_F( ShaderCacheKeyShaderRoot, ALitGraphSurfaceCompilesEverySharedShadingText
     //
     // What is asserted is therefore membership, not behaviour: every shared shading text the standard mesh
     // shader compiles, the lit graph surface compiles as well. That fails the day somebody extracts a new
-    // one into Mesh/ and wires it into StaticMeshPBR only — which is exactly how the graph fell behind the
+    // one into Mesh/ and wires it into StaticMeshLit only — which is exactly how the graph fell behind the
     // first time.
-    const auto mesh  = FragmentIncludes( ShaderPath( "PBR/StandardSurface.shader" ), "Static.Forward" );
+    const auto mesh  = FragmentIncludes( ShaderPath( "Surface/StandardSurface.shader" ), "Static.Forward" );
     const auto graph = FragmentIncludes( ShaderPath( "Graph/MatLitConst.shader" ), "Static.Forward" );
 
     ASSERT_FALSE( mesh.empty() );
@@ -1378,7 +1378,7 @@ TEST_F( ShaderCacheKeyShaderRoot, ALitGraphSurfaceCompilesEverySharedShadingText
 
     // Vacuous success is the failure mode of every membership test: a closure that came back empty, or a
     // Mesh/ that stopped being where the shared texts live, would pass the loop above without checking
-    // anything. Seven is what StaticMeshPBR's closure names today — six after Д16, plus
+    // anything. Seven is what StaticMeshLit's closure names today — six after Д16, plus
     // Mesh/CascadedShadow.glslh, which is exactly the automatic membership this test was written to give:
     // Д20 extracted ShadowFactor into Mesh/ and the graph was REQUIRED to compile it without a line of
     // this test changing. The assertion is a floor rather than an equality so that adding the next shared

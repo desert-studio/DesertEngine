@@ -1,6 +1,6 @@
-// Surface cell pass: forward lighting — the fragment stage of Programs/PBR/StaticMeshPBR.shader with the
+// Surface cell pass: forward lighting — the fragment stage of Programs/Surface/StaticMeshLit.shader with the
 // surface's attributes coming from EvaluateSurface instead of from the shader's own texture reads. Every
-// binding sits where StaticMeshPBR put it (MeshRenderer binds one frame set to every forward mesh cell);
+// binding sits where StaticMeshLit put it (MeshRenderer binds one frame set to every forward mesh cell);
 // SurfaceTemplate holds the two layouts equal by reflection.
 #include <Mesh/PointLight.glslh>
 #include <Mesh/Spotlight.glslh>

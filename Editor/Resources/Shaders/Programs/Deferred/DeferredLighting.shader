@@ -24,7 +24,7 @@ Shader "DeferredLighting"
         // instead shows a raw G-buffer channel full-screen. Non-geometry texels are discarded so the LOADed forward
         // scene (real procedural sky / skybox + grid) shows through.
 
-        #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + PBRFunctions
+        #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + BRDF
         #include <Mesh/Spotlight.glslh>       // binding 16 (SSBO SpotLightsUB)
         #include <Mesh/LightsMetadata.glslh>  // binding 4  (UB LightsMetadata: point/spot/dir counts)
         // THE direct-light BRDF, shared with the forward mesh shaders and with the point/spot headers
@@ -77,10 +77,10 @@ Shader "DeferredLighting"
 
         Out(0) vec4 oColor;
 
-        const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches PBR.glsl.frag)
+        const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches Lit.glsl.frag)
 
-        // The ambient model itself, shared verbatim with StaticMeshPBR / StaticMeshPBR_Instanced /
-        // SkinnedMeshPBR. Included after the three bindings above because it names them.
+        // The ambient model itself, shared verbatim with StaticMeshLit / StaticMeshLit_Instanced /
+        // SkinnedMeshLit. Included after the three bindings above because it names them.
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -292,11 +292,11 @@ Shader "DeferredLighting"
         	}
         	if (dbg == 11) { oColor = DesertReceivesSunShadows(word) ? vec4(0.1, 0.9, 0.2, 1.0) : vec4(0.9, 0.1, 0.1, 1.0); return; }
 
-        	// --- Lit: shadow-mapped directional sun (N·L) + full PBR point/spot lights ---
+        	// --- Lit: shadow-mapped directional sun (N·L) + full lit point/spot lights ---
         	vec3 N    = normalize(normal);
         	vec3 view = normalize(u_CameraPos.xyz - worldPos);
 
-        	// Directional sun (energy-normalized PBR), occluded by the cascaded shadow map.
+        	// Directional sun (energy-normalized lit), occluded by the cascaded shadow map.
         	// TWO OCCLUDERS OF ONE SUN, multiplied: the cascaded maps for opaque geometry and the cloud
         	// layer's own volumetric transmittance. Only the DIRECTIONAL term is attenuated — the ambient
         	// below is the whole sky dome, which a cloud deck occludes with a different geometry
@@ -320,7 +320,7 @@ Shader "DeferredLighting"
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);
 
-        	// Point lights (the city payoff): every source contributes full Cook-Torrance PBR (not shadowed yet).
+        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit (not shadowed yet).
         	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
         		result += DesertEvaluateShadingModel(shadingModel, DesertPointLightAt(pointLights[i], worldPos), surface,
         		                                     payload);

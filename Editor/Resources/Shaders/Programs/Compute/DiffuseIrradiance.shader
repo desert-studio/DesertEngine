@@ -96,7 +96,7 @@ Shader "DiffuseIrradiance"
 
         	// Monte Carlo integration of hemispherical irradiance.
         	// As a small optimization this also includes Lambertian BRDF assuming perfectly white surface (albedo of 1.0)
-        	// so we don't need to normalize in PBR fragment shader (so technically it encodes exitant radiance rather than irradiance).
+        	// so we don't need to normalize in lit fragment shader (so technically it encodes exitant radiance rather than irradiance).
         	//
         	// MIPMAP-FILTERED IMPORTANCE SAMPLING (Colbert & Krivanek, GPU Gems 3 ch. 20.4 -- the same rule
         	// PrefilterEnvMap applies to the radiance cube). Each sample stands for 2*pi/NumSamples sr of the

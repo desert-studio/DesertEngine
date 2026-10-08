@@ -583,7 +583,7 @@ namespace Desert::Graphic::System
         // It used to return early and change nothing, which made the sentence unsayable: SkyboxECSSystem
         // emitted a command only when a cubemap existed, so deleting the SkyboxComponent — or loading a
         // level that has none onto a renderer that had one — left the previous cubemap drawing behind the
-        // new world AND feeding its IBL into every PBR surface. This is the same explicit-absence rule the
+        // new world AND feeding its IBL into every lit surface. This is the same explicit-absence rule the
         // sky, the fog and the cloud layer already follow, and it is what lets a render system outlive the
         // scene it was built for (IRenderSystem::OnSceneReplaced).
         m_MaterialSkybox = material; // an empty weak_ptr when the scene has none
@@ -914,7 +914,8 @@ namespace Desert::Graphic::System
         // never samples them). Both are entries of the pass's block, so each entry is the read's declaration.
         // The camera block is the frame's view (declared inside SceneRenderer::OnUpdate, so it is there).
         const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
-        if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera && view )
+        if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera != nullptr &&
+             view != nullptr )
         {
             m_ProceduralMaterial->Update( view, m_SkyParams );
             const MaterialExecutor* executor = m_ProceduralMaterial->GetMaterialExecutor();
@@ -942,7 +943,7 @@ namespace Desert::Graphic::System
                 m_SkyDraw.Fault = "SkyboxPass: a skybox material without its pipeline";
                 return;
             }
-            if ( m_ActiveCamera )
+            if ( m_ActiveCamera != nullptr )
                 material->BindInputs( { view, m_SkyboxLook } );
             const MaterialExecutor* executor = material->GetMaterialExecutor();
             declared.Bindings( m_SkyLayout.Get( m_Pipeline->GetSpecification().Shader ),

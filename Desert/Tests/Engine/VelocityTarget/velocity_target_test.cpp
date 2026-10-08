@@ -29,6 +29,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <cstring>
 #include <cstddef>
@@ -47,9 +48,16 @@ namespace VelocityTargetTest
 {
     using namespace Desert::Graphic;
 
+    // A matrix as its sixteen IEEE words: equal only when bit for bit equal (-0 and +0 differ, a NaN equals
+    // itself).
+    std::array<uint32_t, 16> Bits( const glm::mat4& m )
+    {
+        return std::bit_cast<std::array<uint32_t, 16>>( m );
+    }
+
     std::string ReadFile( const std::filesystem::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         std::ostringstream text;
         text << in.rdbuf();
         return text.str();
@@ -60,14 +68,14 @@ namespace VelocityTargetTest
                                                                         const std::string& name )
     {
         std::vector<std::pair<std::string, std::string>> members;
-        const std::regex                                 head( "struct\\s+" + name + "\\s*\\{([^}]*)\\}" );
+        const std::regex                                 head( R"(struct\s+)" + name + R"(\s*\{([^}]*)\})" );
         std::smatch                                      match;
         if ( !std::regex_search( source, match, head ) )
             return members;
         // Line comments go first: the twin's member comments are prose ("... palette in objectBones; 0
         // otherwise"), and a `word word;` inside one would otherwise read as a member.
         const std::string body = std::regex_replace( match[1].str(), std::regex( "//[^\\n]*" ), "" );
-        const std::regex  member( "(\\w+)\\s+(\\w+)\\s*;" );
+        const std::regex  member( R"((\w+)\s+(\w+)\s*;)" );
         for ( auto it = std::sregex_iterator( body.begin(), body.end(), member ); it != std::sregex_iterator();
               ++it )
             members.emplace_back( ( *it )[1].str(), ( *it )[2].str() );
@@ -242,7 +250,7 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 // Seam 2, the hand-numbered declarations (a template's own `layout( binding = n )` textures, a pass header's
 // lighting slots — none of which goes through the Properties block): over the WHOLE shipped shader tree, the
 // reserved numbers carry the two scene-read resources and nothing else, and ObjectMotion.glslh spells exactly the
-// C++ numbers PBRSceneFrame's resources are reserved under. Text, not reflection, because a resource that only
+// C++ numbers SceneFrameBinding's resources are reserved under. Text, not reflection, because a resource that only
 // collides inside one cell would need that cell compiled to be seen; the after-compile half is
 // ShaderReflection::ReflectStage, which refuses a slot claimed twice by name.
 // Mutation: move SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) ->
@@ -442,7 +450,7 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
 
     const auto meshes =
          ReadFile( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    const auto capture = meshes.find( "PBRSceneFrame MeshRenderer::CaptureFrameState(" );
+    const auto capture = meshes.find( "SceneFrameBinding MeshRenderer::CaptureFrameState(" );
     ASSERT_NE( capture, std::string::npos );
     const auto end = meshes.find( "return frame;", capture );
     ASSERT_NE( end, std::string::npos );
@@ -567,8 +575,7 @@ TEST( VelocityTarget, RowsCarryEachPrimitivesOwnPreviousWorldAcrossFrames )
     EXPECT_EQ( out.Rows[out.RecordRows[0]].PrevWorld, At( 300 ) ) << "absent last frame: prev = current";
     EXPECT_EQ( out.Rows[out.RecordRows[1]].PrevWorld, At( 0 ) ) << "moved: its own previous world";
     // A still object: bit for bit, so its velocity is exactly the camera's.
-    EXPECT_EQ( 0, std::memcmp( &out.Rows[out.RecordRows[2]].PrevWorld, &out.Rows[out.RecordRows[2]].World,
-                               sizeof( glm::mat4 ) ) );
+    EXPECT_EQ( Bits( out.Rows[out.RecordRows[2]].PrevWorld ), Bits( out.Rows[out.RecordRows[2]].World ) );
 }
 
 // Mutation: let a skinned record reuse a rigid row of the same world, write PrevBoneOffset = BoneOffset, or key
@@ -598,7 +605,10 @@ TEST( VelocityTarget, EverySkinnedSlotGetsItsOwnRowAndItsOwnPreviousPalette )
     const GpuObjectMotion& a     = out.Rows[out.RecordRows[1]];
     const GpuObjectMotion& b     = out.Rows[out.RecordRows[2]];
     const auto             slice = [&]( const uint32_t offset, const std::size_t count )
-    { return std::vector<glm::mat4>( out.Palettes.begin() + offset, out.Palettes.begin() + offset + count ); };
+    {
+        const auto first = out.Palettes.begin() + static_cast<std::ptrdiff_t>( offset );
+        return std::vector<glm::mat4>( first, first + static_cast<std::ptrdiff_t>( count ) );
+    };
     EXPECT_EQ( slice( a.BoneOffset, 2 ), poseA1 );
     EXPECT_EQ( slice( a.PrevBoneOffset, 2 ), poseA0 );
     EXPECT_EQ( slice( b.BoneOffset, 3 ), poseB1 );
@@ -625,7 +635,16 @@ TEST( VelocityTarget, RowIndicesAreStableWithinTheFrame )
     ASSERT_EQ( first.RecordRows.size(), 4u );
     EXPECT_EQ( first.RecordRows, ( std::vector<uint32_t>{ 0, 1, 0, 2 } ) );
     for ( std::size_t i = 0; i < first.Rows.size(); ++i )
-        EXPECT_EQ( 0, std::memcmp( &first.Rows[i], &again.Rows[i], sizeof( GpuObjectMotion ) ) ) << i;
+    {
+        const GpuObjectMotion& x = first.Rows[i];
+        const GpuObjectMotion& y = again.Rows[i];
+        EXPECT_EQ( Bits( x.World ), Bits( y.World ) ) << i;
+        EXPECT_EQ( Bits( x.PrevWorld ), Bits( y.PrevWorld ) ) << i;
+        EXPECT_EQ( x.BoneOffset, y.BoneOffset ) << i;
+        EXPECT_EQ( x.PrevBoneOffset, y.PrevBoneOffset ) << i;
+        EXPECT_EQ( x.Pad0, y.Pad0 ) << i;
+        EXPECT_EQ( x.Pad1, y.Pad1 ) << i;
+    }
 }
 
 // Step F: THE DEPTH-WRITER CENSUS. A pixel's depth and its velocity must come from the same surface, so every
@@ -678,7 +697,7 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
             continue;
         ++depthWriters;
         const bool writesVelocity = std::regex_search( text, velocityOut );
-        if ( lightView.count( rel ) != 0 )
+        if ( lightView.contains( rel ) )
         {
             EXPECT_FALSE( writesVelocity ) << rel << " is a light view (" << lightView.at( rel )
                                            << ") and must not write the view's velocity";
@@ -902,7 +921,7 @@ namespace VelocityTargetTest
 
     std::vector<uint32_t> CompileFragment( const FragmentOf& fragment )
     {
-        shaderc::Compiler       compiler;
+        const shaderc::Compiler compiler;
         shaderc::CompileOptions options;
         options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( fragment.File ) );
         // Same target as Core::ShaderCompiler::CompileGLSLToSPIRV.
@@ -989,7 +1008,7 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
     };
 
     const auto     layout   = Desert::Graphic::SceneTargetLayout();
-    const uint32_t slots    = static_cast<uint32_t>( layout.ColorFormats.size() );
+    const auto     slots    = static_cast<uint32_t>( layout.ColorFormats.size() );
     const uint32_t velocity = Desert::Graphic::kSceneTargetVelocitySlot;
     ASSERT_LT( velocity, slots );
     for ( const auto& [name, site] : mustNotWrite )
@@ -1001,7 +1020,11 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
              << site << " no longer builds " << name << " against the scene target layout";
 
         const auto fragment = FindFragment( shaders, name );
-        ASSERT_TRUE( fragment.has_value() ) << "no shipped program is called " << name;
+        if ( !fragment.has_value() )
+        {
+            ADD_FAILURE() << "no shipped program is called " << name;
+            continue;
+        }
         const auto spirv = CompileFragment( *fragment );
         ASSERT_FALSE( spirv.empty() ) << name;
         const auto written = ShaderReflection::ReflectFragmentOutputLocations( spirv );

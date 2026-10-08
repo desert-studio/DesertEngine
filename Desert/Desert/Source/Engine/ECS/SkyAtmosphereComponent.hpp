@@ -56,7 +56,7 @@ namespace Desert::ECS
     //   * these two are the RADIANCE of the sky and of the solar disk - how bright the sun looks IN THE
     //     PICTURE. They are written into the sky's parameter block and into the IBL bake.
     //   * the light's two are the ILLUMINANCE arriving at scene surfaces - how bright the sun is ON THE
-    //     GROUND. They are written into DirectionLightsUB and integrated by every PBR surface.
+    //     GROUND. They are written into DirectionLightsUB and integrated by every lit surface.
     // No code path reads one where it means the other, and neither is derived from the other. The one
     // quantity they genuinely share is DIRECTION, and that has a single owner: the atmosphere sun light's
     // TransformComponent (see DirectionalLightData::AtmosphereSunLight).

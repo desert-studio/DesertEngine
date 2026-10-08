@@ -54,7 +54,7 @@ namespace Desert::Graphic::System
             return material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent;
         }
 
-        // Appends one row to a buffer of rows laid end to end and returns its index there. Every PBR pass
+        // Appends one row to a buffer of rows laid end to end and returns its index there. Every lit pass
         // declares one layout, so every row in a buffer has the same length.
         uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row )
         {
@@ -63,7 +63,7 @@ namespace Desert::Graphic::System
             return index;
         }
 
-        PBRSlot FirstPBRSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
+        SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
         {
             for ( auto* inst : slots )
             {
@@ -404,9 +404,9 @@ namespace Desert::Graphic::System
 #endif
     }
 
-    PBRSceneFrame MeshRenderer::CaptureFrameState( const ViewFrame* view ) const
+    SceneFrameBinding MeshRenderer::CaptureFrameState( const ViewFrame* view ) const
     {
-        PBRSceneFrame frame;
+        SceneFrameBinding frame;
         frame.View        = view;
         frame.TimeSeconds = m_WorldTimeSeconds;
 
@@ -435,7 +435,7 @@ namespace Desert::Graphic::System
         frame.LightingDebug     = m_LightingDebug;
 
         // The active IBL environment (diffuse irradiance + prefiltered specular) and the split-sum BRDF
-        // LUT, resolved once so each PBR object samples real ambient/reflections instead of the dummy cube.
+        // LUT, resolved once so each lit object samples real ambient/reflections instead of the dummy cube.
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
         if ( const auto& env = m_SceneRenderer->GetEnvironment(); env.has_value() )
         {
@@ -569,7 +569,7 @@ namespace Desert::Graphic::System
                     // a second loop hunting a different C++ CLASS, and since the material build could not
                     // produce that class from an asset under any circumstances, an imported character
                     // with its own materials matched nothing and was dropped without drawing.
-                    if ( const auto slot = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
+                    if ( const auto slot = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
                     {
                         skinnedData.Instance = slot.Instance;
                         skinnedData.Material = slot.Surface;
@@ -577,7 +577,7 @@ namespace Desert::Graphic::System
                     else
                     {
                         // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its
-                        // default skinned PBR material for any slot that fails to resolve, so every slot
+                        // default skinned lit material for any slot that fails to resolve, so every slot
                         // reaching here should already carry a skinned-path parent. If one does not, the
                         // producer and this queue disagree about what a skinned slot IS, and drawing it
                         // through the skinned pipeline with a static material's descriptor sets is a
@@ -586,7 +586,7 @@ namespace Desert::Graphic::System
                         if ( !s_WarnedNoSkinnedSlot )
                         {
                             LOG_WARN( "[MeshRenderer] A skinned mesh arrived with slots but none whose parent "
-                                      "is a PBR material on the SKINNED vertex path; the mesh is dropped. "
+                                      "is a lit material on the SKINNED vertex path; the mesh is dropped. "
                                       "MeshECSSystem is expected to have substituted its default skinned "
                                       "material, so this means the two disagree." );
                             s_WarnedNoSkinnedSlot = true;

@@ -63,7 +63,7 @@ namespace Desert::Editor
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
         // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
-        // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
+        // (MeshECSSystem's default lit materials) resolve their shaders in their constructors.
         //
         // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
         // JobSystem after the reveal (StartBackgroundCook) and the registry lists whatever cook is on the disk.
@@ -119,7 +119,7 @@ namespace Desert::Editor
     {
         // Staged startup loading: run ONE heavy stage per frame. While loading, the scene is NOT rendered
         // at all (shaders/assets aren't there yet — rendering before the preload stage crashed on the
-        // missing StaticMeshPBR shader); the frame is ImGui-only and the window it goes to is still hidden.
+        // missing StaticMeshLit shader); the frame is ImGui-only and the window it goes to is still hidden.
         //
         // THERE USED TO BE A GATE HERE — "only after one frame with the loading overlay has been
         // presented" — and it existed for the overlay alone: a stage run before that frame froze a blank

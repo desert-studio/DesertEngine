@@ -1535,8 +1535,8 @@ namespace Desert::Core::Serialize
                 if ( data.Shader.has_value() )
                 {
                     const std::string context = EntityContext( entity );
-                    // An override only: a reference naming the PBRSurface template is REFUSED with its path, not
-                    // dropped (Assets::FindOverrideShaderNameByRef); the entity keeps no shader, not a guess.
+                    // An override only: a reference naming the StandardSurface template is REFUSED with its path,
+                    // not dropped (Assets::FindOverrideShaderNameByRef); the entity keeps no shader, not a guess.
                     auto name = Assets::FindOverrideShaderNameByRef( assetManager, *data.Shader,
                                                                      { "shader", "Material.Shader", context } );
                     if ( !name )

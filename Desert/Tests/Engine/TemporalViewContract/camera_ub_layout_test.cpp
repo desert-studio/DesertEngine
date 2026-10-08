@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-namespace CameraUBLayoutTest
+namespace
 {
     using Desert::Graphic::ViewFrame;
     using Desert::Graphic::ShaderProtocols::Camera;
@@ -45,7 +45,7 @@ namespace CameraUBLayoutTest
 
     std::string ReadText( const std::filesystem::path& path )
     {
-        std::ifstream      file( path, std::ios::binary );
+        const std::ifstream file( path, std::ios::binary );
         std::ostringstream text;
         text << file.rdbuf();
         return text.str();
@@ -110,9 +110,7 @@ namespace CameraUBLayoutTest
         f.MaterialMipBias           = -0.5f;
         return f;
     }
-} // namespace CameraUBLayoutTest
-
-using namespace CameraUBLayoutTest;
+} // namespace
 
 TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
 {
@@ -217,7 +215,7 @@ TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
                 continue;
             ++scanned;
             const fs::path    rel = fs::relative( entry.path(), root );
-            std::ifstream     in( entry.path(), std::ios::binary );
+            const std::ifstream in( entry.path(), std::ios::binary );
             std::stringstream text;
             text << in.rdbuf();
             const std::string source = text.str();

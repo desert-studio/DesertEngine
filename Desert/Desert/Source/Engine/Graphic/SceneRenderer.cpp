@@ -239,7 +239,7 @@ namespace Desert::Graphic
 
         // NAMED AND SURVIVED, NOT VERIFIED. `DESERT_VERIFY( false )` stood at each of the nine sites
         // below, so a render system that refused to initialise took the whole process with it — and
-        // after Г22 that became REACHABLE for the first time: a typo in StaticMeshPBR.shader now
+        // after Г22 that became REACHABLE for the first time: a typo in StaticMeshLit.shader now
         // produces an honest refusal from MeshRenderer::Initialize, which this line then turned into a
         // crash. The engine already has the rule for this one rung lower — VulkanRendererAPI::
         // BindGraphicsPipeline skips every draw through a pipeline that was not built — so a system
@@ -643,8 +643,8 @@ namespace Desert::Graphic
         // Wireframe has no deferred variant: the G-buffer pipeline has no wireframe polygon mode, which is
         // why turning it on in the default Deferred path did nothing at all.
         //
-        // LightingDebug is the per-light attribution view, and it is a BRANCH IN THE PBR MESH SHADERS
-        // (u_DebugParams.y, StaticMeshPBR / StaticMeshPBR_Instanced / SkinnedMeshPBR). The deferred
+        // LightingDebug is the per-light attribution view, and it is a BRANCH IN THE Lit MESH SHADERS
+        // (u_DebugParams.y, StaticMeshLit / StaticMeshLit_Instanced / SkinnedMeshLit). The deferred
         // lighting pass writes `DebugParams = vec4(0)` unconditionally — MaterialDeferredLighting's
         // UploadShadow — so the flag reaches no shader on that path. Forty-six of this repository's
         // forty-nine scenes state Deferred and the struct's default is Deferred, so WITHOUT this line the
@@ -1408,14 +1408,14 @@ namespace Desert::Graphic
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
-    void SceneRenderer::SubmitGenericMesh( const uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
+    void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity               = entity,
-                                    .Mesh                 = const_cast<Mesh*>( mesh ),
+                                    .Mesh                 = mesh,
                                     .Transform            = transform,
                                     .ShaderName           = shaderName,
                                     .Overrides            = overrides,
@@ -1425,13 +1425,13 @@ namespace Desert::Graphic
                                     .DirectTextureSampler = directTextureSampler } );
     }
 
-    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, const Mesh* mesh,
-                                                const glm::mat4& transform, Material* material,
-                                                uint64_t visibleSubmeshMask, bool outlined, bool castShadows )
+    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
+                                                Material* material, uint64_t visibleSubmeshMask, bool outlined,
+                                                bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity             = entity,
-                                    .Mesh               = const_cast<Mesh*>( mesh ),
+                                    .Mesh               = mesh,
                                     .Transform          = transform,
                                     .Outlined           = outlined,
                                     .CastShadows        = castShadows,

@@ -101,7 +101,7 @@ namespace Desert::Editor
         if ( !host.Slots )
             return;
 
-        // A Shader Override component with a custom (non-PBR) shader takes this mesh off the PBR
+        // A Shader Override component with a custom (non-lit) shader takes this mesh off the lit
         // path entirely — surface that here so the slots below don't look mysteriously dead.
         std::string overriddenBy;
         if ( entity.HasComponent<ECS::MaterialComponent>() )
@@ -117,7 +117,7 @@ namespace Desert::Editor
 
         RenderMaterialProperties( entity, host, overriddenBy );
 
-        // Quick way back to the PBR path without hunting for the Shader Override section.
+        // Quick way back to the lit path without hunting for the Shader Override section.
         if ( !overriddenBy.empty() )
         {
             if ( ImGui::Button( "Clear runtime override (use material slots)" ) )

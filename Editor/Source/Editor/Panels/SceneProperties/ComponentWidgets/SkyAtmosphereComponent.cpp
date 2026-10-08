@@ -179,7 +179,7 @@ namespace Desert::Editor
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::TextUnformatted( "Environment Lighting (IBL)" );
-            ImGui::TextDisabled( "Bake the sky into the irradiance / reflection maps used by PBR surfaces." );
+            ImGui::TextDisabled( "Bake the sky into the irradiance / reflection maps used by lit surfaces." );
             if ( ImGui::Button( "Bake Sky IBL", ImVec2( ImGui::GetContentRegionAvail().x, 0 ) ) )
                 atmosphere.RequestBake = true;
         };

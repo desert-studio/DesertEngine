@@ -25,7 +25,7 @@
 //     BoneOffset and the renderer starts writing the bone offset into MaterialIndex.
 //
 // No device: the shaders are compiled with shaderc and reflected with the engine's own reflection,
-// exactly as Tests/Engine/PBRSceneFrame and Tests/Engine/ShaderCacheKey do.
+// exactly as Tests/Engine/SceneFrameBinding and Tests/Engine/ShaderCacheKey do.
 
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
@@ -97,7 +97,7 @@ namespace
     {
         const std::string           name     = TemplateOf( shaderName );
         const std::filesystem::path programs = Common::Constants::Path::ShaderDir() / "Programs";
-        for ( const char* dir : { "PBR", "Silhouette", "Unlit" } )
+        for ( const char* dir : { "Surface", "Silhouette", "Unlit" } )
         {
             const auto candidate = programs / dir / ( name + ".shader" );
             if ( std::filesystem::exists( candidate ) )
@@ -992,10 +992,10 @@ TEST_F( MeshVertexPathShaderRoot, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsR
 // THE ROUTING QUESTION (MeshCellPath): a material is drawn by the batched path of the vertex path its SHADER
 // is a cell of, and by the generic path when its shader is no cell at all. The mesh system and the renderer
 // both ask exactly this, of the shader the material was allocated from (SurfaceCellShader), never of its
-// C++ class or its template's name. So the relation under test is the round trip: every cell the PBR
+// C++ class or its template's name. So the relation under test is the round trip: every cell the lit
 // template is allocated into answers the path it was allocated for, and a DSL surface's own cell answers
 // nothing, which is what sends it to the generic queue. A cell that answered the wrong path would bind a
-// skinned material without its Bones; one that answered nothing would draw a PBR mesh through the generic
+// skinned material without its Bones; one that answered nothing would draw a lit mesh through the generic
 // forward pipeline of a G-buffer shader.
 TEST( MeshCellPath, EveryCellOfAnyTemplateRoutesToThePathItWasAllocatedFor )
 {

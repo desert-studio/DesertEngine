@@ -75,11 +75,11 @@ namespace Desert::Assets
     [[nodiscard]] std::optional<Common::AssetHandle> FindShaderHandleByCompileName( const AssetManager& manager,
                                                                                     std::string_view compileName );
 
-    // Whether @p shader is a loaded template declaring `Role PBRSurface` (the batched PBR backend).
-    [[nodiscard]] bool IsPBRSurfaceTemplate( const AssetManager& manager, Common::AssetHandle shader );
+    // Whether @p shader is a loaded template declaring `Role StandardSurface` (the batched lit backend).
+    [[nodiscard]] bool IsStandardSurfaceTemplate( const AssetManager& manager, Common::AssetHandle shader );
 
     // A MaterialComponent's Shader: the compile key of an OVERRIDE template. FindShaderNameByRef's refusals, and
-    // a reference naming the `Role PBRSurface` template, which overrides nothing (the mesh draws its material
+    // a reference naming the `Role StandardSurface` template, which overrides nothing (the mesh draws its material
     // slots; the corpus holds no such key), refused by `site` with the path it states.
     [[nodiscard]] Common::ResultStr<std::string>
     FindOverrideShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref, const AssetRefSite& site );

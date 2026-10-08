@@ -29,12 +29,12 @@
         {
             "id": 106508827693059193,
             "siblingIndex": 8,
-            "Tag": "PBR_Metal_40",
+            "Tag": "Metal_40",
             "Translation": [-70.00000762939453, 60.000003814697266, -460.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R40.demat"],
+                "MaterialPaths": ["Materials/M_Metal_R40.demat"],
                 "MaterialGuids": ["6336872c8642f7daeea018f4449c1529"],
                 "Primitive": "Sphere"
             }
@@ -108,12 +108,12 @@
         {
             "id": 1491879459053545275,
             "siblingIndex": 12,
-            "Tag": "PBR_Metal_80",
+            "Tag": "Metal_80",
             "Translation": [209.99998474121094, 60.000003814697266, -460.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R80.demat"],
+                "MaterialPaths": ["Materials/M_Metal_R80.demat"],
                 "MaterialGuids": ["e71ff67b2d1649e6d2787be69933b7d5"],
                 "Primitive": "Sphere"
             }
@@ -121,12 +121,12 @@
         {
             "id": 5483427749687644682,
             "siblingIndex": 13,
-            "Tag": "PBR_Dielectric_100",
+            "Tag": "Dielectric_100",
             "Translation": [350.0, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R100.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R100.demat"],
                 "MaterialGuids": ["b15fb21e65ca9e9e574fd69d1aa31877"],
                 "Primitive": "Sphere"
             }
@@ -147,12 +147,12 @@
         {
             "id": 6863632612571319455,
             "siblingIndex": 7,
-            "Tag": "PBR_Dielectric_40",
+            "Tag": "Dielectric_40",
             "Translation": [-70.00000762939453, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R40.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R40.demat"],
                 "MaterialGuids": ["1ff7bf41d54b6c595b934944215d82aa"],
                 "Primitive": "Sphere"
             }
@@ -173,12 +173,12 @@
         {
             "id": 8531153197229334075,
             "siblingIndex": 14,
-            "Tag": "PBR_Metal_100",
+            "Tag": "Metal_100",
             "Translation": [350.0, 60.000003814697266, -460.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R100.demat"],
+                "MaterialPaths": ["Materials/M_Metal_R100.demat"],
                 "MaterialGuids": ["88204c80060d80e7ebf5173d38f05fae"],
                 "Primitive": "Sphere"
             }
@@ -237,12 +237,12 @@
         {
             "id": 11546430137497581983,
             "siblingIndex": 6,
-            "Tag": "PBR_Metal_20",
+            "Tag": "Metal_20",
             "Translation": [-209.99998474121094, 60.000003814697266, -460.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R20.demat"],
+                "MaterialPaths": ["Materials/M_Metal_R20.demat"],
                 "MaterialGuids": ["1d329766c5c4c2d83fcfdafc37df272b"],
                 "Primitive": "Sphere"
             }
@@ -263,12 +263,12 @@
         {
             "id": 13096690350549148578,
             "siblingIndex": 4,
-            "Tag": "PBR_Metal_0",
+            "Tag": "Metal_0",
             "Translation": [-350.0, 60.000003814697266, -460.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R0.demat"],
+                "MaterialPaths": ["Materials/M_Metal_R0.demat"],
                 "MaterialGuids": ["582f0def2b00efe8f1018b02af8340dd"],
                 "Primitive": "Sphere"
             }
@@ -326,12 +326,12 @@
         {
             "id": 15335935744772968575,
             "siblingIndex": 10,
-            "Tag": "PBR_Metal_60",
+            "Tag": "Metal_60",
             "Translation": [69.99999237060547, 60.000003814697266, -460.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R60.demat"],
+                "MaterialPaths": ["Materials/M_Metal_R60.demat"],
                 "MaterialGuids": ["d85d458cca28da444ac2939074e0b757"],
                 "Primitive": "Sphere"
             }
@@ -339,12 +339,12 @@
         {
             "id": 15512415100034838407,
             "siblingIndex": 9,
-            "Tag": "PBR_Dielectric_60",
+            "Tag": "Dielectric_60",
             "Translation": [69.99999237060547, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R60.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R60.demat"],
                 "MaterialGuids": ["d27106039e9adb87a41069d7ce898854"],
                 "Primitive": "Sphere"
             }
@@ -352,12 +352,12 @@
         {
             "id": 16441529439787477735,
             "siblingIndex": 3,
-            "Tag": "PBR_Dielectric_0",
+            "Tag": "Dielectric_0",
             "Translation": [-350.0, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R0.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
                 "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
                 "Primitive": "Sphere"
             }
@@ -365,12 +365,12 @@
         {
             "id": 17370361960076191234,
             "siblingIndex": 5,
-            "Tag": "PBR_Dielectric_20",
+            "Tag": "Dielectric_20",
             "Translation": [-209.99998474121094, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R20.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R20.demat"],
                 "MaterialGuids": ["731f4f827c7b881bed18f470df8653e8"],
                 "Primitive": "Sphere"
             }
@@ -378,12 +378,12 @@
         {
             "id": 17465385798281589086,
             "siblingIndex": 11,
-            "Tag": "PBR_Dielectric_80",
+            "Tag": "Dielectric_80",
             "Translation": [209.99998474121094, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R80.demat"],
+                "MaterialPaths": ["Materials/M_Dielectric_R80.demat"],
                 "MaterialGuids": ["a849328dedac15852ea59eb6cc7e4176"],
                 "Primitive": "Sphere"
             }

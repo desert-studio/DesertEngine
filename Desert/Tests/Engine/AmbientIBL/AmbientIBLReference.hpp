@@ -2,8 +2,8 @@
 
 // Compiles Editor/Resources/Shaders/Mesh/AmbientIBL.glslh AS C++.
 //
-// Not a port and not a paraphrase — the same text, the same file, that StaticMeshPBR.shader,
-// StaticMeshPBR_Instanced.shader, SkinnedMeshPBR.shader and Deferred/DeferredLighting.shader compile as
+// Not a port and not a paraphrase — the same text, the same file, that StaticMeshLit.shader,
+// StaticMeshLit_Instanced.shader, SkinnedMeshLit.shader and Deferred/DeferredLighting.shader compile as
 // GLSL. A hand-written CPU copy could only ever prove that the copy agrees with itself, and this is
 // precisely the quantity where that failed once already: the deferred composite had its own ambient, it
 // disagreed with the forward one by two orders of magnitude, and nothing said so for months.
@@ -67,7 +67,7 @@ namespace Desert::Tests::AmbientIBLRef
         }
 
 #define AMBIENT_IBL_NO_SAMPLERS
-#include <Mesh/PBRFunctions.glslh>
+#include <Mesh/BRDF.glslh>
 #include <Mesh/AmbientIBL.glslh>
         DESERT_GLSL_AS_CPP_END
 #undef AMBIENT_IBL_NO_SAMPLERS

@@ -18,7 +18,7 @@
 //
 // A bounce is direct light seen a second time. It takes the same BRDF, and now it takes the same text.
 //
-// Requires Mesh/DirectLighting.glslh (and through it Mesh/PBRFunctions.glslh) to have been included
+// Requires Mesh/DirectLighting.glslh (and through it Mesh/BRDF.glslh) to have been included
 // first.
 
 // The light the surface at `receiverPos` receives from the surface at `emitterPos`, both already shaded

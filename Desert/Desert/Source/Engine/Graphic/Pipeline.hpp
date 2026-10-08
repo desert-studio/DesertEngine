@@ -219,7 +219,7 @@ namespace Desert::Graphic
         // By colour slot; std::nullopt is an UNUSED colour slot (FramebufferAttachment::UnusedColourSlot): no
         // image, VK_ATTACHMENT_UNUSED in the render pass, and the slots after it keep their locations.
         std::vector<std::optional<Core::Formats::ImageFormat>> ColorFormats;
-        std::optional<Core::Formats::ImageFormat> DepthFormat;
+        std::optional<Core::Formats::ImageFormat>              DepthFormat{};
         uint32_t                                  Samples = 1;
     };
 

@@ -44,7 +44,7 @@ namespace Desert::Graphic
         void BindValues( const glm::mat4& prevViewProj, const glm::mat4& invJitteredViewProjection,
                          const glm::vec2& texelSize, float historyBlend )
         {
-            SSRResolveUBData data;
+            SSRResolveUBData data{};
             data.PrevViewProj              = prevViewProj;
             data.InvJitteredViewProjection = invJitteredViewProjection;
             data.Params       = glm::vec4( texelSize.x, texelSize.y, historyBlend, 0.0f );

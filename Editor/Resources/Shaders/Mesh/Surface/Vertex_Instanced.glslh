@@ -1,5 +1,5 @@
 // Surface cell vertex path: instanced static mesh, one transform per instance in InstanceTransforms (binding 17),
-// bent by the foliage wind the push block carries — the vertex stage of Programs/PBR/StaticMeshPBR_Instanced.shader,
+// bent by the foliage wind the push block carries — the vertex stage of Programs/Surface/StaticMeshLit_Instanced.shader,
 // StaticMeshGBuffer_Instanced.shader and Programs/Shadow/Shadow_Instanced.shader (which share one push block).
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;

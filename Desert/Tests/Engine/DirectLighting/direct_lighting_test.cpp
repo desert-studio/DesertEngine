@@ -2,7 +2,7 @@
 // function that returns plausible numbers. The companion of Desert/Tests/Engine/AmbientIBL, and the
 // same shape of defect one term over.
 //
-// What this suite exists for: `Programs/PBR/StandardSurface.shader` computed the sun's diffuse as
+// What this suite exists for: `Programs/Surface/StandardSurface.shader` computed the sun's diffuse as
 // `kd * albedo` while `Programs/Deferred/DeferredLighting.shader` computed it as `kd * albedo / PI`.
 // The Lambertian BRDF is albedo/PI, so the forward path's sun was PI times too bright. 51 of the
 // repository's 51 scenes shade their ordinary static opaque geometry through the deferred path, and

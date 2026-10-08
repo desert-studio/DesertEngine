@@ -529,7 +529,7 @@ TEST( PipelineBlendState, AnUnusedColourSlotKeepsItsPlaceAndNeverBlends )
          << "an unused colour slot and an image in that slot produced one pipeline key.";
 
     // The framebuffer route reports the same: the slot is in the list, without a format.
-    FramebufferAttachment unused = FramebufferAttachment::UnusedColourSlot();
+    const FramebufferAttachment unused = FramebufferAttachment::UnusedColourSlot();
     EXPECT_TRUE( unused.Unused );
     EXPECT_FALSE( unused.ColourSlotFormat().has_value() );
     EXPECT_EQ( FramebufferAttachment( ImageFormat::RGBA8F ).ColourSlotFormat(), ImageFormat::RGBA8F );

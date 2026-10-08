@@ -203,7 +203,7 @@ namespace
            "AdvanceWind( data, m_WorldDeltaSeconds )" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
            "m_WorldDeltaSeconds = time.GetDeltaSeconds()" },
-         { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.cpp",
+         { "Desert/Desert/Source/Engine/Graphic/Materials/SceneFrameBinding.cpp",
            "SceneTimeBind( material, TimeSeconds )" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
            "frame.TimeSeconds = m_WorldTimeSeconds" },

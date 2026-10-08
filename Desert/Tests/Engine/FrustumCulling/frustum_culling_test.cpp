@@ -246,7 +246,7 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
     };
 
     const Row rows[] = {
-         { "BuildStaticDraws", true, "camera->GetFrustum()", "opaque PBR pass — rasterizes from the camera" },
+         { "BuildStaticDraws", true, "camera->GetFrustum()", "opaque lit pass — rasterizes from the camera" },
          { "DeclareGlassBindings", true, "camera->GetFrustum()", "transparent pass — rasterizes from the camera" },
          { "BuildGenericDraws", true, "camera->GetFrustum()",
            "data-driven / shader-graph surfaces — rasterizes from the camera. Sound only while no vertex "

@@ -66,19 +66,19 @@ namespace
         {
         }
 
-        std::string_view DebugName() const override
+        [[nodiscard]] std::string_view DebugName() const override
         {
             return "Fixture";
         }
-        TemporalMethod Method() const override
+        [[nodiscard]] TemporalMethod Method() const override
         {
             return m_Method;
         }
-        bool Supports( const ResolutionSplit& split ) const override
+        [[nodiscard]] bool Supports( const ResolutionSplit& split ) const override
         {
             return ( m_Method == TemporalMethod::TAAU ) == ( split.Mode == Scal::ScaleMode::Upscale );
         }
-        std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
         {
             const ViewExtent   side = split.Mode == Scal::ScaleMode::Supersample ? split.Render : split.Output;
             HistoryTextureDesc desc;
@@ -615,7 +615,7 @@ namespace
         OneNameUpscaler() : FixtureUpscaler( TemporalMethod::TAA )
         {
         }
-        std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
         {
             std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split );
             descs.front().PreviousName            = descs.front().Name;

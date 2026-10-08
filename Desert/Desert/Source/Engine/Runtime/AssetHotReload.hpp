@@ -24,7 +24,7 @@ namespace Desert::Runtime
     // running engine without a restart.
     //
     //   .demat  — re-parses the material asset and re-applies it onto its runtime material
-    //             (PBR fast path or DataDrivenMaterial); a SHADER change in the file rebuilds
+    //             (Lit fast path or DataDrivenMaterial); a SHADER change in the file rebuilds
     //             the runtime material and refreshes every mesh component using that slot.
     //   .dcnv   — re-reads the cloud noise volume and re-uploads it, so a bake in the Cloud Noise Volume
     //             panel is visible in the sky the next frame without a restart. Nothing needs telling:
@@ -44,7 +44,7 @@ namespace Desert::Runtime
     //   .shader — recompiles the program (errors land in the log / Logs panel, the old
     //             pipelines keep drawing); on success the pipeline cache entries for that
     //             shader are dropped after a device-idle wait, so the next frame draws with
-    //             the new code. Renderer-owned specialized pipelines (batched PBR, shadows)
+    //             the new code. Renderer-owned specialized pipelines (batched lit, shadows)
     //             still need a restart — logged when they're affected.
     //
     // Polling (not FS events) keeps it portable (macOS/Windows/Linux) and cheap: one stat()

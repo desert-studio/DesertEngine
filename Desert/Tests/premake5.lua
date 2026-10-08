@@ -168,6 +168,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ImportRecordSourceHash.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ShaderLocatorFollow.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldBuild.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldGenMain.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",

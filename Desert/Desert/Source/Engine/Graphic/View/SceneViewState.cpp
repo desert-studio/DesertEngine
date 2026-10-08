@@ -244,12 +244,12 @@ namespace Desert::Graphic
             reset = HistoryResetReason::PassFault;
         else if ( inputs.CameraCut || cameraChanged )
             reset = HistoryResetReason::CameraCut;
-        else if ( !( split.GetValue() == m_Committed.Split ) )
+        else if ( const bool methodChanged = method.GetValue() != m_Committed.Method;
+                  !( split.GetValue() == m_Committed.Split ) ||
+                  ( historyRecreated && !methodChanged ) ) // recreated after an unended frame of another shape
             reset = HistoryResetReason::Resize;
-        else if ( method.GetValue() != m_Committed.Method )
+        else if ( methodChanged )
             reset = HistoryResetReason::TemporalMethodChange;
-        else if ( historyRecreated )
-            reset = HistoryResetReason::Resize; // recreated after an unended frame of another shape
         const bool isReset = reset != HistoryResetReason::None;
         if ( isReset )
             m_Motion.Clear(); // "or the history was reset": no previous transform survives a reset

@@ -294,10 +294,10 @@ namespace Desert::Graphic
             targets.Resolves = textures.Colors( framebuffer, name );
         // The graph's own colours on this target (the view's velocity), after the framebuffer's.
         const std::vector<GraphColor>* graphColors = textures.GraphColorsOf( framebuffer.get() );
-        const uint32_t                 provided    = graphColors ? uint32_t( graphColors->size() ) : 0u;
+        const uint32_t provided = graphColors != nullptr ? static_cast<uint32_t>( graphColors->size() ) : 0u;
         const uint32_t                 colours     = framebuffer->GetColorAttachmentCount() + provided;
         const bool     hasDepth = framebuffer->GetDepthAttachmentCount() != 0;
-        if ( graphColors && targets.Colors.size() + provided == colours &&
+        if ( graphColors != nullptr && targets.Colors.size() + provided == colours &&
              !AppendGraphColors( targets, *graphColors, multisampled ) )
         {
             LOG_ERROR( "[SceneRenderer] '{}' is not recorded: a graph colour of '{}' ({} sample(s)) is invalid or "

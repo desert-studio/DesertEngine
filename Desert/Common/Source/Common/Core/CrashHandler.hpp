@@ -174,6 +174,27 @@ namespace Common::Crash
     // The spelling accepted on the command line, for error messages and the editor's menu.
     const char* TestKindName( TestKind inKind );
 
+    // A FUNCTION THE COMPILER CALLS ON THE CODE'S BEHALF, which is never the faulting function a person
+    // reads the report for: MSVC's Just-My-Code check (__CheckForDebuggerJustMyCode, called from every
+    // Debug /JMC prologue), the stack probe (__chkstk; __chkstk_darwin on macOS) and the run-time checks
+    // (_RTC_*). A stack overflow in Debug can hit the guard page INSIDE one of these, so the raw frame 0 is
+    // the helper and the function that recursed is its caller. Allocation-free: the POSIX writer runs in
+    // the signal handler.
+    bool IsCompilerInsertedFrame( std::string_view inFunction );
+
+    // One walked frame as the fault-frame rule sees it.
+    struct FrameIdentity
+    {
+        const char* function     = ""; // as resolved; "" when no symbol was found
+        bool        inMainModule = false;
+    };
+
+    // THE FRAME crash.txt's `function=` NAMES (the rule in the format block of CrashHandler.cpp): the
+    // innermost frame that is not compiler-inserted; for a synthesized report (the frames start inside the
+    // handler and the CRT) it must also be outside `Common::Crash::Detail` and inside the main module.
+    // Frame 0 when no frame qualifies. Allocation-free, like IsCompilerInsertedFrame.
+    std::size_t SelectFaultFrame( const FrameIdentity* inFrames, std::size_t inCount, bool inSynthesized );
+
     // Crashes the calling thread in the requested way. The named functions below appear in crash.txt's
     // `function=` field, which is what the CR1 suite asserts on.
     [[noreturn]] void TriggerTestCrash( TestKind inKind );

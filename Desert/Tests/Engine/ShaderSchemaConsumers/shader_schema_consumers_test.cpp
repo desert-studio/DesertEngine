@@ -767,7 +767,7 @@ TEST( ShaderSchemaConsumers, TheDeclaredShaderNameIsTheFileStem )
     // The invariant that replaces the consumer `DShaderParseResult::Name` never got. The runtime names a
     // shader by its FILE, so a declaration that says anything else is a lie the engine cannot notice: a
     // `.demat` asking for the declared name would resolve to nothing and the mesh would silently draw
-    // with the default PBR material. 76 files agree today; this is what keeps the 77th honest.
+    // with the default lit material. 76 files agree today; this is what keeps the 77th honest.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 

@@ -38,7 +38,7 @@ namespace Desert::TestSupport::Std140
 
     inline std::string ReadText( const std::filesystem::path& path )
     {
-        std::ifstream file( path, std::ios::binary );
+        const std::ifstream file( path, std::ios::binary );
         EXPECT_TRUE( file.good() ) << "cannot read " << path;
         std::ostringstream text;
         text << file.rdbuf();
@@ -116,7 +116,7 @@ namespace Desert::TestSupport::Std140
             ADD_FAILURE() << "uniform block " << blockName << " not found";
             return block;
         }
-        const size_t begin = static_cast<size_t>( open.position( 0 ) + open.length( 0 ) );
+        const auto   begin = static_cast<size_t>( open.position( 0 ) + open.length( 0 ) );
         const size_t end   = code.find( '}', begin );
         if ( end == std::string::npos )
         {
@@ -131,7 +131,8 @@ namespace Desert::TestSupport::Std140
               ++it )
         {
             const std::string type = ( *it )[1];
-            size_t            size = 0, alignment = 0;
+            size_t            size      = 0;
+            size_t            alignment = 0;
             if ( !SizeAndAlignment( type, size, alignment ) )
             {
                 ADD_FAILURE() << blockName << ": std140 type '" << type << "' is not handled by this parser";

@@ -419,11 +419,11 @@ namespace
 {
     constexpr const char*   kCustomMaterial   = "0000000000000000000000000000c057";
     constexpr const char*   kCustomInstance   = "0000000000000000000000000000c0c1";
-    constexpr const char*   kPbrMaterial      = "00000000000000000000000000000fb1";
+    constexpr const char*   kSurfaceMaterial  = "00000000000000000000000000000fb1";
     constexpr std::uint64_t kCustomCube       = 301;
     constexpr std::uint64_t kInstanceCube     = 302;
     constexpr std::uint64_t kMixedCube        = 303;
-    constexpr std::uint64_t kPbrCube          = 304;
+    constexpr std::uint64_t kSurfaceCube      = 304;
     constexpr std::uint64_t kCustomPointsCube = 305;
 
     Common::Utils::AssetRegistryEntry Row( std::string key, std::string kind, const char* guid,
@@ -444,23 +444,23 @@ namespace
         return row;
     }
 
-    // A custom-shader material, an instance of it, and a material on the PBR surface — as the cook's registry
+    // A custom-shader material, an instance of it, and a material on the lit surface — as the cook's registry
     // states them: each material names its shader (or its parent) among its dependencies. The shader's ROLE
-    // decides, never its name: the custom one is deliberately FILED as StaticMeshPBR and declares no role, and
-    // the PBR surface is a file of another name declaring `Role PBRSurface`.
+    // decides, never its name: the custom one is deliberately FILED as StaticMeshLit and declares no role, and
+    // the lit surface is a file of another name declaring `Role StandardSurface`.
     Common::Utils::AssetRegistry MaterialRegistry()
     {
-        const auto water = Row( "assets:Shaders/StaticMeshPBR.shader", "Shader", nullptr, {} );
-        auto       pbr   = Row( "assets:Shaders/Surface.shader", "Shader", nullptr, {} );
-        pbr.Role         = std::string( Common::Content::kPBRSurfaceRole );
+        const auto water    = Row( "assets:Shaders/StaticMeshLit.shader", "Shader", nullptr, {} );
+        auto       standard = Row( "assets:Shaders/Surface.shader", "Shader", nullptr, {} );
+        standard.Role       = std::string( Common::Content::kStandardSurfaceRole );
         const auto custom =
              Row( "assets:Materials/M_Water.demat", "Material", kCustomMaterial, { water.PathHandle() } );
         const auto instance =
              Row( "assets:Materials/MI_Water.demat", "Material", kCustomInstance, { custom.PathHandle() } );
         const auto surface =
-             Row( "assets:Materials/M_Rock.demat", "Material", kPbrMaterial, { pbr.PathHandle() } );
+             Row( "assets:Materials/M_Rock.demat", "Material", kSurfaceMaterial, { standard.PathHandle() } );
         Common::Utils::AssetRegistry registry;
-        for ( const auto& row : { water, pbr, custom, instance, surface } )
+        for ( const auto& row : { water, standard, custom, instance, surface } )
             EXPECT_TRUE( registry.Insert( row ).IsSuccess() );
         return registry;
     }
@@ -477,8 +477,8 @@ namespace
 } // namespace
 
 // THE ISM PATH SKIPS A COMPONENT WHOSE EVERY MATERIAL DRAWS WITH ITS OWN SHADER, so the cook must not write an
-// instance for it and call the cell covered: the record is a named hole, CustomShaderMaterial. One PBR slot is
-// enough to draw (the ISM binds the first PBR slot), and a material instance takes its parent's shader.
+// instance for it and call the cell covered: the record is a named hole, CustomShaderMaterial. One lit slot is
+// enough to draw (the ISM binds the first lit slot), and a material instance takes its parent's shader.
 TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
 {
     SceneSerialized scene;
@@ -486,8 +486,8 @@ TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
     scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ kCell, 1500.0f } } };
     scene.Entities.push_back( CubeWith( kCustomCube, { kCustomMaterial }, 0.0f ) );
     scene.Entities.push_back( CubeWith( kInstanceCube, { kCustomInstance }, 50.0f ) );
-    scene.Entities.push_back( CubeWith( kMixedCube, { kCustomMaterial, kPbrMaterial }, 100.0f ) );
-    scene.Entities.push_back( CubeWith( kPbrCube, { kPbrMaterial }, 150.0f ) );
+    scene.Entities.push_back( CubeWith( kMixedCube, { kCustomMaterial, kSurfaceMaterial }, 100.0f ) );
+    scene.Entities.push_back( CubeWith( kSurfaceCube, { kSurfaceMaterial }, 150.0f ) );
     EntityData points = Record( kCustomPointsCube, "Points", CellCentre( 1, 1 ) );
     {
         Desert::Assets::InstancedStaticMeshComponentSer ism;
@@ -516,7 +516,7 @@ TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
                              { kInstanceCube, Rules::HLODExclusion::CustomShaderMaterial },
                              { kCustomPointsCube, Rules::HLODExclusion::CustomShaderMaterial } } ) );
     std::sort( sources.begin(), sources.end() );
-    EXPECT_EQ( sources, ( std::vector<std::uint64_t>{ kMixedCube, kPbrCube } ) );
+    EXPECT_EQ( sources, ( std::vector<std::uint64_t>{ kMixedCube, kSurfaceCube } ) );
 
     // The index spells the new reason by name, in the same closed list.
     const std::string text = Common::Json::Write( index );

@@ -959,7 +959,7 @@ TEST( CloudShadowReceiver, EverySunLitShaderReachesTheOneSharedFactor )
          // Programs/Grass/Grass.shader was the seventh row until Г25. It shaded the PROCEDURAL grass
          // blades, which had to take the same cloud shadow as the ground beneath them or a field became
          // bright fuzz over dark soil. The generator is gone - grass is a mesh asset now, so it is drawn
-         // by StaticMeshPBR_Instanced, which is already the third row above and already carries the
+         // by StaticMeshLit_Instanced, which is already the third row above and already carries the
          // receiver. The row is removed rather than kept pointing at a file: this census ASSERTS each
          // path exists, so a stale row is a red suite and not a silent gap.
     };

@@ -131,7 +131,7 @@ namespace Desert::Graphic::RDG
     Common::ResultStr<std::string_view> Builder::GetTextureName( TextureRef texture ) const
     {
         const ResourceRecord* resource = FindResource( texture.Index, ResourceKind::Texture );
-        if ( !resource )
+        if ( resource == nullptr )
             return Common::MakeFormattedError<std::string_view>(
                  "graph '{}': GetTextureName of invalid texture handle {}", m_Name, texture.Index );
         return Common::MakeSuccess( std::string_view( resource->Name ) );
