@@ -79,7 +79,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
                                              bool ( *selects )( RenderPhaseID ), const bool clearFirst,
-                                             const RDG::TextureRef sceneColor )
+                                             const OverlayTargets& overlay )
     {
         // Every registered pass of the selected phases (engine systems and the editor's external passes), in the
         // phase graph's order, is a raster node: its targets are its framebuffer WHOLE (TargetsOf: every colour,
@@ -104,10 +104,24 @@ namespace Desert::Graphic
             auto targets = TargetsOf( textures, target, spec.DebugName, pass.Name );
             if ( !targets )
                 continue;
-            // After the temporal pass the scene target's colour 0 is the pre-resolve scene: the overlay draws
-            // into the temporal output instead (velocity and depth slots unchanged).
-            if ( sceneColor.IsValid() && target == m_TargetFramebuffer && !targets->Colors.empty() )
-                targets->Colors[0] = sceneColor;
+            // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay draws
+            // into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has one
+            // extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
+            // PopulateSceneDepth filled; one sample, so no resolves).
+            if ( overlay.IsValid() && target == m_TargetFramebuffer )
+            {
+                if ( targets->Colors.size() != kSceneTargetVelocitySlot + 1 )
+                {
+                    LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
+                               "replaces exactly colour 0 and the velocity slot",
+                               pass.Name, targets->Colors.size() );
+                    continue;
+                }
+                targets->Colors[0]                        = overlay.Color;
+                targets->Colors[kSceneTargetVelocitySlot] = overlay.Velocity;
+                targets->Depth                            = overlay.Depth;
+                targets->Resolves                         = {};
+            }
             RenderPassDeclaration declared;
             if ( pass.Declare )
                 pass.Declare( declared, textures.GraphRefs() );

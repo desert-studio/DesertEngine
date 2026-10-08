@@ -150,9 +150,16 @@ namespace Desert::Graphic
              graph.CreateBuffer( System::AutoExposureRenderer::GetHistogramDesc(), "AutoExposure.Histogram" );
         // Prepare refused a frame without a scene image, so the dispatch size is this frame's scene size.
         const RDG::TextureRef scene      = sceneColor.front();
-        const auto            sceneImage = autoExp->GetSceneColorImage();
-        const uint32_t        width      = sceneImage->GetWidth();
-        const uint32_t        height     = sceneImage->GetHeight();
+        // The dispatch covers the texture the nodes read (the temporal output at the output extent, or the scene
+        // colour at the render extent), never the scene target's image.
+        const Common::ResultStr<RDG::TextureDesc> sceneDesc = graph.GetTextureDesc( scene );
+        if ( !sceneDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] auto exposure skipped this frame: {}", sceneDesc.GetError() );
+            return;
+        }
+        const uint32_t width  = sceneDesc.GetValue().Size.Width;
+        const uint32_t height = sceneDesc.GetValue().Size.Height;
 
         // Clear and Histogram write the histogram, Average reads it: the graph orders the three and places their
         // barriers, and Average's write of the adapted image keeps all three alive.

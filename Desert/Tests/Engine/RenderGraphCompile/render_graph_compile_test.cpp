@@ -1911,8 +1911,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
         // A definition returns void, or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid).
         const auto definition = [&source]( std::string_view name, size_t from )
         {
-            return std::min( source.find( std::format( "void SceneRenderer::{}", name ), from ),
-                             source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ) );
+            return std::min( { source.find( std::format( "void SceneRenderer::{}", name ), from ),
+                               source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ),
+                               source.find( std::format( "OverlayTargets SceneRenderer::{}", name ), from ) } );
         };
         const size_t begin = definition( std::format( "{}(", function ), 0 );
         if ( begin == std::string::npos )
@@ -2056,6 +2057,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
          // phases, which draw into its output.
          "temporal[m_TemporalUpscaler]",
+         // TAA1-B 6: the output-extent overlay depth, filled from the render-extent scene depth, before the
+         // overlay phases that test against it.
+         "Scene: PopulateSceneDepth",
          "phases[phase==RenderPhase::Debug]",
          "UI: BackdropBlur{}",
          "phases[phase==RenderPhase::UI]",
@@ -2099,7 +2103,50 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
               { "m_ViewState.History().Register(graph)", ".SceneColor=textures.Import(m_TargetFramebuffer->",
                 ".SceneDepth=textures.Depth(m_TargetFramebuffer,", ".Velocity=textures.Transients.Velocity",
                 ".History=histories", "m_TemporalUpscaler->AddPasses(graph,frame,inputs)",
-                "returnadded.GetValue().SceneColor;" } );
+                "overlay.Color=added.GetValue().SceneColor;", "returnoverlay;" } );
+    // TAA1-B 6: the overlay target set is at the OUTPUT extent and its depth is the scene depth populated by
+    // "Scene: PopulateSceneDepth"; a frame the resolve cannot run on is rendered without it, by name, and the
+    // caller then post-processes the scene colour (the fallback is the caller's, not a silent skip).
+    declares( "AddFrameTemporal",
+              { "RDG::Extent3D{frame.Split.Output.Width,frame.Split.Output.Height,1}",
+                "graph.CreateTexture(desc,\"Overlay.Velocity\")", "graph.CreateTexture(desc,\"Overlay.SceneDepth\")",
+                "populate->DeclareBindings(pass,inputs.SceneDepth)",
+                "pass.ColorTarget(0,overlay.Velocity,RDG::LoadOp::ClearColor(",
+                "pass.DepthTarget(overlay.Depth,RDG::LoadOp::ClearDepth(Core::kDepthClear),",
+                "renderedwithoutthetemporalresolvethisframe:", "returnwithoutTemporal(added.GetError());",
+                "returnwithoutTemporal(prepared.GetError());" } );
+    declares( "OnUpdate",
+              { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
+                "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
+                // The one resolution function, the render set resized to the frame's split, the velocity at it.
+                "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),std::nullopt,",
+                "ResizeRenderTargets(frame.Split.Render);",
+                "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
+    // The overlay phases draw into the overlay set: every scene-target attachment replaced, no resolves.
+    declares( "AddGraphPhasePasses",
+              { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",
+                "targets->Depth=overlay.Depth;", "targets->Resolves={};" } );
+    // TWO EXTENT SETS: ResizeRenderTargets sizes the Render set (scene target, G-buffer, depth resolve, mask,
+    // overdraw, outline); Resize sizes the Output set (tonemap, FXAA, SMAA) and hands the render set its split.
+    declares( "ResizeRenderTargets",
+              { "m_TargetFramebuffer->Resize(width,height);", "m_GBuffer->Resize(width,height);",
+                "resolve->Resize(width,height);", "maskFb->Resize(width,height);", "overdrawFb->Resize(width,height);",
+                "->OnResize(width,height);" } );
+    declares( "Resize",
+              { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
+                "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
+                "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
+                "ResizeRenderTargets(split.GetValue().Render);" } );
+    {
+        const std::string resize = squeeze( bodyOf( "Resize" ) );
+        EXPECT_EQ( resize.find( "m_TargetFramebuffer->Resize(" ), std::string::npos )
+             << "Resize sizes the scene target itself: the render set is ResizeRenderTargets'";
+        const std::string render = squeeze( bodyOf( "ResizeRenderTargets" ) );
+        EXPECT_EQ( render.find( "TonemapSystem" ), std::string::npos )
+             << "ResizeRenderTargets sizes the tonemap target: it is in the output set";
+    }
+    // The exposure dispatch covers the texture it reads, not the scene target's image.
+    declares( "AddFrameAutoExposure", { "graph.GetTextureDesc(scene)" } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );

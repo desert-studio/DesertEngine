@@ -2,6 +2,7 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -177,6 +178,8 @@ namespace Desert::Graphic
         // The surface's size, never the window's: see ViewExtent.
         const uint32_t width  = m_ViewExtent.Width;
         const uint32_t height = m_ViewExtent.Height;
+        // The render set starts at the output extent; the first frame's split resizes it (ResizeRenderTargets).
+        m_RenderExtent = m_ViewExtent;
 
         // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N samples and
         // the render pass resolves to single-sample for the post stack. The count follows the anti-aliasing
@@ -545,7 +548,7 @@ namespace Desert::Graphic
     }
 
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent )
+         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ), m_RenderExtent( extent )
     {
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
@@ -883,17 +886,32 @@ namespace Desert::Graphic
         inputs.CameraCut                         = m_CameraCutPending;
         inputs.SceneIdentity                     = m_SceneGeneration;
         inputs.Output                            = m_ViewExtent;
-        inputs.RenderScalePercent                = 100;
-        inputs.AntiAliasing                      = m_RenderedAntiAliasing;
-        inputs.Upscaler                          = Common::Scalability::Upscaler::None;
-        inputs.Quality                           = m_TemporalAAQuality;
-        inputs.TimeSeconds                       = m_SceneTimeSeconds;
-        // The implementation of the frame's temporal method; a split or method BeginFrame refuses leaves it
-        // unchanged and BeginFrame reports that error.
-        if ( const auto split = MakeResolutionSplit( inputs.Output, inputs.RenderScalePercent ) )
-            if ( const auto method =
-                      SelectTemporalMethod( inputs.AntiAliasing, split.GetValue(), inputs.Upscaler ) )
-                EnsureTemporalUpscaler( method.GetValue() );
+        // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and Upscaler,
+        // the method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
+        // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
+        using Common::Scalability::Parameter;
+        const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
+             m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), std::nullopt, m_RenderedAntiAliasing,
+             m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
+             [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
+             {
+                 EnsureTemporalUpscaler( method );
+                 return m_TemporalUpscaler.get();
+             } );
+        if ( !resolved )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the view's resolution is refused, frame not drawn: {}",
+                       m_ViewResources.GetName(), resolved.GetError() );
+            return;
+        }
+        if ( !resolved.GetValue().Clamped.empty() )
+            LOG_WARN( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), resolved.GetValue().Clamped );
+        inputs.RenderScalePercent = resolved.GetValue().Split.RenderScalePercent;
+        inputs.AntiAliasing       = m_RenderedAntiAliasing;
+        inputs.Upscaler           = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
+        inputs.Quality            = m_TemporalAAQuality;
+        inputs.TimeSeconds        = m_SceneTimeSeconds;
+        m_LastRenderScalePercent  = inputs.RenderScalePercent;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
@@ -903,6 +921,9 @@ namespace Desert::Graphic
         }
         m_CameraCutPending     = false;
         const ViewFrame& frame = begun.GetValue();
+        // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
+        // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
+        ResizeRenderTargets( frame.Split.Render );
         // GetViewFrame() answers `frame` from here until OnUpdate returns, by every path (the destructor clears
         // it), so a writer can never read a finished frame's view.
         struct CurrentViewFrameScope
@@ -925,8 +946,8 @@ namespace Desert::Graphic
         }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
-        // The view's velocity: one transient of this graph at the VIEW EXTENT (the one extent source: the scene
-        // target and the G-buffer are built and resized at m_ViewExtent too), a colour slot of the scene target
+        // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
+        // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
         // kGBufferVelocitySlot) — never of a light view (RSM, cascades) or a debug target. Created before any node
         // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
@@ -934,10 +955,10 @@ namespace Desert::Graphic
         if ( m_TargetFramebuffer )
         {
             const FramebufferSpecification& target = m_TargetFramebuffer->GetSpecification();
-            std::string mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height,
+            std::string mismatch = ViewTargetExtentMismatch( frame.Split.Render.Width, frame.Split.Render.Height,
                                                              "scene target", target.Width, target.Height );
             if ( mismatch.empty() && m_GBuffer )
-                mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height, "G-buffer",
+                mismatch = ViewTargetExtentMismatch( frame.Split.Render.Width, frame.Split.Render.Height, "G-buffer",
                                                      m_GBuffer->GetSpecification().Width,
                                                      m_GBuffer->GetSpecification().Height );
             if ( !mismatch.empty() )
@@ -946,7 +967,7 @@ namespace Desert::Graphic
                 return;
             }
             const ViewVelocity velocity = CreateViewVelocity(
-                 graph, RDG::Extent3D{ m_ViewExtent.Width, m_ViewExtent.Height, 1 }, target.Samples );
+                 graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
             textures.Transients.Velocity = velocity.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
             textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
@@ -1070,12 +1091,12 @@ namespace Desert::Graphic
         // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
         // colour, as before.
         const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( textures );
-        const RDG::TextureRef              temporal = AddFrameTemporal( graph, textures, frame, exposurePrevious );
+        const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
         const std::vector<RDG::TextureRef> postInput =
-             temporal.IsValid() ? std::vector<RDG::TextureRef>{ temporal } : sceneColor();
+             overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 
         AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false, temporal );
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false, overlay );
 
         // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
         // through ExternalPassSpecification::Declare), and the graph orders it after the blur.
@@ -1083,7 +1104,7 @@ namespace Desert::Graphic
             AddFrameBackdropBlur( graph, textures, postInput );
 
         AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false, temporal );
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false, overlay );
 
         AddFrameJumpFlood( graph, textures );
         AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
@@ -1298,6 +1319,26 @@ namespace Desert::Graphic
         // buffer is still recording or submitted frames are executing.
         renderer.WaitDeviceIdle();
         renderer.ResizeWindowEvent( width, height );
+        // THE OUTPUT SET (ViewTargetSet::Output): the post-process chain after the temporal resolve.
+        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Resize( width, height );
+        UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Resize( width, height );
+        UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
+        // THE RENDER SET at the last accepted frame's scale; the next frame's own split corrects it if the
+        // scale changed (OnUpdate -> ResizeRenderTargets( frame.Split.Render )).
+        if ( const auto split = MakeResolutionSplit( m_ViewExtent, m_LastRenderScalePercent ) )
+            ResizeRenderTargets( split.GetValue().Render );
+        else
+            ResizeRenderTargets( m_ViewExtent );
+    }
+
+    void SceneRenderer::ResizeRenderTargets( const ViewExtent render )
+    {
+        if ( !m_TargetFramebuffer || m_RenderExtent == render )
+            return;
+        m_RenderExtent              = render;
+        const uint32_t width  = render.Width;
+        const uint32_t height = render.Height;
+        Renderer::GetInstance().WaitDeviceIdle();
         m_TargetFramebuffer->Resize( width, height );
         if ( m_GBuffer )
             m_GBuffer->Resize( width, height );
@@ -1307,7 +1348,7 @@ namespace Desert::Graphic
         // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated
         // to the viewport. Its accumulation history is invalidated by the GI system's own size check.
 
-        // Keep the post-process chain framebuffers in lock-step with the scene target.
+        // The silhouette mask and the overdraw target are drawn with the scene's meshes: the scene's extent.
         if ( const auto& maskFb = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
                                        ->GetSilhouetteMaskFramebuffer() )
             maskFb->Resize( width, height );
@@ -1318,11 +1359,9 @@ namespace Desert::Graphic
             overdrawFb->Resize( width, height );
 #endif
 
+        // The outline's composite reads the scene target: the scene's extent.
         UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
              ->OnResize( width, height );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
     }
 
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
@@ -1499,11 +1538,29 @@ namespace Desert::Graphic
             m_TemporalUpscaler = CreateTemporalUpscaler( method );
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
-                                                     const ViewFrame& frame, const RDG::TextureRef exposure )
+    SceneRenderer::OverlayTargets SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
+                                                                   const ViewFrame&      frame,
+                                                                   const RDG::TextureRef exposure )
     {
         if ( frame.Method == TemporalMethod::None || !m_TemporalUpscaler || !m_TargetFramebuffer )
             return {};
+        // Every refusal below renders the frame WITHOUT the resolve and says so by name: an invalid set, so the
+        // caller post-processes the scene colour and draws the overlays into the scene target.
+        const auto withoutTemporal = [this]( const std::string& why ) -> OverlayTargets
+        {
+            LOG_ERROR( "[SceneRenderer] {}: rendered without the temporal resolve this frame: {}",
+                       m_ViewResources.GetName(), why );
+            return {};
+        };
+        const uint32_t samples = m_TargetFramebuffer->GetSpecification().Samples;
+        if ( samples > 1 )
+            return withoutTemporal( std::format( "the scene target has {} samples; the overlay target set after "
+                                                 "the resolve is single-sample",
+                                                 samples ) );
+        if ( !m_PopulateSceneDepth )
+            m_PopulateSceneDepth = std::make_unique<System::PopulateSceneDepthRenderer>();
+        if ( const Common::BoolResultStr prepared = m_PopulateSceneDepth->Prepare(); !prepared )
+            return withoutTemporal( prepared.GetError() );
         // Registered every frame the method runs: EndFrame reads which Current a fault lost.
         const std::vector<HistoryRefs> histories = m_ViewState.History().Register( graph );
         const TemporalUpscalerInputs   inputs{
@@ -1516,13 +1573,29 @@ namespace Desert::Graphic
         const Common::ResultStr<TemporalUpscalerOutputs> added =
              m_TemporalUpscaler->AddPasses( graph, frame, inputs );
         if ( !added )
-        {
-            LOG_ERROR(
-                 "[SceneRenderer] {}: the temporal resolve was not added; the frame continues unresolved: {}",
-                 m_ViewResources.GetName(), added.GetError() );
-            return {};
-        }
-        return added.GetValue().SceneColor;
+            return withoutTemporal( added.GetError() );
+
+        // THE OVERLAY TARGET SET (ViewTargetSet::Output): the resolved colour, and a velocity and a depth at the
+        // output extent; "Scene: PopulateSceneDepth" fills the depth from the render-extent scene depth.
+        OverlayTargets overlay;
+        overlay.Color = added.GetValue().SceneColor;
+        RDG::TextureDesc desc;
+        desc.Size        = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
+        desc.Format      = ViewTargetFormats::kVelocity;
+        overlay.Velocity = graph.CreateTexture( desc, "Overlay.Velocity" );
+        desc.Format      = ViewTargetFormats::kSceneDepth;
+        overlay.Depth    = graph.CreateTexture( desc, "Overlay.SceneDepth" );
+        const System::PopulateSceneDepthRenderer* populate = m_PopulateSceneDepth.get();
+        graph.AddPass(
+             "Scene: PopulateSceneDepth", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 populate->DeclareBindings( pass, inputs.SceneDepth );
+                 pass.ColorTarget( 0, overlay.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 pass.DepthTarget( overlay.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), /*write*/ true );
+             },
+             [populate]( RDG::PassContext& context ) -> Common::BoolResultStr { return populate->Record( context ); } );
+        return overlay;
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
