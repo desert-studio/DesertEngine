@@ -20,8 +20,8 @@ namespace
     Desert::Assets::MaterialData CloudMaterial( float patchStrength )
     {
         Desert::Assets::MaterialData material;
-        material.Header        = Common::Content::TextAssetHeaderSerialized{};
-        material.Header->Guid  = kGuid;
+        material.Header       = Common::Content::TextAssetHeaderSerialized{};
+        material.Header->Guid = kGuid;
         material.Params.push_back( { "Coverage", glm::vec4( 0.762f, 0.0f, 0.0f, 0.0f ) } );
         material.Params.push_back( { "PatchStrength", glm::vec4( patchStrength, 0.0f, 0.0f, 0.0f ) } );
         return material;

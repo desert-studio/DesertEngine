@@ -76,7 +76,7 @@ namespace Desert::Graphic
         float PlacementScatter     = 1.0f;
         float PlacementSizeVariety = 0.75f;
         float PatchTileSize        = 3000000.0f; // cm; 30 km
-        float PatchStrength        = 0.29f; // MATL 5: the clear share of the sky (CloudWeatherPresence)
+        float PatchStrength        = 0.29f;      // MATL 5: the clear share of the sky (CloudWeatherPresence)
 
         // ---- Layout (bake-time; the painted sky) ----------------------------------------------------
         //
