@@ -81,6 +81,11 @@ namespace Desert::Editor
         FoliageType, // `.defoliage`: UE's UFoliageType
         StringTable, // `.destrings`: a localisation table
 
+        // ENHANCED INPUT (GP1): UE's UInputAction and UInputMappingContext. Each its own kind for its colour,
+        // icon and filter entry; both open in their asset editor (Panels/Input) on a double-click.
+        InputAction,         // `.deinputaction`: one action and its value type
+        InputMappingContext, // `.deinputcontext`: keys -> actions, with modifiers and triggers
+
         /// A partitioned world's cooked cells and index (`.dwcell`, `.dwindex`). ONE kind for two extensions
         /// for the reason Cloud is: one colour, one icon, one producer, and neither is authored — both are
         /// written by the streaming cook beside their scene.
@@ -167,6 +172,8 @@ namespace Desert::Editor
          { "retarget", FileType::Retarget },
          { "defoliage", FileType::FoliageType },
          { "destrings", FileType::StringTable },
+         { "deinputaction", FileType::InputAction },
+         { "deinputcontext", FileType::InputMappingContext },
          { "dwcell", FileType::CookedWorld },
          { "dwindex", FileType::CookedWorld },
     };

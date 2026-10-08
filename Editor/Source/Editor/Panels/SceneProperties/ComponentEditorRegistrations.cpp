@@ -138,6 +138,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIPanelComponent, Data, "UIP
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITextComponent2D, Data, "UITextData", "UI Text" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIButtonComponent, Data, "UIButtonData", "UI Button" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIIconComponent, Data, "UIIconData", "UI Icon" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::EnhancedInputPlayerComponent, Data, "EnhancedInputPlayerData",
+                                     "Enhanced Input Player" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIRenderTextureComponent, Data, "UIRenderTextureData",
                                      "UI Render Texture" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIBindingComponent, Data, "UIBindingData", "UI Binding" )

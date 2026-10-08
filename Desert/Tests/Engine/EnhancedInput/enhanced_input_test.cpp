@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <string>
 #include <vector>
 #include "../../TestSupport/runner.hpp"
@@ -593,3 +595,24 @@ namespace
     // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
     const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
 } // namespace
+
+// GP1c: the key picker of the mapping-context editor lists Desert::Input::InputKeyNames(). Every name it offers
+// must be one a mapping may state (InputKeyFromName accepts it), each once, and every key the parser knows must
+// be offered: letters, digits, F1..F12 and the 21 named keys. A key added to the parser and not to the list (or
+// the reverse) goes red here.
+TEST( EnhancedInputKeys, ThePickerListsEveryAcceptedNameOnce )
+{
+    const std::vector<std::string> names = Desert::Input::InputKeyNames();
+    EXPECT_EQ( names.size(), 26u + 10u + 12u + 21u );
+    std::vector<std::string> sorted = names;
+    std::sort( sorted.begin(), sorted.end() );
+    EXPECT_EQ( std::adjacent_find( sorted.begin(), sorted.end() ), sorted.end() ) << "a name is listed twice";
+    for ( const std::string& name : names )
+        EXPECT_TRUE( Desert::Input::InputKeyFromName( name ).has_value() ) << name;
+    std::vector<Desert::Input::InputKey> keys;
+    for ( const std::string& name : names )
+        keys.push_back( *Desert::Input::InputKeyFromName( name ) );
+    for ( std::size_t i = 0; i < keys.size(); ++i )
+        for ( std::size_t j = i + 1; j < keys.size(); ++j )
+            EXPECT_FALSE( keys[i] == keys[j] ) << names[i] << " and " << names[j] << " are one key";
+}

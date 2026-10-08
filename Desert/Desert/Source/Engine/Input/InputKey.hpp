@@ -41,6 +41,10 @@ namespace Desert::Input
     /// Mouse2D. Anything else is nullopt — never a default key.
     std::optional<InputKey> InputKeyFromName( std::string_view name );
 
+    /// Every name InputKeyFromName accepts, each once (letters, digits, F1..F12, then the named keys): the
+    /// editor's key picker lists exactly what a mapping may state.
+    [[nodiscard]] std::vector<std::string> InputKeyNames();
+
     /**
      * @brief One frame of raw device state, as the platform layer sampled it — the subsystem's only input.
      *

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string>
 #include <utility>
 
 namespace Desert::Input
@@ -18,6 +19,35 @@ namespace Desert::Input
         InputKey Button( Common::MouseButton button )
         {
             return { InputKey::Device::MouseButton, static_cast<uint16_t>( button ) };
+        }
+
+        // The keys with a word for a name, in the order the editor's key picker lists them.
+        const std::array<std::pair<std::string_view, InputKey>, 21>& NamedKeys()
+        {
+            static const std::array<std::pair<std::string_view, InputKey>, 21> kNamed = { {
+                 { "Space", Keyboard( K::Space ) },
+                 { "Enter", Keyboard( K::Enter ) },
+                 { "Escape", Keyboard( K::Escape ) },
+                 { "Tab", Keyboard( K::Tab ) },
+                 { "Backspace", Keyboard( K::Backspace ) },
+                 { "Up", Keyboard( K::Up ) },
+                 { "Down", Keyboard( K::Down ) },
+                 { "Left", Keyboard( K::Left ) },
+                 { "Right", Keyboard( K::Right ) },
+                 { "LeftShift", Keyboard( K::LeftShift ) },
+                 { "RightShift", Keyboard( K::RightShift ) },
+                 { "LeftControl", Keyboard( K::LeftControl ) },
+                 { "RightControl", Keyboard( K::RightControl ) },
+                 { "LeftAlt", Keyboard( K::LeftAlt ) },
+                 { "RightAlt", Keyboard( K::RightAlt ) },
+                 { "LeftMouseButton", Button( Common::MouseButton::Left ) },
+                 { "RightMouseButton", Button( Common::MouseButton::Right ) },
+                 { "MiddleMouseButton", Button( Common::MouseButton::Middle ) },
+                 { "MouseX", InputKey{ InputKey::Device::MouseX, 0 } },
+                 { "MouseY", InputKey{ InputKey::Device::MouseY, 0 } },
+                 { "Mouse2D", InputKey{ InputKey::Device::Mouse2D, 0 } },
+            } };
+            return kNamed;
         }
     } // namespace
 
@@ -46,33 +76,24 @@ namespace Desert::Input
             return Keyboard( static_cast<K>( static_cast<int>( K::F1 ) + n - 1 ) );
         }
 
-        static const std::array<std::pair<std::string_view, InputKey>, 21> kNamed = { {
-             { "Space", Keyboard( K::Space ) },
-             { "Enter", Keyboard( K::Enter ) },
-             { "Escape", Keyboard( K::Escape ) },
-             { "Tab", Keyboard( K::Tab ) },
-             { "Backspace", Keyboard( K::Backspace ) },
-             { "Up", Keyboard( K::Up ) },
-             { "Down", Keyboard( K::Down ) },
-             { "Left", Keyboard( K::Left ) },
-             { "Right", Keyboard( K::Right ) },
-             { "LeftShift", Keyboard( K::LeftShift ) },
-             { "RightShift", Keyboard( K::RightShift ) },
-             { "LeftControl", Keyboard( K::LeftControl ) },
-             { "RightControl", Keyboard( K::RightControl ) },
-             { "LeftAlt", Keyboard( K::LeftAlt ) },
-             { "RightAlt", Keyboard( K::RightAlt ) },
-             { "LeftMouseButton", Button( Common::MouseButton::Left ) },
-             { "RightMouseButton", Button( Common::MouseButton::Right ) },
-             { "MiddleMouseButton", Button( Common::MouseButton::Middle ) },
-             { "MouseX", InputKey{ InputKey::Device::MouseX, 0 } },
-             { "MouseY", InputKey{ InputKey::Device::MouseY, 0 } },
-             { "Mouse2D", InputKey{ InputKey::Device::Mouse2D, 0 } },
-        } };
-        for ( const auto& [spelled, key] : kNamed )
+        for ( const auto& [spelled, key] : NamedKeys() )
             if ( spelled == name )
                 return key;
         return std::nullopt;
+    }
+
+    std::vector<std::string> InputKeyNames()
+    {
+        std::vector<std::string> names;
+        for ( char c = 'A'; c <= 'Z'; ++c )
+            names.emplace_back( 1, c );
+        for ( char c = '0'; c <= '9'; ++c )
+            names.emplace_back( 1, c );
+        for ( int n = 1; n <= 12; ++n )
+            names.push_back( "F" + std::to_string( n ) );
+        for ( const auto& named : NamedKeys() )
+            names.emplace_back( named.first );
+        return names;
     }
 
     glm::vec3 RawKeyValue( const InputKey& key, const RawInputFrame& frame )

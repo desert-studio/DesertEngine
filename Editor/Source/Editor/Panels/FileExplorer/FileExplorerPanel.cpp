@@ -198,6 +198,8 @@ namespace Desert::Editor
          { FileType::Retarget, "Retarget" },
          { FileType::FoliageType, "Foliage Type" },
          { FileType::StringTable, "String Table" },
+         { FileType::InputAction, "Input Action" },
+         { FileType::InputMappingContext, "Input Mapping Context" },
          { FileType::CookedWorld, "Cooked World" },
          { FileType::Skybox, "Skybox" },
     };
@@ -230,6 +232,8 @@ namespace Desert::Editor
          { FileType::Retarget, { 0.95f, 0.50f, 0.60f, 1.00f } },
          { FileType::FoliageType, { 0.30f, 0.75f, 0.35f, 1.00f } },
          { FileType::StringTable, { 0.60f, 0.60f, 0.85f, 1.00f } },
+         { FileType::InputAction, { 0.35f, 0.80f, 0.45f, 1.00f } },
+         { FileType::InputMappingContext, { 0.20f, 0.65f, 0.55f, 1.00f } },
          { FileType::CookedWorld, { 0.50f, 0.50f, 0.55f, 1.00f } },
          { FileType::Skybox, { 0.82f, 0.18f, 0.30f, 1.00f } },
     };
@@ -264,6 +268,8 @@ namespace Desert::Editor
          { FileType::Retarget, ICON_MDI_SWAP_HORIZONTAL },
          { FileType::FoliageType, ICON_MDI_TREE },
          { FileType::StringTable, ICON_MDI_TRANSLATE },
+         { FileType::InputAction, ICON_MDI_GESTURE_TAP },
+         { FileType::InputMappingContext, ICON_MDI_KEYBOARD },
          { FileType::CookedWorld, ICON_MDI_MAP },
          { FileType::Skybox, ICON_MDI_IMAGE_FILTER_HDR },
     };
@@ -1498,6 +1504,8 @@ namespace Desert::Editor
                          { "Level Sequences", static_cast<int>( FileType::LevelSequence ) },
                          { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
                          { "Fractures", static_cast<int>( FileType::Fracture ) },
+                         { "Input Actions", static_cast<int>( FileType::InputAction ) },
+                         { "Input Mapping Contexts", static_cast<int>( FileType::InputMappingContext ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )
