@@ -2,9 +2,14 @@
 
 #include <Editor/Core/EditableProperty.hpp>
 
+#include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <Engine/Core/Projection.hpp>
+
 #include <glm/glm.hpp>
+
+#include <cmath>
 
 #include <string>
 #include <vector>
@@ -172,5 +177,59 @@ namespace Desert::Editor
         }
 
         return Common::MakeSuccess( isPosition ? ViewportCameraWrite::Position : ViewportCameraWrite::Direction );
+    }
+    /// The smallest radius a framed box is given. A box of one point (a single-vertex mesh, or every mesh
+    /// collapsed onto one spot) has no extent, and a zero radius puts the camera ON the point it frames.
+    /// One millimetre, not UE's 15 (MinimumFocusRadius): a 1 cm scene is still a scene to frame, and a
+    /// 15 cm floor would shrink it to a fifteenth of the picture.
+    inline constexpr float kMinimumFramedRadius = 0.1f;
+
+    /// A pose that holds a whole box in view, with the depth range it needs.
+    struct FramedView
+    {
+        glm::vec3 Position{ 0.0f };
+        glm::vec3 Forward{ 0.0f, 0.0f, -1.0f }; // normalized
+        float     Near = ::Desert::Core::kDefaultNearPlane;
+        float     Far  = ::Desert::Core::kDefaultFarPlane;
+    };
+
+    /**
+     * @brief FRAME @p box LOOKING ALONG @p forward — the editor's F-focus on a box (UE FocusViewportOnBox).
+     *
+     * Port of UE EditorViewportClient.cpp:955-1000: the box's bounding sphere (centre, |extent|), the
+     * camera backed off along the view direction from the centre. Two departures, both because UE's
+     * version is not what its own comment claims ("fitting the sphere into the viewport completely"):
+     *
+     *   - DISTANCE = R / sin(half-angle), not R / tan. A sphere is inside a cone of half-angle a exactly
+     *     when its centre is at least R / sin(a) away; R / tan leaves the near side of the sphere outside
+     *     the frustum (a cube seen along a diagonal pokes out of the picture by most of its corner).
+     *   - THE NARROWER HALF-ANGLE, computed from @p fovXDegrees (the editor's FOV is HORIZONTAL,
+     *     Core::kEditorViewportFovXDegrees) and @p aspect. UE multiplies R by the aspect for wide views,
+     *     which is the same choice spelled through the tangent and wrong in the same way.
+     *
+     * THE DEPTH RANGE FOLLOWS THE BOX, in one direction only. The defaults (10 cm .. 50 km) are kept for
+     * every box they already hold; a 1 cm scene pulls the near plane in front of itself, a 100 km one
+     * pushes the far plane past itself. Without that, framing would put a small scene behind the near
+     * plane and a large one beyond the far plane — "framed" and invisible.
+     *
+     * Pure: no camera, no scene. @p forward need not be normalized and must not be zero; @p aspect > 0.
+     */
+    [[nodiscard]] inline FramedView FrameBox( const ::Common::Math::AABB& box, const glm::vec3& forward,
+                                              float fovXDegrees, float aspect )
+    {
+        const glm::vec3 centre = 0.5f * ( box.Min + box.Max );
+        const float     radius = glm::max( glm::length( 0.5f * ( box.Max - box.Min ) ), kMinimumFramedRadius );
+
+        const float halfX      = 0.5f * glm::radians( fovXDegrees );
+        const float halfY      = 0.5f * ::Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovXDegrees ), aspect );
+        const float halfNarrow = glm::min( halfX, halfY );
+        const float distance   = radius / std::sin( halfNarrow );
+
+        FramedView view;
+        view.Forward  = glm::normalize( forward );
+        view.Position = centre - view.Forward * distance;
+        view.Near     = glm::min( ::Desert::Core::kDefaultNearPlane, 0.5f * ( distance - radius ) );
+        view.Far      = glm::max( ::Desert::Core::kDefaultFarPlane, 1.01f * ( distance + radius ) );
+        return view;
     }
 } // namespace Desert::Editor

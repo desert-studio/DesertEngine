@@ -84,6 +84,9 @@ namespace Desert::Editor
         }
 
     private:
+        // No --camera / --look: point the editor camera so every placed mesh is in the picture (FrameBox).
+        void FrameScene();
+
         SceneWorkspace&  m_Workspace;
         SceneFiles&      m_SceneFiles;
         PlaySession&     m_Play;

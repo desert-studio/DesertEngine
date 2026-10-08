@@ -2,6 +2,11 @@
 
 #include <Editor/Core/ShotOptions.hpp>
 #include <Editor/Core/ShotRecordGate.hpp>
+#include <Editor/Core/ViewportCameraProperties.hpp>
+
+#include <Engine/Core/Projection.hpp>
+
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
 
@@ -487,4 +492,77 @@ TEST( ShotRecordGate, CompilingAssetsHoldTheStartButNotTheMiddle )
     EXPECT_TRUE( gate.Admit( ReadyAt( 1280, 720 ) ) ) << "the cook landed and the size held: recording starts";
 
     EXPECT_TRUE( gate.Admit( compiling ) ) << "a cook landing mid-capture is part of what is recorded";
+}
+
+// ── No --camera / --look: the shot frames the scene (FrameBox, UE FocusViewportOnBox) ────────────────
+//
+// The claim is a RELATION between the pose FrameBox returns and the projection the editor renders through:
+// all eight corners of the box land inside the picture AND between the near and far planes. Checked through
+// the same MakePerspective + VerticalFovKeepingHorizontal the editor camera builds, at both ends of the
+// scale the engine meets (1 cm and 100 km), wide and tall, and along a diagonal — the view in which UE's
+// R / tan distance leaves the near corner outside the frustum.
+namespace
+{
+    void ExpectBoxInsideTheFrame( const ::Common::Math::AABB& box, const glm::vec3& forward, float aspect )
+    {
+        const float      fovX = Desert::Core::kEditorViewportFovXDegrees;
+        const FramedView view = FrameBox( box, forward, fovX, aspect );
+
+        const glm::vec3 up       = std::abs( view.Forward.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
+        const glm::mat4 viewMat  = glm::lookAt( view.Position, view.Position + view.Forward, up );
+        const glm::mat4 proj     = Desert::Core::MakePerspective(
+             Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovX ), aspect ), aspect, view.Near, view.Far );
+        for ( int corner = 0; corner < 8; ++corner )
+        {
+            const glm::vec3 p( ( corner & 1 ) != 0 ? box.Max.x : box.Min.x, ( corner & 2 ) != 0 ? box.Max.y : box.Min.y,
+                               ( corner & 4 ) != 0 ? box.Max.z : box.Min.z );
+            const glm::vec4 clip = proj * viewMat * glm::vec4( p, 1.0f );
+            ASSERT_GT( clip.w, 0.0f ) << "corner " << corner << " is behind the camera";
+            const glm::vec3 ndc = glm::vec3( clip ) / clip.w;
+            EXPECT_LE( std::abs( ndc.x ), 1.0f ) << "corner " << corner << " left the picture sideways";
+            EXPECT_LE( std::abs( ndc.y ), 1.0f ) << "corner " << corner << " left the picture vertically";
+            // Reversed-Z: near maps to 1, far to 0.
+            EXPECT_GE( ndc.z, 0.0f ) << "corner " << corner << " is beyond the far plane";
+            EXPECT_LE( ndc.z, 1.0f ) << "corner " << corner << " is in front of the near plane";
+        }
+    }
+
+    ::Common::Math::AABB Cube( const glm::vec3& centre, float edge )
+    {
+        return { centre - glm::vec3( 0.5f * edge ), centre + glm::vec3( 0.5f * edge ) };
+    }
+} // namespace
+
+TEST( SceneFraming, AOneCentimetreSceneIsWhollyInThePicture )
+{
+    const auto box = Cube( glm::vec3( 3.0f, -2.0f, 7.0f ), 1.0f );
+    for ( const float aspect : { 16.0f / 9.0f, 9.0f / 16.0f, 1.0f } )
+    {
+        ExpectBoxInsideTheFrame( box, glm::vec3( 0.0f, 0.3f, -1.0f ), aspect );
+        ExpectBoxInsideTheFrame( box, glm::vec3( 1.0f, -1.0f, -1.0f ), aspect );
+    }
+    EXPECT_LT( FrameBox( box, glm::vec3( 0, 0, -1 ), Desert::Core::kEditorViewportFovXDegrees, 16.0f / 9.0f ).Near,
+               Desert::Core::kDefaultNearPlane )
+         << "a 1 cm scene sits inside the default 10 cm near plane unless the near plane comes in";
+}
+
+TEST( SceneFraming, AHundredKilometreSceneIsWhollyInThePicture )
+{
+    const auto box = Cube( glm::vec3( 2.0e6f, 0.0f, -5.0e6f ), 1.0e7f ); // 100 km in centimetres
+    for ( const float aspect : { 16.0f / 9.0f, 9.0f / 16.0f, 1.0f } )
+    {
+        ExpectBoxInsideTheFrame( box, glm::vec3( 0.0f, 0.3f, -1.0f ), aspect );
+        ExpectBoxInsideTheFrame( box, glm::vec3( 1.0f, -1.0f, -1.0f ), aspect );
+    }
+    EXPECT_GT( FrameBox( box, glm::vec3( 0, 0, -1 ), Desert::Core::kEditorViewportFovXDegrees, 16.0f / 9.0f ).Far,
+               Desert::Core::kDefaultFarPlane )
+         << "a 100 km scene reaches past the default 50 km far plane unless the far plane goes out";
+}
+
+TEST( SceneFraming, AnOrdinarySceneKeepsTheDefaultDepthRange )
+{
+    const FramedView view = FrameBox( Cube( glm::vec3( 0.0f ), 1000.0f ), glm::vec3( 0, -0.5f, -1 ),
+                                      Desert::Core::kEditorViewportFovXDegrees, 16.0f / 9.0f );
+    EXPECT_EQ( view.Near, Desert::Core::kDefaultNearPlane );
+    EXPECT_EQ( view.Far, Desert::Core::kDefaultFarPlane );
 }
