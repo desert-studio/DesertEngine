@@ -3,7 +3,7 @@
 // the scene depth and never writing it. The material's own surface function shades the sprite UNLIT (UE's default
 // for particle materials): the colour is BaseColor + Emissive, the coverage is Opacity — a graph that wants soft
 // particles multiplies its opacity through Depth Fade (SurfaceTypes.glslh DesertDepthFade, which reads the scene
-// depth this cell declares at binding 11). Translucent templates blend it over the scene (sorted back to front per
+// depth this cell declares at binding 26). Translucent templates blend it over the scene (sorted back to front per
 // view); Opaque and Masked write it as a solid card, Masked discarding below the material's clip value.
 DESERT_SURFACE_VARYINGS( in )
 
