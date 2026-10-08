@@ -602,6 +602,8 @@ namespace Desert::Graphic::API::Vulkan
             TransitionLayout( cmd, finalDefaultLayout );
 
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            // The bytes are in the staging copy now; the image keeps no second copy of them (ImageFormat.hpp).
+            Core::Formats::ReleaseUploadedPixels( m_Specification );
         }
         else
         {

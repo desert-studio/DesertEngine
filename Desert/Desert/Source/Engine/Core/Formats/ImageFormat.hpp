@@ -558,6 +558,30 @@ namespace Desert::Core::Formats
         ImageInitialContent InitialContent = ImageInitialContent::Undefined;
     };
 
+    /// THE PIXELS ARE THE IMAGE'S INITIAL CONTENT, NOT A SECOND COPY KEPT BESIDE IT. The backend image holds
+    /// its specification for the image's lifetime, and with `Data` still in it every streamed texture lived
+    /// twice -- once in device memory, once in this vector (a 2k RGBA8 chain is 22.4 MB). On unified memory
+    /// both are the process's resident set, so night_street_a grew past the 6 GB cap while the shot waited for
+    /// Bistro's textures (SHOT-SETTLE-b). UE's pattern: the bulk data of FTexturePlatformData is dropped once the
+    /// RHI texture has been created from it. Called by the backend after the staging copy has been recorded.
+    ///
+    /// The SHAPE stays: a supplied chain's level count moves into `Mips`, so a later recreation of the image
+    /// makes the same chain (without content, as every data-less image is). Returns the bytes released.
+    inline std::size_t ReleaseUploadedPixels( Image2DSpecification& spec )
+    {
+        if ( !HasData( spec.Data ) )
+            return 0;
+        const std::size_t bytes = GetPixelDataSize( spec.Data );
+        if ( !spec.MipLevels.empty() )
+        {
+            spec.Mips = static_cast<uint32_t>( spec.MipLevels.size() );
+            spec.MipLevels.clear();
+            spec.MipLevels.shrink_to_fit();
+        }
+        spec.Data = EmptyPixelData{};
+        return bytes;
+    }
+
     // Length of the full mip chain for a texture whose largest dimension is @p dim
     // (floor(log2(dim)) + 1, and 1 for a zero/one-texel extent). This is THE definition — the mip count a
     // Vulkan image legally accepts, the count the cost report charges for, and the count a dispatch loop
