@@ -1031,6 +1031,22 @@ namespace
     };
 } // namespace
 
+// The first link of the chain on its own: the shipped template, read by the importer's reader, states the normal
+// slot's intent. Red here and green below would put the loss before SerializeMaterialAsset; green here and red
+// below puts it between the slot lookup and the asset write.
+TEST_F( NormalSlotImport, TheShippedTemplateStatesTheNormalSlotsIntent )
+{
+    const TestSupport::EngineDirScope engineDir;
+    const char*                       file = "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader";
+    const auto text = Common::Utils::FileSystem::ReadFileContent( TestSupport::RepositoryRoot() / file );
+    ASSERT_TRUE( text.IsSuccess() );
+    const auto read = Editor::ReadImportTemplate( text.GetValue(), file );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const auto it = read.GetValue().TextureIntents.find( "u_NormalTexture" );
+    ASSERT_NE( it, read.GetValue().TextureIntents.end() ) << "the template states no intent for u_NormalTexture";
+    EXPECT_EQ( it->second, Core::Formats::TextureIntent::NormalMap );
+}
+
 TEST_F( NormalSlotImport, TheNormalSlotsImageIsANormalMapAssetAndCooksAsBC5 )
 {
     const Editor::ImportOutcome outcome = ImportManager().ImportWithSettings( m_Panel, {} );
