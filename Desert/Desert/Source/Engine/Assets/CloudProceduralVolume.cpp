@@ -1552,8 +1552,8 @@ namespace Desert::Assets
         const uint32_t  seed    = HashCombine( CloudSpeciesSeed( params, slot ), 0x5a4e0153u );
 
         // Nubis 2017's Perlin-Worley: the Perlin dilated by the billow, `remap(perlin, 0, 1, billow, 1)`.
-        const float perlin = std::clamp(
-             0.5f + CloudShapeNoiseGlsl::CloudPerlinPeriodic( lattice, cells, seed ), 0.0f, 1.0f );
+        const float perlin =
+             std::clamp( 0.5f + CloudShapeNoiseGlsl::CloudPerlinPeriodic( lattice, cells, seed ), 0.0f, 1.0f );
         const float billow = CloudShapeNoiseGlsl::CloudAlligator01( lattice, cells, HashCombine( seed, 0x1u ) );
         const float pw     = billow + ( 1.0f - billow ) * perlin;
 
@@ -1672,8 +1672,7 @@ namespace Desert::Assets
             candidates.push_back( CloudClusterCandidate{
                  CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ) +
                       CloudProceduralShapeReachKm( lump.Blob ) * shape,
-                 lump.Blob.Weight,
-                 cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ),
+                 lump.Blob.Weight, cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ),
                  invDepths[cluster] } );
         }
 
