@@ -997,18 +997,18 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
     const std::filesystem::path Ed = "Editor/Source/Editor/RenderSystems/Passes";
     // shader name -> the site that builds its scene-target pipeline; the comment is why it owes no velocity.
     const std::vector<std::pair<std::string, std::filesystem::path>> mustNotWrite = {
-         { "Skybox", E + "Skybox/SkyboxRenderer.cpp" },                       // sky
-         { "ProceduralSky", E + "Skybox/SkyboxRenderer.cpp" },                // sky
-         { "HeightFogApply", E + "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
-         { "CloudComposite", E + "Clouds/VolumetricCloudRenderer.cpp" },      // fullscreen cloud composite
-         { "DeferredLighting", E + "Deferred/DeferredLightingRenderer.hpp" }, // deferred composite
-         { "SSRComposite", E + "Deferred/SSRRenderer.hpp" },                  // reflection composite
-         { "DebugLine", E + "Mesh/MeshRendererDebug.cpp" },                   // debug lines
-         { "OverdrawResolve", E + "Mesh/MeshRendererDebug.cpp" },             // debug view
-         { "ParticleBillboard", E + "Particles/ParticleRenderer.cpp" },       // translucent particles
-         { "Grid", Ed + "EditorGridPass.cpp" },                               // editor overlay
-         { "DebugLine", Ed + "EditorColliderPass.cpp" },                      // editor overlay
-         { "CubemapSphere", Ed + "EditorCubemapPreviewPass.cpp" },            // editor overlay
+         { "Skybox", E / "Skybox/SkyboxRenderer.cpp" },                       // sky
+         { "ProceduralSky", E / "Skybox/SkyboxRenderer.cpp" },                // sky
+         { "HeightFogApply", E / "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
+         { "CloudComposite", E / "Clouds/VolumetricCloudRenderer.cpp" },      // fullscreen cloud composite
+         { "DeferredLighting", E / "Deferred/DeferredLightingRenderer.hpp" }, // deferred composite
+         { "SSRComposite", E / "Deferred/SSRRenderer.hpp" },                  // reflection composite
+         { "DebugLine", E / "Mesh/MeshRendererDebug.cpp" },                   // debug lines
+         { "OverdrawResolve", E / "Mesh/MeshRendererDebug.cpp" },             // debug view
+         { "ParticleBillboard", E / "Particles/ParticleRenderer.cpp" },       // translucent particles
+         { "Grid", Ed / "EditorGridPass.cpp" },                               // editor overlay
+         { "DebugLine", Ed / "EditorColliderPass.cpp" },                      // editor overlay
+         { "CubemapSphere", Ed / "EditorCubemapPreviewPass.cpp" },            // editor overlay
     };
 
     const auto     layout   = Desert::Graphic::SceneTargetLayout();
