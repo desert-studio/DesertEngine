@@ -966,8 +966,9 @@ TEST( VelocityTarget, SceneTargetGBufferAndVelocityShareTheViewExtent )
     const auto velocity = scene.find( "CreateViewVelocity(" );
     ASSERT_NE( velocity, std::string::npos );
     const std::string call = scene.substr( velocity, 160 );
-    EXPECT_NE( call.find( "m_ViewExtent.Width, m_ViewExtent.Height" ), std::string::npos )
-         << "the velocity is not created at the view extent: " << call;
+    // TAA1-B step 6: the velocity belongs to the RENDER extent set (with the scene target and G-buffer it is written beside).
+    EXPECT_NE( call.find( "frame.Split.Render.Width, frame.Split.Render.Height" ), std::string::npos )
+         << "the velocity is not created at the frame's render extent: " << call;
     const auto refusal =
          scene.find( "ViewTargetExtentMismatch(", scene.rfind( "if ( m_TargetFramebuffer )", velocity ) );
     ASSERT_LT( refusal, velocity ) << "the extent check must run before the velocity is created";
