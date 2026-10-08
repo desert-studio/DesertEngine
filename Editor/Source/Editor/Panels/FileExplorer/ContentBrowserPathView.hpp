@@ -20,8 +20,8 @@ namespace Desert::Editor
         {
             std::function<void( DirectoryInformation* )> OnFolderSelected;    // a tree node was clicked
             std::function<void( const std::string& )>    OnFavouriteSelected; // a pinned folder was clicked
-            std::function<std::vector<std::string>()>    SelectedPaths;       // what a drag of a selected tile carries
-            std::function<void()>                        OnMoved;             // a drop moved at least one asset
+            std::function<std::vector<std::string>()>    SelectedPaths; // what a drag of a selected tile carries
+            std::function<void()>                        OnMoved;       // a drop moved at least one asset
         };
 
         explicit ContentBrowserPathView( Delegates delegates );

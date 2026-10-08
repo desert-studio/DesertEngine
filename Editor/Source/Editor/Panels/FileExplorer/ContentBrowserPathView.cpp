@@ -74,10 +74,12 @@ namespace Desert::Editor
             const ImGuiPayload* payload = ImGui::AcceptDragDropPayload( type );
             if ( payload == nullptr || payload->DataSize <= 0 )
                 continue;
-            const std::string dragged( static_cast<const char*>( payload->Data ) );
-            const std::vector<std::string> selection = m_On.SelectedPaths ? m_On.SelectedPaths() : std::vector<std::string>{};
+            const std::string              dragged( static_cast<const char*>( payload->Data ) );
+            const std::vector<std::string> selection =
+                 m_On.SelectedPaths ? m_On.SelectedPaths() : std::vector<std::string>{};
             bool moved = false;
-            for ( const std::string& path : ContentBrowserDragDrop::PlanFolderDrop( dragged, selection, targetFolder ) )
+            for ( const std::string& path :
+                  ContentBrowserDragDrop::PlanFolderDrop( dragged, selection, targetFolder ) )
                 moved = ContentBrowserUtils::MoveFileTo( path, targetFolder ) || moved;
             if ( moved && m_On.OnMoved )
                 m_On.OnMoved();
