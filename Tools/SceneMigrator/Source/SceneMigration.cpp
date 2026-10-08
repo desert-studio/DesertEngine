@@ -1722,19 +1722,22 @@ namespace Desert::Migration
         // ONE KILOMETRE, the default type's (Assets::CloudTypeDefaultShape): a v6 type had no body size, its
         // bodies were its cells; the shipped library states its own after the raise (FIELD-GRAIN).
         std::string patched = text;
-        patched.insert( end, ", \"BodyDiameterKm\": " + std::format( "{}", Graphic::CloudTypeShape{}.BodyDiameterKm ) );
+        patched.insert( end,
+                        ", \"BodyDiameterKm\": " + std::format( "{}", Graphic::CloudTypeShape{}.BodyDiameterKm ) );
 
         const auto v6 = Common::Json::Read<Assets::CloudTypeData>( patched );
         if ( !v6 )
             return Common::MakeFormattedError<std::string>( "CLTY 6 body does not read: {}", v6.GetError() );
         const Assets::CloudTypeData& data = v6.GetValue();
         if ( !data.Header )
-            return Common::MakeFormattedError<std::string>( "the file states no header, and this step raises CLTY 6 only" );
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises CLTY 6 only" );
         const auto stated = data.Header->Versions.find( "CLTY" );
         if ( stated == data.Header->Versions.end() || stated->second != 6u )
             return Common::MakeFormattedError<std::string>(
                  "the header states CLTY {}, and this step raises CLTY 6 only",
-                 stated == data.Header->Versions.end() ? std::string( "nothing" ) : std::to_string( stated->second ) );
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
 
         std::string written = Assets::WriteCloudType( data );
         if ( auto reread = Assets::ParseCloudType( written ); !reread )

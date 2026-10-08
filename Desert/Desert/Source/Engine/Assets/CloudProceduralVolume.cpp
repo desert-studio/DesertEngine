@@ -1142,7 +1142,7 @@ namespace Desert::Assets
         // The type's Body Diameter is floored at two of the volume's lump floors — a body narrower than that
         // is lumps the floor has already widened.
         const float densityShrinkSq = std::max( params.PlacementDensity, 1e-3f );
-        const float bodyMeanKm      = std::max( shape.BodyDiameterKm, 2.0f * CloudProceduralLumpFloorKm( params ) );
+        const float bodyMeanKm = std::max( shape.BodyDiameterKm, 2.0f * CloudProceduralLumpFloorKm( params ) );
 
         const float scatter = std::max( params.PlacementScatter, 0.0f );
         const float variety = std::clamp( params.PlacementSizeVariety, 0.0f, 1.0f );
@@ -1231,8 +1231,8 @@ namespace Desert::Assets
 
                     // UNIFORM OVER THE PATCH'S DISC, drawn out along the wind by the cell's own stretch, so
                     // the patch covers the same fraction of its cell at every anisotropy.
-                    const float discR     = baseRadiusKm * std::sqrt( HashUnit( HashCombine( clusterSeed, 0x1u ) ) );
-                    const float discAngle = HashUnit( HashCombine( clusterSeed, 0x2u ) ) * 6.2831853f;
+                    const float discR = baseRadiusKm * std::sqrt( HashUnit( HashCombine( clusterSeed, 0x1u ) ) );
+                    const float discAngle     = HashUnit( HashCombine( clusterSeed, 0x2u ) ) * 6.2831853f;
                     const glm::vec2 clusterXZ = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
                                                 across * ( std::sin( discAngle ) * discR / stretch );
 
@@ -1611,9 +1611,8 @@ namespace Desert::Assets
             for ( const CloudProceduralLump& lump : lumps )
             {
                 const float depth = CloudProceduralLumpDepthKm( lump.Blob );
-                const auto [it, fresh] =
-                     sites.Index.try_emplace( CloudClusterSiteWord( lump.ClusterKm ),
-                                              static_cast<uint32_t>( deepest.size() ) );
+                const auto [it, fresh] = sites.Index.try_emplace( CloudClusterSiteWord( lump.ClusterKm ),
+                                                                  static_cast<uint32_t>( deepest.size() ) );
                 if ( fresh )
                     deepest.push_back( depth );
                 else
@@ -1677,7 +1676,7 @@ namespace Desert::Assets
         // cluster is its exact site (the lattice site plus its scatter, shared by its lumps), as the bake's
         // clusterOf decides; a caller that hands wrapped copies shifts their ClusterKm with them.
         const float            softness = CloudProceduralRankSoftness( params );
-        CloudClusterSites sites;
+        CloudClusterSites      sites;
         CloudClusterBodyDepths( params, lumps, sites );
 
         // THE SILHOUETTE NOISE moves every lump's distance BEFORE the join (SHAPE-NOISE), as the bake does.
@@ -1836,12 +1835,13 @@ namespace Desert::Assets
             // ordered, so the ids are too. A cluster's site is exact (the lattice site plus its scatter, one
             // float pair shared by its lumps), so equality of the pair is identity of the cluster.
             std::unordered_map<uint64_t, uint32_t> clusterKeys;
-            const auto clusterOf = [&clusterKeys]( uint32_t site, int wx, int wz )
+            const auto                             clusterOf = [&clusterKeys]( uint32_t site, int wx, int wz )
             {
                 constexpr uint64_t kWraps = 2u * kWrapRange + 1u;
-                const uint64_t key = ( static_cast<uint64_t>( site ) * kWraps + static_cast<uint64_t>( wz + kWrapRange ) ) *
-                                          kWraps +
-                                     static_cast<uint64_t>( wx + kWrapRange );
+                const uint64_t     key =
+                     ( static_cast<uint64_t>( site ) * kWraps + static_cast<uint64_t>( wz + kWrapRange ) ) *
+                          kWraps +
+                     static_cast<uint64_t>( wx + kWrapRange );
                 return clusterKeys.try_emplace( key, static_cast<uint32_t>( clusterKeys.size() ) ).first->second;
             };
 
@@ -1849,8 +1849,8 @@ namespace Desert::Assets
             {
                 const CloudModellingBlob& blob   = lump.Blob;
                 const float     reach  = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
-                const uint32_t  site     = depthSites.Of( lump.ClusterKm );
-                const float     invDepth = depthSites.InvDepths[site];
+                const uint32_t            site   = depthSites.Of( lump.ClusterKm );
+                const float               invDepth = depthSites.InvDepths[site];
                 // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
                 // reaches that much past its own ellipsoid (SHAPE-NOISE).
                 const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
