@@ -317,7 +317,8 @@ TEST( ShadowReallocation, ALevelViewportReallocatesOnlyWhenTheShadowsLevelChange
 
     // Low: two cascades of 1024 over 60 m — exactly that budget, in centimetres.
     const auto low = ShadowReallocation( kSceneViewProfile, ShadowLevel( 2, 1024, 6000, 2 ) );
-    ASSERT_TRUE( low.has_value() );
+    if ( !low.has_value() )
+        FAIL() << "the Low budget asks for no reallocation";
     EXPECT_EQ( low->CascadeCount, 2u );
     EXPECT_EQ( low->ShadowMapSize, 1024u );
     EXPECT_FLOAT_EQ( low->MaxDistance, 6000.0f );

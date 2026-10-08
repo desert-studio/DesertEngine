@@ -31,9 +31,9 @@ namespace Desert::Core::Preprocess
         MetaForPass( const DShaderParseResult& parsed, const std::string& passName, const std::string& context )
         {
             const auto* pass = parsed.FindPass( passName );
-            // A MEDIUM-ONLY SHADER HAS NO PASSES, and that is legal: it is a program FRAGMENT compiled into
-            // other programs (ShaderProgramMeta::MediumSource); its metadata is the whole of what it has.
-            if ( pass == nullptr && parsed.Meta.IsMediumProgram() )
+            // A FRAGMENT-ONLY SHADER HAS NO PASSES, and that is legal: it is compiled into other programs
+            // (ShaderProgramMeta::MediumSource / ParticleSource); its metadata is the whole of what it has.
+            if ( pass == nullptr && parsed.Meta.IsFragmentProgram() )
             {
                 Core::Formats::ShaderProgramMeta whole = parsed.Meta;
                 return Common::MakeSuccess( std::move( whole ) );

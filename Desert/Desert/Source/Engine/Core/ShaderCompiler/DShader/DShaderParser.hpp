@@ -188,6 +188,11 @@ namespace Desert::Core::Preprocess
         // what lets a warm start register a program without parsing its text at all.
         static bool MayDeclareMedium( std::string_view source );
 
+        // False only when the text certainly declares no `Domain Particle` (any case, any whitespace between
+        // the two words) — and so no Particle fragment, which is legal only under that line. Boot skips a
+        // fragment from the program prebuild on this answer; a false positive only builds a map later.
+        static bool MayDeclareParticle( std::string_view source );
+
         // Cheap precheck for the shader map key, which must not parse: false = the text certainly declares
         // no `Surface { ... }` block. A false positive only hashes the surface headers needlessly.
         static bool MayDeclareSurface( std::string_view source );

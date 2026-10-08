@@ -1,0 +1,90 @@
+// THE EFFECTS LAYER'S NOISE FIELD, GPU side: simplex noise with its analytic Jacobian, for curl noise (VFX-06).
+//
+// Port of UE Engine/Shaders/Private/Random.ush:228-336 (SimplexCorners, SimplexSmooth, SimplexDSmooth,
+// JacobianSimplex_ALU — McEwan et al., "Efficient computation of noise in GLSL", JGT 2011) and of
+// Engine/Shaders/Private/RandomPCG.ush:12-44 (Rand3DPCG16). UE's tiling option is not ported: nothing here tiles.
+// A function of the position only — no time, no thread order — so a field is the same on every run.
+
+#ifndef VFX_NOISE_GLSLH
+#define VFX_NOISE_GLSLH
+
+// Three 16-bit hashes of an integer lattice point (UE Rand3DPCG16: an LCG step, then two rounds of a
+// multiply-add Feistel network over the three lanes; only the top 16 bits are well shuffled).
+uvec3 VFX_Rand3DPCG16( ivec3 p )
+{
+    uvec3 v = uvec3( p ) * 1664525u + 1013904223u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    return v >> 16u;
+}
+
+// The four corners of the simplex tetrahedron holding @p v (skew to tetrahedral space and back).
+void VFX_SimplexCorners( vec3 v, out vec3 corners[4] )
+{
+    const vec3 tet  = floor( v + ( v.x + v.y + v.z ) / 3.0 );
+    const vec3 base = tet - ( tet.x + tet.y + tet.z ) / 6.0;
+    const vec3 f    = v - base;
+    const vec3 g    = step( f.yzx, f.xyz );
+    const vec3 h    = 1.0 - g.zxy;
+    corners[0]      = base;
+    corners[1]      = base + min( g, h ) - 1.0 / 6.0;
+    corners[2]      = base + max( g, h ) - 1.0 / 3.0;
+    corners[3]      = base + 0.5;
+}
+
+// The noise's value and Jacobian at @p v: J[c].w is component c of a vector simplex noise in about [-1, 1],
+// J[c].xyz its derivative by x, y and z (UE JacobianSimplex_ALU; J[c][r] = dN_c / dx_r).
+void VFX_JacobianSimplex( vec3 v, out vec4 J[3] )
+{
+    const float scale = 1024.0 / 375.0; // makes the noise span about -1..1
+    vec3        corners[4];
+    VFX_SimplexCorners( v, corners );
+
+    vec3 fv[4];
+    vec3 gvec[3][4];
+    vec4 grad[3];
+    for ( int k = 0; k < 4; ++k )
+    {
+        fv[k]            = v - corners[k];
+        const uvec3 rand = VFX_Rand3DPCG16( ivec3( floor( 6.0 * corners[k] + 0.5 ) ) );
+        // UE MGradientMask / MGradientScale: one bit per axis picks a cube-edge gradient direction.
+        const uvec3 mask = uvec3( 0x8000u, 0x4000u, 0x2000u );
+        const vec3  gs   = vec3( 1.0 / 16384.0, 1.0 / 8192.0, 1.0 / 4096.0 );
+        for ( int c = 0; c < 3; ++c )
+        {
+            gvec[c][k]  = vec3( uvec3( rand[c] ) & mask ) * gs - 1.0;
+            grad[c][k] = dot( gvec[c][k], fv[k] );
+        }
+    }
+
+    // SimplexSmooth and its derivative SimplexDSmooth, per corner.
+    vec4 d  = vec4( dot( fv[0], fv[0] ), dot( fv[1], fv[1] ), dot( fv[2], fv[2] ), dot( fv[3], fv[3] ) );
+    vec4 s  = clamp( 2.0 * d, 0.0, 1.0 );
+    vec4 sv = scale + s * ( -3.0 * scale + s * ( 3.0 * scale - s * scale ) );
+    vec4 sd = -12.0 * scale + s * ( 24.0 * scale - s * 12.0 * scale );
+    vec4 ds[3];
+    for ( int r = 0; r < 3; ++r )
+        ds[r] = sd * vec4( fv[0][r], fv[1][r], fv[2][r], fv[3][r] );
+
+    for ( int c = 0; c < 3; ++c )
+    {
+        const vec3 blended = sv.x * gvec[c][0] + sv.y * gvec[c][1] + sv.z * gvec[c][2] + sv.w * gvec[c][3];
+        J[c] = vec4( blended + vec3( dot( ds[0], grad[c] ), dot( ds[1], grad[c] ), dot( ds[2], grad[c] ) ),
+                     dot( sv, grad[c] ) );
+    }
+}
+
+// The curl of the vector simplex noise at @p v — a divergence-free field (UE NiagaraStatelessNoiseLUT.cpp:26:
+// (J12 - J21, J20 - J02, J01 - J10)).
+vec3 VFX_CurlNoise( vec3 v )
+{
+    vec4 J[3];
+    VFX_JacobianSimplex( v, J );
+    return vec3( J[1].z - J[2].y, J[2].x - J[0].z, J[0].y - J[1].x );
+}
+
+#endif

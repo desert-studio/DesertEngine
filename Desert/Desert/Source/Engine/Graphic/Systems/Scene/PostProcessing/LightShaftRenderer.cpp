@@ -97,7 +97,7 @@ namespace Desert::Graphic::System
         if ( !m_MaskPipeline )
             return; // RecordMask refuses by name
         pass.Bindings( m_MaskLayout.Get( m_MaskPipeline->GetSpecification().Shader ),
-                       Renderer::GetInstance().GetPipelineRouteFill( *m_MaskPipeline ) )
+                       Renderer::GetPipelineRouteFill( *m_MaskPipeline ) )
              .Sampled( "u_SceneColor", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Mask", mask, RDG::Access::StorageWrite, 0 )
@@ -124,7 +124,7 @@ namespace Desert::Graphic::System
         if ( !m_BlurPipeline )
             return; // RecordBlur refuses by name
         pass.Bindings( m_BlurLayout.Get( m_BlurPipeline->GetSpecification().Shader ),
-                       Renderer::GetInstance().GetPipelineRouteFill( *m_BlurPipeline ) )
+                       Renderer::GetPipelineRouteFill( *m_BlurPipeline ) )
              .Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Output", target, RDG::Access::StorageWrite, 0 )

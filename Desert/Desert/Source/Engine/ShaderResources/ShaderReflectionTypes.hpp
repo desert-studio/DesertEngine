@@ -103,6 +103,6 @@ namespace Desert::ShaderResources::ShaderLayout
     // check exists. Shader reflection refuses a stage that declares more (ShaderReflection::ReflectStage),
     // which covers shipped, shader-graph and user shaders alike; the ShaderCacheKey census pins every
     // shipped program under it.
-    inline constexpr uint32_t kMaxPushBlockBytes = 128u;
+    inline constexpr uint32_t kMaxPushConstantBytes = 128u;
 
 } // namespace Desert::ShaderResources::ShaderLayout

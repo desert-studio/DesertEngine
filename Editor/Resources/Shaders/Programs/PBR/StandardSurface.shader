@@ -51,6 +51,7 @@ Shader "StandardSurface"
         "fbx.Roughness"                 -> RoughnessFactor
         "fbx.Roughness"                 -> u_ORMTexture.g
         "fbx.AmbientOcclusion"          -> u_ORMTexture.r
+        "fbx.OcclusionRoughnessMetallic" -> u_ORMTexture.rgb
         "fbx.alphaCutoff"               -> AlphaCutoff
     }
 

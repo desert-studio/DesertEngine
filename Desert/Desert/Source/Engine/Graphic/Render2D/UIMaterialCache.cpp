@@ -267,7 +267,7 @@ namespace Desert::Graphic::Render2D
                                                             std::string&               refusal ) const
     {
         auto* materialService = Runtime::ResourceRegistry::GetMaterialService();
-        if ( !materialService )
+        if ( materialService == nullptr )
         {
             refusal = "no material service";
             return Entry{};
@@ -317,7 +317,7 @@ namespace Desert::Graphic::Render2D
             }
         }
 
-        built.AssetName     = materialService->AssetNameOf( handle );
+        built.AssetName = materialService->AssetNameOf( handle );
         if ( built.AssetName.empty() )
             built.AssetName = std::format( "<material {}>", static_cast<uint64_t>( handle ) );
         return built;
@@ -344,7 +344,7 @@ namespace Desert::Graphic::Render2D
         // shared by every element pointing at the same asset. `SetMaterialIndex` writes that index at
         // Core::Formats::kMaterialIndexPushOffset (64), the same offset the mesh path writes it at. 64 bytes of
         // projection at offset 0 + 4 of row index at 64 = 68 of the 128 available (Common/UIVertex.glslh).
-        if ( rowBuffer )
+        if ( rowBuffer != nullptr )
             rowBuffer->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
         material.SetPushMatrix( projection );
         material.SetMaterialIndex( 0 );
@@ -357,7 +357,7 @@ namespace Desert::Graphic::Render2D
     const UIMaterialCache::Entry* UIMaterialCache::DrawableOrDefault( const Entry*     entry,
                                                                       const glm::mat4& projection )
     {
-        if ( !entry || !entry->Material )
+        if ( entry == nullptr || !entry->Material )
         {
             return nullptr;
         }
@@ -365,7 +365,7 @@ namespace Desert::Graphic::Render2D
         // real entries: PrepareDraw judges each candidate, the error fill is the default, the log is the engine's.
         return m_Fallback.Choose(
              *entry, [this]() { return ErrorEntry(); },
-             [this, &projection]( const Entry& candidate ) { return PrepareDraw( candidate, projection ); },
+             [&projection]( const Entry& candidate ) { return PrepareDraw( candidate, projection ); },
              []( const Entry& candidate ) { return candidate.Material->GetShaderName(); },
              []( const std::string& line ) { LOG_ERROR( "{}", line ); }, kErrorShaderName );
     }

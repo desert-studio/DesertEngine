@@ -1121,7 +1121,7 @@ TEST( UIMaterialFallback, OneBrokenMaterialAmongSeveralThroughThePreparedPath )
                                    *entry, [&]() { return &error; }, prepare,
                                    []( const Entry& e ) { return e.Shader; },
                                    [&]( const std::string& line ) { logs.push_back( line ); }, "UIMatError" );
-                              if ( !chosen )
+                              if ( chosen == nullptr )
                               {
                                   return std::nullopt;
                               }
@@ -1189,7 +1189,7 @@ TEST( UIMaterialFallback, AShaderReloadRebuildsTheMaterialInsteadOfFallingBack )
     EXPECT_EQ( draw(), &material );
 
     // The shader reloads with one more parameter.
-    layout.push_back( "Glow" );
+    layout.emplace_back( "Glow" );
     ++generation;
     EXPECT_TRUE( UIMaterialFallback::RebuildIfReloaded( material, generation, rebuild ) )
          << "a bumped reload generation rebuilds the entry";
@@ -1202,7 +1202,7 @@ TEST( UIMaterialFallback, AShaderReloadRebuildsTheMaterialInsteadOfFallingBack )
 
     // A rebuild that fails is tried once per reload, not every frame.
     ++generation;
-    layout.push_back( "Edge" );
+    layout.emplace_back( "Edge" );
     const auto failing = [&]( Entry& )
     {
         ++rebuilds;

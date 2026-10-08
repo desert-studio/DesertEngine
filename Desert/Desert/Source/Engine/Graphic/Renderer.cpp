@@ -150,12 +150,12 @@ namespace Desert::Graphic
         s_RendererAPI->SubmitLines( pipeline, vertexCount, lineWidth, materialExecutor );
     }
 
-    RDG::ShaderBindingLayout Renderer::GetBindingLayout( const Shader& shader ) const
+    RDG::ShaderBindingLayout Renderer::GetBindingLayout( const Shader& shader )
     {
         return s_RendererAPI->GetBindingLayout( shader );
     }
 
-    RDG::OtherRouteFill Renderer::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
+    RDG::OtherRouteFill Renderer::GetPipelineRouteFill( const ComputePipeline& pipeline )
     {
         return s_RendererAPI->GetPipelineRouteFill( pipeline );
     }

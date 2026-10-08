@@ -65,7 +65,7 @@ namespace Desert::Graphic::System
             // The per-draw material state the draw records with (transform push constant, material row, bone
             // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
             // order as before the split. Empty: the draw has none.
-            std::function<void()> BindState;
+            std::function<void()> BindState{};
         };
 
         // THE frame's draw list of one lit mesh node. The material (hence shader and route fill) of every draw is
@@ -97,9 +97,11 @@ namespace Desert::Graphic::System
             // scene/view inputs bound for every executor whose shader has slots for them (none: nothing bound).
             void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const;
             // @p perBlock adds the node's own pass parameters to EVERY block after the scene/view inputs (the
-            // translucency node's scene snapshot): a node whose cells are several shaders binds them once each.
+            // translucency node's scene snapshot), handed the block's layout so it binds only the slots that
+            // shader has: a node whose cells are several shaders binds them once each.
             void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
-                          const std::function<void( RDG::BindingBlockBuilder& )>& perBlock ) const;
+                          const std::function<void( RDG::BindingBlockBuilder&, const RDG::ShaderBindingLayout& )>&
+                               perBlock ) const;
             void Declare( RenderPassDeclaration& declared, const std::optional<SceneViewInputs>& view ) const;
 
             [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
@@ -311,7 +313,7 @@ namespace Desert::Graphic::System
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks (the
         // G-buffer shaders sample no scene/view input). The exec records that list.
-        void DeclareGBufferDraws( RDG::PassBuilder& pass );
+        void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
@@ -608,8 +610,8 @@ namespace Desert::Graphic::System
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
-        MeshRendererDetail::MeshDrawList m_GlassDraws; // "Deferred: Glass" (block 0 = the glass executor's)
-        MeshRendererDetail::MeshDrawList m_RSMDraws;   // "Deferred: RSM"
+        MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
+        MeshRendererDetail::MeshDrawList m_RSMDraws;        // "Deferred: RSM"
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 
@@ -841,6 +843,34 @@ namespace Desert::Graphic::System
         MaterialPipelineTracker             m_MaterialPipelines;
         size_t                              m_MaterialRequestCursor = 0;
         std::unique_ptr<DataDrivenMaterial> m_DefaultSurfaceMaterial;
+
+        // AL1-12 INSIDE THE GRAPH (RDG-PSO). A graph pass records only pipelines it can bind: binding a content
+        // cell's pipeline still in the driver fails the pass, and a failed pass drops the WHOLE frame graph. So
+        // every mesh pass asks this before it records a content cell through @p passState: Own when the cell's
+        // pipeline (with its cull permutation) is Ready; DefaultSurface when @p standIn — the pass's default
+        // surface — is Ready to draw it instead; Nothing while neither is (before the reveal). The stand-in is
+        // announced once per cell per state (LOG_INFO), as DrawGenericMeshes does.
+        [[nodiscard]] MaterialPipelineTracker::CellDraw ChooseCellDraw( GraphicsPipeline*         passState,
+                                                                        const DataDrivenMaterial& cell,
+                                                                        bool                      twoSided,
+                                                                        const GraphicsPipeline*   standIn );
+        // The same choice for a pipeline the caller already holds (the glass pass's per-cell pipelines); @p key
+        // names it in the tracker and the log.
+        [[nodiscard]] MaterialPipelineTracker::CellDraw
+        ChoosePipelineDraw( const GraphicsPipeline* own, const std::string& key, const GraphicsPipeline* standIn );
+        // The default surface's cell of (@p path x @p pass) as a RECORDING material of its own: its Materials[]
+        // rows, per-frame blocks and (skinned) bones are written once per pass by the objects standing in, never
+        // shared with the renderer's spare materials, whose buffers other groups fill in the same pass.
+        struct StandInCell
+        {
+            std::shared_ptr<DataDrivenMaterial> Material;
+            MaterialInstancePtr                 Instance;
+        };
+        StandInCell*                              StandIn( MeshVertexPath path, MeshPass pass );
+        std::unordered_map<uint32_t, StandInCell> m_StandIns; // key: path * 16 + pass; Material null = refused
+        // The glass pass's stand-in: the default surface's (Static x Forward) cell with the translucent draw
+        // state.
+        TranslucentDraw* TranslucentStandIn();
 
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).

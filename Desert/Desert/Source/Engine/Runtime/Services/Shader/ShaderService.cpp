@@ -33,6 +33,15 @@ namespace
             return {};
         return { std::move( parsed.GetValue().Meta.MediumSource ), std::move( parsed.GetValue().Meta.Params ) };
     }
+
+    bool IsParticleFragment( const std::string& source )
+    {
+        if ( source.empty() || !Desert::Core::Preprocess::DShaderParser::MayDeclareParticle( source ) ||
+             !Desert::Core::Preprocess::DShaderParser::IsDShader( source ) )
+            return false;
+        const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( source );
+        return parsed.IsSuccess() && !parsed.GetValue().Meta.ParticleSource.empty();
+    }
 } // namespace
 
 namespace Desert::Runtime
@@ -57,6 +66,19 @@ namespace Desert::Runtime
         // was empty, and an empty asset is not DSL text. Holding the ASSET instead would have fought the
         // sweep for the sake of a few kilobytes of text; holding the text is bounded, immune to the
         // sweep, and re-read by RefreshMediumSource when the file on disk changes.
+        // A PARTICLE FRAGMENT IS SOURCE TOO (VFX-04): a stack module or a compiled emitter stack, read by the
+        // stack compiler and compiled into the simulation program. Registered by name so it can be found,
+        // never built as a program — the "no compiled stages" complaint below would be a lie about it.
+        if ( IsParticleFragment( shaderAsset->GetShaderContent() ) )
+        {
+            const auto name         = shaderAsset->GetMetadata().Filepath.stem().string();
+            m_NameToHandleMap[name] = shaderAsset->GetMetadata().Handle;
+            LOG_INFO( "[ShaderService] '{}' is a Particle fragment; it compiles into the particle simulation "
+                      "rather than into a program of its own.",
+                      name );
+            return BOOLSUCCESS;
+        }
+
         if ( ParsedMedium medium = MediumOf( shaderAsset->GetShaderContent() ); !medium.Body.empty() )
         {
             const auto name         = shaderAsset->GetMetadata().Filepath.stem().string();

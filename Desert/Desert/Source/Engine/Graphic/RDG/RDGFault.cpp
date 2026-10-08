@@ -66,7 +66,7 @@ namespace Desert::Graphic::RDG
 
     ClearValue FaultDefaults::GetClear( FaultDefault value )
     {
-        ClearValue clear;
+        ClearValue  clear;
         const float level = value == FaultDefault::White ? 1.0f : 0.0f;
         clear.Color       = { level, level, level, 1.0f };
         return clear;
@@ -118,8 +118,10 @@ namespace Desert::Graphic::RDG
         {
             const bool rooted =
                  fault.Stage == PassFaultStage::Dependency && fault.RootPass &&
-                 std::any_of( report.Faults.begin(), report.Faults.end(), [&]( const PassFault& root )
-                              { return root.Pass == *fault.RootPass && root.Stage != PassFaultStage::Dependency; } );
+                 std::any_of( report.Faults.begin(), report.Faults.end(),
+                              [&]( const PassFault& root ) {
+                                  return root.Pass == *fault.RootPass && root.Stage != PassFaultStage::Dependency;
+                              } );
             if ( rooted )
                 continue; // said in its root's line
             std::string names;
@@ -144,8 +146,8 @@ namespace Desert::Graphic::RDG
                 ++it;
                 continue;
             }
-            const bool added = key.second == kFramePass ||
-                               std::find( addedPasses.begin(), addedPasses.end(), key.second ) != addedPasses.end();
+            const bool added = key.second == kFramePass || std::find( addedPasses.begin(), addedPasses.end(),
+                                                                      key.second ) != addedPasses.end();
             emit( Severity::Recovered, added ? std::format( kRecoveredFormat, graph, key.second )
                                              : std::format( kRemovedFormat, graph, key.second ) );
             it = m_Active.erase( it );

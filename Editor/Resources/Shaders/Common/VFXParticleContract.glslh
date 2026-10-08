@@ -1,0 +1,117 @@
+// THE CONTRACT BETWEEN A COMPILED EMITTER STACK AND THE SIMULATION PROGRAM THAT HOSTS IT (VFX-04).
+//
+// Engine/VFX/VFXStackCompiler.cpp turns an emitter's module stack into a `Domain Particle` fragment that
+// includes this file and defines `void VFX_SimulateParticle( uint particle, inout VFXSim sim )`. The HOST
+// program (the simulation compute pass) defines the six storage functions declared below — where the
+// attribute pool and the parameter buffer live is the host's business, not the stack's:
+//
+//   VFX_Param( slot )                 the emitter's parameter buffer row `slot` (module input values;
+//                                     the VALUE of an input is never in the fragment's text, so a slider
+//                                     does not rebuild SPIR-V)
+//   VFX_ReadFloat / VFX_ReadInt       component `component` of the float / int32 class of `particle`,
+//   VFX_WriteFloat / VFX_WriteInt     at the offsets the compiler's attribute layout assigned (port of UE
+//                                     FNiagaraDataSetCompiledData::BuildLayout, SoA by component class)
+//   VFX_CurveLUT( index )             float `index` of the SYSTEM's curve atlas (VFX-05, Engine/VFX/VFXCurveLUT;
+//                                     UE's StaticInputFloat): every Curve input's baked table at its offset
+
+#ifndef VFX_PARTICLE_CONTRACT_GLSLH
+#define VFX_PARTICLE_CONTRACT_GLSLH
+
+#include <Common/VFXNoise.glslh>
+#include <Common/VFXRandom.glslh>
+
+// The per-particle simulation state the host hands in. Seed, ParticleId and Step key the random stream
+// (plan 02 §3.3-6): a random value is a function of these and of the input slot, never of time or thread
+// order. Spawned = this step created the particle (its attributes start at zero and the spawn group runs);
+// a module sets Kill to retire it.
+struct VFXSim
+{
+    float DeltaTime;
+    float EmitterAge;
+    uint  Seed;
+    uint  ParticleId;
+    uint  Step;
+    bool  Spawned;
+    bool  Kill;
+};
+
+vec4  VFX_Param( uint slot );
+float VFX_ReadFloat( uint particle, uint component );
+int   VFX_ReadInt( uint particle, uint component );
+void  VFX_WriteFloat( uint particle, uint component, float value );
+void  VFX_WriteInt( uint particle, uint component, int value );
+float VFX_CurveLUT( uint index );
+
+// Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
+vec4 VFX_Random( in VFXSim sim, uint slot )
+{
+    return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, sim.Step, slot ) );
+}
+
+// Four uniform numbers in [0, 1) for a module's OWN draw @p n (0..15) — a shape's point, a cone's direction (UE
+// stateless RandomFloat4(RandomSeedOffset)). @p moduleKey is the module call's `i.VFXModuleKey`, which the
+// compiler sets to the call's place in the stack with the top bit up, so it never meets an input's slot key and
+// two calls of one module draw different numbers.
+vec4 VFX_ModuleRandom( in VFXSim sim, uint moduleKey, uint n )
+{
+    return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, sim.Step, moduleKey + n ) );
+}
+
+// Four uniform numbers in [0, 1) that stay the same from step to step while @p epoch does — a draw made once per
+// particle (epoch 0: a SubUV start frame) or once per interval of its life (epoch = age / interval: UE SubUV Random
+// mode's RandomFloat(Age * InitialFrameRateChange)). The epoch lane carries the top bit, so it never meets a step
+// number of VFX_ModuleRandom.
+vec4 VFX_ModuleRandomStable( in VFXSim sim, uint moduleKey, uint n, uint epoch )
+{
+    return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, 0x80000000u | epoch, moduleKey + n ) );
+}
+
+// A uniformly distributed unit vector from a module draw (UE RandomUnitFloat3: SafeNormalize(Random - 0.5));
+// the degenerate centre of the cube falls back to +Z.
+vec3 VFX_RandomUnitVector( vec4 r )
+{
+    const vec3  v = r.xyz - 0.5;
+    const float l = length( v );
+    return l > 1e-6 ? v / l : vec3( 0.0, 0.0, 1.0 );
+}
+
+// The rotation that takes +Z to the unit vector @p axis, applied to @p v (UE's cone quaternion, built here from
+// the axis so the stack row stays a plain direction).
+vec3 VFX_RotateZTo( vec3 axis, vec3 v )
+{
+    const float l = length( axis );
+    const vec3  z = l > 1e-6 ? axis / l : vec3( 0.0, 0.0, 1.0 );
+    const float c = z.z;
+    if ( c < -0.999999 )
+        return vec3( v.x, -v.y, -v.z ); // half turn about +X
+    const vec3  k = vec3( -z.y, z.x, 0.0 ); // +Z x z
+    return v * c + cross( k, v ) + k * ( dot( k, v ) / ( 1.0 + c ) );
+}
+
+// The time axis of a particle-group curve. A particle with no lifetime is at the end of its life.
+float VFX_NormalizedAge( float age, float lifetime )
+{
+    return lifetime > 0.0 ? age / lifetime : 1.0;
+}
+
+// The curve input whose parameter row is @p slot — (MinTime, InvTimeRange, Offset, Samples - 1) — at @p time,
+// @p channels components (port of UE NiagaraDataInterfaceCurveTemplate.ush GetCurveLUTIndices + the sample
+// lerp). The normalised time is saturated, so time outside the keys reads the end values. The CPU twin is
+// Desert::VFX::SampleCurveLUT; the two must agree.
+vec4 VFX_CurveSample( uint slot, float time, uint channels )
+{
+    vec4  row  = VFX_Param( slot );
+    float last = row.w;
+    float x    = clamp( ( time - row.x ) * row.y, 0.0, 1.0 ) * last;
+    float a    = floor( x );
+    float b    = min( a + 1.0, last );
+    float f    = x - a;
+    uint  ia   = uint( row.z ) + uint( a ) * channels;
+    uint  ib   = uint( row.z ) + uint( b ) * channels;
+    vec4  v    = vec4( 0.0 );
+    for ( uint c = 0u; c < channels; ++c )
+        v[c] = mix( VFX_CurveLUT( ia + c ), VFX_CurveLUT( ib + c ), f );
+    return v;
+}
+
+#endif

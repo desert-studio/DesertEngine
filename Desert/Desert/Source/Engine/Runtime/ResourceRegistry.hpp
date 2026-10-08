@@ -20,6 +20,7 @@
 #include "Services/UITheme/UIThemeService.hpp"
 #include "Services/Landscape/LandscapeLayerInfoService.hpp"
 #include "Services/Foliage/FoliageTypeService.hpp"
+#include "Services/Destruction/FractureService.hpp"
 
 namespace Desert::Runtime
 {
@@ -61,6 +62,9 @@ namespace Desert::Runtime
         // The `.defoliage` types foliage fields name (FO-5): read on demand, held as the assets themselves, so
         // the renderer's cull distance follows a paint-panel edit. Owns nothing on the GPU.
         static FoliageTypeService* GetFoliageTypeService();
+
+        // The `.dfrac` fractures destructible entities name (DST-03b): read on demand, held as the assets.
+        static FractureService* GetFractureService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,

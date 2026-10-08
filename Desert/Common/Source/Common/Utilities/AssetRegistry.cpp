@@ -13,13 +13,14 @@
 #include <bit>
 #include <charconv>
 #include <cmath>
+#include <format>
 
 namespace Common::Utils
 {
     namespace
     {
-        constexpr std::string_view kMagic         = "DesertAssetRegistry";
-        constexpr int              kFormatVersion = 7;
+        constexpr std::string_view kRegistryMagic         = "DesertAssetRegistry";
+        constexpr int              kRegistryFormatVersion = 7;
         // The file's name under the Cooked tree. One spelling, here, because both the producer (the
         // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
         // literal is how they would come to name two.
@@ -612,9 +613,9 @@ namespace Common::Utils
     {
         std::string out;
         out.reserve( m_Entries.size() * 96 + 32 );
-        out += kMagic;
+        out += kRegistryMagic;
         out += ' ';
-        out += std::to_string( kFormatVersion );
+        out += std::to_string( kRegistryFormatVersion );
         out += '\n';
         for ( const AssetRegistryEntry& entry : m_Entries )
         {
@@ -684,10 +685,10 @@ namespace Common::Utils
         // ONE FORM IS READ: the one this build writes. An older form lacks columns (the tags, before 4) that
         // its rows would then silently serve as empty — a picker listing file stems for names the files state.
         // A registry is derived state; the answer to an old one is the gather that rewrites it.
-        const std::string expected = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
+        const std::string expected = std::format( "{} {}", kRegistryMagic, kRegistryFormatVersion );
         if ( header != expected )
         {
-            if ( header.starts_with( kMagic ) )
+            if ( header.starts_with( kRegistryMagic ) )
                 return MakeFormattedError<AssetRegistry>(
                      R"(an asset registry of another form: line 1 is "{}", this build reads only "{}" — )"
                      "gather it again (restart the editor, or package again)",

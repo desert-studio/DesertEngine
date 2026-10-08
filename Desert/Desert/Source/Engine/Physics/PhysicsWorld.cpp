@@ -10,6 +10,9 @@
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/EstimateCollisionResponse.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -29,6 +32,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <format>
+#include <mutex>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
@@ -257,6 +261,76 @@ namespace Desert::Physics
                                   points.size(), indices.size() / 3u, result.GetError() ) );
             return Common::MakeSuccess( JPH::ShapeRefC( result.Get() ) );
         }
+
+        // Body user-data bit: the body's contacts are measured (CompoundBodyDesc::ReportContactImpulses).
+        constexpr JPH::uint64 kReportImpulsesBit = 1u;
+
+        // Velocity iterations of the impulse estimate: Jolt's own default for EstimateCollisionResponse.
+        constexpr JPH::uint kImpulseEstimateIterations = 10u;
+
+        uint32_t PartOf( const JPH::Body& body, const JPH::SubShapeID& id )
+        {
+            const JPH::Shape* shape = body.GetShape();
+            if ( shape->GetType() != JPH::EShapeType::Compound )
+                return 0u;
+            JPH::SubShapeID remainder;
+            return JPH::StaticCast<JPH::CompoundShape>( shape )->GetSubShapeIndexFromID( id, remainder );
+        }
+
+        // Jolt keeps a contact's solved impulse to itself (ContactConstraintManager), so the impulse is
+        // ESTIMATED from the manifold the moment the contact is made or kept, before the solve — Jolt's own
+        // tool for "how hard was this hit" (EstimateCollisionResponse.h). Called on Jolt's worker threads.
+        class ImpulseListener final : public JPH::ContactListener
+        {
+        public:
+            JPH::PhysicsSystem*         System = nullptr;
+            std::mutex                  Mutex;
+            std::vector<ContactImpulse> Contacts;
+
+            void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
+                                 const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
+            {
+                Record( body1, body2, manifold, settings );
+            }
+            void OnContactPersisted( const JPH::Body& body1, const JPH::Body& body2,
+                                     const JPH::ContactManifold& manifold,
+                                     JPH::ContactSettings&       settings ) override
+            {
+                Record( body1, body2, manifold, settings );
+            }
+
+        private:
+            void Record( const JPH::Body& body1, const JPH::Body& body2, const JPH::ContactManifold& manifold,
+                         const JPH::ContactSettings& settings )
+            {
+                if ( ( ( body1.GetUserData() | body2.GetUserData() ) & kReportImpulsesBit ) == 0u ||
+                     manifold.mRelativeContactPointsOn1.empty() )
+                    return;
+
+                JPH::CollisionEstimationResult estimate;
+                JPH::EstimateCollisionResponse(
+                     body1, body2, manifold, estimate, settings.mCombinedFriction, settings.mCombinedRestitution,
+                     System->GetPhysicsSettings().mMinVelocityForRestitution, kImpulseEstimateIterations );
+
+                ContactImpulse contact;
+                contact.Body1  = body1.GetID().GetIndexAndSequenceNumber();
+                contact.Body2  = body2.GetID().GetIndexAndSequenceNumber();
+                contact.Part1  = PartOf( body1, manifold.mSubShapeID1 );
+                contact.Part2  = PartOf( body2, manifold.mSubShapeID2 );
+                contact.Normal = glm::vec3( manifold.mWorldSpaceNormal.GetX(), manifold.mWorldSpaceNormal.GetY(),
+                                            manifold.mWorldSpaceNormal.GetZ() );
+                glm::vec3 point( 0.0f );
+                for ( JPH::uint i = 0; i < manifold.mRelativeContactPointsOn1.size(); ++i )
+                {
+                    point += ToGlm( manifold.GetWorldSpaceContactPointOn1( i ) );
+                    contact.Impulse += estimate.mContactImpulse[i];
+                }
+                contact.Point = point / static_cast<float>( manifold.mRelativeContactPointsOn1.size() );
+
+                const std::lock_guard lock( Mutex );
+                Contacts.push_back( contact );
+            }
+        };
     } // namespace
 
     struct PhysicsWorld::Impl
@@ -279,6 +353,10 @@ namespace Desert::Physics
 
         // Character controllers (CharacterVirtual). Handle = index into this vector (nulled on remove).
         std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
+
+        ImpulseListener              Impulses;
+        std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
+        std::function<void( float )> StepCallback;
     };
 
     PhysicsWorld::PhysicsWorld()  = default;
@@ -313,7 +391,9 @@ namespace Desert::Physics
                              m_Impl->BroadPhaseLayerInterface, m_Impl->ObjectVsBroadPhaseFilter,
                              m_Impl->ObjectLayerPairFilter );
         SetGravity( gravityCmPerS2 );
-        m_Impl->Bodies = &m_Impl->System.GetBodyInterface();
+        m_Impl->Bodies          = &m_Impl->System.GetBodyInterface();
+        m_Impl->Impulses.System = &m_Impl->System;
+        m_Impl->System.SetContactListener( &m_Impl->Impulses );
         return true;
     }
 
@@ -353,9 +433,102 @@ namespace Desert::Physics
         m_Accumulator          = std::min( m_Accumulator + dt, 0.25f );
         while ( m_Accumulator >= kFixed )
         {
+            m_Impl->Impulses.Contacts.clear();
             m_Impl->System.Update( kFixed, 1, m_Impl->TempAllocator.get(), m_Impl->JobSystem.get() );
             m_Accumulator -= kFixed;
+            m_Impl->StepContacts.swap( m_Impl->Impulses.Contacts );
+            if ( m_Impl->StepCallback )
+                m_Impl->StepCallback( kFixed );
         }
+    }
+
+    void PhysicsWorld::SetStepCallback( std::function<void( float )> callback )
+    {
+        if ( m_Impl )
+            m_Impl->StepCallback = std::move( callback );
+    }
+
+    std::span<const ContactImpulse> PhysicsWorld::GetStepContactImpulses() const
+    {
+        if ( !m_Impl )
+            return {};
+        return m_Impl->StepContacts;
+    }
+
+    Common::ResultStr<BodyHandle> PhysicsWorld::CreateCompoundBody( const CompoundBodyDesc& desc )
+    {
+        if ( !m_Impl )
+            return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
+        if ( desc.Parts.empty() )
+            return Common::MakeError<BodyHandle>( "a compound body needs at least one part" );
+
+        JPH::StaticCompoundShapeSettings compound;
+        for ( size_t i = 0; i < desc.Parts.size(); ++i )
+        {
+            const std::span<const glm::vec3> points = desc.Parts[i];
+            if ( points.empty() )
+                return Common::MakeError<BodyHandle>( std::format( "compound part {} has no points", i ) );
+            BodyDesc part;
+            part.Shape         = ShapeType::ConvexHull;
+            part.MeshPoints    = points;
+            const uint64_t key = CookKey( part );
+            JPH::ShapeRefC shape;
+            if ( const auto cached = m_Impl->CookedShapes.find( key ); cached != m_Impl->CookedShapes.end() )
+                shape = cached->second;
+            else
+            {
+                auto cooked = CookConvexHull( points );
+                if ( !cooked.IsSuccess() )
+                    return Common::MakeError<BodyHandle>(
+                         std::format( "compound part {}: {}", i, cooked.GetError() ) );
+                shape = cooked.GetValue();
+                m_Impl->CookedShapes.emplace( key, shape );
+            }
+            compound.AddShape( JPH::Vec3::sZero(), JPH::Quat::sIdentity(), shape );
+        }
+        // One part: Jolt hands back that part itself (StaticCompoundShapeSettings::Create), reported as Part 0.
+        const JPH::ShapeSettings::ShapeResult result = compound.Create();
+        if ( result.HasError() )
+            return Common::MakeError<BodyHandle>( std::format( "Jolt refused the compound of {} parts: {}",
+                                                               desc.Parts.size(), result.GetError() ) );
+
+        const auto motion = [&desc]
+        {
+            if ( desc.Type == BodyType::Dynamic )
+                return JPH::EMotionType::Dynamic;
+            if ( desc.Type == BodyType::Kinematic )
+                return JPH::EMotionType::Kinematic;
+            return JPH::EMotionType::Static;
+        }();
+        const JPH::ObjectLayer    layer = desc.Type == BodyType::Static ? Layers::NON_MOVING : Layers::MOVING;
+        JPH::BodyCreationSettings settings( result.Get(),
+                                            JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
+                                            ToJolt( desc.Rotation ), motion, layer );
+        settings.mFriction    = desc.Friction;
+        settings.mRestitution = desc.Restitution;
+        if ( desc.Type == BodyType::Dynamic )
+        {
+            settings.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
+            settings.mMassPropertiesOverride.mMass = desc.Mass;
+            settings.mLinearVelocity               = ToJolt( desc.LinearVelocity );
+            settings.mAngularVelocity              = ToJolt( desc.AngularVelocity );
+        }
+        if ( desc.ReportContactImpulses )
+        {
+            settings.mUserData = kReportImpulsesBit;
+            // Coplanar manifolds of different parts would be merged into one and keep one part's ID
+            // (Body::SetUseManifoldReduction): every part's contact must name its own part.
+            settings.mUseManifoldReduction = false;
+        }
+
+        const JPH::EActivation activation =
+             desc.Type == BodyType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
+        const JPH::BodyID id = m_Impl->Bodies->CreateAndAddBody( settings, activation );
+        if ( id.IsInvalid() )
+            return Common::MakeError<BodyHandle>(
+                 std::format( "Jolt refused the compound body: {} bodies exist, the world's limit is reached",
+                              GetBodyCount() ) );
+        return Common::MakeSuccess( static_cast<BodyHandle>( id.GetIndexAndSequenceNumber() ) );
     }
 
     Common::ResultStr<BodyHandle> PhysicsWorld::CreateBody( const BodyDesc& desc )
@@ -615,6 +788,42 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return;
         m_Impl->Bodies->SetLinearVelocity( JPH::BodyID( handle ), ToJolt( velocity ) );
+    }
+
+    void PhysicsWorld::AddImpulse( BodyHandle handle, const glm::vec3& impulse )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        m_Impl->Bodies->AddImpulse( JPH::BodyID( handle ), ToJolt( impulse ) );
+    }
+
+    glm::vec3 PhysicsWorld::GetLinearVelocity( BodyHandle handle ) const
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return glm::vec3( 0.0f );
+        return ToGlm( JPH::RVec3( m_Impl->Bodies->GetLinearVelocity( JPH::BodyID( handle ) ) ) );
+    }
+
+    glm::vec3 PhysicsWorld::GetAngularVelocity( BodyHandle handle ) const
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return glm::vec3( 0.0f );
+        return ToGlm( JPH::RVec3( m_Impl->Bodies->GetAngularVelocity( JPH::BodyID( handle ) ) ) );
+    }
+
+    glm::vec3 PhysicsWorld::GetPointVelocity( BodyHandle handle, const glm::vec3& point ) const
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return glm::vec3( 0.0f );
+        return ToGlm( JPH::RVec3( m_Impl->Bodies->GetPointVelocity( JPH::BodyID( handle ),
+                                                                    JPH::RVec3( point.x, point.y, point.z ) ) ) );
+    }
+
+    bool PhysicsWorld::IsActive( BodyHandle handle ) const
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return false;
+        return m_Impl->Bodies->IsActive( JPH::BodyID( handle ) );
     }
 
     uint32_t PhysicsWorld::GetBodyCount() const

@@ -20,14 +20,10 @@
 namespace Desert::Graphic::API::Vulkan
 {
     VulkanMaterialBackend::VulkanMaterialBackend( const std::shared_ptr<Shader>& shader )
-         : MaterialBackend( shader ), m_VulkanShader( SP_CAST( VulkanShader, shader ) )
+         : MaterialBackend( shader ), m_VulkanShader( SP_CAST( VulkanShader, shader ) ),
+           m_Layouts( m_VulkanShader->GetAllDescriptorSetLayouts() ),
+           m_ShaderGeneration( m_VulkanShader->GetCodeGeneration() )
     {
-        // Captured ONCE, and kept. Every set this backend allocates below belongs to these layouts for
-        // as long as the backend lives, so a recompile of the shader cannot leave the sets pointing at
-        // a contract that no longer exists — see VulkanDescriptorSetLayout.hpp.
-        m_Layouts          = m_VulkanShader->GetAllDescriptorSetLayouts();
-        m_ShaderGeneration = m_VulkanShader->GetCodeGeneration();
-
         // A SHADER WITH NO LAYOUTS HAS NOTHING TO ALLOCATE FOR, AND ASKING ANYWAY IS TWENTY VALIDATION
         // ERRORS. That is what a shader whose first compile failed carries: no stages, so no reflection,
         // so no set layouts — and allocating anyway once made a pool with `maxSets = 0` and ten
@@ -265,8 +261,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( storageProp == nullptr )
             return;
         // A storage buffer nothing ever wrote is not the material's slot (MaterialExecutor::GetRouteFill leaves it
-        // to the pass, e.g. the Composite's uploaded light buffers): writing a lazy copy's descriptor here would put
-        // the binding in GetWrittenSlots and the record would refuse it as filled by both routes.
+        // to the pass, e.g. the Composite's uploaded light buffers): writing a lazy copy's descriptor here would
+        // put the binding in GetWrittenSlots and the record would refuse it as filled by both routes.
         if ( !storageProp->IsWritten() )
             return;
 

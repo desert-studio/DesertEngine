@@ -38,6 +38,8 @@
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
+#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
@@ -2510,7 +2512,8 @@ namespace Desert::ECS
     // queued it, so the one action documented as a "gameplay event name" was the one that arrived nowhere.
     //
     // What a UI Button does when clicked. The target/payload is the button's "Action Target" string:
-    //  LoadScene   -> load that scene path        SendEvent   -> gameplay event name (Lua/scripts)
+    //  LoadScene   -> Core::OpenLevel(target): project-relative scene path, empty = the default map
+    //  SendEvent   -> gameplay event name (Lua/scripts)
     //  QuitGame    -> quit (target ignored)        OpenURL     -> open the URL
     enum class UIButtonAction
     {

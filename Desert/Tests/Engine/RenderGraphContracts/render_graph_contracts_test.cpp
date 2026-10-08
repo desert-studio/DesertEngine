@@ -324,8 +324,15 @@ namespace
         graph.AddPass(
              "Raster", PassFlags::Raster | PassFlags::AsyncCompute | PassFlags::NeverCull,
              [&]( PassBuilder& p ) { p.ColorTarget( 0, target, LoadOp::DontCare() ); }, Ok );
+        // RDG-FAULT1: a malformed pass faults itself at declaration and the graph compiles without it.
         auto compiled = graph.Compile( kEstimate, PipeCapabilities{ true } );
-        EXPECT_FALSE( compiled.IsSuccess() );
+        ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+        const CompileResult& result = compiled.GetValue();
+        ASSERT_EQ( result.Faults.size(), 1u );
+        EXPECT_EQ( result.Faults[0].Stage, PassFaultStage::Declaration );
+        EXPECT_EQ( result.Faults[0].PassName, "Raster" );
+        EXPECT_NE( result.Faults[0].Reason.find( "declares AsyncCompute without Compute" ), std::string::npos )
+             << result.Faults[0].Reason;
     }
 
     const QueueOwnershipTransfer* FindTransfer( const CompileResult& result, uint32_t resource )

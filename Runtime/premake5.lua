@@ -57,6 +57,7 @@ project "Runtime"
         "GLFW",
         "Optick",
         "MeshOptimizer",
+        "Voro",
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",
     }

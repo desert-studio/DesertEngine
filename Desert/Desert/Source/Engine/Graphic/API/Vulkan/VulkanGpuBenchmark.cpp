@@ -8,8 +8,10 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <format>
 #include <functional>
+#include <ranges>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,45 +45,43 @@ namespace Desert::Graphic::API::Vulkan
 
         std::string AluSource()
         {
-            return "#version 450\n"
-                   "layout(local_size_x = " +
-                   std::to_string( kGroupSize ) +
-                   ") in;\n"
-                   "layout(std430, set = 0, binding = 1) writeonly buffer Out { vec4 Values[]; } o;\n"
-                   "void main()\n"
-                   "{\n"
-                   "    float seed = float(gl_GlobalInvocationID.x) * 1.0e-6;\n"
-                   "    vec4 a = vec4(seed, seed + 0.1, seed + 0.2, seed + 0.3);\n"
-                   "    vec4 b = a + 0.5, c = a + 0.25, d = a + 0.75;\n"
-                   "    for (uint i = 0u; i < " +
-                   std::to_string( kAluIterations ) +
-                   "u; ++i)\n"
-                   "    {\n"
-                   "        a = fma(a, vec4(0.9999), vec4(1.0e-4));\n"
-                   "        b = fma(b, vec4(0.9998), vec4(2.0e-4));\n"
-                   "        c = fma(c, vec4(0.9997), vec4(3.0e-4));\n"
-                   "        d = fma(d, vec4(0.9996), vec4(4.0e-4));\n"
-                   "    }\n"
-                   "    o.Values[gl_GlobalInvocationID.x] = a + b + c + d;\n"
-                   "}\n";
+            return std::format(
+                 "#version 450\n"
+                 "layout(local_size_x = {}) in;\n"
+                 "layout(std430, set = 0, binding = 1) writeonly buffer Out {{ vec4 Values[]; }} o;\n"
+                 "void main()\n"
+                 "{{\n"
+                 "    float seed = float(gl_GlobalInvocationID.x) * 1.0e-6;\n"
+                 "    vec4 a = vec4(seed, seed + 0.1, seed + 0.2, seed + 0.3);\n"
+                 "    vec4 b = a + 0.5, c = a + 0.25, d = a + 0.75;\n"
+                 "    for (uint i = 0u; i < {}u; ++i)\n"
+                 "    {{\n"
+                 "        a = fma(a, vec4(0.9999), vec4(1.0e-4));\n"
+                 "        b = fma(b, vec4(0.9998), vec4(2.0e-4));\n"
+                 "        c = fma(c, vec4(0.9997), vec4(3.0e-4));\n"
+                 "        d = fma(d, vec4(0.9996), vec4(4.0e-4));\n"
+                 "    }}\n"
+                 "    o.Values[gl_GlobalInvocationID.x] = a + b + c + d;\n"
+                 "}}\n",
+                 kGroupSize, kAluIterations );
         }
         // kAluChains vec4 FMAs per iteration: 4 lanes x 2 FLOPs each.
         constexpr double kAluFlopsPerDispatch =
-             double( kAluGroups ) * kGroupSize * kAluIterations * kAluChains * 4.0 * 2.0;
+             static_cast<double>( kAluGroups ) * kGroupSize * kAluIterations * kAluChains * 4.0 * 2.0;
 
         std::string BandwidthSource()
         {
-            return "#version 450\n"
-                   "layout(local_size_x = " +
-                   std::to_string( kGroupSize ) +
-                   ") in;\n"
-                   "layout(std430, set = 0, binding = 0) readonly buffer In { vec4 Values[]; } i;\n"
-                   "layout(std430, set = 0, binding = 1) writeonly buffer Out { vec4 Values[]; } o;\n"
-                   "void main() { o.Values[gl_GlobalInvocationID.x] = i.Values[gl_GlobalInvocationID.x]; }\n";
+            return std::format(
+                 "#version 450\n"
+                 "layout(local_size_x = {}) in;\n"
+                 "layout(std430, set = 0, binding = 0) readonly buffer In {{ vec4 Values[]; }} i;\n"
+                 "layout(std430, set = 0, binding = 1) writeonly buffer Out {{ vec4 Values[]; }} o;\n"
+                 "void main() {{ o.Values[gl_GlobalInvocationID.x] = i.Values[gl_GlobalInvocationID.x]; }}\n",
+                 kGroupSize );
         }
         constexpr uint32_t kBandwidthGroups = static_cast<uint32_t>( kBandwidthBytes / 16 / kGroupSize );
         static_assert( kBandwidthBytes % ( 16ull * kGroupSize ) == 0 );
-        static_assert( uint64_t( kAluGroups ) * kGroupSize * 16 <= kBandwidthBytes,
+        static_assert( static_cast<uint64_t>( kAluGroups ) * kGroupSize * 16 <= kBandwidthBytes,
                        "the ALU pass writes one vec4 per invocation into the second buffer" );
 
         // Destroys what was created, in reverse, however Run leaves.
@@ -90,8 +90,16 @@ namespace Desert::Graphic::API::Vulkan
         public:
             ~Cleanup()
             {
-                for ( auto it = m_Steps.rbegin(); it != m_Steps.rend(); ++it )
-                    ( *it )();
+                // A step is a vkDestroy* call, which does not throw; calling an empty std::function is what could.
+                try
+                {
+                    for ( const std::function<void()>& step : std::ranges::reverse_view( m_Steps ) )
+                        step();
+                }
+                catch ( ... )
+                {
+                    std::terminate();
+                }
             }
             void Add( std::function<void()> step )
             {
@@ -112,7 +120,7 @@ namespace Desert::Graphic::API::Vulkan
 
         Result Fail( const std::string& what )
         {
-            return Common::MakeError<Common::Scalability::BenchmarkResult>( "GPU benchmark: " + what );
+            return Common::MakeFormattedError<Common::Scalability::BenchmarkResult>( "GPU benchmark: {}", what );
         }
 
         Result VulkanGpuBenchmark::Run( Engine::Device& engineDevice )
@@ -130,9 +138,9 @@ namespace Desert::Graphic::API::Vulkan
                 return Fail( std::format( "the catalog says AnyStage timing but timestampPeriod is {}",
                                           caps.TimestampPeriodNs ) );
 
-            auto&          device = static_cast<VulkanLogicalDevice&>( engineDevice );
-            const VkDevice vk     = device.GetVulkanLogicalDevice();
-            Cleanup        cleanup;
+            auto&    device = dynamic_cast<VulkanLogicalDevice&>( engineDevice );
+            VkDevice vk     = device.GetVulkanLogicalDevice();
+            Cleanup  cleanup;
 
             // ---- Buffers: two device-local storage buffers --------------------------------------------------
             VmaAllocator&                vma = VulkanAllocator::GetVMAAllocator();
@@ -140,7 +148,8 @@ namespace Desert::Graphic::API::Vulkan
             std::array<VmaAllocation, 2> allocations{};
             for ( std::size_t b = 0; b < buffers.size(); ++b )
             {
-                VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+                VkBufferCreateInfo bufferInfo{};
+                bufferInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
                 bufferInfo.size        = kBandwidthBytes;
                 bufferInfo.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -164,7 +173,8 @@ namespace Desert::Graphic::API::Vulkan
                 bindings[i].descriptorCount = 1;
                 bindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
             }
-            VkDescriptorSetLayoutCreateInfo setLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
+            setLayoutInfo.sType             = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
             setLayoutInfo.bindingCount      = static_cast<uint32_t>( bindings.size() );
             setLayoutInfo.pBindings         = bindings.data();
             VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
@@ -174,7 +184,8 @@ namespace Desert::Graphic::API::Vulkan
             cleanup.Add( [vk, setLayout] { vkDestroyDescriptorSetLayout( vk, setLayout, nullptr ); } );
 
             const VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 };
-            VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            VkDescriptorPoolCreateInfo poolInfo{};
+            poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
             poolInfo.maxSets       = 2;
             poolInfo.poolSizeCount = 1;
             poolInfo.pPoolSizes    = &poolSize;
@@ -184,7 +195,8 @@ namespace Desert::Graphic::API::Vulkan
             cleanup.Add( [vk, pool] { vkDestroyDescriptorPool( vk, pool, nullptr ); } );
 
             const std::array<VkDescriptorSetLayout, 2> setLayouts{ setLayout, setLayout };
-            VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            VkDescriptorSetAllocateInfo                setAllocInfo{};
+            setAllocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
             setAllocInfo.descriptorPool     = pool;
             setAllocInfo.descriptorSetCount = 2;
             setAllocInfo.pSetLayouts        = setLayouts.data();
@@ -199,7 +211,7 @@ namespace Desert::Graphic::API::Vulkan
                 std::array<VkWriteDescriptorSet, 2> writes{};
                 for ( uint32_t i = 0; i < 2; ++i )
                 {
-                    writes[i]                 = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                    writes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                     writes[i].dstSet          = sets[s];
                     writes[i].dstBinding      = i;
                     writes[i].descriptorCount = 1;
@@ -209,7 +221,9 @@ namespace Desert::Graphic::API::Vulkan
                 vkUpdateDescriptorSets( vk, 2, writes.data(), 0, nullptr );
             }
 
-            VkPipelineLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+            VkPipelineLayoutCreateInfo layoutInfo{};
+
+            layoutInfo.sType                = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             layoutInfo.setLayoutCount       = 1;
             layoutInfo.pSetLayouts          = &setLayout;
             VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
@@ -232,14 +246,16 @@ namespace Desert::Graphic::API::Vulkan
                                               2.0 * static_cast<double>( kBandwidthBytes ) } };
             for ( Pass& pass : passes )
             {
-                const std::string path  = std::string( "<GpuBenchmark:" ) + pass.Name + ">";
+                const std::string path  = std::format( "<GpuBenchmark:{}>", pass.Name );
                 auto              spirv = ::Desert::Core::ShaderCompiler::CompileGLSLToSPIRV(
                      ::Desert::Core::Formats::ShaderStage::Compute, pass.Source, path );
                 if ( !spirv.IsSuccess() )
                     return Fail( std::format( "pass '{}' did not compile: {}", pass.Name, spirv.GetError() ) );
                 const std::vector<uint32_t>& code = spirv.GetValue();
 
-                VkShaderModuleCreateInfo moduleInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+                VkShaderModuleCreateInfo moduleInfo{};
+
+                moduleInfo.sType      = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
                 moduleInfo.codeSize   = code.size() * sizeof( uint32_t );
                 moduleInfo.pCode      = code.data();
                 VkShaderModule module = VK_NULL_HANDLE;
@@ -248,8 +264,10 @@ namespace Desert::Graphic::API::Vulkan
                     return Fail( std::format( "vkCreateShaderModule ({}) returned {}", pass.Name,
                                               static_cast<int>( r ) ) );
 
-                VkComputePipelineCreateInfo pipelineInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
-                pipelineInfo.stage        = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+                VkComputePipelineCreateInfo pipelineInfo{};
+
+                pipelineInfo.sType        = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+                pipelineInfo.stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
                 pipelineInfo.stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
                 pipelineInfo.stage.module = module;
                 pipelineInfo.stage.pName  = "main";
@@ -265,7 +283,8 @@ namespace Desert::Graphic::API::Vulkan
 
             // ---- Timestamps: a begin/end pair per pass per repeat ----------------------------------------------
             const uint32_t        queryCount = static_cast<uint32_t>( passes.size() ) * kRepeats * 2;
-            VkQueryPoolCreateInfo queryInfo{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+            VkQueryPoolCreateInfo queryInfo{};
+            queryInfo.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
             queryInfo.queryType  = VK_QUERY_TYPE_TIMESTAMP;
             queryInfo.queryCount = queryCount;
             VkQueryPool queries  = VK_NULL_HANDLE;
@@ -277,11 +296,12 @@ namespace Desert::Graphic::API::Vulkan
             auto& commands = CommandBufferAllocator::GetInstance();
             auto  cmdOr    = commands.RT_AllocateCommandBufferGraphic( true );
             if ( !cmdOr.IsSuccess() )
-                return Fail( "no command buffer: " + cmdOr.GetError() );
-            const VkCommandBuffer cmd = cmdOr.GetValue();
+                return Fail( std::format( "no command buffer: {}", cmdOr.GetError() ) );
+            VkCommandBuffer cmd = cmdOr.GetValue();
 
             vkCmdResetQueryPool( cmd, queries, 0, queryCount );
-            VkMemoryBarrier barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+            VkMemoryBarrier barrier{};
+            barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
             const auto serialise  = [&]
@@ -314,13 +334,13 @@ namespace Desert::Graphic::API::Vulkan
 
             auto flushed = commands.RT_FlushCommandBufferGraphic( cmd );
             if ( !flushed.IsSuccess() )
-                return Fail( "the submit failed: " + flushed.GetError() );
+                return Fail( std::format( "the submit failed: {}", flushed.GetError() ) );
             if ( flushed.GetValue() != VK_SUCCESS )
                 return Fail( std::format( "the submit returned {}", static_cast<int>( flushed.GetValue() ) ) );
 
             // The flush waited on the fence, so every timestamp is written: no WAIT_BIT needed, but a missing
             // one is still an error (availability), never a zero.
-            std::vector<uint64_t> ticks( queryCount * 2 );
+            std::vector<uint64_t> ticks( static_cast<std::size_t>( queryCount ) * 2 );
             if ( const VkResult r = vkGetQueryPoolResults(
                       vk, queries, 0, queryCount, ticks.size() * sizeof( uint64_t ), ticks.data(),
                       2 * sizeof( uint64_t ), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT );
@@ -338,11 +358,12 @@ namespace Desert::Graphic::API::Vulkan
                     if ( ticks[begin * 2 + 1] == 0 || ticks[( begin + 1 ) * 2 + 1] == 0 )
                         return Fail( std::format( "pass '{}' repeat {}: a timestamp is unavailable after the wait",
                                                   passes[p].Name, repeat ) );
-                    const uint64_t start = ticks[begin * 2], end = ticks[( begin + 1 ) * 2];
+                    const uint64_t start = ticks[begin * 2];
+                    const uint64_t end   = ticks[( begin + 1 ) * 2];
                     if ( end <= start )
                         return Fail( std::format( "pass '{}' repeat {}: end tick {} is not after start {}",
                                                   passes[p].Name, repeat, end, start ) );
-                    const double ms = double( end - start ) * caps.TimestampPeriodNs * 1.0e-6;
+                    const double ms = static_cast<double>( end - start ) * caps.TimestampPeriodNs * 1.0e-6;
                     best            = repeat == 0 ? ms : std::min( best, ms );
                 }
                 timed.push_back( { passes[p].Name, best, passes[p].WorkPerDispatch * kDispatchesPerPass } );

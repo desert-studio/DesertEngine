@@ -179,17 +179,17 @@ namespace Common::Settings
             int  Overrides = 0; // of those, the ones whose value differs from the High table value
             bool operator==( const RetiredKeyMigration& ) const = default;
         };
-        // THE MIGRATION OF THE RETIRED SCHEMA (SCAL1; expires with machine.json written before task/SCAL1), applied
-        // by Load(). PURE: `rawJson` is the text `settings` was read from, `table` gives the High values.
+        // THE MIGRATION OF THE RETIRED SCHEMA (SCAL1; expires with machine.json written before task/SCAL1),
+        // applied by Load(). PURE: `rawJson` is the text `settings` was read from, `table` gives the High values.
         //
-        // The retired keys are AAMethod, MSAASamples, TextureFilterMode, Anisotropy, MeshLOD, CloudQualityTier and the
-        // older `AA` (the post filter before AAMethod). When the file holds any of them and NO `Quality` key, the
-        // selection becomes all-High plus one override per retired value that differs from the High table value —
-        // so an untouched machine comes out with zero overrides. MSAASamples moves only under AAMethod MSAA (it was
-        // read only there); `AA` stands for AAMethod when AAMethod is absent (MSAASamples > 1 meant MSAA). When the
-        // file already holds `Quality` (a newer build re-saved it and an older one added its keys back), Quality
-        // wins and the retired keys are only dropped. Either way they leave UnknownKeys, so the next save writes
-        // only `Quality`. A retired value that cannot be read is reported and not migrated.
+        // The retired keys are AAMethod, MSAASamples, TextureFilterMode, Anisotropy, MeshLOD, CloudQualityTier and
+        // the older `AA` (the post filter before AAMethod). When the file holds any of them and NO `Quality` key,
+        // the selection becomes all-High plus one override per retired value that differs from the High table
+        // value — so an untouched machine comes out with zero overrides. MSAASamples moves only under AAMethod
+        // MSAA (it was read only there); `AA` stands for AAMethod when AAMethod is absent (MSAASamples > 1 meant
+        // MSAA). When the file already holds `Quality` (a newer build re-saved it and an older one added its keys
+        // back), Quality wins and the retired keys are only dropped. Either way they leave UnknownKeys, so the
+        // next save writes only `Quality`. A retired value that cannot be read is reported and not migrated.
         static RetiredKeyMigration MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson,
                                                        const Scalability::ScalabilityTable& table );
         // Removes the retired keys from `settings.UnknownKeys` without migrating them — the re-read before a save,
@@ -197,9 +197,6 @@ namespace Common::Settings
         static void DropRetiredKeys( MachineSettings& settings );
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
-    DESERT_JSON_LENIENT( MachineSettings,
-                         "one machine-wide file written by every build and worktree on this machine at once: a "
-                         "field an older build has not got yet is that build's normal output, not damage" )
 
     // Where a PACKAGED GAME keeps what belongs to this player on this machine — its save games, and this
     // file beside them. Created on demand.

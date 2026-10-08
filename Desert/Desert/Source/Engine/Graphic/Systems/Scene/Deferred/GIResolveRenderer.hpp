@@ -156,9 +156,9 @@ namespace Desert::Graphic::System
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             auto                       block    = pass.Bindings( m_GatherLayout.Get( m_Pipeline->GetShader() ),
                                                                  m_Material->GetMaterialExecutor()->GetRouteFill() );
-            const auto sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
+            const auto                 sampled  = [&]( std::string_view name, RDG::TextureRef texture ) {
                 block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                               kSampler );
+                                                kSampler );
             };
             // The two depths through a nearest sampler: DEPTH32F is not guaranteed linear-filterable (MoltenVK).
             const auto depth = [&]( std::string_view name, RDG::TextureRef texture )

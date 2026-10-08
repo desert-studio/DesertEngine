@@ -105,6 +105,8 @@ namespace Desert::Editor
                     return "Volume";
                 case D::UI:
                     return "UI";
+                case D::Particle:
+                    return "Particle";
             }
             return "engine-internal";
         }
@@ -131,6 +133,10 @@ namespace Desert::Editor
                     return "fills a 2D UI element — a screen-space quad the Render2D batcher rasterizes, "
                            "not an object this pane could place. Drop it into a UI Panel's Material slot "
                            "and look at the canvas; edit the parameters here and they land the same frame.";
+                case D::Particle:
+                    return "is a VFX fragment — a stack module or a compiled emitter stack — compiled into "
+                           "the particle simulation, not an object this pane could place. Look at the effect "
+                           "that uses it in the viewport.";
                 case D::Unspecified:
                 case D::Surface:
                 case D::Skybox: // no longer a refusal: the pane wraps its cubemap onto a ball (see

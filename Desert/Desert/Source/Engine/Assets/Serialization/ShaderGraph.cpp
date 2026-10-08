@@ -13,9 +13,8 @@ namespace Desert::Assets::Serialization::ShaderGraph
 
     Common::ResultStr<Document> ParseShaderGraph( const std::string& json )
     {
-        // STRICT (owner rule: a missing field is an error, not a fallback): a graph that lacks a field or
-        // states one this build does not know is refused with the field's path, instead of opening with a
-        // value nobody authored. A field added later is std::optional or moved into the files by migration.
+        // Json::Read's rule (owner 2026-10-07): a field the graph does not state is the struct's own default; a
+        // field this build does not know is refused with its path, instead of being dropped on the next save.
         auto parsed = Common::Json::Read<Document>( json );
         if ( !parsed )
             return Common::MakeError<Document>( std::format( "bad .dgraph: {}", parsed.GetError() ) );

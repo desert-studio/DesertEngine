@@ -153,7 +153,7 @@ namespace Desert::Editor
             const auto&                 recommended = Common::Settings::MachineSettings::Get().Recommended;
             const SC::BenchmarkCacheKey device      = Engine::MakeBenchmarkCacheKey(
                  EngineContext::GetInstance().GetCapabilities(), SC::QualityState::Table().Version );
-            if ( SC::CacheValid( recommended, device ) )
+            if ( recommended.has_value() && SC::CacheValid( recommended, device ) )
             {
                 ImGui::TextUnformatted(
                      std::format( "Recommended: {}", RecommendedLabel( recommended->Levels ) ).c_str() );

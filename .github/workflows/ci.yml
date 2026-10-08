@@ -135,9 +135,45 @@ jobs:
   # analyse a different program from the one any developer here can reproduce, and a gate whose
   # findings cannot be reproduced locally is a gate that gets argued with instead of fixed. Every
   # developer on this project runs Homebrew's llvm@18 already (the formatter lives in the same keg).
+  #
+  # ── SHARDED, BECAUSE ONE JOB STOPPED FITTING ─────────────────────────────────────────────────────
+  # CI 37580217727: 254 changed files (127 units + headers) against fca6befab, cancelled at 43 minutes
+  # inside the analysis step; int/b2 and the previous int/rdg2 ended the same way. An integration
+  # branch is routinely more than one job of work. Same three-part shape as CI12 below, with one
+  # difference: there N is fixed from recorded timings, here it is the size of THIS push, so a plan job
+  # sizes the matrix first.
+  #   tidy-plan     ubuntu, seconds: `CheckTidy.sh --plan` counts the changed files with the same
+  #                 function the shards split them with, and emits N and the matrix;
+  #   tidy          a matrix of N macOS shards, each `CheckTidy.sh --shard I/N` (its files AND its
+  #                 share of the register); skipped when nothing C++ changed (N = 0);
+  #   tidy-verdict  carries the check name the single job had, "clang-tidy (changed lines)".
+  tidy-plan:
+    name: clang-tidy plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout (history, no submodules)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # merge-base needs history
+          filter: blob:none # --name-only needs trees, not blobs
+
+      - name: Plan the shards
+        id: plan
+        run: ./scripts/CI/CheckTidy.sh --plan "${{ github.event.pull_request.base.sha || github.event.before }}" >> "$GITHUB_OUTPUT"
+
   tidy:
-    name: clang-tidy (changed lines)
+    name: clang-tidy ${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}
+    needs: [ tidy-plan ]
+    if: needs.tidy-plan.outputs.shards != '0'
     runs-on: macos-14 # Apple Silicon — the platform whose headers the developers' verdict comes from
+    strategy:
+      fail-fast: false # every shard's findings are reported, not only the first red one's
+      matrix:
+        shard: ${{ fromJSON(needs.tidy-plan.outputs.matrix) }}
     # Measured on a developer machine: premake + the compile database is 40 s and the analysis itself
     # is ~13 s of CPU per translation unit, so the cost here is set by how many files a push touches,
     # not by the size of the tree. The rest is Homebrew. 45 minutes is roughly three times the
@@ -152,8 +188,9 @@ jobs:
           fetch-depth: 0 # merge-base needs history
           filter: blob:none # ...and not the half-gigabyte of verification screenshots in it
 
-      - name: Cache Homebrew downloads
-        uses: actions/cache@v4
+      - name: Restore Homebrew downloads
+        id: brew-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/Library/Caches/Homebrew
           key: brew-${{ runner.os }}-tidy-${{ hashFiles('scripts/MacOS/Setup.sh') }}
@@ -161,6 +198,15 @@ jobs:
 
       - name: Setup dependencies
         run: ./scripts/MacOS/Setup.sh
+
+      # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
+      - name: Save Homebrew downloads
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.brew-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-${{ runner.os }}-tidy-${{ hashFiles('scripts/MacOS/Setup.sh') }}
 
       # llvm@18 IS NOT INSTALLED BY Setup.sh UNDER CI, deliberately and with a measurement behind it:
       # it is a ~1.5 GB bottle that the build jobs never invoke, and the sanitizers job cannot afford
@@ -178,7 +224,31 @@ jobs:
         run: ./scripts/MacOS/BuildMacOS.sh Debug --gen-only
 
       - name: clang-tidy the changed lines
-        run: ./scripts/CI/CheckTidy.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: ./scripts/CI/CheckTidy.sh --shard "${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}" "${{ github.event.pull_request.base.sha || github.event.before }}"
+
+  tidy-verdict:
+    name: clang-tidy (changed lines)
+    needs: [ tidy-plan, tidy ]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The plan must have run; the shards must all pass, or be skipped because the plan found no
+      # C++ change (N = 0). A skipped `tidy` with N > 0 means the matrix never ran, which is not a pass.
+      - name: The plan and every shard passed
+        env:
+          PLAN: ${{ needs.tidy-plan.result }}
+          SHARDS: ${{ needs.tidy-plan.outputs.shards }}
+          TIDY: ${{ needs.tidy.result }}
+        run: |
+          echo "plan: $PLAN (shards: ${SHARDS:-?}), shards: $TIDY"
+          [ "$PLAN" = success ] || { echo "::error::the clang-tidy plan ended '$PLAN'"; exit 1; }
+          if [ "$SHARDS" = 0 ]; then
+            [ "$TIDY" = skipped ] || { echo "::error::no C++ changed, yet the shards ended '$TIDY'"; exit 1; }
+            echo "no C++ files changed — nothing to analyse"
+            exit 0
+          fi
+          [ "$TIDY" = success ] || { echo "::error::a clang-tidy shard ended '$TIDY'"; exit 1; }
 
   # Dynamic checks: the whole workspace builds with ASan+UBSan (the premake makefiles append
   # env CXXFLAGS/LDFLAGS) and the full test suite runs under them. Leak detection stays off —
@@ -286,8 +356,9 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - name: Cache Homebrew downloads
-        uses: actions/cache@v4
+      - name: Restore Homebrew downloads
+        id: brew-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/Library/Caches/Homebrew
           key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
@@ -295,6 +366,15 @@ jobs:
 
       - name: Setup dependencies
         run: ./scripts/MacOS/Setup.sh
+
+      # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
+      - name: Save Homebrew downloads
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.brew-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
 
       # THE HALF OF THE REPO-ONLY GATE THAT THE FORMAT JOB CANNOT ANSWER. The replacement header for
       # <fmt/...> lives inside the ThirdParty/spdlog SUBMODULE, and the format job checks out without
@@ -333,9 +413,17 @@ jobs:
       # misses for the ones that did. See the block in scripts/MacOS/BuildMacOS.sh for the one place
       # this is NOT purely content-addressed — the `sloppiness` list — and the census behind each entry.
       #
-      # SAVE ON `push` ONLY. A pull_request run cannot write a cache its own base branch will read
-      # (GitHub scopes cache writes to the branch that made them), so saving there spends the
-      # repository's 10 GB on a blob that is visible to one PR and evicted before it helps twice.
+      # THE CACHE IS WRITTEN BY dev ONLY — a push to refs/heads/dev — and READ by everyone else. Every
+      # cache in this file follows this rule. A run may restore its own branch's entries and the
+      # DEFAULT branch's (dev); a pull_request or an int/* run therefore finds dev's entries by prefix.
+      # Measured 2026-10-07 (gh cache list): the repository limit is 10 GB, evicted least recently used,
+      # and ONE branch's set was ~10 GB (Windows Debug 4.0, Release 2.6, sanitizers 2.4, Shipping 0.44,
+      # Vulkan SDK 0.43). When int/* saved too, int/b3's set evicted dev's, and the next int/* branch
+      # (which can see dev's and its own only) built Windows cold — Release 92 min on int/b1p1. So int/*,
+      # pull_request and workflow_dispatch only restore, and the ccache ceilings are cut so dev's whole
+      # set stays under 8.5 GB: sanitizers 2G, Windows Debug 2.5G, Release 2G, Shipping 0.6G, plus the
+      # Vulkan SDK and the Homebrew downloads. ccache's max_size bounds its COMPRESSED on-disk size, so
+      # the saved archive is at most the ceiling. Raise one ceiling -> lower another, or dev evicts itself.
       #
       # THE CACHE DIRECTORY IS NAMED HERE RATHER THAN INHERITED. ccache's default location depends on
       # the machine (XDG_CACHE_HOME, then ~/Library/Caches/ccache on macOS), and a `path:` that has to
@@ -364,7 +452,14 @@ jobs:
           restore-keys: |
             ccache-sanitizers-macos14-
 
+      # A STEP timeout under the job's 90, the same fix as Windows (fca6befab): when the step runs out the
+      # job is NOT being cancelled, so Save ccache below runs normally and keeps every object the build
+      # finished. At the job ceiling the runner is already tearing down — Windows run 37484896713's save
+      # printed success and no cache appeared. Run 37701712354 (int/b3, cold) built for 85 min and was
+      # cancelled at the ceiling; the steps before the build took 5 min, Save of a 2G cache needs ~2, so
+      # 78 leaves a dev push's cold build its cache and the next run its hits.
       - name: Build Debug with sanitizers
+        timeout-minutes: 78
         env:
           CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
           LDFLAGS: "-fsanitize=address,undefined"
@@ -372,7 +467,7 @@ jobs:
           # like the cache working: ccache evicts least-recently-used entries as it fills, so a
           # too-small cache quietly turns the end of every build into misses. This Debug tree carries
           # ~6 GB of ASan objects uncompressed; ccache stores them zstd-compressed.
-          CCACHE_MAXSIZE: "3G"
+          CCACHE_MAXSIZE: "2G" # dev's set must fit 8.5 of the repository's 10 GB — see the note on Restore ccache
           CCACHE_DIR: ${{ runner.temp }}/ccache
         run: ./scripts/MacOS/BuildMacOS.sh Debug
 
@@ -385,7 +480,7 @@ jobs:
       # service that should be able to turn a green build red. A failure to save costs the next run its
       # hits, which the statistics BuildMacOS.sh prints will show.
       - name: Save ccache
-        if: always() && github.event_name == 'push'
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -458,8 +553,9 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - name: Cache Homebrew downloads
-        uses: actions/cache@v4
+      - name: Restore Homebrew downloads
+        id: brew-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/Library/Caches/Homebrew
           key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
@@ -467,6 +563,15 @@ jobs:
 
       - name: Setup dependencies
         run: ./scripts/MacOS/Setup.sh
+
+      # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
+      - name: Save Homebrew downloads
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.brew-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
 
       - name: Download the test bundle
         uses: actions/download-artifact@v4
@@ -591,8 +696,9 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - name: Cache Homebrew downloads
-        uses: actions/cache@v4
+      - name: Restore Homebrew downloads
+        id: brew-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/Library/Caches/Homebrew
           key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
@@ -602,6 +708,15 @@ jobs:
       # reflect-cpp sources). Submodules are already in place from the checkout.
       - name: Setup dependencies
         run: ./scripts/MacOS/Setup.sh
+
+      # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
+      - name: Save Homebrew downloads
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.brew-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
 
       - name: Build ${{ matrix.config }}
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }}
@@ -801,6 +916,7 @@ jobs:
         #
         # shards: how many test shards the plan is cut into (0 = no tests in this configuration).
         config: [Debug]
+        ccache_max: [2.5G]
         column: [windows-debug]
         shards: [3]
 
@@ -841,8 +957,9 @@ jobs:
       # release cannot change the build under us, and cached because it is a ~200 MB download.
       # The cache only restores; scripts/CI/EnsureVulkanSdk.ps1 judges the restored TREE and installs
       # what is missing — the same script the test shards run, so both jobs see the same SDK.
-      - name: Cache Vulkan SDK
-        uses: actions/cache@v4
+      - name: Restore Vulkan SDK
+        id: vulkan-cache
+        uses: actions/cache/restore@v4
         with:
           path: C:\VulkanSDK
           # The suffix is part of the key because the cache stores an INSTALL, not a download: an entry
@@ -854,6 +971,15 @@ jobs:
       - name: Ensure Vulkan SDK
         shell: pwsh
         run: ./scripts/CI/EnsureVulkanSdk.ps1 -Version ${{ env.VULKAN_SDK_VERSION }}
+
+      # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
+      - name: Save Vulkan SDK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.vulkan-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: C:\VulkanSDK
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs-loader
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -922,9 +1048,10 @@ jobs:
             "DESERT_MSVC_CCACHE=$masq"
             "CCACHE_EXE=$exe"
             "CCACHE_DIR=$env:RUNNER_TEMP\ccache"
-            # Room for the whole build: an LRU cache that fills mid-build evicts the very objects a
-            # later suite would have hit, and that looks like a low hit rate rather than a full cache.
-            "CCACHE_MAXSIZE=20G"
+            # Per configuration (matrix.ccache_max), sized so dev's whole cache set fits 8.5 of the
+            # repository's 10 GB — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job. Below
+            # the build's full object set (Debug saved 4.0 GB at 20G), so the LRU keeps the newest.
+            "CCACHE_MAXSIZE=${{ matrix.ccache_max }}"
             # The same four entries, with the same census behind them, as scripts/MacOS/BuildMacOS.sh.
             "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
             # premake writes IntDir as $(ProjectDir)build\...\<Project>\ -- absolute and different for
@@ -944,8 +1071,9 @@ jobs:
       # build (911 / 3172 = 28.7 % in run 37461974209) and every Release build paid the full cold cost —
       # 150 minutes and cancelled once the suites outgrew the ceiling. Keyed per configuration (the
       # flags differ, nothing would hit across them) and per commit, restored from the newest of its
-      # configuration. Saved on EVERY event, not only push: a cache saved on an int/* branch is visible
-      # to that branch's next run, and int/* reruns are exactly where a cold build costs the most.
+      # configuration. Saved by a push to dev ONLY (see "THE CACHE IS WRITTEN BY dev ONLY" on the
+      # sanitizers job): an int/* save evicted dev's set from the 10 GB, and every NEW int/* branch
+      # then built cold. int/* restores dev's newest entry by the prefix below.
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
@@ -977,7 +1105,7 @@ jobs:
       # it finished, and that is what lets the next run get past the point this one stopped at. The
       # cache is an optimisation, so a failed save never turns the job red (`continue-on-error`).
       - name: Save ccache
-        if: always()
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -1180,6 +1308,7 @@ jobs:
     strategy:
       matrix:
         config: [Release]
+        ccache_max: [2G]
         column: [windows-release]
         shards: [1]
     steps: *windows-build-steps
@@ -1192,6 +1321,7 @@ jobs:
     strategy:
       matrix:
         config: [Shipping]
+        ccache_max: [0.6G]
         column: [none]
         shards: [0]
     steps: *windows-build-steps

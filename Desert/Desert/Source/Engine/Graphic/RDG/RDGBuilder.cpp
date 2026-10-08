@@ -169,10 +169,12 @@ namespace Desert::Graphic::RDG
         // Copied at the call: the exec runs after the caller's storage is gone.
         auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
         AddPass(
-             "Upload: " + name, PassFlags::Copy,
+             std::format( "Upload: {}", name ), PassFlags::Copy,
              [&]( PassBuilder& pass )
              {
-                 if ( error.empty() )
+                 // Declared even when the upload is refused: the faulted pass's write is what makes its readers
+                 // Dependency faults rooted on it, not "read before any pass writes it".
+                 if ( record != nullptr )
                      pass.Write( buffer, Access::CopyDst );
              },
              [buffer, payload]( PassContext& context ) -> Common::BoolResultStr
@@ -291,14 +293,15 @@ namespace Desert::Graphic::RDG
         const auto pass = static_cast<uint32_t>( m_Passes.size() - 1 );
         // A malformed pass faults itself (RDG-FAULT1), the graph goes on without it.
         if ( kinds != 1 )
-            RecordPassError( pass,
+            RecordPassError(
+                 pass,
                  fmt::format( "graph '{}': pass '{}' names {} of Raster/Compute/Copy; exactly one is required",
                               m_Name, name, kinds ) );
         if ( HasFlag( flags, PassFlags::AsyncCompute ) && !HasFlag( flags, PassFlags::Compute ) )
-            RecordPassError( pass,
-                 std::format( "graph '{}': pass '{}' declares AsyncCompute without Compute; only a compute "
-                              "pass can run on the async compute queue",
-                              m_Name, name ) );
+            RecordPassError(
+                 pass, std::format( "graph '{}': pass '{}' declares AsyncCompute without Compute; only a compute "
+                                    "pass can run on the async compute queue",
+                                    m_Name, name ) );
         return { *this, pass };
     }
 
@@ -317,30 +320,39 @@ namespace Desert::Graphic::RDG
     void Builder::SetFaultDefault( TextureRef texture, FaultDefault value )
     {
         const ResourceRecord* record = FindResource( texture.Index, ResourceKind::Texture );
-        if ( !record || record->IsExternal() )
-            return RecordError( std::format( "graph '{}': SetFaultDefault of handle {}, which is not a transient "
-                                             "texture of this graph",
-                                             m_Name, texture.Index ) );
+        if ( record == nullptr || record->IsExternal() )
+        {
+            RecordError( std::format( "graph '{}': SetFaultDefault of handle {}, which is not a transient "
+                                      "texture of this graph",
+                                      m_Name, texture.Index ) );
+            return;
+        }
         m_Resources[texture.Index].Default = value;
     }
 
     void Builder::SetFaultPolicy( TextureRef external, ExternalFaultPolicy policy )
     {
         const ResourceRecord* record = FindResource( external.Index, ResourceKind::Texture );
-        if ( !record || !record->IsExternal() )
-            return RecordError( std::format( "graph '{}': SetFaultPolicy of texture handle {}, which is not an "
-                                             "external of this graph",
-                                             m_Name, external.Index ) );
+        if ( record == nullptr || !record->IsExternal() )
+        {
+            RecordError( std::format( "graph '{}': SetFaultPolicy of texture handle {}, which is not an "
+                                      "external of this graph",
+                                      m_Name, external.Index ) );
+            return;
+        }
         m_Resources[external.Index].Policy = policy;
     }
 
     void Builder::SetFaultPolicy( BufferRef external, ExternalFaultPolicy policy )
     {
         const ResourceRecord* record = FindResource( external.Index, ResourceKind::Buffer );
-        if ( !record || !record->IsExternal() )
-            return RecordError( std::format( "graph '{}': SetFaultPolicy of buffer handle {}, which is not an "
-                                             "external of this graph",
-                                             m_Name, external.Index ) );
+        if ( record == nullptr || !record->IsExternal() )
+        {
+            RecordError( std::format( "graph '{}': SetFaultPolicy of buffer handle {}, which is not an "
+                                      "external of this graph",
+                                      m_Name, external.Index ) );
+            return;
+        }
         m_Resources[external.Index].Policy = policy;
     }
 
@@ -851,7 +863,8 @@ namespace Desert::Graphic::RDG
             FrameFault fault{ std::move( reason ), {}, std::move( roots ) };
             for ( uint32_t r = 0; r < m_Resources.size(); ++r )
             {
-                if ( m_Resources[r].ExternalTex && m_Resources[r].Policy == ExternalFaultPolicy::FrameFatal )
+                if ( m_Resources[r].ExternalTex != nullptr &&
+                     m_Resources[r].Policy == ExternalFaultPolicy::FrameFatal )
                     fault.Externals.push_back( MakeFrameFaultExternal( r ) );
             }
             m_Report.Frame = std::move( fault );
@@ -927,12 +940,12 @@ namespace Desert::Graphic::RDG
         if ( !begun )
             return frameFault( std::format( "graph '{}': {}", m_Name, begun.GetError() ), {} );
 
-        // RDG-FAULT1 late faults. lostRoot[p] >= 0: pass p did not produce its outputs this frame (its exec failed,
-        // or it was skipped for a lost input); the value is the pass the chain starts at.
+        // RDG-FAULT1 late faults. lostRoot[p] >= 0: pass p did not produce its outputs this frame (its exec
+        // failed, or it was skipped for a lost input); the value is the pass the chain starts at.
         std::vector<int32_t> lostRoot( m_Passes.size(), -1 );
         bool                 renderPassOpen = false;
-        const auto lateFault = [&]( uint32_t pass, PassFaultStage stage, std::string reason,
-                                    std::optional<uint32_t> root )
+        const auto           lateFault =
+             [&]( uint32_t pass, PassFaultStage stage, std::string reason, std::optional<uint32_t> root )
         {
             lostRoot[pass] = static_cast<int32_t>( root ? *root : pass );
             m_Report.Faults.push_back( { pass, m_Passes[pass].Name, stage, std::move( reason ), root } );
@@ -953,11 +966,13 @@ namespace Desert::Graphic::RDG
                 if ( edge.To != p || edge.Kind != DependencyKind::ReadAfterWrite || lostRoot[edge.From] < 0 ||
                      skipRoot )
                     continue;
-                const ResourceRecord& record = m_Resources[edge.Resource];
+                const ResourceRecord& record     = m_Resources[edge.Resource];
                 const uint32_t        source     = record.Kind == ResourceKind::Texture && !record.IsExternal()
                                                         ? m_FaultDefaults.GetSource( record.Default )
                                                         : kInvalidResource;
-                bool attachment = false, sampled = false, other = false;
+                bool                  attachment = false;
+                bool                  sampled    = false;
+                bool                  other      = false;
                 for ( const ResourceUse& use : m_Passes[p].Uses )
                 {
                     if ( use.Resource != edge.Resource )
@@ -1085,13 +1100,15 @@ namespace Desert::Graphic::RDG
 
         // An external whose every writer this frame was lost late: FrameFatal ends the frame (after EndGraph
         // below, so the graph's command buffers stay well formed), InvalidateHistory is listed for its owner.
-        std::vector<uint32_t> lateFatal, lateRoots;
+        std::vector<uint32_t> lateFatal;
+        std::vector<uint32_t> lateRoots;
         for ( uint32_t r = 0; r < m_Resources.size(); ++r )
         {
             const ResourceRecord& record = m_Resources[r];
             if ( !record.IsExternal() || record.Policy == ExternalFaultPolicy::KeepsContents )
                 continue;
-            bool                  anyWriter = false, anySurvivor = false;
+            bool                  anyWriter   = false;
+            bool                  anySurvivor = false;
             std::vector<uint32_t> roots;
             for ( const CompiledPass& compiledPass : result.Passes )
             {

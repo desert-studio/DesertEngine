@@ -207,8 +207,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_TracePipeline )
                 return;
-            pass.Bindings( m_TraceLayout.Get( m_TraceShader ),
-                           Renderer::GetInstance().GetPipelineRouteFill( *m_TracePipeline ) )
+            pass.Bindings( m_TraceLayout.Get( m_TraceShader ), Renderer::GetPipelineRouteFill( *m_TracePipeline ) )
                  .Sampled( "u_GBufferAlbedo", gbuffer[0], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,

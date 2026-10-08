@@ -50,7 +50,7 @@ namespace Desert::Editor
         void Refresh();
         void DrawToolbar();
         // One row: severity edge + tint, fixed-width timestamp column, category chip, message.
-        void DrawRow( const LogRepeatRun& row );
+        static void DrawRow( const LogRepeatRun& row );
 
     private:
         std::vector<LogEntry>                    m_Entries;

@@ -17,10 +17,9 @@ namespace Common::Utils
 {
     namespace
     {
-        constexpr char     kMagicV1[4] = { 'D', 'P', 'K', '1' }; // pre-hash (still readable)
-        constexpr char     kMagicV2[4] = { 'D', 'P', 'K', '2' }; // + u64 content hash per entry
-        constexpr char     kMagicV3[4]     = { 'D', 'P', 'K', '3' }; // + storedSize / crc / codec per entry
-        constexpr char     kMagicPrefix[3] = { 'D', 'P', 'K' };      // so a FUTURE version is named, not guessed
+        constexpr char     kMagic[4]       = { 'D', 'P', 'K', '3' }; // the one format this build reads and writes
+        constexpr char     kMagicPrefix[3] = { 'D', 'P', 'K' };      // so ANOTHER version is named, not guessed
+        constexpr uint32_t kFormatVersion  = 3;                      // the digit kMagic ends in
         constexpr uint64_t kHeaderSize = 4 + sizeof( uint32_t ) + sizeof( uint64_t );
 
         // THE FORMAT IS A BYTE ORDER, A SET OF FIELD WIDTHS AND NOTHING ELSE, so both are pinned at
@@ -130,16 +129,6 @@ namespace Common::Utils
                 LOG_ERROR( "[Pak] cannot append to {}: {}", pakPath.string(), existing.OpenError() );
                 return;
             }
-            if ( existing.Version() != PakVersion::V3 )
-            {
-                // Refused rather than upgraded in place: rewriting a v1/v2 index as v3 means moving
-                // every byte of the file, which is a repack, and a repack is not an append. The caller
-                // that wants one calls it by its name.
-                LOG_ERROR( "[Pak] cannot append to {}: it is a v{} archive and appending writes a v3 "
-                           "index; repack it instead",
-                           pakPath.string(), static_cast<uint32_t>( existing.Version() ) );
-                return;
-            }
             if ( !existing.DeletedKeys().empty() )
             {
                 // A patch archive states a complete removal set. Appending content to one would leave
@@ -197,7 +186,7 @@ namespace Common::Utils
             return;
 
         // Placeholder header; Finalize() rewrites it with the real index offset.
-        m_Out.write( kMagicV3, 4 );
+        m_Out.write( kMagic, 4 );
         WritePod<uint32_t>( m_Out, 0 );
         WritePod<uint64_t>( m_Out, 0 );
         m_Cursor = kHeaderSize;
@@ -357,7 +346,7 @@ namespace Common::Utils
         // the index it points at is short, or at read, by name, because an entry's CRC does not hold.)
         m_Out.flush();
         m_Out.seekp( 0 );
-        m_Out.write( kMagicV3, 4 );
+        m_Out.write( kMagic, 4 );
         WritePod<uint32_t>( m_Out, static_cast<uint32_t>( m_Entries.size() ) );
         WritePod<uint64_t>( m_Out, indexOffset );
 
@@ -420,30 +409,30 @@ namespace Common::Utils
         char magic[4] = {};
         in.read( magic, 4 );
         const std::streamsize magicRead = in.gcount();
-        const bool            v1        = in && std::memcmp( magic, kMagicV1, 4 ) == 0;
-        const bool            v2        = in && std::memcmp( magic, kMagicV2, 4 ) == 0;
-        const bool            v3        = in && std::memcmp( magic, kMagicV3, 4 ) == 0;
-        if ( !v1 && !v2 && !v3 )
+        if ( !in || std::memcmp( magic, kMagic, 4 ) != 0 )
         {
-            // A VERSION THIS BUILD DOES NOT KNOW IS REFUSED BY ITS NAME, not as "corrupt". The two
-            // have opposite remedies — one is "this game is older than this content", the other is
-            // "download it again" — and the magic is the only place the difference is legible. The
-            // check is the three-character prefix, so every future version is named by the build that
-            // predates it instead of being reported as a file that is not an archive at all.
-            if ( magicRead == 4 && std::memcmp( magic, kMagicPrefix, 3 ) == 0 )
+            // ANOTHER VERSION IS REFUSED BY ITS NUMBER, not as "corrupt". The remedies differ — an
+            // older archive is cooked again, a newer one needs a newer program, a damaged one is
+            // downloaded again — and the magic is the only place the difference is legible. The check
+            // is the three-character prefix, so every version this build does not read is named.
+            if ( magicRead == 4 && std::memcmp( magic, kMagicPrefix, 3 ) == 0 && magic[3] >= '0' &&
+                 magic[3] <= '9' )
             {
-                m_OpenError = fmt::format( "this is a {} archive and this build reads \"DPK1\", \"DPK2\" "
-                                           "and \"DPK3\" — the content is newer than the program "
-                                           "reading it (the file is {} bytes)",
-                                           QuoteMagic( magic, magicRead ), bytes );
+                const auto version = static_cast<uint32_t>( magic[3] - '0' );
+                m_OpenError = fmt::format( "this is a version {} archive ({}) and this build reads only version "
+                                           "{} (\"DPK3\") — {} (the file is {} bytes)",
+                                           version, QuoteMagic( magic, magicRead ), kFormatVersion,
+                                           version < kFormatVersion
+                                                ? "it was packed by an older build; cook and pack it again"
+                                                : "the content is newer than the program reading it",
+                                           bytes );
                 return;
             }
-            m_OpenError = fmt::format( "not a Desert archive: it begins with {}, expected \"DPK1\", "
-                                       "\"DPK2\" or \"DPK3\" (the file is {} bytes)",
+            m_OpenError = fmt::format( "not a Desert archive: it begins with {}, expected \"DPK3\" (the file "
+                                       "is {} bytes)",
                                        QuoteMagic( magic, magicRead ), bytes );
             return;
         }
-        m_Version = v3 ? PakVersion::V3 : ( v2 ? PakVersion::V2 : PakVersion::V1 );
 
         uint32_t entryCount  = 0;
         uint64_t indexOffset = 0;
@@ -487,44 +476,27 @@ namespace Common::Utils
             std::string key( pathLen, '\0' );
             in.read( key.data(), pathLen );
             Span span;
-            // ONE BRANCH PER VERSION, reading the columns that version has in the order Finalize
-            // writes them. An earlier draft read the shared prefix once and then patched the fields
-            // that moved, which made a v3 record's THIRD u64 arrive in a variable named Hash — true,
-            // and unreadable. A format with three versions is three record layouts; spelling them out
-            // is what makes adding a fourth a visible edit.
-            bool complete = static_cast<bool>( in ) && ReadPod( in, span.Offset );
-            if ( complete && v3 )
-            {
-                uint32_t codec = 0;
-                complete       = ReadPod( in, span.StoredSize ) && ReadPod( in, span.Size ) &&
-                           ReadPod( in, span.Hash ) && ReadPod( in, span.Crc ) && ReadPod( in, codec );
-                if ( complete )
-                {
-                    if ( codec > static_cast<uint32_t>( PakCodec::LZ4 ) )
-                    {
-                        // A codec this build cannot run is named, for the same reason the magic is:
-                        // the remedy is a newer build, not a repaired download.
-                        m_OpenError = fmt::format( "index entry {} of {} ('{}') is stored with codec {}, "
-                                                   "which this build does not implement",
-                                                   i + 1, entryCount, key, codec );
-                        return;
-                    }
-                    span.Codec = static_cast<PakCodec>( codec );
-                }
-            }
-            else if ( complete )
-            {
-                // v1 and v2 have ONE size column, and it means both things at once: nothing before v3
-                // is compressed, so the stored bytes are the content.
-                complete  = ReadPod( in, span.StoredSize ) && ( !v2 || ReadPod( in, span.Hash ) );
-                span.Size = span.StoredSize;
-            }
+            // The columns in the order Finalize writes them.
+            uint32_t   codec    = 0;
+            const bool complete = static_cast<bool>( in ) && ReadPod( in, span.Offset ) &&
+                                  ReadPod( in, span.StoredSize ) && ReadPod( in, span.Size ) &&
+                                  ReadPod( in, span.Hash ) && ReadPod( in, span.Crc ) && ReadPod( in, codec );
             if ( !complete )
             {
                 m_OpenError = fmt::format( "index entry {} of {} is cut short — the index is truncated", i + 1,
                                            entryCount );
                 return;
             }
+            if ( codec > static_cast<uint32_t>( PakCodec::LZ4 ) )
+            {
+                // A codec this build cannot run is named, for the same reason the magic is: the remedy
+                // is a newer build, not a repaired download.
+                m_OpenError = fmt::format( "index entry {} of {} ('{}') is stored with codec {}, which this "
+                                           "build does not implement",
+                                           i + 1, entryCount, key, codec );
+                return;
+            }
+            span.Codec = static_cast<PakCodec>( codec );
             if ( span.Codec == PakCodec::Store && span.Size != span.StoredSize )
             {
                 // A stored entry whose two sizes disagree is an index that contradicts itself, and
@@ -631,11 +603,6 @@ namespace Common::Utils
         return key != kDeletedEntriesKey && m_Index.contains( key );
     }
 
-    PakVersion PakReader::Version() const
-    {
-        return m_Version;
-    }
-
     const std::filesystem::path& PakReader::ArchivePath() const
     {
         return m_Path;
@@ -730,8 +697,8 @@ namespace Common::Utils
         }
 
         // THE ENTRY IS VERIFIED BEFORE ANYTHING IS DONE WITH IT, and the failure names which check it
-        // was. Before v3 the archive had NOTHING to verify against and the reader said nothing about
-        // it either — a flipped bit anywhere in the data region left the header, the index and every
+        // was. Before integrity columns the archive had NOTHING to verify against and the reader said
+        // nothing about it either — a flipped bit anywhere in the data region left the header, the index and every
         // span perfectly valid, so the archive mounted, the read succeeded, and the game ran on
         // corrupt content without one line anywhere.
         //
@@ -740,31 +707,13 @@ namespace Common::Utils
         // verification of the shipping cooked tree from 297.4 ms to ~28 ms and moved it from four
         // fifths of the read path to a twelfth of it. Crc32c.hpp carries what the change did to what
         // is DETECTED, which is the half of this that is not about speed.
-        if ( m_Version == PakVersion::V3 )
+        const uint32_t actual = Crc32c( stored.data(), stored.size() );
+        if ( actual != it->second.Crc )
         {
-            const uint32_t actual = Crc32c( stored.data(), stored.size() );
-            if ( actual != it->second.Crc )
-            {
-                LOG_ERROR( "[Pak] {}: entry '{}' is CORRUPT — stored CRC32C {:#010x}, index says {:#010x} "
-                           "({} bytes at offset {}). The archive is damaged or was modified after packing.",
-                           m_Path.string(), key, actual, it->second.Crc, it->second.StoredSize,
-                           it->second.Offset );
-                return std::nullopt;
-            }
-        }
-        else if ( m_Version == PakVersion::V2 )
-        {
-            // A v2 archive carries only the content hash, so that is what it is checked with — at v2's
-            // price. Kept rather than dropped because an archive already on a disk somewhere must not
-            // become LESS checked by the arrival of a newer format.
-            const uint64_t actual = PakContentHash( stored.data(), stored.size() );
-            if ( actual != it->second.Hash )
-            {
-                LOG_ERROR( "[Pak] {}: entry '{}' is CORRUPT — content hash {:#x}, index says {:#x} ({} "
-                           "bytes at offset {}). The archive is damaged or was modified after packing.",
-                           m_Path.string(), key, actual, it->second.Hash, it->second.Size, it->second.Offset );
-                return std::nullopt;
-            }
+            LOG_ERROR( "[Pak] {}: entry '{}' is CORRUPT — stored CRC32C {:#010x}, index says {:#010x} "
+                       "({} bytes at offset {}). The archive is damaged or was modified after packing.",
+                       m_Path.string(), key, actual, it->second.Crc, it->second.StoredSize, it->second.Offset );
+            return std::nullopt;
         }
 
         if ( it->second.Codec == PakCodec::Store )

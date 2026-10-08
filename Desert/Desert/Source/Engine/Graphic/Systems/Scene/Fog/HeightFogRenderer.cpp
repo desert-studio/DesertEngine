@@ -218,9 +218,8 @@ namespace Desert::Graphic::System
              atmosphere.DistantSkyLight
                   ? std::shared_ptr<Image>( atmosphere.DistantSkyLight )
                   : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
-        const Renderer& renderer = Renderer::GetInstance();
-        auto            block    = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
-                                                        renderer.GetPipelineRouteFill( *m_FogPipeline ) );
+        auto block = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
+                                          Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
         block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
              .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
@@ -236,8 +235,8 @@ namespace Desert::Graphic::System
             DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::GetInstance().DispatchCompute( bindings, *m_FogPipeline, GroupCount( fogWidth ),
-                                                            GroupCount( fogHeight ), 1 );
+            return Renderer::DispatchCompute( bindings, *m_FogPipeline, GroupCount( fogWidth ),
+                                              GroupCount( fogHeight ), 1 );
         };
         nodes.push_back( std::move( fog ) );
 

@@ -126,7 +126,7 @@ namespace Desert::Graphic::System
         if ( !m_ClearPipeline )
             return;
         pass.Bindings( m_ClearLayout.Get( m_ClearPipeline->GetSpecification().Shader ),
-                       Renderer::GetInstance().GetPipelineRouteFill( *m_ClearPipeline ) )
+                       Renderer::GetPipelineRouteFill( *m_ClearPipeline ) )
              .Storage( "Histogram", histogram, RDG::Access::StorageWrite );
     }
 
@@ -146,7 +146,7 @@ namespace Desert::Graphic::System
             return;
         // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
         pass.Bindings( m_HistogramLayout.Get( m_HistogramPipeline->GetSpecification().Shader ),
-                       Renderer::GetInstance().GetPipelineRouteFill( *m_HistogramPipeline ) )
+                       Renderer::GetPipelineRouteFill( *m_HistogramPipeline ) )
              .Sampled( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::PointClamp() )
              .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
@@ -172,7 +172,7 @@ namespace Desert::Graphic::System
             return;
         // u_PrevLum is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
         pass.Bindings( m_AverageLayout.Get( m_AveragePipeline->GetSpecification().Shader ),
-                       Renderer::GetInstance().GetPipelineRouteFill( *m_AveragePipeline ) )
+                       Renderer::GetPipelineRouteFill( *m_AveragePipeline ) )
              .Storage( "Histogram", histogram, RDG::Access::StorageRead )
              .Sampled( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::PointClamp() )

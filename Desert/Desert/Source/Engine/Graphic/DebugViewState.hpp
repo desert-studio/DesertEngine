@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Json/Json.hpp>
+
 #include <glm/glm.hpp>
 
 namespace Desert::Graphic
@@ -114,5 +116,12 @@ namespace Desert::Graphic
         // with this on names a pass whose effect the graph cannot see - it needs a declaration or NeverCull.
         // Costs GPU time only, never the picture of a correct graph.
         bool DisablePassCulling = false;
+
+        // Keys of editor.json's DebugView block that this build does not declare — a flag a newer build
+        // added. Several builds share one editor.json, and Json::Read refuses an undeclared key, so without
+        // this member one new flag would make every older build reject the whole file, fall back to
+        // defaults and overwrite the owner's settings on its next save. Carried, never read; the renderer
+        // ignores it. Always the LAST member, so positional initialisation of the flags is unaffected.
+        Common::Json::CarriedKeys UnknownKeys;
     };
 } // namespace Desert::Graphic

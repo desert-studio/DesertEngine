@@ -185,3 +185,6 @@ __pycache__/
 # per-tree scratch of scripts/Dev (handoff markers)
 .cache/
 
+
+# ShadingModelRegistry writes this header from ShadingModels/*.shadingmodel at startup; it is never committed.
+Editor/Resources/Shaders/ShadingModels/ShadingModels.generated.glslh

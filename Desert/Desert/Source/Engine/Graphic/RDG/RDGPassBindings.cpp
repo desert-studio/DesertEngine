@@ -214,22 +214,27 @@ namespace Desert::Graphic::RDG
             return "unknown";
         }
 
-        constexpr std::string_view kNotInShaderFormat  = "'{}' is not a resource of shader '{}'";
-        constexpr std::string_view kKindFormat         = "'{}' is a {} in shader '{}', bound as {}";
-        constexpr std::string_view kTwiceFormat        = "'{}' of shader '{}' is bound twice by the pass";
-        constexpr std::string_view kBothRoutesFormat   = "'{}' of shader '{}' is bound by the pass and by the material";
-        constexpr std::string_view kNeitherRouteFormat = "'{}' of shader '{}' is filled by neither the pass nor the "
-                                                         "material";
-        constexpr std::string_view kPushFormat = "push constants: shader '{}' declares {} bytes, the pass gives {}";
+        constexpr std::string_view kNotInShaderFormat = "'{}' is not a resource of shader '{}'";
+        constexpr std::string_view kKindFormat        = "'{}' is a {} in shader '{}', bound as {}";
+        constexpr std::string_view kTwiceFormat       = "'{}' of shader '{}' is bound twice by the pass";
+        constexpr std::string_view kBothRoutesFormat =
+             "'{}' of shader '{}' is bound by the pass and by the material";
+        constexpr std::string_view kNeitherRouteFormat =
+             "'{}' of shader '{}' is filled by neither the pass nor the "
+             "material";
+        constexpr std::string_view kPushFormat =
+             "push constants: shader '{}' declares {} bytes, the pass gives {}";
     } // namespace
 
     Common::BoolResultStr ValidatePassBindings( const DeclaredBindingBlock& block )
     {
         if ( !block.Layout )
             return Common::MakeError( std::string( "the block declares no shader binding layout" ) );
-        const ShaderBindingLayout& layout   = *block.Layout;
-        const auto                 byOther  = [&]( std::string_view name )
-        { return std::find( block.Other.Slots.begin(), block.Other.Slots.end(), name ) != block.Other.Slots.end(); };
+        const ShaderBindingLayout& layout  = *block.Layout;
+        const auto                 byOther = [&]( std::string_view name ) {
+            return std::find( block.Other.Slots.begin(), block.Other.Slots.end(), name ) !=
+                   block.Other.Slots.end();
+        };
         for ( const DeclaredBindingEntry& entry : block.Entries )
         {
             const auto sameName = [&]( const DeclaredBindingEntry& e )
@@ -249,16 +254,17 @@ namespace Desert::Graphic::RDG
         }
         for ( const ShaderSlot& slot : layout.Slots )
         {
-            const bool byBlock = std::any_of( block.Entries.begin(), block.Entries.end(),
-                                              [&]( const DeclaredBindingEntry& e ) { return e.ShaderName == slot.Name; } );
+            const bool byBlock =
+                 std::any_of( block.Entries.begin(), block.Entries.end(),
+                              [&]( const DeclaredBindingEntry& e ) { return e.ShaderName == slot.Name; } );
             if ( !byBlock && !byOther( slot.Name ) )
                 return Common::MakeError( std::format( kNeitherRouteFormat, slot.Name, layout.ShaderName ) );
         }
         const uint32_t declared = layout.PushConstantBytes;
         const uint32_t given    = block.PushConstantBytes;
-        const bool     refused  = declared == 0 ? given != 0 || block.Other.PushConstants
-                                                : ( given == 0 ) == !block.Other.PushConstants ||
-                                                      ( given != 0 && given != declared );
+        const bool     refused =
+             declared == 0 ? given != 0 || block.Other.PushConstants
+                               : ( given == 0 ) == !block.Other.PushConstants || ( given != 0 && given != declared );
         if ( refused )
             return Common::MakeError( std::format( kPushFormat, layout.ShaderName, declared, given ) );
         return Common::MakeSuccess( true );
@@ -278,7 +284,8 @@ namespace Desert::Graphic::RDG
     }
 
     BindingBlockBuilder& BindingBlockBuilder::Sampled( std::string_view shaderName, TextureRef texture,
-                                                       Access declared, SubresourceRange range, SamplerDesc sampler )
+                                                       Access declared, SubresourceRange range,
+                                                       SamplerDesc sampler )
     {
         m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Sampled" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(

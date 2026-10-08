@@ -95,11 +95,19 @@ if [ "${1:-}" = "--one" ]; then
     # /usr/bin/time -l is BSD time's verbose form and prints "maximum resident set size" in bytes.
     # It is the cheapest honest answer to "can this many of these run at once", which is the question
     # concurrency raises on a sanitizer build. Guarded because a Unix without it is still a Unix.
+    # macOS strips every DYLD_* variable when it starts a SIP-protected binary (/usr/bin/xargs that
+    # re-entered this script, /usr/bin/time below), so the GPU suites lost the library path the Vulkan
+    # loader and GLFW find libvulkan, MoltenVK and the validation layer by. The parent hands it over
+    # under a name SIP does not touch, and /usr/bin/env puts it back on the suite's command line.
+    W_ENV=()
+    if [ -n "${DESERT_TEST_DYLD_FALLBACK_LIBRARY_PATH:-}" ]; then
+        W_ENV=(/usr/bin/env "DYLD_FALLBACK_LIBRARY_PATH=$DESERT_TEST_DYLD_FALLBACK_LIBRARY_PATH")
+    fi
     if [ -x /usr/bin/time ]; then
-        /usr/bin/time -l "$W_BIN" --desert-suite="$W_NAME" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
+        /usr/bin/time -l ${W_ENV[@]+"${W_ENV[@]}"} "$W_BIN" --desert-suite="$W_NAME" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
         W_RC=$?
     else
-        "$W_BIN" --desert-suite="$W_NAME" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
+        ${W_ENV[@]+"${W_ENV[@]}"} "$W_BIN" --desert-suite="$W_NAME" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
         W_RC=$?
     fi
     W_END="$(date +%s)"
@@ -186,6 +194,16 @@ echo "suites: $COUNT   jobs: $JOBS   dir: $TEST_DIR"
 # checkout path contains a `+`, a space away from a path that would be split in half silently.
 QUEUE="$REPORT_DIR/queue.nul"
 printf '%s\n' "$NAMES" | grep -v '^$' | tr '\n' '\0' >"$QUEUE"
+
+# The library path the suites need (Homebrew's lib holds libvulkan and the Khronos validation layer),
+# carried past SIP to the workers - see the worker's W_ENV.
+if [ "$(uname -s)" = "Darwin" ]; then
+    DESERT_TEST_DYLD_FALLBACK_LIBRARY_PATH="${DYLD_FALLBACK_LIBRARY_PATH:-}"
+    if [ -z "$DESERT_TEST_DYLD_FALLBACK_LIBRARY_PATH" ] && command -v brew >/dev/null 2>&1; then
+        DESERT_TEST_DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib:$HOME/lib:/usr/local/lib:/usr/lib"
+    fi
+    export DESERT_TEST_DYLD_FALLBACK_LIBRARY_PATH
+fi
 
 SWEEP_START="$(date +%s)"
 # Fed from a file rather than a pipe: with `pipefail` set, a pipeline's status is not necessarily

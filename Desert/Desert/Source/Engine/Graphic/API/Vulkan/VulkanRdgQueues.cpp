@@ -1,7 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 
-#include <Engine/Core/EngineContext.hpp>
-
 #include <algorithm>
 #include <cstdio>
 #include <format>
@@ -124,11 +122,10 @@ namespace Desert::Graphic::API::Vulkan
     RDG::PipeCapabilities VulkanRdgQueueSet::GetCapabilities() const
     {
         RDG::PipeCapabilities capabilities;
-        // The catalog decides whether async compute is OFFERED (CapabilityCatalog::AsyncCompute: a separate
-        // compute family, and not a portability device whose Metal backend overlaps encoders itself); the
-        // queue set only adds whether it actually holds that queue.
-        capabilities.SeparateComputeFamily = EngineContext::GetInstance().GetCapabilities().Catalog.AsyncCompute &&
-                                             ComputeQueue != VK_NULL_HANDLE && ComputeFamily != GraphicsFamily;
+        // Whether async compute is OFFERED (CapabilityCatalog::AsyncCompute) is decided by whoever builds the
+        // set: it hands over a compute queue only when it is. The set itself reads nothing global - the device
+        // suite builds one on its own headless device, where no EngineContext device exists.
+        capabilities.SeparateComputeFamily = ComputeQueue != VK_NULL_HANDLE && ComputeFamily != GraphicsFamily;
         return capabilities;
     }
 

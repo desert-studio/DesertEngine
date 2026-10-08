@@ -143,7 +143,7 @@ namespace Desert::Graphic::System
         // THE BUDGET, TAKEN AND HELD. Read before the first Setup* because SetupShadowPass allocates from it;
         // from here on only RebudgetShadows may change it (a Shadows quality change), and holding a copy is
         // what makes that true rather than a rule somebody has to keep.
-        TakeShadowBudget( m_SceneRenderer ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{} );
+        TakeShadowBudget( m_SceneRenderer != nullptr ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{} );
 
         if ( !SetupGeometryPass() )
             return Common::MakeError( "Failed to setup static geometry pass" );
@@ -240,11 +240,14 @@ namespace Desert::Graphic::System
             if ( command.Pipeline == nullptr || command.Mesh == nullptr || command.Material == nullptr ||
                  !command.Material->GetShader() )
             {
-                Fail( std::format( "mesh draw refused: no {}", command.Pipeline == nullptr ? "pipeline"
-                                                               : command.Mesh == nullptr   ? "mesh"
-                                                               : command.Material == nullptr
-                                                                    ? "material"
-                                                                    : "material shader" ) );
+                const char* missing = "material shader";
+                if ( command.Pipeline == nullptr )
+                    missing = "pipeline";
+                else if ( command.Mesh == nullptr )
+                    missing = "mesh";
+                else if ( command.Material == nullptr )
+                    missing = "material";
+                Fail( std::format( "mesh draw refused: no {}", missing ) );
                 return;
             }
             const Shader* recordedWith = command.Pipeline->GetSpecification().Shader.get();
@@ -292,17 +295,18 @@ namespace Desert::Graphic::System
                 {
                     BindSceneViewInputs( block, *view, *layout );
                 }
-                perBlock( block );
+                perBlock( block, *layout );
             }
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( pass, view, []( auto& ) {} );
+            DeclareBlocks( pass, view, []( auto&, const auto& ) {} );
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
-                                    const std::function<void( RDG::BindingBlockBuilder& )>& perBlock ) const
+                                    const std::function<void( RDG::BindingBlockBuilder&,
+                                                              const RDG::ShaderBindingLayout& )>& perBlock ) const
         {
             DeclareBlocks( pass, view, perBlock );
         }
@@ -310,7 +314,7 @@ namespace Desert::Graphic::System
         void MeshDrawList::Declare( RenderPassDeclaration&                declared,
                                     const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( declared, view, []( auto& ) {} );
+            DeclareBlocks( declared, view, []( auto&, const auto& ) {} );
         }
 
         Common::BoolResultStr MeshDrawList::Record( const RDG::PassContext& context ) const
@@ -320,7 +324,8 @@ namespace Desert::Graphic::System
             std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
             blocks.reserve( m_Blocks.size() );
             for ( uint32_t index = 0; index < m_Blocks.size(); ++index )
-                blocks.push_back( std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
+                blocks.push_back(
+                     std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
             for ( size_t i = 0; i < m_Commands.size(); ++i )
             {
                 const MeshDrawCommand& draw = m_Commands[i];
@@ -328,7 +333,7 @@ namespace Desert::Graphic::System
                 {
                     draw.BindState();
                 }
-                if ( auto drawn = Renderer::GetInstance().RenderMesh(
+                if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
                           draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
                      !drawn.IsSuccess() )

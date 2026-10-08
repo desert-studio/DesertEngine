@@ -43,8 +43,8 @@ namespace Desert::Core
 
     // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
     // 5: RDG-DEV1 merge — the int/rdg line's ShaderParam::EngineSet (v2) and dev's ShaderParam::Sampler (v4) in
-    // one layout.
-    inline constexpr uint32_t kShaderMapFormatVersion = 5;
+    // one layout. 6: ShaderProgramMeta::ParticleSource (VFX-06) on top of 5.
+    inline constexpr uint32_t kShaderMapFormatVersion = 6;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the

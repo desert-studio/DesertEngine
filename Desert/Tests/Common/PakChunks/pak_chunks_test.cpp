@@ -452,16 +452,17 @@ TEST( PakChunks, TheSchemeRoundTripsAndABlankOrHalfWrittenFileIsRefused )
     EXPECT_EQ( parsed.GetValue().Chunks.front().Roots.size(), 2u );
     EXPECT_EQ( parsed.GetValue().AlwaysBase, scheme.AlwaysBase );
 
-    // Strict (lead decision, JS1a2): an empty text, a missing member and an unknown key are all refusals
-    // naming what is wrong, never a scheme quietly read as "undivided".
+    // An empty text and an unknown key are refusals naming what is wrong, never a scheme quietly read as
+    // "undivided"; a member the text does not state takes the struct's default (JSON-DEFAULTS, owner 10-07).
     EXPECT_FALSE( ParseChunkScheme( "   \n\t " ).IsSuccess() );
     const auto undivided = ParseChunkScheme( R"({"Chunks":[],"AlwaysBase":[]})" );
     ASSERT_TRUE( undivided ) << undivided.GetError();
     EXPECT_TRUE( undivided.GetValue().Chunks.empty() );
 
-    const auto noBase = ParseChunkScheme( R"({"Chunks":[]})" );
-    ASSERT_FALSE( noBase.IsSuccess() );
-    EXPECT_NE( noBase.GetError().find( "field 'AlwaysBase'" ), std::string::npos ) << noBase.GetError();
+    const auto noBase = ParseChunkScheme( R"({"Chunks":[{"Name":"A","Roots":["assets:A.demat"]}]})" );
+    ASSERT_TRUE( noBase ) << noBase.GetError();
+    EXPECT_EQ( noBase.GetValue().Chunks.size(), 1u );
+    EXPECT_TRUE( noBase.GetValue().AlwaysBase.empty() ) << "an unstated AlwaysBase is the struct's empty list";
 
     const auto typo = ParseChunkScheme( R"({"Chunks":[{"Name":"A","Roots":[],"Root":"x"}],"AlwaysBase":[]})" );
     ASSERT_FALSE( typo.IsSuccess() );

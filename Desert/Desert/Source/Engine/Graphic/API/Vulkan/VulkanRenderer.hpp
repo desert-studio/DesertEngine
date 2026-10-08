@@ -64,8 +64,8 @@ namespace Desert::Graphic::API::Vulkan
                                            const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                            IndexBuffer& indexBuffer, uint32_t indexCount,
                                            uint32_t firstIndex ) override;
-        RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const override;
-        RDG::OtherRouteFill      GetPipelineRouteFill( const ComputePipeline& pipeline ) const override;
+        [[nodiscard]] RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const override;
+        [[nodiscard]] RDG::OtherRouteFill GetPipelineRouteFill( const ComputePipeline& pipeline ) const override;
         Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
                                           const MaterialExecutor& material, uint32_t instanceCount,

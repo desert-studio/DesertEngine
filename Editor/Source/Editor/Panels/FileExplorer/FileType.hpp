@@ -56,6 +56,14 @@ namespace Desert::Editor
         /// an icon and filter by it; no producer draws its picture (UE shows the class icon too).
         LevelSequence,
 
+        /// A VFX system (`.dfx`, UE UNiagaraSystem with its emitters embedded): its own type so the browser
+        /// can colour it, give it an icon and filter by it; no producer draws its picture until the VFX
+        /// System editor (VFX-12) can render one, so it shows the class icon as UE does for an uncompiled one.
+        VFXSystem,
+        /// A fracture (`.dfrac`, UE UGeometryCollection): its own type so the browser can colour it, give it
+        /// an icon and filter by it; its picture is the class icon until a producer renders the pieces.
+        Fracture,
+
         /// An import settings sidecar (`.deimport`) written beside a source file by the importer: it states
         /// HOW the source is brought in, so the browser names it instead of calling it Unknown.
         ImportSettings,
@@ -148,6 +156,8 @@ namespace Desert::Editor
          { "detheme", FileType::UITheme },
          { "delayerinfo", FileType::LandscapeLayerInfo },
          { "dseq", FileType::LevelSequence },
+         { "dfx", FileType::VFXSystem },
+         { "dfrac", FileType::Fracture },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

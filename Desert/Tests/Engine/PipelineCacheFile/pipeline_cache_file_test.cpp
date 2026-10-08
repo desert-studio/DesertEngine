@@ -302,6 +302,72 @@ TEST( MaterialPipelines, HotReloadSendsAReadyMaterialBackToTheDefaultWhileItReco
     EXPECT_TRUE( tracker.Choose( "MatA" ).UseOwnPipeline );
 }
 
+// RDG-PSO: the relation a graph pass depends on — a cell whose pipeline is still in the driver is NEVER
+// recorded with that pipeline (binding it fails the pass, and a failed pass drops the whole frame graph); the
+// pass's default surface draws it, and the cell comes back to its own pipeline the frame it is Ready.
+TEST( MaterialPipelines, AGraphPassNeverRecordsACompilingCellAndDrawsTheDefaultSurfaceInstead )
+{
+    using Desert::Graphic::MaterialPipelineTracker;
+    using Draw = MaterialPipelineTracker::CellDraw;
+    MaterialPipelineTracker tracker;
+    const std::string       cell = "StaticMeshGBuffer MatProbe/Static.GBuffer";
+
+    const auto compiling = tracker.ChooseCell( cell, State::Compiling, /*defaultSurfaceReady*/ true );
+    EXPECT_EQ( compiling.Draw, Draw::DefaultSurface ) << "a compiling cell was recorded with its own pipeline";
+    EXPECT_TRUE( compiling.Announce );
+    for ( int frame = 0; frame < 5; ++frame )
+    {
+        const auto again = tracker.ChooseCell( cell, State::Compiling, true );
+        EXPECT_EQ( again.Draw, Draw::DefaultSurface );
+        EXPECT_FALSE( again.Announce ) << "the stand-in is said once per cell per state, not per frame";
+    }
+    EXPECT_EQ( tracker.ChooseCell( cell, State::Requested, true ).Draw, Draw::DefaultSurface );
+
+    EXPECT_EQ( tracker.ChooseCell( cell, State::Ready, true ).Draw, Draw::Own );
+    EXPECT_EQ( tracker.ChooseCell( cell, State::Compiling, true ).Draw, Draw::DefaultSurface )
+         << "a hot-reload recompile goes back to the stand-in";
+
+    const auto failed = tracker.ChooseCell( cell, State::Failed, true );
+    EXPECT_EQ( failed.Draw, Draw::DefaultSurface ) << "a refused cell draws the default surface, not nothing";
+    EXPECT_TRUE( failed.Announce );
+
+    // Before the reveal the stand-in itself may still be compiling: then nothing is recorded, never the cell.
+    EXPECT_EQ( tracker.ChooseCell( "Other", State::Compiling, /*defaultSurfaceReady*/ false ).Draw,
+               Draw::Nothing );
+    EXPECT_EQ( tracker.ChooseCell( "Other", State::Ready, false ).Draw, Draw::Own );
+}
+
+// The graph passes ask that question before they record, in every one of them (static/instanced G-buffer and
+// forward, skinned, glass): the frame log of CLOUD-HORIZON lost eight whole frames to one material each.
+TEST( MaterialPipelines, EveryMeshGraphPassAsksTheCellChoiceBeforeRecording )
+{
+    const std::string forward =
+         ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
+    for ( const char* site :
+          { "ownCellsReady( mat, objects )", "cellDrawOf( mat, ism.Material->IsTwoSided(), /*perObject*/ false )",
+            "ChooseCellDraw( pipeline, *mat, twoSided, standInPipeline )",
+            "ChoosePipelineDraw( state->Pipeline.get()" } )
+        EXPECT_NE( forward.find( site ), std::string::npos ) << "no cell choice at " << site;
+    const std::string shared =
+         ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp" );
+    EXPECT_NE( shared.find( "m_MaterialPipelines.ChooseCell(" ), std::string::npos )
+         << "the cell's readiness is decided by the AL1-12 tracker";
+}
+
+// RDG-PSO live run: the glass stand-in (the default surface) declares no u_SceneColor, and a pass parameter named
+// to a shader that does not reflect it fails the node — three whole frames dropped. The glass pass binds the scene
+// copy only to a cell that reflects it, so its stand-in executes the graph.
+TEST( MaterialPipelines, GlassBindsTheSceneCopyOnlyToACellThatReflectsIt )
+{
+    const std::string forward =
+         ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
+    const auto guard = forward.find( "if ( SceneViewDetail::LayoutSamples( layout, \"u_SceneColor\" ) )" );
+    const auto bind  = forward.find( "block.Sampled( \"u_SceneColor\"" );
+    ASSERT_NE( bind, std::string::npos );
+    EXPECT_NE( guard, std::string::npos ) << "u_SceneColor is handed to every glass cell, the stand-in included";
+    EXPECT_LT( guard, bind ) << "the scene copy is bound before the reflection is asked";
+}
+
 TEST( MaterialPipelines, OnLoadRequestsReachEveryRendererFromItsOwnCursor )
 {
     Desert::Graphic::MaterialPipelineRequests requests;

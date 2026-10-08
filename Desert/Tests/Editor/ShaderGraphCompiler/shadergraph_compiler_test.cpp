@@ -1009,15 +1009,20 @@ TEST( ShaderGraphFormat, MalformedJsonIsRefusedAndSaysSo )
          << "the refusal does not say what kind of file failed: " << refused.GetError();
 }
 
-TEST( ShaderGraphFormat, AFieldTheFileDoesNotStateIsRefusedByName )
+TEST( ShaderGraphFormat, AnUnstatedFieldIsTheDefaultAndAnUnknownOneIsRefusedByName )
 {
-    // STRICT, asserted rather than assumed (owner rule: a missing field is an error, not a fallback). A
-    // graph that does not state `Domain` and `Lit` is refused naming both, instead of opening as a surface
-    // nobody chose; every committed .dgraph states them (StrictCorpus in AssetHandleStability).
+    // Json::Read's rule (owner 2026-10-07, UE's class-default rule): a graph that does not state `Domain` and
+    // `Lit` opens as the Document's own defaults, an unlit surface.
     const auto parsed = SGF::ParseShaderGraph( R"({"Name":"Old","NextId":3,"Nodes":[],"Links":[]})" );
-    ASSERT_FALSE( parsed.IsSuccess() );
-    EXPECT_NE( parsed.GetError().find( "'Domain'" ), std::string::npos ) << parsed.GetError();
-    EXPECT_NE( parsed.GetError().find( "'Lit'" ), std::string::npos ) << parsed.GetError();
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    EXPECT_EQ( parsed.GetValue().Domain, SGF::Document{}.Domain );
+    EXPECT_EQ( parsed.GetValue().Lit, SGF::Document{}.Lit );
+    EXPECT_EQ( parsed.GetValue().Name, "Old" );
+
+    // A key this build does not know is damage, refused naming it, never dropped on the next save.
+    const auto unknown = SGF::ParseShaderGraph( R"({"Name":"New","Domian":1})" );
+    ASSERT_FALSE( unknown.IsSuccess() );
+    EXPECT_NE( unknown.GetError().find( "'Domian'" ), std::string::npos ) << unknown.GetError();
 }
 
 // THE DOCUMENT SAVES TO THE FILE IT WAS OPENED ON, and this is the U6 rule that the window being a tool

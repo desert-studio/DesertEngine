@@ -112,8 +112,8 @@ namespace Desert::Graphic
         // kinds only). GetPipelineRouteFill: the slots a compute pipeline's own setters (asset textures,
         // out-of-graph buffers) hold, by shader name - the other route of DispatchCompute. A graphics draw's
         // other route is its material's (MaterialExecutor::GetRouteFill).
-        [[nodiscard]] RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const;
-        [[nodiscard]] RDG::OtherRouteFill      GetPipelineRouteFill( const ComputePipeline& pipeline ) const;
+        [[nodiscard]] static RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader );
+        [[nodiscard]] static RDG::OtherRouteFill      GetPipelineRouteFill( const ComputePipeline& pipeline );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

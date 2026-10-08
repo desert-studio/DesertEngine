@@ -116,7 +116,7 @@ namespace Desert::Graphic::System
         if ( !m_BrightPassPipeline )
             return; // RecordBrightPass refuses by name
         auto block = pass.Bindings( m_BrightPassLayout.Get( m_BrightPassPipeline->GetSpecification().Shader ),
-                                    Renderer::GetInstance().GetPipelineRouteFill( *m_BrightPassPipeline ) );
+                                    Renderer::GetPipelineRouteFill( *m_BrightPassPipeline ) );
         if ( mip == 0 )
         {
             block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
@@ -153,7 +153,7 @@ namespace Desert::Graphic::System
         if ( !m_FeaturesPipeline )
             return; // RecordFeatures refuses by name
         pass.Bindings( m_FeaturesLayout.Get( m_FeaturesPipeline->GetSpecification().Shader ),
-                       Renderer::GetInstance().GetPipelineRouteFill( *m_FeaturesPipeline ) )
+                       Renderer::GetPipelineRouteFill( *m_FeaturesPipeline ) )
              .Sampled( "u_FlareSource", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Flare", flare, RDG::Access::StorageWrite, 0 )

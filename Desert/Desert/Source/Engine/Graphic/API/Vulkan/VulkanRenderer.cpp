@@ -519,7 +519,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto& compute = static_cast<const VulkanPipelineCompute&>( pipeline );
-        const auto* shader  = static_cast<const VulkanShader*>( compute.GetShader().get() );
+        const auto* shader  = dynamic_cast<const VulkanShader*>( compute.GetShader().get() );
         if ( shader == nullptr )
             return {};
         // The same set-0 keys DispatchCompute hands ResolveRdgPassBindings as the other route.
@@ -953,23 +953,23 @@ namespace Desert::Graphic::API::Vulkan
             const auto stages = []( RDG::PipelineStageFlags flags )
             {
                 const VkPipelineStageFlags vk = RdgVulkanStages( flags );
-                return vk != 0 ? vk : VkPipelineStageFlags( VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT );
+                return vk != 0 ? vk : static_cast<VkPipelineStageFlags>( VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT );
             };
             for ( const RDG::FrameFaultExternal& entry : fault.Externals )
             {
                 const uint32_t        resource = entry.Resource;
                 RDG::ExternalTexture* external = graph.FindExternalTexture( resource );
-                if ( !external )
+                if ( external == nullptr )
                     return Common::MakeError(
                          std::format( "frame fault: resource {} is not an external texture", resource ) );
                 auto* texture = dynamic_cast<VulkanRdgTexture*>( external->Physical.get() );
-                if ( !texture )
+                if ( texture == nullptr )
                     return Common::MakeError( "frame fault: an external texture without a Vulkan image" );
                 if ( texture->GetAspect() != VK_IMAGE_ASPECT_COLOR_BIT )
                     return Common::MakeError( "frame fault: a FrameFatal external that is not a colour image" );
 
-                const RDG::TextureDesc&          desc        = external->Desc;
-                const RDG::AccessState           dst         = RDG::GetAccessState( RDG::Access::CopyDst );
+                const RDG::TextureDesc& desc = external->Desc;
+                const RDG::AccessState  dst  = RDG::GetAccessState( RDG::Access::CopyDst );
                 const RDG::AccessState after = entry.FinalAccess ? RDG::GetAccessState( *entry.FinalAccess ) : dst;
 
                 std::vector<VkImageSubresourceRange> ranges;
@@ -980,7 +980,8 @@ namespace Desert::Graphic::API::Vulkan
                         const RDG::AccessState& before =
                              external->SubresourceStates[desc.SubresourceIndex( mip, layer )];
                         const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, mip, 1, layer, 1 };
-                        VkImageMemoryBarrier          barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                        VkImageMemoryBarrier          barrier{};
+                        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                         barrier.srcAccessMask       = RdgVulkanAccess( before.Memory );
                         barrier.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
                         barrier.oldLayout           = RdgVulkanLayout( before.Layout );
@@ -1000,7 +1001,8 @@ namespace Desert::Graphic::API::Vulkan
                                       &black, static_cast<uint32_t>( ranges.size() ), ranges.data() );
                 if ( after != dst )
                 {
-                    VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                    VkImageMemoryBarrier barrier{};
+                    barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                     barrier.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
                     barrier.dstAccessMask       = RdgVulkanAccess( after.Memory );
                     barrier.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -1031,7 +1033,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto fail = []( std::string message ) -> Common::BoolResultStr
         {
             LOG_ERROR( "[Renderer] ExecuteGraph: {}", message );
-            return Common::MakeError( std::move( message ) );
+            return Common::MakeError( message );
         };
         if ( !IsRecording() )
             return fail( "No active command buffer" );
@@ -1125,12 +1127,15 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
             m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
 
-            // The compute queue is the graph's AsyncCompute pipe only when its family differs from the
-            // graphics one (VulkanPhysicalDevice falls back to the graphics family when there is none);
-            // otherwise every pass runs on Graphics and the backend's fallback log says so once.
+            // The compute queue is the graph's AsyncCompute pipe only when the catalog offers async compute
+            // (CapabilityCatalog::AsyncCompute: a separate compute family, and not a portability device whose
+            // Metal backend overlaps encoders itself) - VulkanPhysicalDevice falls back to the graphics family
+            // when there is none. Otherwise the queue set gets no compute queue, every pass runs on Graphics and
+            // the backend's fallback log says so once.
             const uint32_t graphicsFamily = device->GetPhysicalDevice()->GetGraphicsFamily();
             const uint32_t computeFamily  = device->GetPhysicalDevice()->GetComputeFamily();
-            const bool     separate       = computeFamily != graphicsFamily;
+            const bool     separate       = computeFamily != graphicsFamily &&
+                                  EngineContext::GetInstance().GetCapabilities().Catalog.AsyncCompute;
             m_FrameLoop                   = std::make_unique<VulkanFrameLoop>(
                  m_RdgDevice.Device, graphicsFamily,
                  separate ? std::optional<uint32_t>( computeFamily ) : std::nullopt, slots );

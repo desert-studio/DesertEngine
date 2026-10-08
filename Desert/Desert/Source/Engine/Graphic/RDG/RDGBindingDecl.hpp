@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-// RDG-FAULT1. The setup-time declaration of a pass's shader parameter block: what PassBuilder::Bindings records and
-// Builder::Compile validates (ValidatePassBindings) before anything is recorded. Split out of RDGPassBindings.hpp
-// because the builder stores these per pass, and RDGPassBindings.hpp itself needs the builder.
+// RDG-FAULT1. The setup-time declaration of a pass's shader parameter block: what PassBuilder::Bindings records
+// and Builder::Compile validates (ValidatePassBindings) before anything is recorded. Split out of
+// RDGPassBindings.hpp because the builder stores these per pass, and RDGPassBindings.hpp itself needs the builder.
 namespace Desert::Graphic::RDG
 {
     enum class SamplerFilter : uint8_t
@@ -73,7 +73,7 @@ namespace Desert::Graphic::RDG
         }
 
         // One value per distinct description: the key of the backend's sampler cache.
-        constexpr uint32_t GetKey() const
+        [[nodiscard]] constexpr uint32_t GetKey() const
         {
             return static_cast<uint32_t>( MinFilter ) | ( static_cast<uint32_t>( MagFilter ) << 2 ) |
                    ( static_cast<uint32_t>( MipMode ) << 4 ) | ( static_cast<uint32_t>( AddressU ) << 6 ) |
@@ -104,8 +104,8 @@ namespace Desert::Graphic::RDG
 
     struct ShaderBindingLayout
     {
-        std::string             ShaderName;            // what an error names ("StaticMeshGlass")
-        std::vector<ShaderSlot> Slots;                 // every resource slot the shader declares
+        std::string             ShaderName;            // what an error names: the shader's own name
+        std::vector<ShaderSlot> Slots{};               // every resource slot the shader declares
         uint32_t                PushConstantBytes = 0; // the declared range; 0 = the shader declares none
     };
 
@@ -135,8 +135,8 @@ namespace Desert::Graphic::RDG
         // per-frame copy of the slot list; null is refused by ValidatePassBindings.
         std::shared_ptr<const ShaderBindingLayout> Layout;
         OtherRouteFill                             Other;
-        std::vector<DeclaredBindingEntry> Entries;
-        uint32_t                          PushConstantBytes = 0; // what the exec will push
+        std::vector<DeclaredBindingEntry>          Entries;
+        uint32_t                                   PushConstantBytes = 0; // what the exec will push
     };
 
     // A declared block of one pass: the exec's handle to it. Meaningless outside the graph that declared it.

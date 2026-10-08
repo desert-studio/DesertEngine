@@ -64,6 +64,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -152,6 +153,24 @@ namespace
         if ( result.GetCompilationStatus() != shaderc_compilation_status_success )
             return {};
         return { result.begin(), result.end() };
+    }
+
+    // EVERY SHIPPED STAGE IS COMPILED ONCE PER RUN. Four censuses below walk the whole shipped tree, and each
+    // compiled every stage again. On Windows Debug that is shaderc_combinedd — glslang and SPIRV-Tools
+    // unoptimised, with iterator debugging — and the four took 180-255 s apiece, so CI killed the suite at
+    // its 1200 s cap (macOS links the release archive: the whole suite runs in 107 s). A release shaderc
+    // cannot be linked into a /MDd binary, so the repetition goes instead. Only shipped .shader files come
+    // through here: nothing edits them during a run (ScopedHeader writes a header no shipped file includes),
+    // so the path, the stage and the source text determine the module. A failed compile is reported by the
+    // first census that meets it and cached as empty, which the callers skip.
+    const std::vector<uint32_t>& CompileShippedStage( const std::string& source, const std::filesystem::path& path,
+                                                      shaderc_shader_kind kind )
+    {
+        static std::map<std::tuple<std::string, int, std::string>, std::vector<uint32_t>> s_Modules;
+        auto key = std::make_tuple( path.string(), static_cast<int>( kind ), source );
+        if ( const auto it = s_Modules.find( key ); it != s_Modules.end() )
+            return it->second;
+        return s_Modules.emplace( std::move( key ), CompileStage( source, path, kind ) ).first->second;
     }
 
     // Reflects one compute shader and returns the layout bindings of set 0 — the contract a pipeline
@@ -1941,6 +1960,18 @@ TEST_F( ShaderCacheKeyShaderRoot, BothParticleStagesIndexTheStateByTheStrideTheE
     EXPECT_EQ( simulate, billboard ) << "the two particle stages read one storage with two layouts";
 }
 
+TEST_F( ShaderCacheKeyShaderRoot, TheParticleStepTableIsIndexedByTheStrideTheEngineUploads )
+{
+    // ParticleRenderer uploads the frame's VFX steps as an array of kParticleStepStride-byte elements
+    // and the simulation reads step N at N * (its own stride). A field added on one side alone gives
+    // every step after the first another step's id base, seed and budget.
+    const uint32_t steps = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
+                                               ShaderStage::Compute, shaderc_compute_shader, 1 );
+    EXPECT_EQ( steps, Desert::Graphic::System::kParticleStepStride )
+         << "ParticleSimulate indexes its step table by " << steps << " bytes and ParticleRenderer uploads "
+         << Desert::Graphic::System::kParticleStepStride;
+}
+
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothStages )
 {
     // WHY THE EQUALITY ABOVE IS NOT ENOUGH. Two independent declarations that happen to be the same size
@@ -2215,7 +2246,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedShaderClaimsOneDescriptorSlotTwice )
             ShaderResource::ReflectionData data;
             for ( const auto& [stage, source] : stages )
             {
-                const auto spirv = CompileStage( source, file, KindOf( stage ) );
+                const auto& spirv = CompileShippedStage( source, file, KindOf( stage ) );
                 if ( spirv.empty() )
                     continue; // CompileStage already reported it
 
@@ -2240,7 +2271,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedShaderClaimsOneDescriptorSlotTwice )
 
 // ─── Every shipped program's push block fits the engine cap ───────────────────────────────────────
 //
-// The owner's guarantee: no program pushes more than ShaderLayout::kMaxPushBlockBytes (128, the size every
+// The owner's guarantee: no program pushes more than ShaderLayout::kMaxPushConstantBytes (128, the size every
 // Vulkan device holds). Reflection refuses a larger stage; this pins the shipped tree under it by
 // compiling every pass and reading the merged range the pipeline layout is built from (PushBlockSize).
 TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsPushBlockFitsTheEngineCap )
@@ -2260,7 +2291,7 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsPushBlockFitsTheEngineCap 
             ShaderResource::ReflectionData data;
             for ( const auto& [stage, source] : stages )
             {
-                const auto spirv = CompileStage( source, file, KindOf( stage ) );
+                const auto& spirv = CompileShippedStage( source, file, KindOf( stage ) );
                 if ( spirv.empty() )
                     continue; // CompileStage already reported it
                 const auto diagnostics = ShaderReflection::ReflectStage( spirv, stage, data );
@@ -2269,7 +2300,7 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsPushBlockFitsTheEngineCap 
                      << "']: " << ( diagnostics.empty() ? std::string{} : diagnostics.front() );
             }
             const uint32_t size = Desert::ShaderResources::ShaderLayout::PushBlockSize( data.PushConstantRanges );
-            EXPECT_LE( size, Desert::ShaderResources::ShaderLayout::kMaxPushBlockBytes )
+            EXPECT_LE( size, Desert::ShaderResources::ShaderLayout::kMaxPushConstantBytes )
                  << file.string() << " [pass '" << passName << "'] pushes " << size << " bytes";
             if ( size > 0 )
             {
@@ -2402,7 +2433,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedProgramDeclaresABindingInTheGraphsRes
             ShaderResource::ReflectionData data;
             for ( const auto& [stage, source] : stages )
             {
-                const auto spirv = CompileStage( source, file, KindOf( stage ) );
+                const auto& spirv = CompileShippedStage( source, file, KindOf( stage ) );
                 if ( spirv.empty() )
                     continue; // CompileStage already reported it
 
@@ -2911,7 +2942,7 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedShaderStageCompilesAndReflects )
                 const shaderc_shader_kind kind  = stage == ShaderStage::Vertex     ? shaderc_glsl_vertex_shader
                                                   : stage == ShaderStage::Fragment ? shaderc_glsl_fragment_shader
                                                                                    : shaderc_glsl_compute_shader;
-                const auto                spirv = CompileStage( source, entry.path(), kind );
+                const auto&               spirv = CompileShippedStage( source, entry.path(), kind );
                 if ( spirv.empty() )
                 {
                     failures += std::format( "{} pass '{}' stage {}: does not compile\n", entry.path().string(),
@@ -3035,6 +3066,54 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGeneratedShadingModelIndicesAreTheRegistrys
         EXPECT_EQ( defined[name], e.Index ) << name;
     }
     EXPECT_EQ( defined["SHADING_MODEL_INDEX_UNLIT"], 0 ) << "a writer that forgets the index must read as Unlit";
+}
+
+// VFX-04. `Domain Particle` is the second program FRAGMENT: a Particle block parses into ParticleSource with no
+// stages, its metadata survives the shader map byte for byte (format 6 carries the field), the boot precheck
+// sees it, and the block and the domain are refused apart and beside stages.
+TEST( ParticleDomainFragment, AParticleFragmentIsMetadataOnlyAndSurvivesTheShaderMap )
+{
+    namespace PP           = Desert::Core::Preprocess;
+    const std::string text = "Shader \"VFX/Probe\"\n{\n    Domain Particle\n    Particle\n    {\n"
+                             "        void Module( inout ParticleCtx p ) { p.Age += 1.0; }\n    }\n}\n";
+    ASSERT_TRUE( PP::DShaderParser::MayDeclareParticle( text ) );
+    const auto parsed = PP::DShaderParser::Parse( text );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto& meta = parsed.GetValue().Meta;
+    EXPECT_EQ( meta.Domain, Desert::Core::Formats::ShaderDomain::Particle );
+    EXPECT_NE( meta.ParticleSource.find( "p.Age += 1.0;" ), std::string::npos );
+    EXPECT_TRUE( meta.IsFragmentProgram() );
+    EXPECT_FALSE( meta.IsMediumProgram() );
+    EXPECT_TRUE( parsed.GetValue().Stages.empty() );
+
+    const auto whole = PP::ShaderPreprocess::ParseProgramMetaForPass( text, "VFX/Probe.shader", "" );
+    ASSERT_TRUE( whole.IsSuccess() ) << whole.GetError();
+    Desert::Core::ShaderMap map;
+    map.Meta        = whole.GetValue();
+    const auto back = Desert::Core::DeserializeShaderMap( Desert::Core::SerializeShaderMap( map ) );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    EXPECT_EQ( back.GetValue().Meta.ParticleSource, meta.ParticleSource );
+    EXPECT_TRUE( back.GetValue() == map );
+}
+
+TEST( ParticleDomainFragment, TheBlockAndTheDomainAreRefusedApartAndBesideStages )
+{
+    namespace PP       = Desert::Core::Preprocess;
+    const auto refused = []( const std::string& text, std::string_view why )
+    {
+        const auto parsed = PP::DShaderParser::Parse( text );
+        ASSERT_FALSE( parsed.IsSuccess() ) << text;
+        EXPECT_NE( parsed.GetError().find( why ), std::string::npos ) << parsed.GetError();
+    };
+    refused( "Shader \"A\"\n{\n    Particle\n    {\n        void Module() {}\n    }\n}\n",
+             "needs 'Domain Particle'" );
+    refused( "Shader \"B\"\n{\n    Domain Particle\n    Compute\n    {\n        void main() {}\n    }\n}\n",
+             "needs a Particle" );
+    refused( "Shader \"C\"\n{\n    Domain Particle\n    Particle\n    {\n        void Module() {}\n    }\n"
+             "    Compute\n    {\n        void main() {}\n    }\n}\n",
+             "must not also declare" );
+    refused( "Shader \"D\"\n{\n    Domain Particle\n    Particle\n    {\n    }\n}\n", "must not be empty" );
+    EXPECT_FALSE( PP::DShaderParser::MayDeclareParticle( "Shader \"E\" { Domain Surface }" ) );
 }
 
 namespace

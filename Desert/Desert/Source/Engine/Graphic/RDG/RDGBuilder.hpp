@@ -300,8 +300,8 @@ namespace Desert::Graphic::RDG
         // What the FaultDefault values mean in this graph (their system-texture sources and clears). Its sources
         // are set by RegisterSystemTextures, so every graph that registers its system textures can honour a
         // FaultDefault without a second call site.
-        FaultDefaults&       GetFaultDefaults();
-        const FaultDefaults& GetFaultDefaults() const;
+        FaultDefaults&                     GetFaultDefaults();
+        [[nodiscard]] const FaultDefaults& GetFaultDefaults() const;
 
         // Compiles against the backend's memory requirements, has the backend acquire physical resources,
         // then for every executed pass in order: label/timestamp, its one barrier batch, begin render pass
@@ -390,8 +390,8 @@ namespace Desert::Graphic::RDG
             ExternalBuffer*  ExtractBuf     = nullptr;
             bool             HasFinalAccess = false;
             Access           FinalAccess    = Access::None;
-            FaultDefault        Default = FaultDefault::None;                 // SetFaultDefault (transients)
-            ExternalFaultPolicy Policy  = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
+            FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
+            ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
 
             [[nodiscard]] bool IsExternal() const
             {

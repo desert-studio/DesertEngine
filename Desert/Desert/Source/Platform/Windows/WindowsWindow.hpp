@@ -46,7 +46,7 @@ namespace Desert::Platform::Windows
         // Runtime toggle: the swapchain picks its present mode at creation, so the new pacing only takes
         // effect once it is rebuilt (RequestRebuild does that). Storing the flag alone — which is all this used
         // to do — left the setting inert.
-        virtual void SetDisplay( const Common::Scalability::DisplaySettings& display ) override
+        void SetDisplay( const Common::Scalability::DisplaySettings& display ) override
         {
             if ( !m_SwapChain || m_SwapChain->Display() == display )
             {

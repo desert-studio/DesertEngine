@@ -93,7 +93,7 @@ namespace Desert::Graphic::System
         if ( !m_DownsamplePipeline )
             return;
         auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
-                                    Renderer::GetInstance().GetPipelineRouteFill( *m_DownsamplePipeline ) );
+                                    Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
         if ( mip == 0 )
             block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearClamp() );
@@ -146,7 +146,7 @@ namespace Desert::Graphic::System
         if ( !m_UpsamplePipeline || mip == 0 )
             return; // RecordUpsample refuses both by name
         pass.Bindings( m_UpsampleLayout.Get( m_UpsamplePipeline->GetSpecification().Shader ),
-                       Renderer::GetInstance().GetPipelineRouteFill( *m_UpsamplePipeline ) )
+                       Renderer::GetPipelineRouteFill( *m_UpsamplePipeline ) )
              .Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ),
                        RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Output", chain, RDG::Access::StorageWrite, mip - 1 )

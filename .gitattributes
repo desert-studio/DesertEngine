@@ -62,6 +62,11 @@
 *.dwcell       -text
 *.dwindex      -text
 
+# A VFX system (VFX-02, JSON with a header) and a baked fracture (DST-01, a DFRC payload in the asset
+# envelope): the registry records both sizes, so neither may be line-translated.
+*.dfx          -text
+*.dfrac        -text
+
 
 # The cooked texture container (B17). It stopped being JSON the day it grew a pixel payload, and a
 # line-ending translation inside a mip chain would not merely resize the file — it would rewrite every

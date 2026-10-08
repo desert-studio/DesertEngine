@@ -274,7 +274,7 @@ TEST( RenderGraphPassBindings, ABlockTheSetupDidNotDeclareIsRefusedNamingThePass
     RunBloomLikePass( []( PassBuilder& pass, TextureRef chain ) { DeclareBloomBlock( pass, chain ); },
                       [&]( PassContext& context, TextureRef ) -> Common::BoolResultStr
                       {
-                          PassBindings bindings( context, context.GetBindingBlock( 1 ) );
+                          const PassBindings bindings( context, context.GetBindingBlock( 1 ) );
                           error =
                                bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
                           EXPECT_TRUE( bindings.GetTextures().empty() );
@@ -368,7 +368,7 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
          },
          []( PassContext& context, TextureRef ) -> Common::BoolResultStr
          {
-             PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+             const PassBindings bindings( context, context.GetBindingBlock( 0 ) );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
              EXPECT_EQ( bindings.GetTextures().size(), 2u );
              if ( bindings.GetTextures().size() != 2u )
@@ -415,7 +415,7 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
          },
          [&]( PassContext& context ) -> Common::BoolResultStr
          {
-             PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+             const PassBindings bindings( context, context.GetBindingBlock( 0 ) );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
              EXPECT_EQ( bindings.GetTextures().size(), 1u );
              if ( bindings.GetTextures().size() == 1u )

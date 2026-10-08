@@ -18,6 +18,7 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/LevelTravel.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -161,7 +162,8 @@ namespace Desert::Player
         // The machine's quality, from this player's own directory (per PRODUCT: two games are two budgets), BEFORE
         // the renderer: SceneRenderer::Init bakes the MSAA sample count into its pipelines.
         m_QualityStart = Graphic::QualityBoot::Start(
-             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json" );
+             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) /
+             "machine.json" );
         // The game's view IS the window, so here — and only here — the window's size is the view's.
         const auto window = EngineContext::GetInstance().GetWindow();
         m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
@@ -567,16 +569,8 @@ namespace Desert::Player
         return BOOLSUCCESS;
     }
 
-    void RuntimeLayer::LoadSceneInternal( const std::string& path )
+    Common::BoolResultStr RuntimeLayer::LoadSceneInternal( const std::string& path )
     {
-        if ( !Common::Utils::FileSystem::Exists( path ) ) // VFS-aware
-        {
-            LOG_WARN( "[Runtime] Scene switch target not found: '{}' (a button's OnClickMessage is "
-                      "'scene:<path>' — the path must resolve in the cooked project)",
-                      path );
-            return;
-        }
-
         // ASKED BEFORE ANYTHING IS TORN DOWN. Clear() below drops every entity of the scene that is running,
         // so finding out afterwards that the target will not load would leave the game in an empty world it
         // cannot get out of. The loader asks the same question again and its answer is the authoritative
@@ -585,8 +579,8 @@ namespace Desert::Player
         auto cooked = Core::ReadCookedWorld( path );
         if ( !cooked )
         {
-            LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}", cooked.GetError() );
-            return;
+            return Common::MakeFormattedError<bool>( "Scene switch refused, the running scene is untouched: {}",
+                                                     cooked.GetError() );
         }
         std::optional<Core::CookedWorldStart> world = cooked.ExtractValue();
         std::string                           json;
@@ -597,17 +591,16 @@ namespace Desert::Player
             auto jsonRead = Core::ExternalEntities::ReadSceneFileText( path );
             if ( !jsonRead )
             {
-                LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}",
-                           jsonRead.GetError() );
-                return;
+                return Common::MakeFormattedError<bool>(
+                     "Scene switch refused, the running scene is untouched: {}", jsonRead.GetError() );
             }
             json = jsonRead.ExtractValue();
         }
         auto loadable = Core::ParseLoadableScene( path, json );
         if ( !loadable )
         {
-            LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}", loadable.GetError() );
-            return;
+            return Common::MakeFormattedError<bool>( "Scene switch refused, the running scene is untouched: {}",
+                                                     loadable.GetError() );
         }
 
         EngineContext::GetInstance().GetDevice()->WaitIdle(); // scene teardown frees GPU resources
@@ -633,29 +626,26 @@ namespace Desert::Player
         Core::SceneSerializer serializer( m_Scene.get(), m_AssetManager.get() );
         if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path ); !loaded )
         {
-            LOG_ERROR( "[Runtime] Scene switch failed after teardown: {}", loaded.GetError() );
-            return;
+            return Common::MakeFormattedError<bool>( "Scene switch failed after teardown: {}", loaded.GetError() );
         }
         // The level's dependency closure is read by the loader's workers while the switch waits (AL1-8b).
         (void)Runtime::AwaitSceneClosure( *m_Scene );
         if ( const auto init = m_Scene->Init(); !init )
         {
-            LOG_ERROR( "[Runtime] Scene switch init failed: {}", init.GetError() );
-            return;
+            return Common::MakeFormattedError<bool>( "Scene switch init failed: {}", init.GetError() );
         }
         // Play first: the spawned pawn is the source the streamer begins around.
         if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, {} ); !began )
         {
-            LOG_ERROR( "[Runtime] Play refused for '{}': {}", path, began.GetError() );
-            return;
+            return Common::MakeFormattedError<bool>( "Play refused for '{}': {}", path, began.GetError() );
         }
         auto streamer = world.has_value()
                              ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager, std::move( *world ) )
                              : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json );
         if ( !streamer )
         {
-            LOG_ERROR( "[Runtime] Scene switch could not stream the world: {}", streamer.GetError() );
-            return;
+            return Common::MakeFormattedError<bool>( "Scene switch could not stream the world: {}",
+                                                     streamer.GetError() );
         }
         m_WorldStreamer = streamer.ExtractValue();
         // THE SAME GATE AS THE BOOT'S, and this is the half that would have been forgotten. A level switch
@@ -665,6 +655,7 @@ namespace Desert::Player
         m_Content.BeginWorld( Assets::ContentWorkNow().Started );
         m_LoadingFramesPresented = 0;
         LOG_INFO( "[Runtime] Switched scene: {}", path );
+        return Common::MakeSuccess( true );
     }
 
     void RuntimeLayer::TriggerSplash()
@@ -877,14 +868,13 @@ namespace Desert::Player
         if ( m_SplashTimer > 0.0f )
             m_SplashTimer -= ts.GetMilliseconds() * 0.001f;
 
-        // A UI button requested a scene switch last frame: apply it here, between frames, before any
-        // recording starts (Clear() destroys GPU resources — same rule as the resize below).
-        if ( m_PendingSceneLoad )
-        {
-            const std::string path = *m_PendingSceneLoad;
-            m_PendingSceneLoad.reset();
-            LoadSceneInternal( path );
-        }
+        // THE FRAME BOUNDARY OF Core::OpenLevel (UEngine::TickWorldTravel): a travel queued last frame -- by a
+        // UI button, a Lua `level.open`, C++ gameplay -- is applied here, before any recording starts
+        // (Clear() destroys GPU resources -- same rule as the resize below).
+        if ( const auto travelled = Core::LevelTravel::Get().TickTravel( [this]( const std::string& path )
+                                                                         { return LoadSceneInternal( path ); } );
+             !travelled )
+            LOG_ERROR( "[Runtime] Level travel failed: {}", travelled.GetError() );
 
         // Window-size changes resize the scene target here — before any recording starts (destroying
         // framebuffers mid-frame is a device loss).
@@ -1293,7 +1283,7 @@ namespace Desert::Player
                            executed.GetError() );
                 m_MovieFrameDrawn = false;
                 m_Application->Close( 1 );
-                return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
+                return Common::MakeFormattedError( "[Runtime] present graph: {}", executed.GetError() );
             }
 #endif
             // A FrameFault (logged by the graph backend) is a frame: ExecuteGraph cleared the back buffer to black
@@ -1321,7 +1311,9 @@ namespace Desert::Player
             constexpr std::string_view kUrl   = "url:";
             if ( clicked.rfind( kScene, 0 ) == 0 )
             {
-                m_PendingSceneLoad = clicked.substr( kScene.size() );
+                // The button's action is Core::OpenLevel -- the same call a script or C++ makes; a target
+                // that does not resolve is refused there, with the path, and the level keeps running.
+                (void)Core::OpenLevel( clicked.substr( kScene.size() ) );
             }
             else if ( clicked == "quit" )
             {

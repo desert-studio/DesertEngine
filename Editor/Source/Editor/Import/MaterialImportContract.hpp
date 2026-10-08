@@ -3,6 +3,7 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 
 #include <glm/vec4.hpp>
 
@@ -101,6 +102,18 @@ namespace Desert::Editor
         bool TwoSided = false;
     };
     TemplateFill FillFromTemplate( const SourceMaterial& material, const ImportTemplate& chosen );
+
+    // THE FBX SPECULAR MAP'S MEANING (SourceImportSettings::SpecularMap), applied to a source dictionary before
+    // the template fill. The adapter carries the map under FBX's own name, `fbx.SpecularColor` (UE links it to
+    // the Specular input); `OcclusionRoughnessMetallic` re-keys it to `fbx.OcclusionRoughnessMetallic`, which
+    // a template routes channel by channel (StandardSurface: the ORM slot, R/G/B as they stand).
+    inline constexpr std::string_view kFbxSpecularMapKey             = "fbx.SpecularColor";
+    inline constexpr std::string_view kFbxOcclusionRoughnessMetalKey = "fbx.OcclusionRoughnessMetallic";
+    SourceMaterial WithFbxSpecularMap( SourceMaterial material, Assets::FbxSpecularMap meaning );
+
+    // Why an unread key is lost, beyond "no Import row": the one key whose meaning is the user's to state (the
+    // FBX Specular map) names the setting that states it. Empty for every other key.
+    std::string_view UnreadKeyHint( std::string_view key );
 
     // THE DOCUMENT AN IMPORT WRITES, before its textures: the chosen template as the Shader and the fill's
     // Params - and NOTHING ELSE. In particular NO PreviewMesh (owner, THM1j/k): every imported material's

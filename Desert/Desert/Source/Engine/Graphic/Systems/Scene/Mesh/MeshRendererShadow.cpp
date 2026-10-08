@@ -383,8 +383,19 @@ namespace Desert::Graphic::System
         }
         GraphicsPipelineSpecification spec = passState->GetSpecification();
         spec.DebugName                     = std::format( "{} {}", spec.DebugName, key.CellShader );
-        spec.Shader                        = shader;
-        const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        // The pass's own program is an engine pipeline the reveal waits for; any other program is a CONTENT
+        // material's cell, compiled on demand (AL1-12) and drawn only once ChooseCellDraw says it is Ready.
+        const bool content = shader != spec.Shader;
+        spec.Shader        = shader;
+        // Reached through the one spelling the tree uses for the pipeline cache, which is how the shipping
+        // pipeline register (ShippingPipelines suite) recognises a creation site; each answer is RETURNED
+        // into `pipeline`, which is how the refusal scanner (GraphicsPipelineRefusal) sees it read.
+        const auto pipeline = [&]
+        {
+            if ( content )
+                return m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
+            return m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        }();
         if ( !pipeline )
         {
             LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': {}", key.CellShader,
@@ -393,6 +404,84 @@ namespace Desert::Graphic::System
         }
         slot = pipeline.GetValue();
         return slot.get();
+    }
+
+    MaterialPipelineTracker::CellDraw MeshRenderer::ChooseCellDraw( GraphicsPipeline*         passState,
+                                                                    const DataDrivenMaterial& cell,
+                                                                    const bool                twoSided,
+                                                                    const GraphicsPipeline*   standIn )
+    {
+        GraphicsPipeline* own = CellPipeline( passState, cell );
+        if ( own != nullptr && twoSided )
+            own = CullPermutation( own, true );
+
+        // Keyed by the PIPELINE, not the shader: one cell has a pipeline per pass state and cull permutation,
+        // and they leave the driver at different moments.
+        const std::string key =
+             own != nullptr
+                  ? own->GetSpecification().DebugName
+                  : std::format( "{} {}{}", passState != nullptr ? passState->GetSpecification().DebugName : "?",
+                                 cell.GetShaderName(), twoSided ? "_TwoSided" : "" );
+        return ChoosePipelineDraw( own, key, standIn );
+    }
+
+    MaterialPipelineTracker::CellDraw MeshRenderer::ChoosePipelineDraw( const GraphicsPipeline* own,
+                                                                        const std::string&      key,
+                                                                        const GraphicsPipeline* standIn )
+    {
+        MaterialPipelineState reports = MaterialPipelineState::Failed; // refused: its builder logged why
+        if ( own != nullptr )
+        {
+            switch ( own->GetReadiness() )
+            {
+                case PipelineReadiness::Compiling:
+                    reports = MaterialPipelineState::Compiling;
+                    break;
+                case PipelineReadiness::Ready:
+                    reports = MaterialPipelineState::Ready;
+                    break;
+                case PipelineReadiness::Failed:
+                    reports = MaterialPipelineState::Failed;
+                    break;
+            }
+        }
+        const bool standInReady = standIn != nullptr && standIn->GetReadiness() == PipelineReadiness::Ready;
+        const auto choice       = m_MaterialPipelines.ChooseCell( key, reports, standInReady );
+        if ( choice.Announce )
+            LOG_INFO( "[MeshRenderer] '{}' draws the default surface until its pipeline is ready (pipeline {}{})",
+                      key, MaterialPipelineStateName( reports ),
+                      choice.Draw == MaterialPipelineTracker::CellDraw::Nothing
+                           ? "; the default surface is not ready either, so it is not drawn yet"
+                           : "" );
+        return choice.Draw;
+    }
+
+    MeshRenderer::StandInCell* MeshRenderer::StandIn( const MeshVertexPath path, const MeshPass pass )
+    {
+        const uint32_t key = ( static_cast<uint32_t>( path ) * 16u ) + static_cast<uint32_t>( pass );
+        if ( const auto found = m_StandIns.find( key ); found != m_StandIns.end() )
+            return found->second.Material ? &found->second : nullptr;
+        auto& slot    = m_StandIns[key];
+        slot.Material = CreateCellMaterial( path, pass );
+        if ( slot.Material )
+            slot.Instance = slot.Material->CreateInstance(
+                 std::format( "DefaultSurfaceStandIn_{}_{}", MeshVertexPathName( path ), MeshPassName( pass ) ) );
+        if ( !slot.Material || !slot.Instance )
+        {
+            LOG_ERROR(
+                 "[MeshRenderer] no default-surface stand-in for ({} x {}): a material whose pipeline is not "
+                 "ready yet is not drawn in that pass",
+                 MeshVertexPathName( path ), MeshPassName( pass ) );
+            slot.Material.reset();
+            return nullptr;
+        }
+        return &slot;
+    }
+
+    MeshRenderer::TranslucentDraw* MeshRenderer::TranslucentStandIn()
+    {
+        const auto name = DefaultSurfaceShaderName( MeshVertexPath::Static, MeshPass::Forward );
+        return name ? TranslucentDrawFor( *name ) : nullptr;
     }
 
     GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path )
@@ -514,8 +603,7 @@ namespace Desert::Graphic::System
             set.Transforms.clear();
             return set;
         };
-        const auto isMasked = []( const DataDrivenMaterial* material )
-        {
+        const auto isMasked = []( const DataDrivenMaterial* material ) {
             return material != nullptr &&
                    ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
         };
@@ -523,13 +611,14 @@ namespace Desert::Graphic::System
         for ( const auto& rd : m_StaticQueue )
         {
             if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !IsVisibleInView( cascadeFrustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                 !IsVisibleInView( cascadeFrustum, rd.Transform,
+                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
             {
                 continue;
             }
-            const PBRSlot slot = rd.MaterialSlots != nullptr
-                                      ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                      : PBRSlot{};
+            const PBRSlot             slot = rd.MaterialSlots != nullptr
+                                                  ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                                  : PBRSlot{};
             MaterialInstance*         inst = slot.Instance;
             const DataDrivenMaterial* mat  = slot.Surface;
             if ( !isMasked( mat ) )
@@ -637,9 +726,9 @@ namespace Desert::Graphic::System
                 // A MASKED ISM - foliage, grass cards - casts through its own template's (Instanced x
                 // ShadowDepth) cell, never the shared batch that casts whole quads.
                 MaterialInstance* ismInst = ism.Material.get();
-                const auto*       ismMat =
-                     ismInst != nullptr ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
-                                        : nullptr;
+                const auto*       ismMat  = ismInst != nullptr
+                                                 ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
+                                                 : nullptr;
                 if ( isMasked( ismMat ) )
                 {
                     auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );

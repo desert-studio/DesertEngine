@@ -179,8 +179,8 @@ namespace Common::Settings
             return;
         }
 
-        // Read LENIENTLY, by the type's own DESERT_JSON_LENIENT mark: a file written by a build with fewer
-        // fields keeps loading — a new field takes its in-struct default instead of failing the whole file.
+        // A file written by a build with fewer fields keeps loading — Json::Read gives every field the file does
+        // not state its in-struct default; keys of a build with MORE fields land in UnknownKeys.
         auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
         if ( !parsed )
         {
@@ -243,10 +243,11 @@ namespace Common::Settings
     {
         if ( settings.Quality )
             return { *settings.Quality, false };
-        if ( Scalability::CacheValid( settings.Recommended, device ) )
+        if ( const auto& cached = settings.Recommended;
+             cached.has_value() && Scalability::CacheValid( cached, device ) )
         {
             Scalability::QualitySelection recommended;
-            recommended.Levels = settings.Recommended->Levels;
+            recommended.Levels = cached->Levels;
             return { std::move( recommended ), true };
         }
         return { HighSelection(), false };
@@ -268,7 +269,7 @@ namespace Common::Settings
             std::string_view                      Name;
             std::optional<Scalability::Parameter> Becomes;
         };
-        constexpr std::size_t kRetiredMethod = 0, kRetiredSamples = 1, kRetiredPostAA = 6;
+        constexpr std::size_t               kRetiredMethod = 0, kRetiredSamples = 1, kRetiredPostAA = 6;
         constexpr std::array<RetiredKey, 7> kRetiredKeys{ {
              { "AAMethod", Scalability::Parameter::AntiAliasingMethod },
              { "MSAASamples", Scalability::Parameter::AntiAliasingSamples },
@@ -327,8 +328,9 @@ namespace Common::Settings
         }
     } // namespace
 
-    MachineSettings::RetiredKeyMigration MachineSettings::MigrateRetiredKeys(
-         MachineSettings& settings, std::string_view rawJson, const Scalability::ScalabilityTable& table )
+    MachineSettings::RetiredKeyMigration
+    MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson,
+                                         const Scalability::ScalabilityTable& table )
     {
         RetiredKeyMigration result;
         const auto          members = Json::ObjectMembers( rawJson );

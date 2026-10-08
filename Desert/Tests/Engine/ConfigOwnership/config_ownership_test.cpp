@@ -400,8 +400,9 @@ namespace
          // SCAL1: the six image-quality fields (AAMethod, MSAASamples, TextureFilterMode, Anisotropy, MeshLOD,
          // CloudQualityTier) are one QualitySelection now - group levels plus per-parameter overrides -
          // handed to QualityState, the one apply point every renderer's ResolvedQuality comes from. Each
-         // still passes the mis-authored/rendered-worse test on the "rendered worse" side.
-         { "Quality", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
+         // still passes the mis-authored/rendered-worse test on the "rendered worse" side. Read by
+         // MachineSettings::StartFrom (a saved selection wins over the benchmark); QualityBoot passes it on.
+         { "Quality", Owner::Machine, kMachineSettingsImpl },
          // The benchmark's stored recommendation for this device (SCAL1). Read by MachineSettings::StartFrom:
          // a machine with no saved selection starts on it when its cache key is this device's.
          { "Recommended", Owner::Machine, kMachineSettingsImpl },
@@ -1219,7 +1220,8 @@ namespace
     // The shipped level table: MachineSettings::Load needs the High values to migrate retired keys.
     Common::Scalability::ScalabilityTable ShippedTable()
     {
-        const std::string text = ReadAll( RepoRoot() + "Editor/Resources/Config/Scalability.json" );
+        const std::string text =
+             ReadAll( std::filesystem::path( RepoRoot() ) / "Editor/Resources/Config/Scalability.json" );
         EXPECT_FALSE( text.empty() ) << "Editor/Resources/Config/Scalability.json was not found";
         auto table = Common::Scalability::ScalabilityTable::Parse( text );
         EXPECT_TRUE( table.IsSuccess() );
@@ -1338,8 +1340,8 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     }
 
     // QualityBoot::Start is the one host start: it loads the store and hands the selection to QualityState.
-    const std::string boot =
-         StripCommentsAndLiterals( ReadAll( root + "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" ) );
+    const std::string boot = StripCommentsAndLiterals(
+         ReadAll( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" ) );
     EXPECT_TRUE( CallsFunction( boot, "MachineSettings", "Load" ) );
     EXPECT_TRUE( CallsFunction( boot, "QualityState", "Initialize" ) );
 
@@ -1390,25 +1392,29 @@ namespace
     bool HasOverride( const Migrated& m, Parameter parameter, int value )
     {
         const Common::Scalability::ParameterOverride wanted{ KeyOf( parameter ), value };
-        const auto&                                  overrides = m.Settings.Quality->Overrides;
+        const auto&                                  quality = m.Settings.Quality;
+        if ( !quality.has_value() )
+            return false;
+        const auto& overrides = quality->Overrides;
         return std::find( overrides.begin(), overrides.end(), wanted ) != overrides.end();
     }
 
     // The one override the migration wrote, or none.
     void ExpectOnly( const Migrated& m, std::optional<Common::Scalability::ParameterOverride> expected )
     {
-        ASSERT_TRUE( m.Settings.Quality.has_value() )
-             << "a migrated file must hold the selection it migrated into";
-        EXPECT_EQ( m.Settings.Quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
+        const auto& quality = m.Settings.Quality;
+        if ( !quality.has_value() )
+            FAIL() << "a migrated file must hold the selection it migrated into";
+        EXPECT_EQ( quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
         EXPECT_TRUE( m.Settings.UnknownKeys.empty() ) << "a retired key was carried into the next save";
         if ( !expected )
         {
-            EXPECT_TRUE( m.Settings.Quality->Overrides.empty() );
+            EXPECT_TRUE( quality->Overrides.empty() );
             EXPECT_EQ( m.Report.Overrides, 0 );
             return;
         }
-        ASSERT_EQ( m.Settings.Quality->Overrides.size(), 1u );
-        EXPECT_EQ( m.Settings.Quality->Overrides[0], *expected );
+        ASSERT_EQ( quality->Overrides.size(), 1u );
+        EXPECT_EQ( quality->Overrides[0], *expected );
         EXPECT_EQ( m.Report.Overrides, 1 );
     }
 
@@ -1462,9 +1468,9 @@ TEST( ConfigOwnership, RetiredAnisotropyBecomesTheAnisotropyOverride )
 TEST( ConfigOwnership, RetiredMeshLODBecomesTheMeshLODOverride )
 {
     const int high = HighOf( Parameter::MeshLOD );
-    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high ? "false" : "true" ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::MeshLOD ), high ? 0 : 1 } );
-    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high ? "true" : "false" ) ), std::nullopt );
+    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high != 0 ? "false" : "true" ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::MeshLOD ), high != 0 ? 0 : 1 } );
+    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high != 0 ? "true" : "false" ) ), std::nullopt );
 }
 
 TEST( ConfigOwnership, RetiredCloudQualityTierBecomesTheCloudOverride )
@@ -1586,7 +1592,7 @@ TEST( ConfigOwnership, AnUntouchedDefaultFileMigratesWithZeroOverrides )
                     R"("CloudQualityTier":"{}"}})",
          MethodName( HighOf( Parameter::AntiAliasingMethod ) ), HighOf( Parameter::AntiAliasingSamples ),
          kFilters[HighOf( Parameter::TextureFilter )], HighOf( Parameter::Anisotropy ),
-         HighOf( Parameter::MeshLOD ) ? "true" : "false", kClouds[HighOf( Parameter::CloudQuality )] );
+         HighOf( Parameter::MeshLOD ) != 0 ? "true" : "false", kClouds[HighOf( Parameter::CloudQuality )] );
     const auto m = Migrate( raw );
     EXPECT_EQ( m.Report.KeysMoved, 6 );
     ExpectOnly( m, std::nullopt );

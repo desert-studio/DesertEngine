@@ -233,6 +233,45 @@ TEST( JsonCensus, JsonIsSpokenOnlyThroughTheFacade )
              << row.File << " no longer talks JSON directly (or no longer exists): delete its register row.";
 }
 
+// OWNER 2026-10-07: the reader decides, not the type. Every struct reads with the same two rules (a missing
+// field is the struct's default, an unknown key is an error), chosen in Common/Json/ alone, so no file outside
+// it may name reflect-cpp's processors. The one way past an unknown key, DESERT_JSON_PARTIAL, is for a probe of
+// a few members of a larger document; the production files allowed to declare one are listed HERE, two-sided.
+TEST( JsonCensus, ReadRulesLiveInTheFacadeAndPartialReadsAreProbes )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+
+    const std::set<std::string> kProbeFiles = {
+         // Asset Browser tags: one member of a whole prefab, clip or import record, nothing else loaded.
+         "Desert/Common/Source/Common/Content/ContentScan.cpp",
+    };
+
+    std::set<std::string> probes;
+    for ( const std::string& rel : SourceFiles( root ) )
+    {
+        // The facade, the migrators (a schema with no struct left) and the facade's own suites, which quote it.
+        if ( IsAllowedByRule( rel ) || rel.starts_with( "Desert/Tests/Common/" ) )
+            continue;
+        const std::string code = StripLineComments( ReadAll( fs::path( root ) / rel ) );
+        EXPECT_EQ( code.find( "rfl::DefaultIfMissing" ), std::string::npos )
+             << rel << " chooses its own read rule; Common::Json::Read already defaults a missing field";
+        EXPECT_EQ( code.find( "rfl::NoExtraFields" ), std::string::npos )
+             << rel << " chooses its own read rule; Common::Json::Read already refuses an unknown key";
+        EXPECT_EQ( code.find( "DESERT_JSON_LENIENT" ), std::string::npos )
+             << rel << ": DESERT_JSON_LENIENT is gone — a missing field defaults for every type";
+        if ( code.find( "DESERT_JSON_PARTIAL(" ) == std::string::npos )
+            continue;
+        probes.insert( rel );
+        EXPECT_TRUE( kProbeFiles.contains( rel ) )
+             << rel
+             << " lets unknown keys pass. Only a probe of a few members of a larger document may; a file "
+                "shared between builds declares Json::CarriedKeys instead.";
+    }
+    for ( const std::string& file : kProbeFiles )
+        EXPECT_TRUE( probes.contains( file ) ) << file << " no longer declares a partial read: delete its row";
+}
+
 TEST( JsonCensus, EveryFormatNameHasOneType )
 {
     const std::string root = RepoRoot();

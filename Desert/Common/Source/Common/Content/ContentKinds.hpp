@@ -77,6 +77,8 @@ namespace Common::Content
         Prefab,
         Redirector,
         LevelSequence,
+        VFXSystem,
+        Fracture,
         COUNT,
     };
 
@@ -161,6 +163,11 @@ namespace Common::Content
              /* Redirector           */ { "Redirector", "", nullptr },
              // UE's ULevelSequence: a TMLN block whose header states this kind (LevelSequenceAsset.hpp).
              /* LevelSequence        */ { "LevelSequence", ".dseq", &P::LEVEL_SEQUENCE_PATH },
+             // UE's UNiagaraSystem with its emitters embedded (Engine/Assets/Serialization/VFXSystem.hpp).
+             /* VFXSystem            */ { "VFXSystem", ".dfx", &P::VFX_PATH },
+             // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope
+             // (Destruction/FractureFormat.hpp).
+             /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
         } };
     }
 

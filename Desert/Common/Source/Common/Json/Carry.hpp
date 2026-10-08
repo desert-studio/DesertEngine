@@ -44,13 +44,14 @@ namespace Common::Json
 
         // The typed tree read off this document (no second parse). An unknown key is tolerated at every
         // level - refusing it would refuse a file another build wrote, and carrying it is MergeCarried's
-        // job; a missing required member or a wrong-typed value is an error.
+        // job; a missing member takes T's in-struct default (Json::Read's rule), a wrong-typed value is an error.
         template <typename T>
         [[nodiscard]] ResultStr<T> AsDocument() const
         {
             try
             {
-                auto parsed = rfl::json::read<T>( rfl::json::InputVarType( yyjson_doc_get_root( m_Doc.get() ) ) );
+                auto parsed = rfl::json::read<T, rfl::DefaultIfMissing>(
+                     rfl::json::InputVarType( yyjson_doc_get_root( m_Doc.get() ) ) );
                 if ( !parsed )
                     return MakeError<T>( "document: " + Detail::DescribeReadError( parsed.error().what() ) );
                 return MakeSuccess( std::move( parsed.value() ) );

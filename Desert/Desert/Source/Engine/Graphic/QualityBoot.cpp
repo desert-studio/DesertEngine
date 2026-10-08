@@ -25,8 +25,8 @@ namespace Desert::Graphic::QualityBoot
         {
             Common::Settings::MachineSettings::Get().Quality = selection;
             if ( !Common::Settings::MachineSettings::Save() )
-                return Common::MakeError<bool>( std::format( "{} was not written",
-                                                             Common::Settings::MachineSettings::File().string() ) );
+                return Common::MakeError<bool>(
+                     std::format( "{} was not written", Common::Settings::MachineSettings::File().string() ) );
             return Common::MakeSuccess( true );
         }
 
@@ -80,12 +80,12 @@ namespace Desert::Graphic::QualityBoot
         Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
                                                        std::move( initial ), &SaveSelection );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
-        if ( start.FromRecommended )
+        if ( const auto& recommended = machine.Recommended; start.FromRecommended && recommended.has_value() )
         {
             LOG_INFO(
                  "[Scalability] no quality chosen on this machine yet: applying the benchmark's recommendation "
                  "(perf index {:.1f})",
-                 machine.Recommended->GpuPerfIndex );
+                 recommended->GpuPerfIndex );
             Common::Scalability::QualityState::ApplyRecommended( start.Selection.Levels );
         }
         PushSamplerState( Common::Scalability::QualityState::Resolved(), nullptr );

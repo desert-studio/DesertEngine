@@ -484,6 +484,9 @@ namespace
     constexpr const char* kLightGizmo = "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp";
     constexpr const char* kParticles =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp";
+    // VFX-06: the simulation moved out of the renderer into the VFXWorld, which turns the component's
+    // spawn settings into the emitter's spawn plan; the renderer only draws what the steps produced.
+    constexpr const char* kVFXWorld    = "Desert/Desert/Source/Engine/VFX/VFXWorld.cpp";
     constexpr const char* kAudioSystem = "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp";
 
     constexpr Row kCameraRows[] = {
@@ -580,8 +583,8 @@ namespace
     constexpr Row kParticleRows[] = {
          { "Enabled", kParticles },
          { "MaxParticles", kParticles },
-         { "SpawnRate", kParticles },
-         { "Looping", kParticles },
+         { "SpawnRate", kVFXWorld },
+         { "Looping", kVFXWorld },
          // WIRED BY Д26, after a lifetime as a dead row: the renderer folds it into the sim push
          // (Counts.w), and the compute pass keeps a local-mode particle's offset from the emitter and
          // rebases it on the current emitter position — so "Simulate In World" off makes the system RIDE
@@ -800,6 +803,41 @@ namespace
          { "FoliageTypes", "Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.cpp" },
     };
 
+    // A destructible object (DST-03b): every field is read by ECS::DestructibleLifetime::Sync into the
+    // DestructibleDesc the scene's DestructionWorld is given.
+    constexpr const char* kDestructibleSync   = "Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.cpp";
+    constexpr Row         kDestructibleRows[] = {
+         { "Fracture", kDestructibleSync },
+         { "DamageThreshold", kDestructibleSync },
+         { "AnchoredNodes", kDestructibleSync },
+         { "DensityKgPerCm3", kDestructibleSync },
+         { "Friction", kDestructibleSync },
+         { "Restitution", kDestructibleSync },
+         { "RemoveOnSleep", kDestructibleSync },
+         { "MaxSleepTime", kDestructibleSync },
+         { "SlowMovingAsSleeping", kDestructibleSync },
+         { "SlowMovingVelocityThreshold", kDestructibleSync },
+    };
+    // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
+    // FieldCommand it hands DestructionWorld::ApplyField.
+    constexpr const char* kFieldFire = "Desert/Desert/Source/Engine/ECS/System/DestructionFields.cpp";
+    constexpr Row         kRadialImpulseFieldRows[] = {
+         { "Magnitude", kFieldFire },
+         { "Radius", kFieldFire },
+         { "Falloff", kFieldFire },
+    };
+    constexpr Row kStrainFieldRows[] = {
+         { "Magnitude", kFieldFire },
+         { "Radius", kFieldFire },
+         { "Falloff", kFieldFire },
+    };
+    constexpr Row kKillFieldRows[] = {
+         { "Radius", kFieldFire },
+    };
+    constexpr Row kAnchorFieldRows[] = {
+         { "Extent", kFieldFire },
+    };
+
     // What Play streams around (WP24): every field is read by Core::WorldStreamer::GatherSources.
     constexpr Row kStreamingSourceRows[] = {
          { "Enabled", kWorldStreamer },
@@ -1011,6 +1049,12 @@ namespace
          { "PlayerStartData", "PlayerStartComponent", nullptr, CENSUS_ROWS( kPlayerStartRows ) },
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
+         { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
+         { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
+           CENSUS_ROWS( kRadialImpulseFieldRows ) },
+         { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
+         { "KillFieldData", "KillFieldComponent", nullptr, CENSUS_ROWS( kKillFieldRows ) },
+         { "AnchorFieldData", "AnchorFieldComponent", nullptr, CENSUS_ROWS( kAnchorFieldRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
          { "UIRetainerData", "UIRetainerComponent", nullptr, CENSUS_ROWS( kRetainerRows ) },
@@ -1216,7 +1260,11 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // ResolveRetainerMasks in UICanvasRenderer2D.cpp).
     // -> 52 with S1's ProceduralFoliageData (kProceduralFoliageRows: eight fields read by
     // ProceduralFoliageResimulate.cpp, FoliageTypes by FoliagePaintTool.cpp).
-    EXPECT_EQ( all.size(), 52u );
+    // -> 53 with DST-03b's DestructibleData (kDestructibleRows: every field copied by
+    // DestructibleLifetime.cpp's Sync into the DestructionWorld description).
+    // -> 57 with DST-04b's four field components (RadialImpulseField, StrainField, KillField, AnchorField:
+    // every field read by ECS::FireDestructionField in DestructionFields.cpp).
+    EXPECT_EQ( all.size(), 57u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

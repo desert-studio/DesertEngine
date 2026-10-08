@@ -78,7 +78,7 @@ namespace Desert::Graphic::RDG
         // The size the exec's PassBindings::PushConstants will give; 0 = none.
         BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
 
-        BindingBlockRef GetRef() const;
+        [[nodiscard]] BindingBlockRef GetRef() const;
 
     private:
         friend class PassBuilder;

@@ -38,7 +38,7 @@ namespace
       "Medium":    { "AntiAliasing.Method": "SMAA", "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 1 },
       "High":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
       "Epic":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
-      "Cinematic": { "AntiAliasing.Method": "TAA", , "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
+      "Cinematic": { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
     },
     "ResolutionScale": {
       "Low":       { "Resolution.Percent": 50,  "Resolution.Upscaler": "TAAU", "Resolution.Sharpness": 20 },
@@ -144,9 +144,9 @@ namespace
         probe.MaxImageDimension2D        = 32768;
         probe.TimestampValidBitsGraphics = 64;
         probe.SeparateComputeFamily      = true;
-        for ( Vk::Capability c : { Vk::Capability::RayQuery, Vk::Capability::RayTracingPipeline,
-                                   Vk::Capability::AccelerationStructure, Vk::Capability::SamplerAnisotropy,
-                                   Vk::Capability::TextureCompressionBC } )
+        for ( const Vk::Capability c : { Vk::Capability::RayQuery, Vk::Capability::RayTracingPipeline,
+                                         Vk::Capability::AccelerationStructure, Vk::Capability::SamplerAnisotropy,
+                                         Vk::Capability::TextureCompressionBC } )
             probe.Caps.Rows[static_cast<std::size_t>( c )].Present = true;
         probe.SurfaceFormats = { { VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
                                  { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT } };
@@ -178,9 +178,10 @@ namespace
         probe.Portability                = true;
         // MoltenVK may report the RT pipeline extension's feature bit through portability; the builder must
         // still never offer it.
-        for ( Vk::Capability c : { Vk::Capability::RayQuery, Vk::Capability::RayTracingPipeline,
-                                   Vk::Capability::AccelerationStructure, Vk::Capability::SamplerAnisotropy,
-                                   Vk::Capability::TextureCompressionBC, Vk::Capability::PortabilitySubset } )
+        for ( const Vk::Capability c :
+              { Vk::Capability::RayQuery, Vk::Capability::RayTracingPipeline,
+                Vk::Capability::AccelerationStructure, Vk::Capability::SamplerAnisotropy,
+                Vk::Capability::TextureCompressionBC, Vk::Capability::PortabilitySubset } )
             probe.Caps.Rows[static_cast<std::size_t>( c )].Present = true;
         probe.SurfaceFormats = { { VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR } };
         probe.PresentModes   = { VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR };
@@ -305,7 +306,7 @@ TEST( ScalabilityContract, AGroupMissingItsLevelsIsRefused )
 TEST( ScalabilityContract, AnEnumValueIsWrittenByNameNotByNumber )
 {
     std::string bad( kTable );
-    bad.replace( bad.find( "\"Resolution.Upscaler\": \"TAAU\"" ), 29, "\"Resolution.Upscaler\": 1     " );
+    bad.replace( bad.find( R"("Resolution.Upscaler": "TAAU")" ), 29, R"("Resolution.Upscaler": 1     )" );
     const auto parsed = ScalabilityTable::Parse( bad );
     ASSERT_FALSE( parsed.IsSuccess() );
     EXPECT_NE( parsed.GetError().find( "Resolution.Upscaler" ), std::string::npos ) << parsed.GetError();
@@ -324,13 +325,15 @@ TEST( ScalabilityContract, EveryPlaceholderIsHiddenAndEveryListedRowNamesAReader
         else
         {
             EXPECT_TRUE( isListed ) << spec.Key;
-            ASSERT_TRUE( spec.Reader.has_value() );
-            EXPECT_FALSE( spec.Reader->empty() ) << spec.Key << " names no reader";
+            const auto& reader = spec.Reader;
+            if ( !reader.has_value() )
+                FAIL() << spec.Key << " has no reader";
+            EXPECT_FALSE( reader->empty() ) << spec.Key << " names no reader";
         }
     }
     // Textures has only placeholders today: no slider for it. Every other group has a real row.
     EXPECT_FALSE( IsGroupListed( Group::Textures ) );
-    for ( Group g :
+    for ( const Group g :
           { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance, Group::Effects,
             Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess } )
         EXPECT_TRUE( IsGroupListed( g ) ) << GroupKey( g );
@@ -424,8 +427,8 @@ TEST( ScalabilityContract, EveryDeviceOffersTheEnginesOwnMethodsAndFifo )
     for ( const Vk::CatalogProbe& probe : { RtxProbe(), AmdProbe(), AppleSiliconProbe() } )
     {
         const CapabilityCatalog c = Vk::BuildCapabilityCatalog( probe );
-        for ( AntiAliasingMethod m : { AntiAliasingMethod::None, AntiAliasingMethod::FXAA,
-                                       AntiAliasingMethod::SMAA, AntiAliasingMethod::TAA } )
+        for ( const AntiAliasingMethod m : { AntiAliasingMethod::None, AntiAliasingMethod::FXAA,
+                                             AntiAliasingMethod::SMAA, AntiAliasingMethod::TAA } )
             EXPECT_TRUE( CapabilityCatalog::Offers( c.AntiAliasingMethods, m ) );
         EXPECT_TRUE( CapabilityCatalog::Offers( c.Upscalers, Upscaler::None ) );
         EXPECT_TRUE( CapabilityCatalog::Offers( c.Upscalers, Upscaler::TAAU ) );
@@ -476,12 +479,16 @@ TEST( ScalabilityContract, AnOverrideSitsOnTopOfItsGroupLevelAndTouchesNothingEl
 
 TEST( ScalabilityContract, ASavedValueTheDeviceLacksResolvesWithOneReportedFallback )
 {
-    const ResolvedQuality r =
-         Resolve( AllAt( Level::Cinematic ), Table(), Vk::BuildCapabilityCatalog( AmdProbe() ) );
+    // The saved value is DLAA, which no catalog offers since the fixtures went DLSS-free (SCAL1-S2): the
+    // table's Cinematic row no longer carries it, so the saved selection does, as a user's override would.
+    QualitySelection s = AllAt( Level::Cinematic );
+    s.Overrides.push_back( { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
+                             static_cast<ParameterValue>( AntiAliasingMethod::DLAA ) } );
+    const ResolvedQuality r = Resolve( s, Table(), Vk::BuildCapabilityCatalog( AmdProbe() ) );
     EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
     const auto count = std::count_if( r.Fallbacks.begin(), r.Fallbacks.end(),
                                       []( const Fallback& f ) { return f.Id == Parameter::AntiAliasingMethod; } );
-    EXPECT_EQ( count, 1 );
+    ASSERT_EQ( count, 1 );
     EXPECT_FALSE( FormatFallback( r.Fallbacks.front() ).empty() );
 }
 
@@ -549,7 +556,8 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            const std::ifstream probe( prefix + "Editor/Resources/Config/Scalability.json" );
+            const std::ifstream probe( std::filesystem::path( prefix ) /
+                                       "Editor/Resources/Config/Scalability.json" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -586,14 +594,12 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     // MachineSettings before SCAL1 (c830e1a8c^): AAMethod = FXAA; MSAASamples = 4 was read only under MSAA, so
     // FXAA ran at one sample; MeshLOD = true; TextureFilterMode = Trilinear; Anisotropy = 8 (read only under
     // Anisotropic); CloudQualityTier = High.
-    constexpr ParameterValue kOldAntiAliasing = static_cast<ParameterValue>( AntiAliasingMethod::FXAA );
+    constexpr auto           kOldAntiAliasing = static_cast<ParameterValue>( AntiAliasingMethod::FXAA );
     constexpr ParameterValue kOldSamples      = 1;
     constexpr ParameterValue kOldMeshLOD      = 1;
-    constexpr ParameterValue kOldFilter =
-         static_cast<ParameterValue>( Common::Settings::TextureFilter::Trilinear );
+    constexpr auto kOldFilter = static_cast<ParameterValue>( Common::Settings::TextureFilter::Trilinear );
     constexpr ParameterValue kOldAnisotropy = 8;
-    constexpr ParameterValue kOldCloudQuality =
-         static_cast<ParameterValue>( Common::Settings::CloudQuality::High );
+    constexpr auto kOldCloudQuality         = static_cast<ParameterValue>( Common::Settings::CloudQuality::High );
     // Graphic::kSceneShadowQuality (ShadowCascades.hpp): 4 cascades of 2048 over 150 m.
     constexpr ParameterValue kOldShadowCascades = 4;
     constexpr ParameterValue kOldShadowMapSize  = 2048;
@@ -674,7 +680,8 @@ TEST( ScalabilityContract, OfferedPresetsResolveWithoutAFallback )
 TEST( ScalabilityContract, AFasterGpuIsNeverRecommendedLowerLevels )
 {
     const ScalabilityTable table = Table();
-    BenchmarkResult        slow, fast;
+    BenchmarkResult        slow;
+    BenchmarkResult        fast;
     slow.Timed = fast.Timed = true;
     slow.Class = fast.Class = DeviceClass::Discrete;
     slow.VideoMemory = fast.VideoMemory = 16ull << 30;
@@ -715,8 +722,8 @@ TEST( ScalabilityContract, AnUntimedDeviceTakesTheDeviceClassFallback )
 
 TEST( ScalabilityContract, TheCacheIsValidOnlyForTheSameDeviceDriverAndTable )
 {
-    BenchmarkCacheKey  key{ 0x10DE, 0x2482, 0x93C00000u, "NVIDIA GeForce RTX 3070 Ti", 1 };
-    RecommendedQuality cached;
+    const BenchmarkCacheKey key{ 0x10DE, 0x2482, 0x93C00000u, "NVIDIA GeForce RTX 3070 Ti", 1 };
+    RecommendedQuality      cached;
     cached.Key = key;
     EXPECT_FALSE( CacheValid( std::nullopt, key ) );
     EXPECT_TRUE( CacheValid( cached, key ) );

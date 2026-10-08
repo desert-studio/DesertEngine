@@ -248,8 +248,8 @@ namespace Common::Scalability
                          errors.Add( groupNode, "unknown group '{}'", groupKey );
                          return;
                      }
-                     const std::size_t g = static_cast<std::size_t>( *group );
-                     seen[g]             = true;
+                     const auto g = static_cast<std::size_t>( *group );
+                     seen[g]      = true;
                      if ( !GroupHasParameters( *group ) )
                      {
                          errors.Add( groupNode, "group '{}' has no parameters; levels for it would move nothing",
@@ -268,16 +268,17 @@ namespace Common::Scalability
                                   errors.Add( levelNode, "{}: unknown level '{}'", groupKey, levelKey );
                                   return;
                               }
-                              const std::size_t l = static_cast<std::size_t>( *level );
-                              levelSeen[l]        = true;
+                              const auto l = static_cast<std::size_t>( *level );
+                              levelSeen[l] = true;
                               if ( !ExpectObject( levelNode, levelKey, errors ) )
                                   return;
-                              std::array<bool, kParameterCount> set{}, parsed{};
+                              std::array<bool, kParameterCount> set{};
+                              std::array<bool, kParameterCount> parsed{};
                               levelNode.ForEachMember(
                                    [&]( std::string_view key, const Json::Node& valueNode )
                                    {
                                        const ParameterSpec* spec = FindSpec( key );
-                                       if ( !spec )
+                                       if ( spec == nullptr )
                                        {
                                            errors.Add( valueNode, "{}.{}: unknown parameter '{}'", groupKey,
                                                        levelKey, key );
@@ -289,8 +290,8 @@ namespace Common::Scalability
                                                        levelKey, key, GroupKey( spec->Owner ) );
                                            return;
                                        }
-                                       const std::size_t p = static_cast<std::size_t>( spec->Id );
-                                       set[p]              = true;
+                                       const auto p = static_cast<std::size_t>( spec->Id );
+                                       set[p]       = true;
                                        if ( const auto value = ParseValue( *spec, valueNode, errors ) )
                                        {
                                            table.Values[g][l][p] = *value;
@@ -333,9 +334,9 @@ namespace Common::Scalability
                          errors.Add( list, "Recommend.{}: '{}' is not a group with parameters", section, key );
                          return;
                      }
-                     const std::size_t g = static_cast<std::size_t>( *group );
-                     seen[g]             = true;
-                     std::size_t count   = 0;
+                     const auto g      = static_cast<std::size_t>( *group );
+                     seen[g]           = true;
+                     std::size_t count = 0;
                      list.ForEachElement(
                           [&]( std::size_t i, const Json::Node& element )
                           {
@@ -415,13 +416,13 @@ namespace Common::Scalability
             ParameterValues                               Values{};
             std::array<std::string_view, kParameterCount> Reasons{};
 
-            ParameterValue Get( Parameter p ) const
+            [[nodiscard]] ParameterValue Get( Parameter p ) const
             {
                 return Values[static_cast<std::size_t>( p )];
             }
             void Set( Parameter p, ParameterValue value, std::string_view reason )
             {
-                const std::size_t i = static_cast<std::size_t>( p );
+                const auto i = static_cast<std::size_t>( p );
                 if ( Values[i] == value )
                     return;
                 Values[i] = value;
@@ -510,11 +511,11 @@ namespace Common::Scalability
         {
             for ( const ParameterOverride& o : selection.Overrides )
             {
-                if ( FindSpec( o.Key ) )
+                if ( FindSpec( o.Key ) != nullptr )
                     continue;
-                const bool known =
-                     previous && std::any_of( previous->Overrides.begin(), previous->Overrides.end(),
-                                              [&]( const ParameterOverride& p ) { return p.Key == o.Key; } );
+                const bool known = previous != nullptr &&
+                                   std::any_of( previous->Overrides.begin(), previous->Overrides.end(),
+                                                [&]( const ParameterOverride& p ) { return p.Key == o.Key; } );
                 if ( !known )
                     LOG_WARN(
                          "[Scalability] override '{}' = {} names no parameter of this build; it is not applied",
@@ -610,7 +611,9 @@ namespace Common::Scalability
         Errors errors;
         if ( root.GetKind() != Json::Kind::Object )
             return Common::MakeError<ScalabilityTable>( "Scalability.json: the document is not an object" );
-        bool versionSeen = false, groupsSeen = false, recommendSeen = false;
+        bool versionSeen   = false;
+        bool groupsSeen    = false;
+        bool recommendSeen = false;
         root.ForEachMember(
              [&]( std::string_view key, const Json::Node& entry )
              {
@@ -642,7 +645,7 @@ namespace Common::Scalability
 
         if ( !errors.Empty() )
             return Common::MakeError<ScalabilityTable>( errors.Text() );
-        return Common::MakeSuccess( std::move( table ) );
+        return Common::MakeSuccess( table );
     }
 
     ParameterValue ScalabilityTable::ValueAt( Parameter parameter, Level level ) const
@@ -831,7 +834,7 @@ namespace Common::Scalability
                                    Saver save )
     {
         State& s      = S();
-        s.Table       = std::move( table );
+        s.Table       = table;
         s.Catalog     = std::move( catalog );
         s.Selection   = std::move( saved );
         s.Save        = save;
@@ -862,7 +865,7 @@ namespace Common::Scalability
         LogUnknownOverrides( selection, &s.Selection );
         s.Selection        = selection;
         ApplyReport report = Publish( Resolve( s.Selection, s.Table, s.Catalog ) );
-        if ( !s.Save )
+        if ( s.Save == nullptr )
         {
             LOG_ERROR( "[Scalability] QualityState was initialized without a saver; the selection applies to this "
                        "session only" );
@@ -884,7 +887,7 @@ namespace Common::Scalability
                        [group]( const ParameterOverride& o )
                        {
                            const ParameterSpec* spec = FindSpec( o.Key );
-                           return spec && spec->Owner == group;
+                           return spec != nullptr && spec->Owner == group;
                        } );
         return Apply( selection );
     }

@@ -132,6 +132,10 @@ namespace Desert::Editor
             put( "Roughness", scalar( AI_MATKEY_ROUGHNESS_FACTOR ), texture( aiTextureType_DIFFUSE_ROUGHNESS ) );
             put( "AmbientOcclusion", std::nullopt, texture( aiTextureType_AMBIENT_OCCLUSION ) );
             put( "GlossinessMap", std::nullopt, texture( aiTextureType_SHININESS ) );
+            // The Specular map (FbxSurfaceMaterial::sSpecular, "SpecularColor") under FBX's own name: what it
+            // holds is the user's statement (SourceImportSettings::SpecularMap, WithFbxSpecularMap) - FBX's
+            // specular colour, or AO/roughness/metalness packed in R/G/B (Lumberyard Bistro / ORCA).
+            put( "SpecularColor", std::nullopt, texture( aiTextureType_SPECULAR ) );
             if ( read.Alpha.AlphaCutoff > 0.0f )
                 put( "alphaCutoff", glm::vec4( read.Alpha.AlphaCutoff, 0, 0, 0 ) );
             return read;

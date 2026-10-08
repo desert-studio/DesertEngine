@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 
@@ -433,9 +434,9 @@ TEST( FogPayload, PhysicalAtmosphereMovesTheAmbientOntoTheDistantSkyLight )
     // A non-null handle is the model switch; its target is never dereferenced on the CPU, which is why
     // a stand-in address is a legitimate test fixture here.
     // An empty-owner alias: non-null, owns nothing, so the stand-in address is never deleted.
+    const int                                       standInToken = 0;
     const std::shared_ptr<Desert::Graphic::Image2D> distantSkyLight(
-         std::shared_ptr<Desert::Graphic::Image2D>{},
-         reinterpret_cast<Desert::Graphic::Image2D*>( static_cast<std::uintptr_t>( 0xF0 ) ) );
+         std::shared_ptr<Desert::Graphic::Image2D>{}, std::bit_cast<Desert::Graphic::Image2D*>( &standInToken ) );
 
     Desert::Graphic::AtmosphereEnv atmosphere;
     atmosphere.Valid                  = true;
@@ -467,9 +468,9 @@ TEST( FogPayload, PhysicalAtmosphereLobeIsTheLightOnTheGroundNotTheSkysSun )
     data.DirectionalInscatteringLuminance = { 0.05f, 0.05f, 0.05f };
 
     // An empty-owner alias: non-null, owns nothing, so the stand-in address is never deleted.
+    const int                                       standInToken = 0;
     const std::shared_ptr<Desert::Graphic::Image2D> distantSkyLight(
-         std::shared_ptr<Desert::Graphic::Image2D>{},
-         reinterpret_cast<Desert::Graphic::Image2D*>( static_cast<std::uintptr_t>( 0xF0 ) ) );
+         std::shared_ptr<Desert::Graphic::Image2D>{}, std::bit_cast<Desert::Graphic::Image2D*>( &standInToken ) );
 
     Desert::Graphic::AtmosphereEnv physical;
     physical.Valid                  = true;

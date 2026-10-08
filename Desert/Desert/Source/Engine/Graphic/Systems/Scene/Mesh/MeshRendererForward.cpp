@@ -525,6 +525,7 @@ namespace Desert::Graphic::System
         std::vector<Draw>                                            draws;
         std::vector<TranslucentSortItem>                             sortKeys;
         std::unordered_map<TranslucentDraw*, std::vector<glm::vec4>> rows;
+        TranslucentDraw* const                                       standInState = TranslucentStandIn();
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
@@ -546,7 +547,23 @@ namespace Desert::Graphic::System
             {
                 continue; // refused once, by name, inside TranslucentDrawFor
             }
-            draws.push_back( { &data, state, AppendRow( rows[state], EffectiveRow( mat, pbrInst ) ) } );
+            // AL1-12 INSIDE THE GRAPH (RDG-PSO): a translucent cell still in the driver is drawn by the default
+            // surface with the translucent draw state (its own row, its own material) — recording the cell would
+            // fail this node and drop the frame graph.
+            Core::Formats::MaterialParamRow row = EffectiveRow( mat, pbrInst );
+            switch ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
+                                         standInState != nullptr ? standInState->Pipeline.get() : nullptr ) )
+            {
+                case MaterialPipelineTracker::CellDraw::Own:
+                    break;
+                case MaterialPipelineTracker::CellDraw::DefaultSurface:
+                    state = standInState;
+                    row   = EffectiveRow( state->Material.get(), state->Instance.get() );
+                    break;
+                case MaterialPipelineTracker::CellDraw::Nothing:
+                    continue; // before the reveal, said once by ChoosePipelineDraw
+            }
+            draws.push_back( { &data, state, AppendRow( rows[state], row ) } );
             const Common::Math::AABB world = Geometry::TransformBounds( data.Transform, localBounds );
             sortKeys.push_back( { .WorldBoundsCenter = ( world.Min + world.Max ) * 0.5f,
                                   .Priority          = data.TranslucencySortPriority } );
@@ -596,15 +613,19 @@ namespace Desert::Graphic::System
                                 } } );
         }
 
-        // Every cell's block also carries the scene snapshot the cells sample for refraction (u_SceneColor),
-        // this frame's graph transient, with the sampler the material route sampled the copy with (linear,
-        // REPEAT); the scene/view inputs are bound for what EACH cell's shader has a slot for.
-        m_GlassDraws.Declare( pass, view,
-                              [sceneCopy]( RDG::BindingBlockBuilder& block )
-                              {
-                                  block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
-                                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
-                              } );
+        // A cell's block also carries the scene snapshot the cells sample for refraction (u_SceneColor), this
+        // frame's graph transient, with the sampler the material route sampled the copy with (linear, REPEAT) -
+        // bound only where the cell's layout HAS the slot, as the scene/view inputs are (UE's pass parameters: a
+        // shader receives what it declares). The default-surface stand-in (RDG-PSO) samples no scene copy, and
+        // naming one to it fails the node ("is not a resource of shader").
+        m_GlassDraws.Declare(
+             pass, view,
+             [sceneCopy]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
+             {
+                 if ( SceneViewDetail::LayoutSamples( layout, "u_SceneColor" ) )
+                     block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+             } );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context ) const
@@ -799,6 +820,82 @@ namespace Desert::Graphic::System
         // buffer. Local, because the question is per pass and not per frame.
         const DataDrivenMaterial* unownedServed = nullptr;
 
+        // ── AL1-12 INSIDE THE GRAPH (RDG-PSO) ──────────────────────────────────────────────────────────
+        //
+        // A content material's cells compile on demand, and this pass is a graph node: recording a draw through
+        // a pipeline still in the driver fails the node, and a failed node drops the WHOLE frame graph — on a
+        // scene load that was eight frames lost, one per material. UE's PSO precache draws such a mesh with the
+        // default material; so does this pass. A group whose own cells are not Ready leaves its objects to ONE
+        // stand-in group, appended last and recorded by the default surface's cell, so the stand-in's buffers
+        // are filled once in the pass however many materials are waiting.
+        using CellDraw                          = MaterialPipelineTracker::CellDraw;
+        GraphicsPipeline* const staticPassState = ( m_DeferredGeometry && m_StaticGBufferPipeline )
+                                                       ? m_StaticGBufferPipeline.get()
+                                                       : WireframePipelineOr( m_StaticPipeline.get() );
+        // The grouping key is the slot's (Static x Forward) cell; in the G-buffer pass the draw records its twin.
+        StandInCell* const standIn = StandIn( MeshVertexPath::Static, MeshPass::Forward );
+        StandInCell* const standInDraw =
+             m_DeferredGeometry ? StandIn( MeshVertexPath::Static, MeshPass::GBuffer ) : standIn;
+        const GraphicsPipeline* const standInPipeline =
+             standIn != nullptr && standInDraw != nullptr ? CellPipeline( staticPassState, *standInDraw->Material )
+                                                          : nullptr;
+        // Batched stand-ins are recorded by the renderer's instanced spare, which IS the default surface's cell.
+        const GraphicsPipeline* const instancedStandIn =
+             instancingOn ? CellPipeline( instancedPipeline, *instancedMaterial ) : nullptr;
+
+        // Own when every cell the material would record through in this pass is Ready; Nothing dominates.
+        const auto cellDrawOf = [&]( DataDrivenMaterial* mat, const bool twoSided,
+                                     const bool perObject ) -> CellDraw
+        {
+            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+            if ( mat == nullptr || materials == nullptr || !materials->Owns( mat ) )
+                return CellDraw::Own; // renderer-owned: the pass's own program, an engine pipeline
+            CellDraw   worst = CellDraw::Own;
+            const auto fold  = [&worst]( const CellDraw d )
+            {
+                if ( d == CellDraw::Nothing || ( d == CellDraw::DefaultSurface && worst == CellDraw::Own ) )
+                    worst = d;
+            };
+            if ( perObject )
+            {
+                DataDrivenMaterial* cell =
+                     m_DeferredGeometry ? materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer )
+                                        : mat;
+                if ( cell != nullptr ) // no twin: refused out loud by the group loop below
+                    fold( ChooseCellDraw( staticPassState, *cell, twoSided, standInPipeline ) );
+            }
+            if ( instancingOn )
+                if ( auto* variant = materials->GetVariant( mat, MeshVertexPath::Instanced, instancedPass ) )
+                    fold( ChooseCellDraw( instancedPipeline, *variant, twoSided, instancedStandIn ) );
+            return worst;
+        };
+        const auto ownCellsReady = [&]( DataDrivenMaterial*                             mat,
+                                        const std::vector<const StaticMeshRenderData*>& members ) -> CellDraw
+        {
+            bool twoSided = mat->IsTwoSided();
+            for ( const auto* obj : members )
+                if ( const auto* inst =
+                          FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance )
+                    twoSided = twoSided || inst->IsTwoSided();
+            return cellDrawOf( mat, twoSided, /*perObject*/ true );
+        };
+        {
+            std::vector<const StaticMeshRenderData*> standingIn;
+            for ( auto& [mat, objects] : groups )
+            {
+                if ( objects.empty() || IsTranslucent( mat ) )
+                    continue;
+                const CellDraw draw = ownCellsReady( mat, objects );
+                if ( draw == CellDraw::DefaultSurface )
+                    standingIn.insert( standingIn.end(), objects.begin(), objects.end() );
+                if ( draw != CellDraw::Own )
+                    objects.clear(); // Nothing: before the reveal, said once by ChooseCellDraw
+            }
+            if ( !standingIn.empty() && standIn != nullptr )
+                groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
+        }
+        const DataDrivenMaterial* const standInKey = standIn != nullptr ? standIn->Material.get() : nullptr;
+
         for ( auto& [mat, objects] : groups )
         {
             // A Translucent template's objects belong to the translucency pass alone (RenderGlassManual):
@@ -833,7 +930,11 @@ namespace Desert::Graphic::System
             {
                 ObjDraw od;
                 od.Obj  = obj;
-                od.Inst = FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance;
+                // A stand-in object is the default surface, not the material it waits for: its own instance, its
+                // defaults row — the waiting material's overrides are not the stand-in's to show.
+                od.Inst = mat == standInKey
+                               ? standIn->Instance.get()
+                               : FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance;
                 od.Row  = EffectiveRow( mat, od.Inst );
                 if ( od.Inst != nullptr )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
@@ -938,7 +1039,11 @@ namespace Desert::Graphic::System
             if ( m_DeferredGeometry )
             {
                 auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-                if ( materials->Owns( mat ) )
+                if ( mat == standInKey )
+                {
+                    drawMat = standInDraw->Material.get(); // the stand-in's own G-buffer cell, never the spare
+                }
+                else if ( materials->Owns( mat ) )
                 {
                     drawMat = materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer );
                 }
@@ -1093,7 +1198,14 @@ namespace Desert::Graphic::System
                 // reaches this loop with the (Static x Forward) material its slot resolved to, so taking
                 // the pass's spare would draw a forest of forty thousand trees with a white 1x1 where its
                 // bark map should be. setForGroup names the refusal when the cell does not exist.
-                InstancedBatchSet* ismSet = setForGroup( mat );
+                // A cell still in the driver (RDG-PSO): the ISM is recorded by the instanced spare — the default
+                // surface — with its defaults row, until the cell is Ready.
+                const CellDraw ismDraw = cellDrawOf( mat, ism.Material->IsTwoSided(), /*perObject*/ false );
+                if ( ismDraw == CellDraw::Nothing )
+                    continue;
+                const bool         ismStandsIn = ismDraw == CellDraw::DefaultSurface;
+                InstancedBatchSet* ismSet =
+                     ismStandsIn ? &setFor( instancedMaterial, instancedInstance ) : setForGroup( mat );
                 if ( ismSet == nullptr )
                     continue;
 
@@ -1122,7 +1234,9 @@ namespace Desert::Graphic::System
 
                 // ONE material row for the whole ISM, named by every one of its per-level draws: the
                 // level splits the geometry, not the material.
-                const auto materialIndex = AppendRow( ismSet->Materials, EffectiveRow( mat, ism.Material.get() ) );
+                const auto materialIndex = AppendRow(
+                     ismSet->Materials, ismStandsIn ? EffectiveRow( instancedMaterial, instancedInstance )
+                                                    : EffectiveRow( mat, ism.Material.get() ) );
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
@@ -1189,8 +1303,8 @@ namespace Desert::Graphic::System
                                 .InstanceCount = d.InstanceCount,
                                 .FirstInstance = d.FirstInstance,
                                 .LodLevel      = d.LodLevel,
-                                .BindState     = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
-                                              wind = d.Wind]
+                                .BindState =
+                                     [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex, wind = d.Wind]
                                 {
                                     mat->SetMaterialIndex( index );
                                     mat->SetInstancedWind( wind );
@@ -1199,7 +1313,6 @@ namespace Desert::Graphic::System
                 }
             }
         }
-        return;
     }
 
     void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )
@@ -1243,16 +1356,48 @@ namespace Desert::Graphic::System
             if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
                 groupFor( data.Material ).push_back( &data );
 
+        // AL1-12 INSIDE THE GRAPH (RDG-PSO), as DrawStaticMeshes: a material whose skinned cell is still in the
+        // driver leaves its objects to ONE stand-in group recorded by the default surface's skinned cell (its
+        // rows filled once in the pass; the bones come from the view's ObjectBones like every other group);
+        // recording the cell itself would fail the node and drop the frame graph.
+        using CellDraw                        = MaterialPipelineTracker::CellDraw;
+        StandInCell* const            standIn = StandIn( MeshVertexPath::Skinned, MeshPass::Forward );
+        const GraphicsPipeline* const standInPipeline =
+             standIn != nullptr ? CellPipeline( pipeline, *standIn->Material ) : nullptr;
+        {
+            std::vector<const SkinnedMeshRenderData*> standingIn;
+            for ( auto& [mat, objects] : groups )
+            {
+                bool twoSided = mat->IsTwoSided();
+                for ( const auto* obj : objects )
+                    twoSided = twoSided || obj->Instance->IsTwoSided();
+                const CellDraw draw = ChooseCellDraw( pipeline, *mat, twoSided, standInPipeline );
+                if ( draw == CellDraw::DefaultSurface )
+                    standingIn.insert( standingIn.end(), objects.begin(), objects.end() );
+                if ( draw != CellDraw::Own )
+                    objects.clear(); // Nothing: before the reveal, said once by ChooseCellDraw
+            }
+            if ( !standingIn.empty() && standIn != nullptr )
+                groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
+        }
+
         auto& gpuMaterials = m_ScratchGpuMaterials;
 
         // The view pass skins from the view's ObjectBones (both frames' palettes, named by the object's motion
         // row — MeshRenderer::BuildObjectMotions); the group uploads only its material rows.
         for ( auto& [mat, objects] : groups )
         {
+            if ( objects.empty() )
+                continue;
+            // A stand-in object is the default surface: its own instance and defaults row, not the waiting
+            // material's overrides.
+            const bool standsIn = standIn != nullptr && mat == standIn->Material.get();
+            const auto instOf   = [&]( const SkinnedMeshRenderData* obj ) -> MaterialInstance*
+            { return standsIn ? standIn->Instance.get() : obj->Instance; };
             gpuMaterials.clear();
             gpuMaterials.reserve( objects.size() );
             for ( const auto* obj : objects )
-                AppendRow( gpuMaterials, EffectiveRow( mat, obj->Instance ) );
+                AppendRow( gpuMaterials, EffectiveRow( mat, instOf( obj ) ) );
 
             // At FINAL size before any draw is recorded, so the descriptor points at the buffer the draws will
             // actually read (a later grow reallocates it).
@@ -1261,19 +1406,19 @@ namespace Desert::Graphic::System
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 
             // Shared per-frame scene state once per group, as the static path does.
-            frameState.ApplyTo( objects[0]->Instance );
+            frameState.ApplyTo( instOf( objects[0] ) );
 
             for ( uint32_t i = 0; i < static_cast<uint32_t>( objects.size() ); ++i )
             {
-                const auto* obj = objects[i];
+                const auto*             obj = objects[i];
                 const GraphicsPipeline* twin =
                      CullPermutation( CellPipeline( pipeline, *mat ),
-                                      obj->Instance != nullptr ? obj->Instance->IsTwoSided() : mat->IsTwoSided() );
+                                      instOf( obj ) != nullptr ? instOf( obj )->IsTwoSided() : mat->IsTwoSided() );
                 list.Add( { .Pipeline  = twin,
                             .Mesh      = obj->Mesh,
                             .Transform = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material  = mat->GetMaterialExecutor(),
-                            .BindState = [mat = &*mat, inst = &*obj->Instance, motionRow = obj->MotionRow, i]
+                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj->MotionRow, i]
                             {
                                 mat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 mat->SetPrimitiveIndex( motionRow );
@@ -1282,7 +1427,6 @@ namespace Desert::Graphic::System
                             } } );
             }
         }
-        return;
     }
 
     void MeshRenderer::DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
