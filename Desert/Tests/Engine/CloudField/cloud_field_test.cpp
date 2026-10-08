@@ -2547,9 +2547,9 @@ TEST( CloudFieldCut, TheShadersWeatherRemapIsTheCpus )
         {
             const vec2 worldKm =
                  state.OriginKm + vec2( ( ix + 0.5f ) / side, ( iz + 0.5f ) / side ) * state.Params.RegionSizeKm;
-            const float gpuWeather =
-                 CloudLocalWeather( vec2( weather.y, weather.w ), Desert::Assets::CloudLayoutPlaceUniform( state.Params ),
-                                    Desert::Assets::CloudLayoutStrengthUniform( state.Params ), 0, worldKm );
+            const float gpuWeather = CloudLocalWeather(
+                 vec2( weather.y, weather.w ), Desert::Assets::CloudLayoutPlaceUniform( state.Params ),
+                 Desert::Assets::CloudLayoutStrengthUniform( state.Params ), 0, worldKm );
             const float cpuWeather = Desert::Assets::CloudProceduralLocalWeather( state.Params, 0u, worldKm );
             EXPECT_NEAR( gpuWeather, cpuWeather, 2e-3f ) << "column " << ix << "," << iz;
 
