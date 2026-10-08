@@ -303,6 +303,7 @@ namespace Desert::Graphic::System
                  .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
+                 .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -351,13 +352,16 @@ namespace Desert::Graphic::System
             {
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
-                if ( !steps || !args )
+                const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
+                if ( !steps || !args || !chan )
                 {
-                    LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table or dispatch arguments "
-                               "are not in the frame graph: {}",
-                               i, !steps ? steps.GetError() : args.GetError() );
+                    LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table, dispatch arguments or "
+                               "channel spawns are not in the frame graph: {}",
+                               i, !steps ? steps.GetError() : ( !args ? args.GetError() : chan.GetError() ) );
                     continue;
                 }
+                ve.ChannelRef =
+                     graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
                 ve.StepsRef = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
                 ve.ArgsRef  = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
             }

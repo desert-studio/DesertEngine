@@ -5130,3 +5130,47 @@ TEST( RenderGraphCompile, ProducersDeclareTheirFaultDefault )
              << producer.GraphName << ": the FaultDefault is not declared with the texture";
     }
 }
+
+TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
+{
+    // VFX-10. The tick's Spawn from Channel particles reach the GPU spawn as a per-tick upload buffer of each
+    // emitter (ParticleWorldGpu::PrepareTick), imported into the frame graph by the simulating view and declared
+    // StorageRead by Spawn+Update, whose shader reads it at binding 5 with the step's ChannelFirst/ChannelCount.
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string renderer = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    const size_t declare = renderer.find( "voidParticleRenderer::DeclareSimulateBindings(" );
+    ASSERT_NE( declare, std::string::npos );
+    const std::string declareBody =
+         renderer.substr( declare, renderer.find( "voidParticleRenderer::", declare + 1 ) - declare );
+    EXPECT_NE( declareBody.find( ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)" ),
+               std::string::npos )
+         << "Spawn+Update does not declare the channel spawns it reads";
+
+    const size_t importAt = renderer.find( "voidParticleRenderer::ImportFrameBuffers(" );
+    ASSERT_NE( importAt, std::string::npos );
+    const std::string importBody =
+         renderer.substr( importAt, renderer.find( "voidParticleRenderer::", importAt + 1 ) - importAt );
+    const size_t simulates = importBody.find( "if(m_Simulates)" );
+    const size_t channel   = importBody.find( "Renderer::ImportBuffer(gpu.ChannelSpawns,ve.ChannelImport)" );
+    ASSERT_NE( simulates, std::string::npos );
+    EXPECT_NE( channel, std::string::npos ) << "the channel spawns are not imported into the frame graph";
+    EXPECT_GT( channel, simulates ) << "a draw-only view imports the simulation's upload";
+    EXPECT_NE(
+         importBody.find( "graph.RegisterExternal(ve.ChannelImport,std::format(\"ParticleChannelSpawns{}\",i))" ),
+         std::string::npos );
+
+    const std::string world = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
+    EXPECT_NE( world.find( "gpu.ChannelSpawns->SetData(channel.data(),needed*kParticleChannelSpawnStride)" ),
+               std::string::npos )
+         << "the tick's channel spawns are not uploaded";
+
+    const std::string shader =
+         SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
+    EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
+    EXPECT_NE( shader.find( "boolfromChannel=t<u_Steps[step].ChannelCount;" ), std::string::npos );
+    EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
+         << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
+}

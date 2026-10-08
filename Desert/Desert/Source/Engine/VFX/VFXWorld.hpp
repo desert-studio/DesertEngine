@@ -1,7 +1,10 @@
 #pragma once
 
 #include <Engine/VFX/VFXClock.hpp>
+#include <Engine/VFX/VFXDataChannel.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
+
+#include <glm/glm.hpp>
 
 #include <entt/entt.hpp>
 
@@ -20,6 +23,10 @@ namespace Desert::VFX
         // drawn from it — never depends on how many particles happened to be alive.
         std::uint32_t IdBase = 0;
         std::uint32_t Budget = 0;
+        // VFX-10: the first ChannelCount of the Budget's spawns are Spawn from Channel particles; spawn t <
+        // ChannelCount takes particle ChannelFirst + t of the instance's ChannelSpawns (expanded per particle).
+        std::uint32_t ChannelFirst = 0;
+        std::uint32_t ChannelCount = 0;
     };
 
     // The world's administration of one emitter instance: everything about it that is decided on the
@@ -39,8 +46,21 @@ namespace Desert::VFX
         // This tick's steps, in order; empty when the clock ran none or the emitter is disabled.
         std::vector<EmitterStep> Steps;
 
+        // VFX-10: this tick's Spawn from Channel requests (empty without the module) and what became of the
+        // channel's entries; ChannelOverflowTotal counts every entry ever refused by the per-frame limit.
+        std::vector<VFXChannelSpawnRequest> ChannelSpawns;
+        VFXChannelSpawnReport               ChannelReport;
+        std::uint64_t                       ChannelOverflowTotal = 0;
+
         bool Seen = false; // visited by the current Tick; instances not visited are dropped
     };
+
+    /// One instance's steps for a tick of @p stepCount fixed steps: the plan's rate and bursts per step, and -
+    /// when the plan holds engine:SpawnFromChannel - this frame's entries of its channel in @p channels gathered
+    /// for an emitter at @p emitterCm, all joining the first step (none runs: they count as Overflow). Ids are
+    /// reserved for every spawn, channel spawns included.
+    void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
+                           double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm );
 
     // THE EFFECTS WORLD OF ONE SCENE (plan 02 §3.3-1): owns the effects clock and the per-instance
     // administration, and is ticked once per scene update — not once per view. Simulation is a function
@@ -66,7 +86,8 @@ namespace Desert::VFX
         }
 
         // One scene update. `seconds` is the scene's own time for this update: the editor delta in Edit,
-        // the gameplay delta in Play, zero while paused. Consumes ParticleEmitterComponent::RequestRestart.
+        // the gameplay delta in Play, zero while paused. Consumes ParticleEmitterComponent::RequestRestart and
+        // the data channels' entries written since the last tick.
         void Tick( entt::registry& registry, double seconds );
 
         // DesiredAge: the next ticks replay to `age` (a backwards seek resets every instance first).
@@ -91,6 +112,17 @@ namespace Desert::VFX
             return m_Plan;
         }
         [[nodiscard]] const EmitterInstance* FindEmitter( std::uint64_t entityUuid ) const;
+
+        // The scene's data channels (VFX-10): gameplay registers channels and writes entries here (C++ Write,
+        // Lua VFX.writeChannel); the next Tick spawns from them and clears them.
+        [[nodiscard]] VFXDataChannels& GetDataChannels()
+        {
+            return m_Channels;
+        }
+        [[nodiscard]] const VFXDataChannels& GetDataChannels() const
+        {
+            return m_Channels;
+        }
 
         // Counts Tick calls: a renderer runs one tick's simulation once, in the first view that sees its serial.
         [[nodiscard]] std::uint64_t GetTickSerial() const
@@ -117,6 +149,7 @@ namespace Desert::VFX
         std::unordered_map<std::uint64_t, EmitterInstance> m_Emitters;
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;
+        VFXDataChannels                                    m_Channels;
         mutable std::unique_ptr<WorldGpuState>             m_GpuState;
     };
 } // namespace Desert::VFX

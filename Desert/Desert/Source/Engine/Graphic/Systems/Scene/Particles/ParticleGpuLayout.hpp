@@ -31,7 +31,12 @@ namespace Desert::Graphic::System
     // The size of one element of ParticleSimulate's step table (binding 1, `struct VFXStep`: three
     // uints - id base, seed, budget). ParticleRenderer uploads the frame's steps as an array of this stride
     // and the shader indexes it by the step number in the push constant.
-    constexpr std::uint32_t kParticleStepStride = 12;
+    // VFX-10: + ChannelFirst, ChannelCount (the step's Spawn from Channel particles, VFXWorld EmitterStep).
+    constexpr std::uint32_t kParticleStepStride = 20;
+
+    // One Spawn from Channel particle (ParticleSimulate binding 5, `struct VFXChannelSpawn`): vec4 position (w = 1
+    // when bound) + vec4 direction (w = 1 when bound).
+    constexpr std::uint32_t kParticleChannelSpawnStride = 32;
 
     // The size of one element of an emitter's Counters buffer (Common/ParticlePool.glslh `struct
     // ParticleDrawSlot`: a VkDrawIndirectCommand - vertex count = 6 x alive, instance count 1, first vertex =

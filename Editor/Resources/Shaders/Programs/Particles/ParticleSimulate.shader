@@ -30,6 +30,8 @@ Shader "ParticleSimulate"
             uint IdBase; // id of the first particle this step may spawn
             uint Seed;   // the emitter instance's seed (system xor entity xor emitter)
             uint Budget; // how many particles this step spawns
+            uint ChannelFirst; // VFX-10: spawn t < ChannelCount is Spawn from Channel particle ChannelFirst + t
+            uint ChannelCount;
         };
 
         ReadBuffer(1) StepTable
@@ -50,6 +52,18 @@ Shader "ParticleSimulate"
         ReadBuffer(4) Counters
         {
             ParticleDrawSlot u_Slots[];
+        };
+
+        // VFX-10: this tick's Spawn from Channel particles, one record per particle (VFXWorld PlanEmitterSteps).
+        struct VFXChannelSpawn
+        {
+            vec4 Position;  // xyz world cm, w = 1 when the module binds a Position field
+            vec4 Direction; // xyz start velocity direction, w = 1 when bound
+        };
+
+        ReadBuffer(5) ChannelSpawns
+        {
+            VFXChannelSpawn u_ChannelSpawns[];
         };
 
         PushConstant PushConstants
@@ -129,6 +143,16 @@ Shader "ParticleSimulate"
                 vec3 bitn = cross( axis, tang );
                 vec3 dir  = normalize( tang * local.x + bitn * local.y + axis * local.z );
 
+                // A channel particle takes its entry's bound payload: the direction here, the position below.
+                bool            fromChannel = t < u_Steps[step].ChannelCount;
+                VFXChannelSpawn channel;
+                channel.Position  = vec4( 0.0 );
+                channel.Direction = vec4( 0.0 );
+                if ( fromChannel )
+                    channel = u_ChannelSpawns[u_Steps[step].ChannelFirst + t];
+                if ( channel.Direction.w > 0.5 && dot( channel.Direction.xyz, channel.Direction.xyz ) > 1e-12 )
+                    dir = normalize( channel.Direction.xyz );
+
                 float speed = u_Params.x * ( 1.0 - u_Params.y * r.z );
                 float life  = u_Params.z * ( 1.0 - u_Params.w * r.w );
 
@@ -137,6 +161,13 @@ Shader "ParticleSimulate"
                 p.VelLife      = vec4( dir * speed, max( life, 0.01 ) );
                 p.Age          = vec4( 0.0 );
                 p.Color        = vec4( 0.0 );
+                if ( channel.Position.w > 0.5 )
+                {
+                    p.PosSize.xyz = channel.Position.xyz;
+                    // In local space the particle is its offset from the emitter (Age.yzw), not a world point.
+                    if ( u_Counts.w != 0u )
+                        p.Age.yzw = channel.Position.xyz - u_EmitterPos.xyz;
+                }
                 u_Particles[i] = Shade( p );
             }
         }

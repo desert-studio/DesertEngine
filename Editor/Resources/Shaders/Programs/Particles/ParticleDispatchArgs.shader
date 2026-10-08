@@ -17,6 +17,8 @@ Shader "ParticleDispatchArgs"
             uint IdBase;
             uint Seed;
             uint Budget;
+            uint ChannelFirst; // ParticleSimulate's step layout (kParticleStepStride 20); Budget includes them
+            uint ChannelCount;
         };
 
         ReadBuffer(0) StepTable
