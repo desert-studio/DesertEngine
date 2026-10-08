@@ -30,6 +30,7 @@ namespace Desert::Scripting
         RegisterLocalizationBindings( *m_Impl );
         RegisterProjectBindings( *m_Impl );
         RegisterLevelBindings( *m_Impl );
+        RegisterGameModeBindings( *m_Impl );
     }
 
     ScriptEngine::~ScriptEngine() = default;
@@ -389,12 +390,45 @@ namespace Desert::Scripting
         {
             m_Impl->PlayerInputBegun = true;
             if ( m_Impl->Assets != nullptr )
-                m_Impl->PlayerInput.BeginPlay( registry, *m_Impl->Assets );
+                m_Impl->PlayerInput.BeginPlay( registry, *m_Impl->Assets,
+                                               m_Impl->Scene != nullptr ? m_Impl->Scene->GetPlayerPawn()
+                                                                        : entt::entity( entt::null ) );
             else if ( !registry.view<ECS::EnhancedInputPlayerComponent>().empty() )
                 LOG_ERROR( "[Input] this world plays without an asset manager: the player's mapping contexts "
                            "cannot be read" );
         }
         m_Impl->PlayerInput.Tick( { m_Impl->MouseDx, m_Impl->MouseDy }, deltaSeconds );
+    }
+
+    void ScriptEngine::DeliverGameModeEvents( entt::registry& registry )
+    {
+        if ( m_Impl->Scene == nullptr )
+            return;
+        for ( const Core::GameModeEvent& event : m_Impl->Scene->GetGameMode().TakeEvents() )
+        {
+            const bool died = event.Kind == Core::GameModeEventKind::PawnDied;
+            if ( died )
+                m_Impl->PlayerInput.UnpossessPawn();
+            else if ( m_Impl->Assets != nullptr )
+                m_Impl->PlayerInput.PossessPawn( registry, *m_Impl->Assets, event.Pawn );
+            const char* hook = died ? "OnPawnDied" : "OnPlayerRestarted";
+            for ( auto& [entity, slots] : m_Impl->Envs )
+            {
+                for ( uint32_t slot = 0; slot < static_cast<uint32_t>( slots.size() ); ++slot )
+                {
+                    sol::protected_function fn = slots[slot][hook];
+                    if ( !fn.valid() )
+                        continue;
+                    m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot );
+                    sol::protected_function_result r = fn( m_Impl->MakeEntity( event.Pawn ) );
+                    if ( !r.valid() )
+                    {
+                        sol::error err = r;
+                        LOG_ERROR( "[Lua] {} error: {}", hook, err.what() );
+                    }
+                }
+            }
+        }
     }
 
     void ScriptEngine::EndPlayerInput()

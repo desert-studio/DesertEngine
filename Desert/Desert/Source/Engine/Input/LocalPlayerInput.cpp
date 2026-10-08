@@ -87,7 +87,8 @@ namespace Desert::Input
         return out;
     }
 
-    void LocalPlayerInput::BeginPlay( entt::registry& registry, Assets::AssetManager& assets )
+    void LocalPlayerInput::BeginPlay( entt::registry& registry, Assets::AssetManager& assets,
+                                      const entt::entity pawn )
     {
         EndPlay();
         if ( const std::filesystem::path file = UserKeyBindingsFile(); !file.empty() )
@@ -99,8 +100,34 @@ namespace Desert::Input
         }
 
         for ( const auto entity : registry.view<ECS::EnhancedInputPlayerComponent>() )
-            for ( const auto& [handle, priority] :
-                  PlayerContextPriorities( registry.get<ECS::EnhancedInputPlayerComponent>( entity ).Data ) )
+            AddPlayerContexts( assets, registry.get<ECS::EnhancedInputPlayerComponent>( entity ).Data,
+                               entity == pawn ? &m_PawnContexts : nullptr );
+    }
+
+    void LocalPlayerInput::PossessPawn( entt::registry& registry, Assets::AssetManager& assets,
+                                        const entt::entity pawn )
+    {
+        UnpossessPawn();
+        if ( pawn == entt::null || !registry.valid( pawn ) )
+            return;
+        if ( const auto* player = registry.try_get<ECS::EnhancedInputPlayerComponent>( pawn ) )
+            AddPlayerContexts( assets, player->Data, &m_PawnContexts );
+    }
+
+    void LocalPlayerInput::UnpossessPawn()
+    {
+        for ( const std::string& name : m_PawnContexts )
+            if ( !RemoveContext( name ) )
+                LOG_ERROR( "[Input] the possessed pawn's mapping context '{}' was no longer active", name );
+        m_PawnContexts.clear();
+    }
+
+    void LocalPlayerInput::AddPlayerContexts( Assets::AssetManager&               assets,
+                                              const ECS::EnhancedInputPlayerData& player,
+                                              std::vector<std::string>*           added )
+    {
+        {
+            for ( const auto& [handle, priority] : PlayerContextPriorities( player ) )
             {
                 const auto context = assets.FindByHandle<Assets::InputMappingContextAsset>( handle );
                 if ( !context )
@@ -110,14 +137,17 @@ namespace Desert::Input
                     continue;
                 }
                 std::map<std::string, InputActionData> actions;
-                Common::BoolResultStr                  added = ReadContextAndActions( assets, context, actions );
-                if ( added )
-                    added = AddLoadedContext( StemOf( context->GetMetadata().Filepath ), context->GetData(),
-                                              actions, priority );
-                if ( !added )
+                const std::string                      name = StemOf( context->GetMetadata().Filepath );
+                Common::BoolResultStr                  ok   = ReadContextAndActions( assets, context, actions );
+                if ( ok )
+                    ok = AddLoadedContext( name, context->GetData(), actions, priority );
+                if ( !ok )
                     LOG_ERROR( "[Input] mapping context '{}' was not added: {}",
-                               context->GetMetadata().Filepath.string(), added.GetError() );
+                               context->GetMetadata().Filepath.string(), ok.GetError() );
+                else if ( added != nullptr )
+                    added->push_back( name );
             }
+        }
     }
 
     void LocalPlayerInput::EndPlay()
@@ -125,6 +155,7 @@ namespace Desert::Input
         m_Subsystem = EnhancedInputSubsystem{};
         m_ActionNames.clear();
         m_ContextNames.clear();
+        m_PawnContexts.clear();
     }
 
     void LocalPlayerInput::Tick( const glm::vec2 mouseDelta, const float deltaSeconds )

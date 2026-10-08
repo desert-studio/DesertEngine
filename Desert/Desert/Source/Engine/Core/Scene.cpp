@@ -1031,6 +1031,8 @@ namespace Desert::Core
         m_Generation   = NextSceneGeneration();
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
+        m_PlayerController = entt::null;
+        m_GameMode.Reset();
         m_PlayFromHere = false;
 
         m_Entities.Clear();

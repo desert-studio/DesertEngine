@@ -102,6 +102,9 @@ namespace Desert::ECS
             // The local player's Enhanced Input evaluates THIS frame before any script reads it (UE: the
             // player input is processed before the pawn ticks).
             m_Engine.TickPlayerInput( registry, ts.GetSeconds() );
+            // The GameMode's deaths and restarts reach the player's input and the scripts' hooks before any
+            // script runs this frame (GameModeSystem raised them last frame, after the scripts).
+            m_Engine.DeliverGameModeEvents( registry );
 
             // ---- Run the scripts (each entity may run several script SLOTS, like UE ActorComponents) ----
             auto view = registry.view<ScriptComponent>();

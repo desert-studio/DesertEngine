@@ -530,4 +530,5 @@ namespace Desert::Scripting
     void RegisterLocalizationBindings( ScriptEngine::Impl& impl ); // loc.text/plural/number/money/date
     void RegisterProjectBindings( ScriptEngine::Impl& impl );      // project.name/company
     void RegisterLevelBindings( ScriptEngine::Impl& impl );        // level.open (Core::OpenLevel)
+    void RegisterGameModeBindings( ScriptEngine::Impl& impl );     // gameMode.kill/pawn/controller/respawnIn
 } // namespace Desert::Scripting
