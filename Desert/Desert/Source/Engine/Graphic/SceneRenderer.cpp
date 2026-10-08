@@ -1838,11 +1838,12 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data,
-                                             const glm::vec3&                      windOffset,
+                                             const glm::vec3& windOffset, const glm::vec3& windDirection,
                                              const std::vector<HeroCloudInstance>& heroClouds )
     {
         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-             ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, m_CloudQuality,
+             ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection,
+                                 m_CloudQuality,
                                  heroClouds ); // a profile without clouds never allocates their targets
     }
 

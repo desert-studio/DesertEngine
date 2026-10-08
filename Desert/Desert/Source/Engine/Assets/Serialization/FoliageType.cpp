@@ -69,9 +69,6 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "Wind.Height {} must be above zero (the height, cm, at "
                                                      "which the sway is full)",
                                                      wind.Height );
-        if ( !std::isfinite( wind.DirectionDegrees ) )
-            return Common::MakeFormattedError<bool>( "Wind.DirectionDegrees {} must be a finite angle",
-                                                     wind.DirectionDegrees );
         return BOOLSUCCESS;
     }
 

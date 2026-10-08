@@ -516,18 +516,8 @@ namespace Desert::ECS
         // rather than a slider whose top half bakes nothing and whose bottom half changes the sky's scale.
         int32_t VolumeResolution = 256;
 
-        // ---- Animation ------------------------------------------------------------------------------
-
-        PROPERTY( DisplayName( "Wind Direction" ), Category( "Animation" ),
-                  Tooltip( "Direction the layer drifts. Normalized by the renderer; a zero vector simply "
-                           "leaves the sky still." ) )
-        glm::vec3 WindDirection = { 1.0f, 0.0f, 0.0f };
-
-        PROPERTY( DisplayName( "Wind Speed" ), Category( "Animation" ), Length, Range( 0.0f, 50000.0f ),
-                  Tooltip( "How fast the layer drifts, in world units per second. The wind moves the "
-                           "SAMPLE POSITION rather than the data, which is what makes the motion free and "
-                           "seamless." ) )
-        float WindSpeed = 3000.0f; // 30 m/s
+        // The layer's drift is the SCENE's wind (WIND-SRC): VolumetricCloudECSSystem asks ECS::WindAt at the
+        // layer's entity, so the clouds move the way the grass bends. The layer states no wind of its own.
     };
 
     /**

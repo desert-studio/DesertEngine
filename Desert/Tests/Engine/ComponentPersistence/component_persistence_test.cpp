@@ -172,6 +172,7 @@ namespace
          "Desert/Desert/Source/Engine/ECS/VolumetricCloudComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/HeroCloudComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/PostProcessVolumeComponent.hpp",
+         "Desert/Desert/Source/Engine/ECS/WindSourceComponent.hpp",
     };
 
     constexpr const char* kRegistry = "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp";

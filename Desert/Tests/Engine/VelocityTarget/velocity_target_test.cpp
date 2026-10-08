@@ -417,7 +417,7 @@ TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
 TEST( VelocityTarget, InstancedViewPushCarriesTheWindAtThePreviousFrame )
 {
     using namespace Desert::Graphic;
-    const InstanceWind wind = MakeInstanceWind( 30.0f, 0.5f, 200.0f, 45.0f, 7.25 );
+    const InstanceWind wind = MakeInstanceWind( 30.0f, 0.5f, 200.0f, glm::vec2( 400.0f, 400.0f ), 7.25 );
     ASSERT_TRUE( wind.Sways() );
     const InstanceWindPush view = PackViewInstanceWind( wind, 7.0 );
     EXPECT_FLOAT_EQ( view.B.y, wind.Seconds );

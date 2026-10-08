@@ -42,6 +42,7 @@
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
+#include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/UIEasing.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>

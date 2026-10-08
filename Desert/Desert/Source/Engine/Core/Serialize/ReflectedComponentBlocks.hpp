@@ -130,6 +130,8 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<StrainFieldComponent, StrainFieldData>{ "StrainField", "StrainFieldData", &StrainFieldComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<KillFieldComponent, KillFieldData>{ "KillField", "KillFieldData", &KillFieldComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<AnchorFieldComponent, AnchorFieldData>{ "AnchorField", "AnchorFieldData", &AnchorFieldComponent::Data, R::SkyAndAtmosphere } );
+        // The scene's wind (WIND-SRC): read by every wind consumer through ECS::WindAt.
+        visit( ReflectedMemberBlock<WindSourceComponent, WindSourceData>{ "WindSource", "WindSourceData", &WindSourceComponent::Data, R::SkyAndAtmosphere } );
         // clang-format on
     }
 } // namespace Desert::Core::Serialize

@@ -98,6 +98,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RadialImpulseFieldComponent,
                                      "Radial Impulse Field" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StrainFieldComponent, Data, "StrainFieldData", "Strain Field" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::KillFieldComponent, Data, "KillFieldData", "Kill Field" )
+// The scene's wind (UE Wind Directional Source): read by foliage, clouds, cloth and hair through ECS::WindAt.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WindSourceComponent, Data, "WindSourceData", "Wind Source" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AnchorFieldComponent, Data, "AnchorFieldData", "Anchor Field" )
 // Character Controller is a CUSTOM entry: the reflected capsule fields PLUS the live state the physics
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game

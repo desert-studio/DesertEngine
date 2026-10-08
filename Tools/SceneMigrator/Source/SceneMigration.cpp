@@ -411,6 +411,94 @@ namespace Desert::Migration
         return report;
     }
 
+    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities,
+                                                const std::string& fileName, bool createSource )
+    {
+        constexpr const char* kDirection = "WindDirection";
+        constexpr const char* kSpeed     = "WindSpeed";
+        WindSourceReport      report;
+
+        // The wind one layer stated: [x, y, z] and cm/s, the v41 defaults where a key was missing.
+        struct LayerWind
+        {
+            std::vector<double> Direction{ 1.0, 0.0, 0.0 };
+            double              Speed = 3000.0;
+            bool                Blows = false;
+        };
+        std::optional<LayerWind> kept;
+
+        for ( auto& entity : entities )
+        {
+            EditBlock( entity.Components, "VolumetricCloud",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           LayerWind wind;
+                           if ( const auto stated = block.get( kDirection ); stated.has_value() )
+                               if ( const auto array = stated.value().to_array();
+                                    array.has_value() && array.value().size() == 3 )
+                                   for ( std::size_t i = 0; i < 3; ++i )
+                                       wind.Direction[i] = array.value()[i].to_double().value_or( 0.0 );
+                           if ( const auto stated = block.get( kSpeed ); stated.has_value() )
+                               wind.Speed = stated.value().to_double().value_or( 0.0 );
+                           bool enabled = true;
+                           if ( const auto stated = block.get( "Enabled" ); stated.has_value() )
+                               enabled = stated.value().to_bool().value_or( true );
+                           const double lengthSquared = wind.Direction[0] * wind.Direction[0] +
+                                                        wind.Direction[1] * wind.Direction[1] +
+                                                        wind.Direction[2] * wind.Direction[2];
+                           wind.Blows = enabled && wind.Speed > 0.0 && lengthSquared > 1e-12;
+
+                           const bool droppedDirection = DropKey( block, kDirection );
+                           const bool droppedSpeed     = DropKey( block, kSpeed );
+                           report.CloudWinds += ( droppedDirection || droppedSpeed ) ? 1 : 0;
+                           if ( wind.Blows )
+                           {
+                               if ( !kept )
+                                   kept = wind;
+                               else if ( kept->Direction != wind.Direction || kept->Speed != wind.Speed )
+                                   ++report.Disagreeing;
+                           }
+                           return droppedDirection || droppedSpeed;
+                       } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                EditBlock( override_.Components, "VolumetricCloud",
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const int dropped = ( DropKey( block, kDirection ) ? 1 : 0 ) +
+                                                   ( DropKey( block, kSpeed ) ? 1 : 0 );
+                               report.OverridesDropped += static_cast<std::size_t>( dropped );
+                               return dropped != 0;
+                           } );
+        }
+
+        if ( !createSource || !kept )
+            return report;
+
+        // FNV-1a over the file's name: the same scene migrated twice, on any machine, names the same record.
+        uint64_t id = 14695981039346656037ull;
+        for ( const char c : "WindSource:" + fileName )
+            id = ( id ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
+
+        rfl::Generic::Array direction;
+        for ( const double component : kept->Direction )
+            direction.push_back( rfl::Generic( component ) );
+        rfl::Generic::Object block;
+        block["Direction"] = rfl::Generic( std::move( direction ) );
+        block["Speed"]     = rfl::Generic( kept->Speed );
+        block["PointWind"] = rfl::Generic( false );
+        block["Radius"]    = rfl::Generic( 1000.0 );
+
+        Assets::EntityData source;
+        source.id                       = Common::UUID( id == 0 ? 1 : id );
+        source.Tag                      = std::string( "Wind Source" );
+        source.Components["WindSource"] = rfl::Generic( std::move( block ) );
+        entities.push_back( std::move( source ) );
+        report.Created = true;
+        return report;
+    }
+
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
     {
         namespace TL = Animation::Timeline;
@@ -798,6 +886,16 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
         };
 
+        // FOLT 4..7's Wind, member for member: the engine's FoliageWind is v8 and has no direction (the scene's
+        // WindSource gives it).
+        struct FoliageWindV7
+        {
+            float Strength         = 0.0f;
+            float Speed            = 0.5f;
+            float Height           = 100.0f;
+            float DirectionDegrees = 0.0f;
+        };
+
         // FOLT 4's body: v3 and Wind. The engine's struct is v6.
         struct FoliageTypeDataV4
         {
@@ -814,7 +912,7 @@ namespace Desert::Migration
             std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
             float                                                     MinimumLayerWeight = 0.0f;
             Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
-            Assets::Serialization::FoliageWind                        Wind;
+            FoliageWindV7                                             Wind;
         };
 
         // FOLT 5's body: v4 and IncludeInHLOD. The engine's struct is v6.
@@ -833,7 +931,7 @@ namespace Desert::Migration
             std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
             float                                                     MinimumLayerWeight = 0.0f;
             Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
-            Assets::Serialization::FoliageWind                        Wind;
+            FoliageWindV7                                             Wind;
             bool                                                      IncludeInHLOD = true;
         };
 
@@ -855,8 +953,31 @@ namespace Desert::Migration
             std::vector<Assets::AssetGuidRef>           LandscapeLayers;
             float                                       MinimumLayerWeight = 0.0f;
             Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
-            Assets::Serialization::FoliageWind          Wind;
+            FoliageWindV7                               Wind;
             bool                                        IncludeInHLOD = true;
+        };
+
+        // FOLT 7's body: v6 and Procedural. The engine's struct is v8 (its Wind has no DirectionDegrees).
+        struct FoliageTypeDataV7
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::Serialization::FoliageTypeKind      Kind = Assets::Serialization::FoliageTypeKind::Mesh;
+            Assets::AssetGuidRef                        Mesh;
+            Assets::AssetGuidRef                        Prefab;
+            float                                       Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ZOffset{ 0.0f, 0.0f };
+            bool                                        AlignToNormal    = true;
+            bool                                        RandomYaw        = true;
+            float                                       RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>           LandscapeLayers;
+            float                                       MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
+            FoliageWindV7                               Wind;
+            bool                                        IncludeInHLOD = true;
+            Assets::Serialization::FoliageProcedural    Procedural;
         };
 
         // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
@@ -1534,7 +1655,7 @@ namespace Desert::Migration
         data.MinimumLayerWeight = old.MinimumLayerWeight;
         data.CullDistance       = old.CullDistance;
         // Strength 0: the instances stand still, which is what every v3 field drew.
-        data.Wind = Assets::Serialization::FoliageWind{};
+        data.Wind = FoliageWindV7{};
 
         std::string written = Common::Json::Write( data );
         if ( auto next = MigrateFoliageTypeV4ToV5( written ); !next )
@@ -1634,6 +1755,49 @@ namespace Desert::Migration
         if ( !v6 )
             return Common::MakeFormattedError<std::string>( "FOLT 6 body does not read: {}", v6.GetError() );
         const FoliageTypeDataV6& old = v6.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+
+        // v7 text, not the engine's struct: the engine is v8, and v7 -> v8 is the chain's next step.
+        FoliageTypeDataV7 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 7u;
+        data.Kind                     = old.Kind;
+        data.Mesh                     = old.Mesh;
+        data.Prefab                   = old.Prefab;
+        data.Density                  = old.Density;
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        data.Height                   = old.Height;
+        data.LandscapeLayers          = old.LandscapeLayers;
+        data.MinimumLayerWeight       = old.MinimumLayerWeight;
+        data.CullDistance             = old.CullDistance;
+        data.Wind                     = old.Wind;
+        data.IncludeInHLOD            = old.IncludeInHLOD;
+        // UE UFoliageType's procedural defaults: FOLT 6 had no procedural simulation to state them for.
+        data.Procedural = Assets::Serialization::FoliageProcedural{};
+
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV7ToV8( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 7: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV7ToV8( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 7u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 7 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v7 = Common::Json::Read<FoliageTypeDataV7>( text );
+        if ( !v7 )
+            return Common::MakeFormattedError<std::string>( "FOLT 7 body does not read: {}", v7.GetError() );
+        const FoliageTypeDataV7& old = v7.GetValue();
 
         Assets::Serialization::FoliageTypeData data;
         data.Header             = old.Header;
@@ -1651,14 +1815,18 @@ namespace Desert::Migration
         data.LandscapeLayers    = old.LandscapeLayers;
         data.MinimumLayerWeight = old.MinimumLayerWeight;
         data.CullDistance       = old.CullDistance;
-        data.Wind               = old.Wind;
-        data.IncludeInHLOD      = old.IncludeInHLOD;
-        // UE UFoliageType's procedural defaults: FOLT 6 had no procedural simulation to state them for.
-        data.Procedural = Assets::Serialization::FoliageProcedural{};
+        // The response stays the type's; DirectionDegrees is dropped: the direction is the scene's WindSource,
+        // read through ECS::WindAt (a per-type direction cannot become a scene-wide one without choosing
+        // between types).
+        data.Wind.Strength = old.Wind.Strength;
+        data.Wind.Speed    = old.Wind.Speed;
+        data.Wind.Height   = old.Wind.Height;
+        data.IncludeInHLOD = old.IncludeInHLOD;
+        data.Procedural    = old.Procedural;
 
         std::string written = Assets::Serialization::WriteFoliageType( data );
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 7: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 8: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }
@@ -2093,6 +2261,14 @@ namespace Desert::Migration
         RunSteps( scene.Entities, scene.SceneName, statedSceneVersion, assetsRoot, report );
         if ( !report.Refused.empty() )
             return report; // unstamped: the file is FAILED by every caller and written by none
+
+        // The cloud layer's wind becomes the scene's WindSource (WIND-SRC). Scene-side so the record is added
+        // to a scene and never to a prefab; MigratePrefab runs the same step with createSource = false.
+        if ( statedSceneVersion < kSceneVersionWindSource )
+        {
+            report.WindSourceRaised = true;
+            report.WindSource       = MigrateWindSourceV41ToV42( scene.Entities, scene.SceneName, true );
+        }
         if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
             report.EntitiesMovedOut = scene.Entities.size();
 
@@ -2165,6 +2341,11 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, prefab.Name, outcome.FoundSceneVersion, assetsRoot, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionWindSource )
+        {
+            outcome.Steps.WindSourceRaised = true;
+            outcome.Steps.WindSource       = MigrateWindSourceV41ToV42( prefab.Entities, prefab.Name, false );
+        }
         if ( !outcome.Steps.Refused.empty() )
         {
             outcome.Refused = outcome.Steps.Refused;

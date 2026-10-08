@@ -325,6 +325,7 @@ namespace Desert::Graphic
         // This frame's volumetric cloud layer (from VolumetricCloudComponent, via the ECS). The wind
         // offset is accumulated by the ECS system, which is where the timestep lives.
         void SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
+                                  const glm::vec3&                      windDirection,
                                   const std::vector<HeroCloudInstance>& heroClouds );
 
         // The evaluated per-frame sky: sun direction and radiance, ambient above/below, night factor, the
