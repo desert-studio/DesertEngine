@@ -523,7 +523,8 @@ TEST( SkySunLightFactor, IsZeroBelowTheHorizonInBothModels )
             if ( !affected )
                 EXPECT_EQ( noon, glm::vec3( 1.0f ) ) << "model " << static_cast<int>( model );
             else if ( model == Desert::ECS::SkyModel::PhysicalAtmosphere )
-                EXPECT_EQ( noon, Desert::Graphic::SunTransmittanceAtGround( sky, SunDirectionAtElevation( 30.0f ) ) );
+                EXPECT_EQ( noon,
+                           Desert::Graphic::SunTransmittanceAtGround( sky, SunDirectionAtElevation( 30.0f ) ) );
         }
 }
 
@@ -546,7 +547,8 @@ TEST( SkySunLightFactor, ArtisticFadesAcrossTheDiskAndNeverRisesAsTheSunSets )
         }
 
         // A fade, not a switch: with the disk centred on the horizon half of it is lit.
-        const glm::vec3 half = Desert::Graphic::SunLightFactorAtGround( sky, SunDirectionAtElevation( 0.0f ), false );
+        const glm::vec3 half =
+             Desert::Graphic::SunLightFactorAtGround( sky, SunDirectionAtElevation( 0.0f ), false );
         EXPECT_NEAR( half.x, 0.5f, 1e-3f );
     }
 }
@@ -556,9 +558,9 @@ TEST( SkySunLightFactor, ArtisticAirMassAgreesWithThePhysicalLut )
     // The same medium coefficients: the artistic analytic transmittance (zenith column x Kasten-Young
     // air mass) tracks the physical LUT's march; the spherical-shell difference grows toward the horizon.
     Desert::Graphic::SkySettings artistic{};
-    artistic.Model                         = Desert::ECS::SkyModel::ArtisticGradient;
-    Desert::Graphic::SkySettings physical  = artistic;
-    physical.Model                         = Desert::ECS::SkyModel::PhysicalAtmosphere;
+    artistic.Model                        = Desert::ECS::SkyModel::ArtisticGradient;
+    Desert::Graphic::SkySettings physical = artistic;
+    physical.Model                        = Desert::ECS::SkyModel::PhysicalAtmosphere;
 
     for ( const auto& [elevation, relTol] : { std::pair{ 60.0f, 0.02f }, { 20.0f, 0.02f }, { 5.0f, 0.12f } } )
     {
