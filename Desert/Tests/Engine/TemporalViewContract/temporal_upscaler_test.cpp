@@ -15,21 +15,22 @@ namespace TemporalUpscalerTest
 {
     using namespace Desert::Graphic;
     using namespace Desert::Graphic::RDG;
-    using Desert::Common::Scalability::ScaleMode;
+    using ::Common::Scalability::ScaleMode;
     using Desert::Core::Formats::ImageFormat;
 
     class FlatMemory final : public IMemoryRequirementsProvider
     {
     public:
-        Desert::Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc& desc,
-                                                                              uint32_t ) const override
+        ::Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc& desc,
+                                                                        uint32_t ) const override
         {
-            return MemoryRequirements{ uint64_t{ desc.Size.Width } * desc.Size.Height * 8u, 256u, ~0u };
+            return ::Common::MakeSuccess(
+                 MemoryRequirements{ uint64_t{ desc.Size.Width } * desc.Size.Height * 8u, 256u, ~0u } );
         }
-        Desert::Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc,
-                                                                             uint32_t ) const override
+        ::Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc,
+                                                                       uint32_t ) const override
         {
-            return MemoryRequirements{ desc.Bytes, 256u, ~0u };
+            return ::Common::MakeSuccess( MemoryRequirements{ desc.Bytes, 256u, ~0u } );
         }
     };
 
@@ -74,11 +75,13 @@ namespace TemporalUpscalerTest
         {
             RegisterSystemTextures( graph, black, white, blackCube );
             const HistoryTextureDesc desc = upscaler.HistoryDescs( split ).at( 0 );
-            previous                      = ExternalTexture( desc.Desc, Access::SampledCompute );
-            current                       = ExternalTexture( desc.Desc, Access::None );
-            postOut                       = ExternalTexture( desc.Desc, Access::None );
-            const uint32_t w              = split.Render.Width;
-            const uint32_t h              = split.Render.Height;
+            // As a real frame hands it over: last frame's TemporalAA node wrote it as storage, so this frame's
+            // read needs a barrier — and the barrier is what AccessOf sees.
+            previous          = ExternalTexture( desc.Desc, Access::StorageWrite );
+            current           = ExternalTexture( desc.Desc, Access::None );
+            postOut           = ExternalTexture( desc.Desc, Access::None );
+            const uint32_t w  = split.Render.Width;
+            const uint32_t h  = split.Render.Height;
             inputs.SceneColor = graph.CreateTexture( Tex2D( w, h, ImageFormat::RGBA16F ), "SceneColor" );
             inputs.SceneDepth = graph.CreateTexture( Tex2D( w, h, ImageFormat::DEPTH32F ), "SceneDepth" );
             inputs.Velocity   = graph.CreateTexture( Tex2D( w, h, ImageFormat::RG16F ), "Velocity" );
@@ -90,7 +93,7 @@ namespace TemporalUpscalerTest
                      pass.ColorTarget( 1, inputs.Velocity, LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
                      pass.DepthTarget( inputs.SceneDepth, LoadOp::ClearDepth( 0.0f ) );
                  },
-                 []( PassContext& ) -> Desert::Common::BoolResultStr { return BOOLSUCCESS; } );
+                 []( PassContext& ) -> ::Common::BoolResultStr { return BOOLSUCCESS; } );
             inputs.Exposure  = graph.RegisterExternal( exposure, "AutoExposure.Previous" );
             history.Previous = graph.RegisterExternal( previous, desc.PreviousName );
             history.Current  = graph.RegisterExternal( current, desc.Name );

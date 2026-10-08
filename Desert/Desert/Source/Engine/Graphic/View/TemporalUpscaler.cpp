@@ -89,13 +89,15 @@ namespace Desert::Graphic
     {
         const ResolutionSplit& split = frame.Split;
         if ( !sceneColor.IsValid() )
-            return Common::MakeFormattedError<RDG::TextureRef>( "{}", "SupersampleResolve: the input SceneColor is not a texture of this graph" );
+            return Common::MakeFormattedError<RDG::TextureRef>(
+                 "{}", "SupersampleResolve: the input SceneColor is not a texture of this graph" );
         if ( split.Mode != Common::Scalability::ScaleMode::Supersample || split.Output.Width == 0 ||
              split.Output.Height == 0 )
-            return Common::MakeFormattedError<RDG::TextureRef>( "{}", std::format( "SupersampleResolve: the split {}x{} -> {}x{} ({} %) is not a "
-                                                   "supersample",
-                                                   split.Render.Width, split.Render.Height, split.Output.Width,
-                                                   split.Output.Height, split.RenderScalePercent ) );
+            return Common::MakeFormattedError<RDG::TextureRef>(
+                 "{}", std::format( "SupersampleResolve: the split {}x{} -> {}x{} ({} %) is not a "
+                                    "supersample",
+                                    split.Render.Width, split.Render.Height, split.Output.Width,
+                                    split.Output.Height, split.RenderScalePercent ) );
 
         const auto addAxis = [&]( const char* name, RDG::TextureRef source, RDG::Extent3D sourceSize,
                                   RDG::Extent3D destinationSize, int32_t axis )
