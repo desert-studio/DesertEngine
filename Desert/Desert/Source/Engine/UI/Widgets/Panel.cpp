@@ -4,14 +4,8 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -84,10 +78,10 @@ namespace Desert::UI::Walk
 
         // A streamed video fills the panel (its stable texture is updated outside the pass by the
         // VideoService); it takes precedence over the sprite/gradient fill while a path is set.
-        Graphic::Image2D* video = HandleSet( p.Video )
-                                       ? ctx.View.Resources().VideoFrame( static_cast<uint64_t>( p.Video ),
-                                                                          p.VideoVolume, p.VideoMuted )
-                                       : nullptr;
+        const TextureRef video = HandleSet( p.Video )
+                                      ? ctx.View.Resources().VideoFrame( static_cast<uint64_t>( p.Video ),
+                                                                         p.VideoVolume, p.VideoMuted )
+                                      : TextureRef{};
         // Frosted glass: the fill IS the blurred scene behind the panel, tinted by Color/Opacity.
         // Checked before the sprite/video fills — a glass panel is defined by what is behind it,
         // so an image on top of it would be a different element (draw one as a child).
@@ -102,7 +96,7 @@ namespace Desert::UI::Walk
         else if ( p.BackdropBlur > 0.0f && !video && !HandleSet( p.Sprite ) )
             dl.AddGlassRect( mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), rounding, p.BackdropBlur );
         else if ( video )
-            dl.AddImage( video, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f },
+            dl.AddImage( video.Id, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f },
                          Tinted( ctx, glm::vec4( panelColor, op ) ) );
         else if ( p.UseGradient && !HandleSet( p.Sprite ) )
             dl.AddRectFilledMultiColor( mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),

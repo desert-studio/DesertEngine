@@ -11,7 +11,6 @@
 #include <Engine/UI/UIStyleResolver.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Image.hpp>
 
 #include <entt/entt.hpp>
 
@@ -152,17 +151,17 @@ namespace Desert::UI::Walk
     void                     ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out );
     BindingSample            SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw,
                                             const UICanvasContext& cell );
-    std::string              ResolveLabel( const std::string& authored, const BindingSample& binding );
+    std::string ResolveLabel( IUITextSource& text, const std::string& authored, const BindingSample& binding );
     glm::vec4                Tinted( const WalkCtx& ctx, const glm::vec4& c );
     bool                     PointIn( const Rect& r, const glm::vec2& p );
     bool                     Accepts( const UIDropTargetData& t, const std::string& payload );
-    std::vector<std::string> SplitOptions( const std::string& s );
+    std::vector<std::string> SplitOptions( IUITextSource& text, const std::string& s );
     bool                     IsFocusable( entt::registry& reg, entt::entity e );
-    Graphic::Image2D*        ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle );
+    TextureRef               ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle );
     const void*              ResolveUIMaterial( WalkCtx& ctx, entt::entity e, const Assets::AssetHandle& handle );
     const void*              ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const UIRenderTextureData& data,
                                                    const Rect& rect );
-    Graphic::Image2D* ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle );
+    TextureRef        ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle );
     void              DrawBox( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn,
                                const glm::vec2& mx, const glm::vec4& color, const Assets::AssetHandle& sprite,
                                const glm::vec4& srcBorder, float scale, float rounding );

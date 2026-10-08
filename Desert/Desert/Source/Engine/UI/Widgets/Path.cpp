@@ -4,14 +4,8 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>

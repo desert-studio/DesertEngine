@@ -2,6 +2,7 @@
 
 #include "MovieRender.hpp"
 
+#include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Assets/ContentGate.hpp>

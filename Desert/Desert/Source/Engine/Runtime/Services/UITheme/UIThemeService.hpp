@@ -48,7 +48,7 @@ namespace Desert::Runtime
          * an empty handle is "this canvas has no theme" and is silent; an unknown handle is "the scene
          * names a .detheme the asset scan did not find" and is reported once.
          */
-        const Assets::UIThemeRuntime* Get( const Assets::AssetHandle& handle );
+        const UI::UIThemeRuntime* Get( const Assets::AssetHandle& handle );
 
         /**
          * @brief Bumped whenever any registered theme changes.
@@ -67,7 +67,7 @@ namespace Desert::Runtime
     private:
         struct Entry
         {
-            Assets::UIThemeRuntime Runtime;
+            UI::UIThemeRuntime Runtime;
             uint32_t               Revision = 0;
         };
 

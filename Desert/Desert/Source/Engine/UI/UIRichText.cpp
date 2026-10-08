@@ -4,14 +4,8 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -239,12 +233,12 @@ namespace Desert::UI::Walk
         // draws correctly on its very first frame instead of a frame late.
         res.RequestGlyphs( fontHandle, Text::Utf8Decode( t.Text ) );
 
-        Runtime::Font* font = res.Font( fontHandle, Text::kDefaultBakePixelHeight );
-        if ( !font || !font->Atlas || !font->Baked.Valid() || font->Baked.PixelHeight <= 0.0f )
+        const FontFace font = res.Font( fontHandle, Text::kDefaultBakePixelHeight );
+        if ( font.Baked == nullptr || font.Atlas == nullptr || !font.Baked->Valid() || font.Baked->PixelHeight <= 0.0f )
             return;
 
-        const Text::BakedFont& bf    = font->Baked;
-        const void*            atlas = font->Atlas.get();
+        const Text::BakedFont& bf    = *font.Baked;
+        const void*            atlas = font.Atlas;
 
         auto glyph = [&]( uint32_t ch ) -> const Text::Glyph*
         {
@@ -484,10 +478,10 @@ namespace Desert::UI::Walk
     // Width in px of `text` at `fontSizePx` in the default font (for the input caret). 0 if no font.
     float MeasureTextPx( IUICanvasResources& res, const std::string& text, float fontSizePx )
     {
-        Runtime::Font* font = res.Font( res.DefaultFontHandle(), Text::kDefaultBakePixelHeight );
-        if ( !font || !font->Baked.Valid() )
+        const FontFace font = res.Font( res.DefaultFontHandle(), Text::kDefaultBakePixelHeight );
+        if ( font.Baked == nullptr || !font.Baked->Valid() )
             return 0.0f;
-        const Text::BakedFont& bf = font->Baked;
+        const Text::BakedFont& bf = *font.Baked;
         const float            s  = bf.PixelHeight > 0.0f ? fontSizePx / bf.PixelHeight : 0.0f;
         float                  w  = 0.0f;
         for ( size_t i = 0; i < text.size(); )

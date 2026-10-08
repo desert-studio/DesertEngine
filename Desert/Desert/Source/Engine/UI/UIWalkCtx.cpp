@@ -4,14 +4,8 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -353,23 +347,20 @@ namespace Desert::UI::Walk
      * SAME terms — so gameplay writing a key into the data store gets a translation, and gameplay
      * writing a player's name gets the name.
      */
-    std::string ResolveLabel( const std::string& authored, const BindingSample& binding )
+    std::string ResolveLabel( IUITextSource& text, const std::string& authored, const BindingSample& binding )
     {
-        Localization::FormatArguments args;
-        if ( binding.Number )
-            args.Count = *binding.Number;
 
         const std::string_view source =
              binding.Text ? std::string_view( *binding.Text ) : std::string_view( authored );
-        const auto resolved = Localization::Localization::Get().Resolve( source, args );
+        auto resolved = text.Resolve( source, binding.Number );
 
         // A number bound to a LITERAL label replaces it, formatted for the reader's locale — that is
         // what "bind this number to this label" has always meant here, and it is now locale-aware
         // instead of going through a C-locale printf. A number bound to a KEY is the key's `{n}`
         // argument instead, which the resolve above has already spent.
-        if ( binding.Number && !binding.Text && resolved.Outcome == Localization::Localization::Outcome::Literal )
+        if ( binding.Number && !binding.Text && resolved.Literal )
         {
-            return Localization::FormatNumber( Localization::Localization::Get().Language(), *binding.Number, 0 );
+            return text.FormatNumber( *binding.Number, 0 );
         }
         return resolved.Text;
     }
@@ -408,7 +399,7 @@ namespace Desert::UI::Walk
     // proper nouns — a server name, a player's own preset — far more often than it is wholly one or
     // the other, and a per-list rule would force the author to choose. The separator is not part of
     // any item, so a key never contains one.
-    std::vector<std::string> SplitOptions( const std::string& s )
+    std::vector<std::string> SplitOptions( IUITextSource& text, const std::string& s )
     {
         std::vector<std::string> out;
         std::string              cur;
@@ -417,14 +408,14 @@ namespace Desert::UI::Walk
             if ( c == ';' )
             {
                 if ( !cur.empty() )
-                    out.push_back( Localization::Localization::Get().Resolve( cur ).Text );
+                    out.push_back( text.Resolve( cur ).Text );
                 cur.clear();
             }
             else
                 cur += c;
         }
         if ( !cur.empty() )
-            out.push_back( Localization::Localization::Get().Resolve( cur ).Text );
+            out.push_back( text.Resolve( cur ).Text );
         return out;
     }
 
@@ -438,11 +429,11 @@ namespace Desert::UI::Walk
 
     // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and
     // Render2D keys its per-texture executor by the raw pointer). nullptr when unset / unresolvable.
-    Graphic::Image2D* ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle )
+    TextureRef ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle )
     {
         if ( !HandleSet( handle ) )
-            return nullptr;
-        return res.SpriteImage( handle );
+            return {};
+        return res.SpriteTexture( handle );
     }
 
     // Resolve an element's UI-material slot to the entry Render2D will draw it with, or nullptr when
@@ -515,7 +506,7 @@ namespace Desert::UI::Walk
 
     // An animated (GIF) sprite's current frame — a pure function of wall-clock time. Non-GIF handles
     // resolve to nullptr here, so ordinary textures fall through to ResolveSpriteImage.
-    Graphic::Image2D* ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle )
+    TextureRef ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle )
     {
         return res.AnimatedFrame( handle );
     }
@@ -529,22 +520,22 @@ namespace Desert::UI::Walk
                   const glm::vec4& srcBorder, float scale, float rounding )
     {
         // An animated sprite plays stretched to the box; static sprites / 9-slice keep the path below.
-        if ( Graphic::Image2D* frame = ResolveAnimatedFrame( res, sprite ) )
+        if ( const TextureRef frame = ResolveAnimatedFrame( res, sprite ) )
         {
-            dl.AddImage( frame, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f }, color );
+            dl.AddImage( frame.Id, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f }, color );
             return;
         }
 
-        Graphic::Image2D* img = ResolveSpriteImage( res, sprite );
+        const TextureRef img = ResolveSpriteImage( res, sprite );
         if ( !img )
         {
             dl.AddRectFilled( mn, mx, color, rounding );
             return;
         }
 
-        const void* tex  = img;
-        const float tw   = static_cast<float>( img->GetWidth() );
-        const float th   = static_cast<float>( img->GetHeight() );
+        const void* tex  = img.Id;
+        const float tw   = static_cast<float>( img.Width );
+        const float th   = static_cast<float>( img.Height );
         const bool  nine = tw > 0.0f && th > 0.0f &&
                           ( srcBorder.x > 0.0f || srcBorder.y > 0.0f || srcBorder.z > 0.0f || srcBorder.w > 0.0f );
         if ( !nine )
@@ -605,24 +596,24 @@ namespace Desert::UI::Walk
     void DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const UIIconData& ic,
                    const Rect& rect, const glm::vec4& tint )
     {
-        Runtime::Icon*          icon  = res.Icon( static_cast<uint64_t>( ic.Icon ) );
-        const Graphic::Image2D* atlas = res.IconAtlas();
+        const IconRef icon  = res.Icon( static_cast<uint64_t>( ic.Icon ) );
+        const void*   atlas = icon.Atlas;
         // unset/unreadable: draw nothing, no placeholder
-        if ( icon == nullptr || !icon->Valid() || atlas == nullptr )
+        if ( icon.Layers.empty() || atlas == nullptr )
             return;
 
         const float box = std::min( rect.W, rect.H ) * std::clamp( ic.Scale, 0.1f, 1.0f );
         if ( box <= 0.0f )
             return;
         // Fit the source aspect inside that box so a wide icon isn't stretched.
-        const float     w = icon->Aspect >= 1.0f ? box : box * icon->Aspect;
-        const float     h = icon->Aspect >= 1.0f ? box / icon->Aspect : box;
+        const float     w = icon.Aspect >= 1.0f ? box : box * icon.Aspect;
+        const float     h = icon.Aspect >= 1.0f ? box / icon.Aspect : box;
         const glm::vec2 c( rect.X + rect.W * 0.5f, rect.Y + rect.H * 0.5f );
 
         // One quad per colour run, painted back-to-front in document order. A monochrome icon is a
         // single white layer, so Color tints it outright; a multi-colour one keeps the fills the .svg
         // authored and Color multiplies them (white = exactly as drawn).
-        for ( const Runtime::IconLayer& layer : icon->Layers )
+        for ( const Text::IconLayer& layer : icon.Layers )
         {
             const glm::vec4 fill( static_cast<float>( ( layer.RGBA >> 24 ) & 0xFF ) / 255.0f,
                                   static_cast<float>( ( layer.RGBA >> 16 ) & 0xFF ) / 255.0f,

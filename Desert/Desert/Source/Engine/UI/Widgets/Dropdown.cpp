@@ -4,14 +4,8 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -52,7 +46,7 @@ namespace Desert::UI::Walk
         const auto ScreenBounds = [&dl]( const Rect& r ) { return ScreenBoundsOf( dl, r ); };
 
         auto&      d       = reg.get<ECS::UIDropdownComponent>( e ).Data;
-        const auto options = SplitOptions( d.Options );
+        const auto options = SplitOptions( ctx.View.Resources().Text(), d.Options );
 
         // Resolved once: the arrow is the same ink as the label, and two lookups would be two
         // chances for them to stop being.
