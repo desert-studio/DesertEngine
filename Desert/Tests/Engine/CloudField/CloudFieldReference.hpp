@@ -221,8 +221,6 @@ namespace Desert::Tests::CloudFieldRef
             /// owned so that binding a sky this suite has already baked costs a refcount and not eight
             /// megabytes — see CloudModellingBake.
             ModellingVoxels                            Voxels;
-            /// The R8 rank of the same bake (CloudProceduralVolumeBake::Ranks) — what the cut reads.
-            ModellingVoxels                            Ranks;
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
         };
@@ -271,7 +269,6 @@ namespace Desert::Tests::CloudFieldRef
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
             ModellingVoxels                            Voxels;
-            ModellingVoxels                            Ranks;
         };
 
         std::vector<BakedVolume>& BakedVolumeCache()
@@ -302,7 +299,7 @@ namespace Desert::Tests::CloudFieldRef
 
         /// Bake @p params over @p originKm, or hand back the bytes an identical request already made.
         ModellingVoxels CloudModellingBake( const Desert::Assets::CloudProceduralFieldParams& params,
-                                            const glm::vec2& originKm, ModellingVoxels* ranksOut = nullptr )
+                                            const glm::vec2&                                  originKm )
         {
             std::vector<BakedVolume>& cache = BakedVolumeCache();
 
@@ -312,30 +309,24 @@ namespace Desert::Tests::CloudFieldRef
                      Desert::Assets::CloudProceduralParamsEqual( entry.Params, params ) )
                 {
                     ++BakeCounts().Served;
-                    if ( ranksOut != nullptr )
-                        *ranksOut = entry.Ranks;
                     return entry.Voxels;
                 }
             }
 
             ++BakeCounts().Run;
 
-            const auto baked = Desert::Assets::BakeCloudProceduralVolumeRanked( params, originKm, {} );
+            const auto baked = Desert::Assets::BakeCloudProceduralVolume( params, originKm, {} );
 
             // A FAILED BAKE IS CACHED TOO, and on purpose: it is a pure function of the same inputs, so
             // re-running it would spend the same minutes to arrive at the same empty answer, and the
             // tests read an empty volume as a sky with no cloud in it either way.
             ModellingVoxels voxels = std::make_shared<const std::vector<unsigned char>>(
-                 baked ? baked.GetValue().Voxels : std::vector<unsigned char>{} );
-            ModellingVoxels ranks = std::make_shared<const std::vector<unsigned char>>(
-                 baked ? baked.GetValue().Ranks : std::vector<unsigned char>{} );
-            if ( ranksOut != nullptr )
-                *ranksOut = ranks;
+                 baked ? baked.GetValue() : std::vector<unsigned char>{} );
 
             if ( cache.size() >= kMaxBakedVolumes )
                 cache.erase( cache.begin() );
 
-            cache.push_back( BakedVolume{ params, originKm, voxels, ranks } );
+            cache.push_back( BakedVolume{ params, originKm, voxels } );
             return voxels;
         }
 
@@ -384,7 +375,7 @@ namespace Desert::Tests::CloudFieldRef
 
             state.Params   = CloudModellingParams( shapes, count, coverage, contrast, windDirection );
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks );
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm );
         }
 
         /// The same bake over a layer WIDER than the species' own band, which is what makes the vertical
@@ -406,127 +397,14 @@ namespace Desert::Tests::CloudFieldRef
             state.Params.LayerThicknessKm = thicknessKm;
 
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks );
-        }
-
-        // THE R8 CORE RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255 — the
-        // rank of the cluster that owns the voxel (Assets::kCloudProceduralRankChannels).
-        float CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
-        {
-            if ( ranks.empty() )
-                return 1.0f;
-
-            constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-            constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
-            constexpr int depth  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-
-            const float x = uvw.x * static_cast<float>( width ) - 0.5f;
-            const float y = uvw.y * static_cast<float>( height ) - 0.5f;
-            const float z = uvw.z * static_cast<float>( depth ) - 0.5f;
-
-            const float fx = x - std::floor( x );
-            const float fy = y - std::floor( y );
-            const float fz = z - std::floor( z );
-
-            const auto wrap = []( float coordinate, int extent )
-            {
-                const int index = static_cast<int>( std::floor( coordinate ) ) % extent;
-                return index < 0 ? index + extent : index;
-            };
-
-            const int x0 = wrap( x, width );
-            const int y0 = wrap( y, height );
-            const int z0 = wrap( z, depth );
-            const int x1 = ( x0 + 1 ) % width;
-            const int y1 = ( y0 + 1 ) % height;
-            const int z1 = ( z0 + 1 ) % depth;
-
-            const auto texel = [&]( int ix, int iy, int iz )
-            {
-                const size_t at = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
-                                  Desert::Assets::kCloudProceduralRankChannels;
-                return static_cast<float>( ranks[at] ) / 255.0f;
-            };
-
-            const auto plane = [&]( int iz )
-            {
-                const float top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
-                const float bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
-                return top * ( 1.0f - fy ) + bottom * fy;
-            };
-
-            return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
-        }
-
-        // A TRILINEAR, REPEAT-wrapped fetch — the filter and the address mode VulkanImage3D creates for
-        // every sampled volume, written out here because the difference between this and a nearest fetch
-        // is exactly the half-texel error the relation test exists to catch.
-        vec4 CloudSampleModellingTexture( vec3 uvw )
-        {
-            const ModellingVoxels& bytes = ModellingVolume().Voxels;
-            if ( !bytes || bytes->empty() )
-                return vec4( 0.0f );
-
-            const std::vector<unsigned char>& voxels = *bytes;
-
-            constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-            constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
-            constexpr int depth  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-
-            const float x = uvw.x * static_cast<float>( width ) - 0.5f;
-            const float y = uvw.y * static_cast<float>( height ) - 0.5f;
-            const float z = uvw.z * static_cast<float>( depth ) - 0.5f;
-
-            const float fx = x - std::floor( x );
-            const float fy = y - std::floor( y );
-            const float fz = z - std::floor( z );
-
-            const auto wrap = []( float coordinate, int extent )
-            {
-                const int index = static_cast<int>( std::floor( coordinate ) ) % extent;
-                return index < 0 ? index + extent : index;
-            };
-
-            const int x0 = wrap( x, width );
-            const int y0 = wrap( y, height );
-            const int z0 = wrap( z, depth );
-            const int x1 = ( x0 + 1 ) % width;
-            const int y1 = ( y0 + 1 ) % height;
-            const int z1 = ( z0 + 1 ) % depth;
-
-            const auto texel = [&]( int ix, int iy, int iz )
-            {
-                const size_t base = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
-                                    Desert::Assets::kCloudProceduralBytesPerVoxel;
-                return vec4( voxels[base] / 255.0f, voxels[base + 1] / 255.0f, voxels[base + 2] / 255.0f,
-                             voxels[base + 3] / 255.0f );
-            };
-
-            const auto plane = [&]( int iz )
-            {
-                const vec4 top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
-                const vec4 bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
-                return top * ( 1.0f - fy ) + bottom * fy;
-            };
-
-            return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
-        }
-
-        // The bound rank, BY REFERENCE. A conditional between `*Ranks` and a temporary vector is a prvalue,
-        // so the earlier spelling copied the whole R8 volume on every sample — the reason the coverage
-        // sweeps never finished.
-        float CloudSampleBoundRank( vec3 uvw )
-        {
-            const ModellingVoxels& ranks = ModellingVolume().Ranks;
-            return ranks ? CloudSampleRankBytes( *ranks, uvw ) : 1.0f;
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm );
         }
 
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleModellingTexture( p )
-        // The cut's three inputs, from the very functions the renderer uploads: the bake's rank, the world
-        // weather at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
+        // The march's weather remap inputs, from the very functions the renderer uploads: the world weather
+        // at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
         // CloudFarWeatherUniform of the bound bake's parameters, which CloudBindSpecies writes into
         // CloudFieldParams::Weather as CloudUnpackFieldParams does from u_CloudWeather.
-#define CLOUD_SAMPLE_MODELLING_RANK( p ) CloudSampleBoundRank( p )
 #define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),             \
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \

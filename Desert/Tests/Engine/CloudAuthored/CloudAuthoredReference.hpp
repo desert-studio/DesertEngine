@@ -147,7 +147,6 @@ namespace Desert::Tests::CloudAuthoredRef
         struct ProceduralState
         {
             std::vector<unsigned char>                 Voxels;
-            std::vector<unsigned char>                 Ranks; // the R8 core rank the cut reads
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
         };
@@ -194,12 +193,9 @@ namespace Desert::Tests::CloudAuthoredRef
 
             built.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( built.Params, 0.0f, 0.0f );
 
-            const auto baked = Desert::Assets::BakeCloudProceduralVolumeRanked( built.Params, built.OriginKm, {} );
+            const auto baked = Desert::Assets::BakeCloudProceduralVolume( built.Params, built.OriginKm, {} );
             if ( baked )
-            {
-                built.Voxels = baked.GetValue().Voxels;
-                built.Ranks  = baked.GetValue().Ranks;
-            }
+                built.Voxels = baked.GetValue();
 
             return cache.emplace( key, std::move( built ) ).first->second;
         }
@@ -262,57 +258,7 @@ namespace Desert::Tests::CloudAuthoredRef
             return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
         }
 
-        // THE R8 CORE RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255 — the
-        // rank of the cluster that owns the voxel (Assets::kCloudProceduralRankChannels).
-        float CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
-        {
-            if ( ranks.empty() )
-                return 1.0f;
-
-            constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-            constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
-            constexpr int depth  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-
-            const float x = uvw.x * static_cast<float>( width ) - 0.5f;
-            const float y = uvw.y * static_cast<float>( height ) - 0.5f;
-            const float z = uvw.z * static_cast<float>( depth ) - 0.5f;
-
-            const float fx = x - std::floor( x );
-            const float fy = y - std::floor( y );
-            const float fz = z - std::floor( z );
-
-            const auto wrap = []( float coordinate, int extent )
-            {
-                const int index = static_cast<int>( std::floor( coordinate ) ) % extent;
-                return index < 0 ? index + extent : index;
-            };
-
-            const int x0 = wrap( x, width );
-            const int y0 = wrap( y, height );
-            const int z0 = wrap( z, depth );
-            const int x1 = ( x0 + 1 ) % width;
-            const int y1 = ( y0 + 1 ) % height;
-            const int z1 = ( z0 + 1 ) % depth;
-
-            const auto texel = [&]( int ix, int iy, int iz )
-            {
-                const size_t at = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
-                                  Desert::Assets::kCloudProceduralRankChannels;
-                return static_cast<float>( ranks[at] ) / 255.0f;
-            };
-
-            const auto plane = [&]( int iz )
-            {
-                const float top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
-                const float bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
-                return top * ( 1.0f - fy ) + bottom * fy;
-            };
-
-            return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
-        }
-
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleProceduralTexture( p )
-#define CLOUD_SAMPLE_MODELLING_RANK( p ) CloudSampleRankBytes( Procedural( BoundCoverage() ).Ranks, ( p ) )
 #define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( Procedural( BoundCoverage() ).Params ), \
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \

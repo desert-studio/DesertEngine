@@ -536,8 +536,12 @@ namespace Desert::Editor
 
         const glm::vec2 origin( 0.0f, 0.0f );
 
-        const std::vector<Assets::CloudModellingBlob> blobs =
-             Assets::GenerateCloudProceduralBlobs( params, 0u, origin );
+        const std::vector<Assets::CloudProceduralLump> lumps =
+             Assets::GenerateCloudProceduralLumps( params, 0u, origin, Assets::CloudProceduralLumpSet::KeptCells );
+        std::vector<Assets::CloudModellingBlob> blobs;
+        blobs.reserve( lumps.size() );
+        for ( const Assets::CloudProceduralLump& lump : lumps )
+            blobs.push_back( lump.Blob );
 
         if ( blobs.empty() )
         {
@@ -572,9 +576,9 @@ namespace Desert::Editor
             const float altitudeKm = bottomKm + fraction * spanKm;
 
             m_ProfileCore[i] = Assets::EvaluateCloudProceduralProfile(
-                 params, blobs, glm::vec3( tallest.x, altitudeKm, tallest.z ) );
+                 params, 0u, lumps, glm::vec3( tallest.x, altitudeKm, tallest.z ) );
             m_ProfileEdge[i] = Assets::EvaluateCloudProceduralProfile(
-                 params, blobs, glm::vec3( tallest.x + widest, altitudeKm, tallest.z ) );
+                 params, 0u, lumps, glm::vec3( tallest.x + widest, altitudeKm, tallest.z ) );
         }
 
         ImGui::PlotLines( "##profileCore", m_ProfileCore.data(), kPreviewSamples, 0, "through the core", 0.0f,

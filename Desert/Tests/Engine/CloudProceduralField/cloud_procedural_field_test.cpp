@@ -29,23 +29,23 @@
 #include <vector>
 
 using Desert::Assets::BakeCloudProceduralVolume;
-using Desert::Assets::BakeCloudProceduralVolumeRanked;
 using Desert::Assets::CloudModellingBlob;
 using Desert::Assets::CloudModellingBlobDistanceKm;
 using Desert::Assets::CloudModellingJoinKm;
 using Desert::Assets::CloudModellingJoinTerm;
 using Desert::Assets::CloudModellingPreparedBlob;
+using Desert::Assets::CloudProceduralColumnKept;
 using Desert::Assets::CloudProceduralFieldParams;
+using Desert::Assets::CloudProceduralLocalWeathers;
 using Desert::Assets::CloudProceduralLump;
 using Desert::Assets::CloudProceduralLumpSet;
-using Desert::Assets::CloudProceduralRankBytes;
 using Desert::Assets::CloudProceduralRegionOriginKm;
 using Desert::Assets::CloudProceduralSnapKm;
 using Desert::Assets::CloudProceduralSpecies;
 using Desert::Assets::CloudProceduralVoxelBytes;
+using Desert::Assets::EvaluateCloudProceduralProfile;
 using Desert::Assets::GenerateCloudProceduralBlobs;
 using Desert::Assets::GenerateCloudProceduralLumps;
-using Desert::Assets::kCloudProceduralNoRank;
 using Desert::Assets::kCloudProceduralVolumeHeight;
 using Desert::Assets::kCloudProceduralVolumeSide;
 using Desert::Assets::kCloudProceduralVolumeSideMin;
@@ -217,8 +217,8 @@ namespace
         std::vector<std::vector<CloudModellingBlob>> groups;
         for ( const CloudProceduralLump& lump : lumps )
         {
-            if ( cover <= 1.0f && !Desert::Assets::CloudProceduralKeep(
-                                       static_cast<unsigned char>( std::floor( lump.Rank * 255.0f ) ), cover ) )
+            // A CLUSTER IS BAKED WHEN THE SLIDER IS OVER ITS RANK (CloudProceduralClusterReach > 0).
+            if ( cover <= 1.0f && !( lump.Rank < cover ) )
                 continue;
             const auto found = std::find( sites.begin(), sites.end(), lump.ClusterKm );
             if ( found == sites.end() )
@@ -257,10 +257,10 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
 {
     const CloudProceduralFieldParams params = MakeParams();
     const glm::vec2                  origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-    const auto                       baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+    const auto                       baked  = BakeCloudProceduralVolume( params, origin, {} );
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
 
-    constexpr float cover = 0.4f;
+    const float     cover = params.Coverage;
     const auto      lumps = GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
     const std::vector<std::vector<CloudModellingBlob>> living = ClustersOf( lumps, cover );
     ASSERT_FALSE( living.empty() );
@@ -274,10 +274,8 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
             for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; x += 3u )
             {
                 const size_t        at      = VoxelIndex( x, y, z );
-                const unsigned char profile = baked.GetValue().Voxels[at];
-                const unsigned char core =
-                     baked.GetValue().Ranks[at / 4u * Desert::Assets::kCloudProceduralRankChannels];
-                if ( profile <= 1u || !Desert::Assets::CloudProceduralKeep( core, cover ) )
+                const unsigned char profile = baked.GetValue()[at];
+                if ( profile <= 1u )
                     continue;
                 ++kept;
                 const glm::vec3 point( origin.x + ( static_cast<float>( x ) + 0.5f ) * voxelXKm,
@@ -297,21 +295,34 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     const CloudProceduralFieldParams params = MakeParams();
     const glm::vec2                  origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
 
-    const auto baked = BakeCloudProceduralVolumeRanked( params, origin, {} );
+    const auto baked = BakeCloudProceduralVolume( params, origin, {} );
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
-    ASSERT_EQ( baked.GetValue().Voxels.size(), CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) );
-    ASSERT_EQ( baked.GetValue().Ranks.size(), CloudProceduralRankBytes( kCloudProceduralVolumeSide ) );
+    ASSERT_EQ( baked.GetValue().size(), CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) );
 
-    // EVERY CELL'S LUMPS, because that is what the bake holds since FARWX-a: the Coverage cut is the
-    // march's, through the rank, so a reference over only the kept cells would be a different field.
-    std::vector<CloudModellingBlob> blobs;
+    // THE KEPT CELLS' LUMPS, what the bake draws since CUT-AT-BAKE: the Coverage cut is the bake's, each
+    // cluster cut by its reach. The gather is the PREVIEW (EvaluateCloudProceduralProfile), which shares the
+    // bake's voxel — the join per cluster, the altitude density, the cut — and differs only in the SET: every
+    // lump at every wrap, where the bake asks the bin. The wraps are part of the field (the volume is
+    // periodic), so each copy carries its cluster site with it and stays its own cluster.
+    std::vector<CloudModellingBlob>        blobs;
+    std::vector<CloudProceduralLump>       wrapped;
     const std::vector<CloudProceduralLump> lumps =
-         GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
+         GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::KeptCells );
     for ( const CloudProceduralLump& lump : lumps )
+    {
         blobs.push_back( lump.Blob );
-    // THE JOIN IS PER CLUSTER (JOIN-PER-CLUSTER): the reference is the max over clusters of each one's own
-    // smooth minimum, each list in the canonical order.
-    const std::vector<std::vector<CloudModellingBlob>> clusters = ClustersOf( lumps, 2.0f );
+        for ( int wz = -1; wz <= 1; ++wz )
+            for ( int wx = -1; wx <= 1; ++wx )
+            {
+                const glm::vec2     shift( static_cast<float>( wx ) * params.RegionSizeKm,
+                                           static_cast<float>( wz ) * params.RegionSizeKm );
+                CloudProceduralLump copy = lump;
+                copy.Blob.CentreKm.x += shift.x;
+                copy.Blob.CentreKm.z += shift.y;
+                copy.ClusterKm += shift;
+                wrapped.push_back( copy );
+            }
+    }
     ASSERT_FALSE( blobs.empty() );
 
     // SHUFFLED, then sorted back by the SAME canonical sort the bake uses. The join is commutative in real
@@ -337,22 +348,14 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     std::vector<glm::u32vec3> inside;
     std::vector<glm::u32vec3> outside;
 
-    size_t filled         = 0;
-    size_t rankMismatches = 0;
+    size_t filled = 0;
     for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
             for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
             {
-                const bool solid = baked.GetValue().Voxels[VoxelIndex( x, y, z )] != 0u;
+                const bool solid = baked.GetValue()[VoxelIndex( x, y, z )] != 0u;
                 if ( solid )
                     ++filled;
-
-                // EVERY BODY VOXEL NAMES ITS CLUSTER: a body with no core rank is a cloud no Coverage keeps.
-                const unsigned char rank =
-                     baked.GetValue()
-                          .Ranks[VoxelIndex( x, y, z ) / 4u * Desert::Assets::kCloudProceduralRankChannels];
-                if ( solid && rank == kCloudProceduralNoRank )
-                    ++rankMismatches;
 
                 std::vector<glm::u32vec3>& bucket = solid ? inside : outside;
                 if ( bucket.size() < 200u && ( ( x * 7u + y * 13u + z * 31u ) % 97u ) == 0u )
@@ -364,8 +367,6 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                  100.0 * static_cast<double>( filled ) /
                       static_cast<double>( CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) / 4u ),
                  inside.size(), outside.size() );
-
-    EXPECT_EQ( rankMismatches, 0u ) << rankMismatches << " body voxels carry no core rank";
 
     ASSERT_GE( inside.size(), 50u ) << "the bake produced almost no cloud, so there is nothing to compare";
 
@@ -384,11 +385,9 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                                    params.LayerBottomKm + ( static_cast<float>( at.y ) + 0.5f ) * voxelYKm,
                                    origin.y + ( static_cast<float>( at.z ) + 0.5f ) * voxelZKm );
 
-            const float expected =
-                 ClusteredProfile( clusters, point, params ) *
-                 Desert::Assets::CloudProceduralAltitudeDensity( params.Species[0].Shape, point.y );
+            const float expected = EvaluateCloudProceduralProfile( params, 0u, wrapped, point );
 
-            const unsigned char actual = baked.GetValue().Voxels[VoxelIndex( at.x, at.y, at.z )];
+            const unsigned char actual = baked.GetValue()[VoxelIndex( at.x, at.y, at.z )];
             const double        steps  = std::abs( static_cast<double>( actual ) / 255.0 - expected ) * 255.0;
 
             worstStep = std::max( worstStep, steps );
@@ -776,7 +775,7 @@ namespace
     }
 
     std::vector<float> KeptColumns( const CloudProceduralFieldParams& params,
-                                    const CloudProceduralVolumeBake& bake, const glm::vec2& origin, int shift )
+                                    const std::vector<unsigned char>& bake, const glm::vec2& origin, int shift )
     {
         const uint32_t     side  = params.VolumeSideVoxels;
         const float        voxel = params.RegionSizeKm / static_cast<float>( side );
@@ -788,9 +787,10 @@ namespace
                 const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
                 const size_t    at    = static_cast<size_t>( z ) * side + x;
-                map[at] = CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalCovers( params, world ) )
-                               ? 1.0f
-                               : 0.0f;
+                map[at] =
+                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ) )
+                          ? 1.0f
+                          : 0.0f;
             }
         return map;
     }
@@ -804,7 +804,7 @@ namespace
         params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
 
         const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+        const auto      baked  = BakeCloudProceduralVolume( params, origin, {} );
         if ( !baked )
             return -1.0;
         const size_t columns = static_cast<size_t>( params.VolumeSideVoxels ) * params.VolumeSideVoxels;
@@ -837,7 +837,7 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
          << "a coverage of zero put cloud in a sky the artist asked to be empty";
 
     const double emptyCover = KeptCover( params, 4 );
-    ASSERT_GE( emptyCover, 0.0 ) << "the ranked bake failed";
+    ASSERT_GE( emptyCover, 0.0 ) << "the bake failed";
     EXPECT_EQ( emptyCover, 0.0 ) << "a coverage of zero kept cloud over " << emptyCover << " of the sky";
 
     // AT COVERAGE ONE THE WEATHER'S ZEROS ARE STILL CLEAR. Census of the cut itself: every column the
@@ -847,8 +847,8 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
         CloudProceduralFieldParams coarse = params;
         coarse.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
         const glm::vec2 at                = CloudProceduralRegionOriginKm( coarse, 0.0f, 0.0f );
-        const auto      baked             = BakeCloudProceduralVolumeRanked( coarse, at, {} );
-        ASSERT_TRUE( baked ) << "the ranked bake failed";
+        const auto      baked             = BakeCloudProceduralVolume( coarse, at, {} );
+        ASSERT_TRUE( baked ) << "the bake failed";
         const uint32_t side  = coarse.VolumeSideVoxels;
         const float    voxel = coarse.RegionSizeKm / static_cast<float>( side );
         size_t         zeros = 0, keptInZeros = 0;
@@ -860,7 +860,7 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
                 {
                     const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                               ( static_cast<float>( z ) + 0.5f ) * voxel );
-                    const glm::vec4 covers = CloudProceduralLocalCovers( coarse, world );
+                    const glm::vec4 covers = CloudProceduralLocalWeathers( coarse, world );
                     if ( std::max( std::max( covers.x, covers.y ), std::max( covers.z, covers.w ) ) > 0.0f )
                         continue;
                     ++zeros;
@@ -992,7 +992,7 @@ TEST( CloudProceduralField, TheSkysCoverRisesWithCoverageAndItsGapsAreWeatherSiz
         params.Coverage                   = coverage;
 
         const double measured = KeptCover( params, 16 );
-        ASSERT_GE( measured, 0.0 ) << "the ranked bake failed";
+        ASSERT_GE( measured, 0.0 ) << "the bake failed";
         std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column\n", coverage,
                      measured );
         EXPECT_GT( measured, previous ) << "raising Coverage to " << coverage << " did not add cloud to the sky";
@@ -1004,8 +1004,8 @@ TEST( CloudProceduralField, TheSkysCoverRisesWithCoverageAndItsGapsAreWeatherSiz
     params.Coverage                   = 1.0f;
     params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
     const glm::vec2 origin            = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-    const auto      baked             = BakeCloudProceduralVolumeRanked( params, origin, {} );
-    ASSERT_TRUE( baked ) << "the ranked bake failed";
+    const auto      baked             = BakeCloudProceduralVolume( params, origin, {} );
+    ASSERT_TRUE( baked ) << "the bake failed";
 
     const uint32_t side    = params.VolumeSideVoxels;
     const float    voxelKm = params.RegionSizeKm / static_cast<float>( side );

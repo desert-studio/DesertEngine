@@ -175,6 +175,8 @@ namespace
     {
         Desert::Assets::CloudProceduralFieldParams      Params;
         std::vector<Desert::Assets::CloudModellingBlob> Blobs;
+        /// The same lumps with their ranks and cluster sites — what the preview cuts and joins by, as the bake.
+        std::vector<Desert::Assets::CloudProceduralLump> Lumps;
         glm::vec3                                       TallestKm{ 0.0f };
     };
 
@@ -195,7 +197,10 @@ namespace
 
         const glm::vec2 origin = Desert::Assets::CloudProceduralRegionOriginKm( column.Params, 0.0f, 0.0f );
 
-        column.Blobs = Desert::Assets::GenerateCloudProceduralBlobs( column.Params, 0u, origin );
+        column.Lumps = Desert::Assets::GenerateCloudProceduralLumps(
+             column.Params, 0u, origin, Desert::Assets::CloudProceduralLumpSet::KeptCells );
+        for ( const Desert::Assets::CloudProceduralLump& lump : column.Lumps )
+            column.Blobs.push_back( lump.Blob );
 
         if ( !column.Blobs.empty() )
         {
@@ -218,7 +223,7 @@ namespace
             return 0.0f;
 
         return Desert::Assets::EvaluateCloudProceduralProfile(
-             column.Params, column.Blobs, glm::vec3( column.TallestKm.x, altitudeKm, column.TallestKm.z ) );
+             column.Params, 0u, column.Lumps, glm::vec3( column.TallestKm.x, altitudeKm, column.TallestKm.z ) );
     }
 
     float ProfileBaseKm( const CloudTypeShape& shape )

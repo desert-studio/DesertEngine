@@ -141,7 +141,7 @@ namespace
     }
 
     std::vector<float> KeptColumns( const CloudProceduralFieldParams& params,
-                                    const CloudProceduralVolumeBake& bake, const glm::vec2& origin, int shift )
+                                    const std::vector<unsigned char>& bake, const glm::vec2& origin, int shift )
     {
         const uint32_t     side  = params.VolumeSideVoxels;
         const float        voxel = params.RegionSizeKm / static_cast<float>( side );
@@ -153,9 +153,10 @@ namespace
                 const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
                 const size_t    at    = static_cast<size_t>( z ) * side + x;
-                map[at] = CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalCovers( params, world ) )
-                               ? 1.0f
-                               : 0.0f;
+                map[at] =
+                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ) )
+                          ? 1.0f
+                          : 0.0f;
             }
         return map;
     }
@@ -169,7 +170,7 @@ namespace
         params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
 
         const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+        const auto      baked  = BakeCloudProceduralVolume( params, origin, {} );
         if ( !baked )
             return -1.0;
         const size_t columns = static_cast<size_t>( params.VolumeSideVoxels ) * params.VolumeSideVoxels;
@@ -3227,7 +3228,7 @@ namespace
             CloudProceduralFieldParams seeded = params;
             seeded.Seed                       = seed;
             const glm::vec2 origin            = CloudProceduralRegionOriginKm( seeded, 0.0f, 0.0f );
-            const auto      baked             = BakeCloudProceduralVolumeRanked( seeded, origin, {} );
+            const auto      baked             = BakeCloudProceduralVolume( seeded, origin, {} );
             if ( !baked )
                 continue;
             for ( int shift = 0; shift < 4; ++shift )
@@ -3515,7 +3516,7 @@ TEST( CloudPlacementSpectrum, TheHorizonGapsAreNotClosedByTheRegionsRepeat )
     const double correlation = sxy / std::sqrt( std::max( sxx * syy, 1e-30 ) );
 
     const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-    const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+    const auto      baked  = BakeCloudProceduralVolume( params, origin, {} );
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
 
     const int   side  = static_cast<int>( params.VolumeSideVoxels );
@@ -3538,7 +3539,7 @@ TEST( CloudPlacementSpectrum, TheHorizonGapsAreNotClosedByTheRegionsRepeat )
             ++crossed;
             if ( !CloudProceduralColumnKept( baked.GetValue(), static_cast<uint32_t>( side ),
                                              static_cast<uint32_t>( x ), static_cast<uint32_t>( z ),
-                                             CloudProceduralLocalCovers( params, world ) ) )
+                                             CloudProceduralLocalWeathers( params, world ) ) )
                 ++clear;
         }
     }

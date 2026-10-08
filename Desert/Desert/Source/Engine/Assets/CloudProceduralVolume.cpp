@@ -1472,30 +1472,88 @@ namespace Desert::Assets
         return blobs;
     }
 
-    float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams&      params,
-                                          const std::vector<CloudModellingBlob>& blobs, const glm::vec3& pointKm )
+    namespace
     {
-        if ( blobs.empty() )
+        /// One lump a point asks about: its distance (+inf when it cannot reach the point), its join weight, the
+        /// cluster it belongs to and that cluster's reach past the slider (CloudProceduralClusterReach).
+        struct CloudClusterCandidate
+        {
+            float    DistanceKm = 0.0f;
+            float    Weight     = 1.0f;
+            uint32_t Cluster    = 0u;
+            float    Reach      = 0.0f;
+        };
+
+        /// THE VOXEL, ONE HOME (CUT-AT-BAKE-b) — the bake's and the preview's. The smooth minimum joins the
+        /// lumps of one cluster only (JOIN-PER-CLUSTER: a bridge between two clusters belonged to neither, so
+        /// a dead neighbour left a stub of it on the living one, CLOUD-AUDIT S6); the cluster's profile times
+        /// the altitude density is cut by ITS OWN reach before the clusters meet by `max` (CUT-AT-BAKE: a cut
+        /// after the max would cut every cluster of a voxel by the winner's reach). @p candidates stay in the
+        /// lumps' canonical order, which is what makes the join's floating-point sum order-independent.
+        float CloudProceduralCutJoin( const std::vector<CloudClusterCandidate>& candidates, float density,
+                                      float invBlend, float blendRadiusKm, float invProfile )
+        {
+            float cut = 0.0f;
+            for ( size_t k = 0; k < candidates.size(); ++k )
+            {
+                if ( !std::isfinite( candidates[k].DistanceKm ) )
+                    continue;
+                const uint32_t cluster = candidates[k].Cluster;
+                bool           seen    = false;
+                for ( size_t j = 0; j < k && !seen; ++j )
+                    seen = std::isfinite( candidates[j].DistanceKm ) && candidates[j].Cluster == cluster;
+                if ( seen )
+                    continue;
+
+                float nearest = candidates[k].DistanceKm;
+                for ( size_t j = k + 1u; j < candidates.size(); ++j )
+                    if ( candidates[j].Cluster == cluster && candidates[j].DistanceKm < nearest )
+                        nearest = candidates[j].DistanceKm;
+
+                float sum = 0.0f;
+                for ( size_t j = k; j < candidates.size(); ++j )
+                    if ( candidates[j].Cluster == cluster && std::isfinite( candidates[j].DistanceKm ) )
+                        sum += CloudModellingJoinTerm( candidates[j].Weight, candidates[j].DistanceKm, nearest,
+                                                       invBlend );
+
+                const float clusterJoined = CloudModellingJoinKm( nearest, sum, blendRadiusKm );
+                if ( clusterJoined >= 0.0f )
+                    continue;
+                const float profile = std::clamp( -clusterJoined * invProfile, 0.0f, 1.0f ) * density;
+                cut                 = std::max( cut, CloudProceduralCoverRemap( profile, candidates[k].Reach ) );
+            }
+            return cut;
+        }
+    } // namespace
+
+    float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams& params, uint32_t slot,
+                                          const std::vector<CloudProceduralLump>& lumps, const glm::vec3& pointKm )
+    {
+        if ( lumps.empty() || slot >= params.Species.size() )
             return 0.0f;
 
-        const float invBlend = 1.0f / std::max( params.BlendRadiusKm, 1e-6f );
-
-        float nearest = 0.0f;
-        for ( size_t k = 0; k < blobs.size(); ++k )
+        // EVERY LUMP IT IS HANDED, where the bake asks the bin — the set differs, the voxel does not. A
+        // cluster is its exact site (the lattice site plus its scatter, shared by its lumps), as the bake's
+        // clusterOf decides; a caller that hands wrapped copies shifts their ClusterKm with them.
+        const float                        softness = CloudProceduralRankSoftness( params );
+        std::vector<glm::vec2>             sites;
+        std::vector<CloudClusterCandidate> candidates;
+        candidates.reserve( lumps.size() );
+        for ( const CloudProceduralLump& lump : lumps )
         {
-            const float distance = CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( blobs[k] ), pointKm );
-            nearest              = ( k == 0 ) ? distance : std::min( nearest, distance );
+            const auto found   = std::find( sites.begin(), sites.end(), lump.ClusterKm );
+            const auto cluster = static_cast<uint32_t>( found - sites.begin() );
+            if ( found == sites.end() )
+                sites.push_back( lump.ClusterKm );
+            candidates.push_back( CloudClusterCandidate{
+                 CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ), lump.Blob.Weight,
+                 cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ) } );
         }
 
-        float sum = 0.0f;
-        for ( const CloudModellingBlob& blob : blobs )
-        {
-            const float distance = CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( blob ), pointKm );
-            sum += CloudModellingJoinTerm( blob.Weight, distance, nearest, invBlend );
-        }
-
-        const float joined = CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
-        return std::clamp( -joined / std::max( params.ProfileDepthKm, 1e-6f ), 0.0f, 1.0f );
+        return CloudProceduralCutJoin( candidates,
+                                       CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
+                                       1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
+                                       1.0f / std::max( params.ProfileDepthKm, 1e-6f ) );
     }
 
     size_t CountCloudProceduralBlobs( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
@@ -1721,8 +1779,8 @@ namespace Desert::Assets
 
                      // PER RANGE AND NOT PER BAKE: these are the scratch the inner loops refill, and one
                      // shared pair would be the only write two slices could ever contend on.
-                     std::vector<float>    distances;
-                     std::vector<uint32_t> column;
+                     std::vector<CloudClusterCandidate> candidates;
+                     std::vector<uint32_t>              column;
 
                      for ( uint32_t z = static_cast<uint32_t>( zBegin ); z < static_cast<uint32_t>( zEnd ); ++z )
                      {
@@ -1787,63 +1845,25 @@ namespace Desert::Assets
 
                                  const glm::vec3 point( worldX, worldY, worldZ );
 
-                                 // THE SAME TWO LOOPS THE SCULPTED BAKE PERFORMS — the nearest distance, then the
-                                 // shifted sum — but PER CLUSTER (JOIN-PER-CLUSTER): the smooth minimum fuses the
-                                 // lumps of one cluster, and clusters meet by `max`, as species do. A bridge
-                                 // between two clusters belonged to neither, so a dead neighbour left a stub of
-                                 // it on the living one, cut flat on the bisector (CLOUD-AUDIT S6).
-                                 distances.clear();
+                                 // THE VOXEL IS CloudProceduralCutJoin's (CUT-AT-BAKE-b), the one home the preview
+                                 // (EvaluateCloudProceduralProfile) shares: the lumps of each cluster joined by
+                                 // the smooth minimum, each cluster cut by its reach, clusters met by `max`
+                                 // (JOIN-PER-CLUSTER).
+                                 candidates.clear();
                                  for ( uint32_t index : column )
                                  {
                                      const Placed& item = placed[index];
-                                     distances.push_back(
+                                     candidates.push_back( CloudClusterCandidate{
                                           point.y < item.MinKm.y || point.y > item.MaxKm.y
                                                ? std::numeric_limits<float>::infinity()
-                                               : CloudModellingBlobDistanceKm( item.Blob, point ) );
+                                               : CloudModellingBlobDistanceKm( item.Blob, point ),
+                                          item.Blob.Weight, item.Cluster, item.Reach } );
                                  }
 
-                                 // EACH CLUSTER IS CUT BEFORE THE JOIN (CUT-AT-BAKE): Nubis's remap
-                                 // threshold 1 - g on the cluster's own profile, g its reach past the
-                                 // slider, so a marginal cluster shows its core and the max over clusters
-                                 // joins finished forms. A threshold applied after the max would cut every
-                                 // cluster of a voxel by the winner's g.
-                                 float       cut = 0.0f;
-                                 const float density =
-                                      CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY );
-
-                                 for ( size_t k = 0; k < column.size(); ++k )
-                                 {
-                                     if ( !std::isfinite( distances[k] ) )
-                                         continue;
-                                     const uint32_t cluster = placed[column[k]].Cluster;
-                                     bool           seen    = false;
-                                     for ( size_t j = 0; j < k && !seen; ++j )
-                                         seen = std::isfinite( distances[j] ) &&
-                                                placed[column[j]].Cluster == cluster;
-                                     if ( seen )
-                                         continue;
-
-                                     float nearest = distances[k];
-                                     for ( size_t j = k + 1u; j < column.size(); ++j )
-                                         if ( placed[column[j]].Cluster == cluster && distances[j] < nearest )
-                                             nearest = distances[j];
-
-                                     float sum = 0.0f;
-                                     for ( size_t j = k; j < column.size(); ++j )
-                                         if ( placed[column[j]].Cluster == cluster &&
-                                              std::isfinite( distances[j] ) )
-                                             sum += CloudModellingJoinTerm( placed[column[j]].Blob.Weight,
-                                                                            distances[j], nearest, invBlend );
-
-                                     const float clusterJoined =
-                                          CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
-                                     if ( clusterJoined >= 0.0f )
-                                         continue;
-                                     const float profile =
-                                          std::clamp( -clusterJoined * invProfile, 0.0f, 1.0f ) * density;
-                                     cut = std::max(
-                                          cut, CloudProceduralCoverRemap( profile, placed[column[k]].Reach ) );
-                                 }
+                                 const float cut = CloudProceduralCutJoin(
+                                      candidates,
+                                      CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY ),
+                                      invBlend, params.BlendRadiusKm, invProfile );
 
                                  if ( cut <= 0.0f )
                                      continue;
