@@ -14,6 +14,7 @@
 #include "Editor/Splash/SplashScreen.hpp"
 
 #include <Engine/Assets/ContentGate.hpp>
+#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/ItemProgress.hpp>
 #include <Engine/Core/BootTimeline.hpp>
 
@@ -104,7 +105,14 @@ namespace Desert::Editor
         [[nodiscard]] bool RunStartupFrame();
 
         /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
-        void BeginContentSettle();
+        /// @p finishedBefore is `AsyncAssetLoader::Progress().Finished` taken before the load asked for anything.
+        void BeginContentSettle( uint64_t finishedBefore );
+        /// What the settle is reading now and how far it is (Engine/Assets/ContentWork.hpp), for the overlay
+        /// the editor draws while a scene opened after the reveal loads.
+        [[nodiscard]] const Assets::ContentProgressLine& ContentProgress() const
+        {
+            return m_ContentProgress;
+        }
         /// One tick of the wait: decides whether the frame just rendered closed the chain.
         void UpdateContentSettling();
 
@@ -167,8 +175,9 @@ namespace Desert::Editor
         std::chrono::steady_clock::time_point m_ProgressEpoch = std::chrono::steady_clock::now();
         std::size_t                           m_ShaderStage   = 0;
         std::size_t                           m_SettleStage   = 0;
-        // Scene loads already finished when the settle began: the settle counts only the rest.
-        std::size_t m_SettleBase           = 0;
+        // Reads the loader had finished when the scene load began: the settle counts only the rest.
+        uint64_t                     m_SettleBase = 0;
+        Assets::ContentProgressLine  m_ContentProgress; // the line the settle shows now
         bool        m_ThumbnailsHoldReveal = false;
         bool        m_SplashWarmStarted    = false;
         std::size_t m_SplashWarmTotal      = 0;     // captures queued when the warm-up started
@@ -181,8 +190,6 @@ namespace Desert::Editor
         // the editor has just appeared on.
         std::unique_ptr<Splash::SplashScreen> m_Splash;
         bool                                  m_Revealed = false;
-        // The pending count the splash last showed during the settle, so the label is pushed on change only.
-        size_t m_SplashOutstandingShown = SIZE_MAX;
         // The splash's close was acted on (Application::Close asked once, not every frame until it lands).
         bool m_QuitFromSplash = false;
         // WHERE THE ELAPSED TOTAL LIVES: `Core::BootTimeline` (sum of the stages, NOT wall clock between the first

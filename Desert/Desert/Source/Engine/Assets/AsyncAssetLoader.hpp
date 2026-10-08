@@ -87,6 +87,18 @@ namespace Desert::Assets
         AssetHandle m_Handle{ 0 };
     };
 
+    /// WHAT THE READS ARE DOING NOW, for a loading screen (LOAD-SHOW): the counters a host turns into
+    /// "Loading 123 / 622 — Mesh SM_Wall_A", the shape of UE's `FScopedSlowTask` line. One home of the count:
+    /// these are the loader's own counters, not a guess by elapsed time, so a moving number is a load and a
+    /// still one is a stall.
+    struct LoadProgress
+    {
+        uint64_t    Started  = 0; ///< reads handed to a worker since the process started (`StartedCount`)
+        uint64_t    Finished = 0; ///< of those, reads whose worker job has returned (read, failed or skipped)
+        std::string Current;      ///< file of the read a worker began most recently; empty before the first
+        AssetTypeID CurrentType = AssetTypeID::Unknown; ///< and its kind
+    };
+
     /**
      * @brief Reads assets on `Common::JobSystem` and hands the result back on a LATER tick, always.
      *
@@ -199,6 +211,9 @@ namespace Desert::Assets
         /// `SyncLoadLedger::Loads()`: together they say what share of this boot's reading stopped
         /// blocking anything.
         [[nodiscard]] uint64_t StartedCount() const;
+
+        /// The read counters and the read a worker began last, taken together under the loader's lock.
+        [[nodiscard]] LoadProgress Progress() const;
 
         /// How many requests ended in the cancel delegate rather than the completion one.
         [[nodiscard]] uint64_t CancelledCount() const;

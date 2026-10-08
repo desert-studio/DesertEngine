@@ -3,8 +3,11 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <string>
 
 namespace Desert::Assets
 {
@@ -27,5 +30,38 @@ namespace Desert::Assets
         const auto& pipelines = Graphic::PipelineBuilds::Get();
         return { loader.Outstanding() + pipelines.Pending( Graphic::PipelineRole::Engine ),
                  loader.StartedCount() + pipelines.Started( Graphic::PipelineRole::Engine ) };
+    }
+
+    // WHAT A LOADING SCREEN SAYS WHILE THE GATE WAITS (LOAD-SHOW) — the one producer of the line both the splash
+    // and the editor's scene-open overlay draw, so they cannot count differently. Counted from the loader's own
+    // counters since @p finishedBefore (`LoadProgress::Finished` taken just before the scene load asked for
+    // anything): reads that had already returned are in neither number, so `Done` reaches `Total` exactly when
+    // every read of this load has returned. The item is the read a worker began last, "Mesh SM_Wall_A.demesh";
+    // once the reads are done and only the engine's pipelines hold the gate, it says that instead of freezing on
+    // the last file.
+    struct ContentProgressLine
+    {
+        size_t      Done  = 0;
+        size_t      Total = 0;
+        std::string Item;
+    };
+
+    inline ContentProgressLine ContentProgressSince( const LoadProgress& now, const uint64_t finishedBefore,
+                                                     const size_t enginePipelinesPending )
+    {
+        ContentProgressLine line;
+        line.Total = static_cast<size_t>( now.Started - std::min( finishedBefore, now.Started ) );
+        line.Done  = static_cast<size_t>( now.Finished - std::min( finishedBefore, now.Finished ) );
+        if ( line.Done >= line.Total && enginePipelinesPending > 0 )
+            line.Item = std::format( "Engine pipelines: {} compiling", enginePipelinesPending );
+        else if ( !now.Current.empty() )
+            line.Item = std::format( "{} {}", AssetTypeName( now.CurrentType ), now.Current );
+        return line;
+    }
+
+    inline ContentProgressLine ContentProgressNow( const uint64_t finishedBefore )
+    {
+        return ContentProgressSince( AsyncAssetLoader::Get().Progress(), finishedBefore,
+                                     Graphic::PipelineBuilds::Get().Pending( Graphic::PipelineRole::Engine ) );
     }
 } // namespace Desert::Assets

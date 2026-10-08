@@ -219,6 +219,34 @@ namespace Desert::Editor
                       "(the local cache keeps the boxes); re-cook them to drop the read: {}",
                       keys.size(), named );
         }
+
+        // The scene-open loading line (LOAD-SHOW): the stage, the read a worker is on, the count and its bar,
+        // centred over the editor's window. Drawn only from loader counters (ContentProgressLine), never from a
+        // timer, so a frame where nothing moves is a frame where nothing landed.
+        void DrawSceneLoadingOverlay( const Assets::ContentProgressLine& line )
+        {
+            const ImGuiViewport* viewport = ::ImGui::GetMainViewport();
+            ::ImGui::SetNextWindowPos( viewport->GetCenter(), ImGuiCond_Always, ImVec2( 0.5F, 0.5F ) );
+            ::ImGui::SetNextWindowSize( ImVec2( std::min( 520.0F, viewport->Size.x - 32.0F ), 0.0F ) );
+            ::ImGui::SetNextWindowViewport( viewport->ID );
+            constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+                                                ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+            if ( ::ImGui::Begin( "##SceneLoading", nullptr, kFlags ) )
+            {
+                ::ImGui::TextUnformatted( "Loading scene content..." );
+                const std::string item =
+                     line.Total > 0 ? std::format( "{} ({} / {})", line.Item, std::min( line.Done + 1, line.Total ),
+                                                   line.Total )
+                                    : line.Item;
+                ::ImGui::TextUnformatted( item.c_str() );
+                const float fraction =
+                     line.Total > 0 ? static_cast<float>( line.Done ) / static_cast<float>( line.Total ) : 0.0F;
+                const std::string counter = std::format( "{} / {}", line.Done, line.Total );
+                ::ImGui::ProgressBar( fraction, ImVec2( -1.0F, 0.0F ), counter.c_str() );
+            }
+            ::ImGui::End();
+        }
     } // namespace
 
     // A tool panel that only makes sense for a particular selection or mode opens itself when that
@@ -719,9 +747,11 @@ namespace Desert::Editor
         // A load that ran starts the content settle before the refused-load fallback and New Scene.
         if ( !m_Startup.StartupLoading() )
         {
+            // The read count of this load starts here: whatever the load asks for is counted from now.
+            const uint64_t readsFinishedBefore = Assets::AsyncAssetLoader::Get().Progress().Finished;
             if ( m_SceneFiles.ServiceLoadRequest() )
             {
-                m_Startup.BeginContentSettle();
+                m_Startup.BeginContentSettle( readsFinishedBefore );
                 m_SceneFiles.InitializeIfLoadRefused();
             }
             m_SceneFiles.ServiceNewRequest();
@@ -1114,6 +1144,11 @@ namespace Desert::Editor
         // stood here was replaced by the splash, and deleted with the same change.
         if ( m_Startup.StartupLoading() || m_Startup.ContentSettling() )
         {
+            // A SCENE OPENED AFTER THE REVEAL has no splash over it, and a window that draws nothing while it
+            // waits reads as a hang (owner 2026-10-08, LOAD-SHOW). The same line the splash shows — the read
+            // a worker is on and the count, from the loader's counters — drawn centred, every frame.
+            if ( m_Startup.Revealed() && m_Startup.ContentSettling() )
+                DrawSceneLoadingOverlay( m_Startup.ContentProgress() );
             m_ImGuiLayer->End();
             return BOOLSUCCESS;
         }

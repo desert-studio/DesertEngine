@@ -171,9 +171,8 @@ namespace Desert::Editor
                 // THE SETTLE PHASE GETS ITS OWN LABEL. A splash that says nothing while it waits is
                 // indistinguishable from an editor that has hung, and this wait is the one the
                 // demand-driven model introduced.
-                const auto& loader = Assets::AsyncAssetLoader::Get();
-                m_SettleBase       = loader.StartedCount() - loader.Outstanding();
-                BeginSplashStage( m_SettleStage, loader.Outstanding() );
+                // The count itself starts at the scene load (BeginContentSettle), from the loader's counters.
+                BeginSplashStage( m_SettleStage );
                 m_Boot.LogSummary();
                 LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
                           "about a project it has actually read.",
@@ -260,8 +259,10 @@ namespace Desert::Editor
             ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::SceneWarmOnly );
     }
 
-    void EditorStartup::BeginContentSettle()
+    void EditorStartup::BeginContentSettle( const uint64_t finishedBefore )
     {
+        m_SettleBase      = finishedBefore;
+        m_ContentProgress = Assets::ContentProgressNow( m_SettleBase );
         m_Content.BeginWorld( Assets::ContentWorkNow().Started );
     }
 
@@ -440,14 +441,22 @@ namespace Desert::Editor
         const bool  settled = m_Content.Tick( work.Outstanding, work.Started );
         if ( !settled )
         {
-            // THE SETTLE SAYS HOW MUCH IS LEFT, not only that it is waiting: a count that moves is the
-            // difference between a load and a hang. Pushed only when the count changes.
-            if ( ContentSettling() && !m_Revealed && loader.Outstanding() != m_SplashOutstandingShown )
+            // THE SETTLE SAYS WHAT IS BEING READ AND HOW MUCH IS DONE (LOAD-SHOW), every frame, from the
+            // loader's counters: "Mesh SM_Wall_A.demesh (123 / 622)" — a count that moves is the difference
+            // between a load and a hang. The splash is pushed when the line changes; after the reveal the
+            // editor's own overlay draws the same line (EditorLayer::OnUIRender).
+            if ( ContentSettling() )
             {
-                m_SplashOutstandingShown = loader.Outstanding();
-                const std::size_t items  = loader.StartedCount() - m_SettleBase;
-                m_Progress.Step( "Scene assets", items - loader.Outstanding(), items );
-                PushSplash();
+                const Assets::ContentProgressLine line = Assets::ContentProgressNow( m_SettleBase );
+                const bool changed = line.Done != m_ContentProgress.Done || line.Total != m_ContentProgress.Total ||
+                                     line.Item != m_ContentProgress.Item;
+                m_ContentProgress = line;
+                if ( changed && !m_Revealed )
+                {
+                    m_Progress.Step( line.Item.empty() ? std::string( "Scene assets" ) : line.Item,
+                                     line.Done, std::max<std::size_t>( line.Total, 1 ) );
+                    PushSplash();
+                }
             }
             return;
         }

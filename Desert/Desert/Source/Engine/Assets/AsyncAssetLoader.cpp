@@ -77,6 +77,12 @@ namespace Desert::Assets
         /// `ResetForTest`, read the OLD asset and settle the new request as loaded with its asset never
         /// read (FIX7: MeshServiceResidency failed about 4 % of Release runs exactly this way).
         std::atomic<int> InFlight{ 0 };
+        /// Submitted jobs that have returned, counted under `Lock` BEFORE the job settles its waiters, so a
+        /// host that sees `Outstanding() == 0` never sees this short of `Started` (LoadProgress).
+        uint64_t Finished = 0;
+        /// The read a worker began most recently, under `Lock`: the loading screen's current item.
+        std::string CurrentPath;
+        AssetTypeID CurrentType = AssetTypeID::Unknown;
     };
 
     namespace
@@ -253,10 +259,17 @@ namespace Desert::Assets
                               owner == inner->Tickets.end() || owner->second != ticket )
                          {
                              // FlushOne took this read onto the caller's thread and settled it there.
+                             ++inner->Finished;
                              inner->InFlight.fetch_sub( 1, std::memory_order_release );
                              return;
                          }
                          inner->WorkerReading.insert( handle );
+                         if ( !skip )
+                         {
+                             const AssetMetadata& metadata = record->Payload->GetMetadata();
+                             inner->CurrentPath            = metadata.Filepath.filename().string();
+                             inner->CurrentType            = metadata.AssetType;
+                         }
                      }
 
                      if ( !skip )
@@ -278,6 +291,7 @@ namespace Desert::Assets
                          const std::lock_guard<std::mutex> guard( inner->Lock );
                          inner->WorkerReading.erase( handle );
                          inner->Tickets.erase( handle );
+                         ++inner->Finished;
                          SettleWaitingLocked( *inner, handle, outcome, error );
                      }
 
@@ -485,6 +499,14 @@ namespace Desert::Assets
         return m_State->Started.load( std::memory_order_relaxed );
     }
 
+    LoadProgress AsyncAssetLoader::Progress() const
+    {
+        const State&                      state = *m_State;
+        const std::lock_guard<std::mutex> guard( state.Lock );
+        return { state.Started.load( std::memory_order_relaxed ), state.Finished, state.CurrentPath,
+                 state.CurrentType };
+    }
+
     uint64_t AsyncAssetLoader::CancelledCount() const
     {
         return m_State->Cancels.load( std::memory_order_relaxed );
@@ -557,5 +579,8 @@ namespace Desert::Assets
         state.NextId = 1;
         state.Started.store( 0, std::memory_order_relaxed );
         state.Cancels.store( 0, std::memory_order_relaxed );
+        state.Finished    = 0;
+        state.CurrentPath = {};
+        state.CurrentType = AssetTypeID::Unknown;
     }
 } // namespace Desert::Assets

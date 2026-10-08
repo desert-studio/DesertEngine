@@ -18,6 +18,7 @@
 
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
 
@@ -705,6 +706,71 @@ TEST_F( AsyncAssetLoad, AnAwaitWithANullDelegateIsRefused )
          AsyncAssetLoader::Get().Await( Desert::Assets::AssetHandle{ 44 }, [] { return true; }, [] {}, nullptr );
     EXPECT_FALSE( awaited.IsValid() );
     EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
+}
+
+// ── THE LOADING SCREEN'S COUNT IS THE LOADER'S (LOAD-SHOW) ──────────────────────────────────────
+
+TEST_F( AsyncAssetLoad, TheLoadingCountClimbsToItsTotalAndEqualsTheReadsThatRan )
+{
+    // Reads that returned before the load began are in neither number.
+    auto earlier = std::make_shared<ProbeAsset>( "earlier.probe" );
+    auto first   = AsyncAssetLoader::Get().Request( earlier, []( const auto&, LoadOutcome, const std::string& ) {},
+                                                    [] {} );
+    ASSERT_TRUE( PumpUntilQuiet() );
+    const uint64_t before = AsyncAssetLoader::Get().Progress().Finished;
+    EXPECT_EQ( before, 1u );
+
+    constexpr int                            kAssets = 6;
+    std::vector<std::shared_ptr<ProbeAsset>> assets;
+    std::vector<LoadRequest>                 requests;
+    for ( int i = 0; i < kAssets; ++i )
+    {
+        assets.push_back( std::make_shared<ProbeAsset>( "probe_" + std::to_string( i ) + ".probe" ) );
+        if ( i == 0 )
+            assets.back()->HoldInsideRead.store( true );
+        requests.push_back( AsyncAssetLoader::Get().Request(
+             assets.back(), []( const auto&, LoadOutcome, const std::string& ) {}, [] {} ) );
+    }
+
+    // One read is held inside the worker: the count cannot have reached its total, and the line names a read.
+    WaitUntilInsideRead( *assets[0] );
+    auto held = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), before, 0 );
+    EXPECT_EQ( held.Total, static_cast<size_t>( kAssets ) );
+    EXPECT_LT( held.Done, held.Total ) << "the count reached its total while a read was still inside a worker";
+    EXPECT_FALSE( held.Item.empty() ) << "a read is running and the loading line names nothing";
+
+    assets[0]->HoldInsideRead.store( false );
+    size_t     shown    = held.Done;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 5 );
+    while ( AsyncAssetLoader::Get().Outstanding() > 0 && std::chrono::steady_clock::now() < deadline )
+    {
+        AsyncAssetLoader::Get().Pump();
+        const auto line = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), before, 0 );
+        EXPECT_GE( line.Done, shown ) << "the loading count went backwards";
+        EXPECT_LE( line.Done, line.Total );
+        shown = line.Done;
+        std::this_thread::yield();
+    }
+    ASSERT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
+
+    const auto done = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), before, 0 );
+    int        reads = 0;
+    for ( const auto& asset : assets )
+        reads += asset->Reads.load();
+    EXPECT_EQ( done.Done, done.Total ) << "every read returned and the count stopped short of its total";
+    EXPECT_EQ( done.Done, static_cast<size_t>( reads ) ) << "the loading count is not the number of reads that ran";
+    EXPECT_EQ( AsyncAssetLoader::Get().Progress().Finished, AsyncAssetLoader::Get().Progress().Started );
+}
+
+TEST_F( AsyncAssetLoad, TheLoadingLineSaysPipelinesOnceTheReadsAreDoneAndIsEmptyAtZero )
+{
+    const auto none = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), 0, 0 );
+    EXPECT_EQ( none.Done, 0u );
+    EXPECT_EQ( none.Total, 0u );
+    EXPECT_TRUE( none.Item.empty() ) << "nothing was read and the loading line names something";
+
+    const auto pipelines = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), 0, 3 );
+    EXPECT_NE( pipelines.Item.find( "3" ), std::string::npos ) << pipelines.Item;
 }
 
 namespace
