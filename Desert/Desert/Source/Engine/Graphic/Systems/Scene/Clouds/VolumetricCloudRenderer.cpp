@@ -553,7 +553,6 @@ namespace Desert::Graphic::System
 
             m_ModellingVolume = Image3D::Create( spec );
 
-
             if ( !m_ModellingVolume )
             {
                 // A device allocation failure is about the SIZE, so blaming the pending parameters keeps the

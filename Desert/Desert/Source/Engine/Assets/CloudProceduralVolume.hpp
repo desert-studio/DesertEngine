@@ -744,7 +744,6 @@ namespace Desert::Assets
      */
     using CloudProceduralBakeProgressFn = std::function<bool( float fraction )>;
 
-
     /// The seed of the layer's world weather — one per layer, since the march keeps per voxel after the
     /// max over species.
     uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params );
@@ -845,8 +844,8 @@ namespace Desert::Assets
     /// Whether column (@p x, @p z) of the baked @p voxels shows sky or cloud under the per-slot weathers
     /// @p slotWeather (CloudProceduralLocalWeathers): cloud when ANY voxel's winning profile survives
     /// CloudProceduralCoverRemap by its winner's weather, as the march decides. What a census reads.
-    bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x, uint32_t z,
-                                    const glm::vec4& slotWeather );
+    bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x,
+                                    uint32_t z, const glm::vec4& slotWeather );
 
     /**
      * @brief The same bake, reporting progress and able to be abandoned.

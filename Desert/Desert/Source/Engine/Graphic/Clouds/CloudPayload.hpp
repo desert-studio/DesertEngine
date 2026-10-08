@@ -124,7 +124,8 @@ namespace Desert::Graphic
         // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
         // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
         // x and z unread (kCloudUnreadSlots). The march remaps the baked profile by the W this decides —
-        // Assets::CloudProceduralCoverRemap is the CPU half of the same remap. Before the trailing vec3 for the reason Albedo is.
+        // Assets::CloudProceduralCoverRemap is the CPU half of the same remap. Before the trailing vec3 for the
+        // reason Albedo is.
         glm::vec4 Weather;
 
         // THE WISPY BASE, PER SPECIES (x species 0 .. w species 3), in the LAYER's height fraction (the

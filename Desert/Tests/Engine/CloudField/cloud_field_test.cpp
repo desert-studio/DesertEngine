@@ -1250,10 +1250,10 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
 
             const CloudFieldSample united = SampleCloudField( params, fraction, position );
 
-            const float cut = CloudCoverRemap(
-                 std::max( deck, tower ),
-                 CloudLocalWeather( weather, params.LayoutPlace, params.LayoutStrength, tower > deck ? 1 : 0,
-                                    vec2( position.x, position.z ) ) );
+            const float cut =
+                 CloudCoverRemap( std::max( deck, tower ),
+                                  CloudLocalWeather( weather, params.LayoutPlace, params.LayoutStrength,
+                                                     tower > deck ? 1 : 0, vec2( position.x, position.z ) ) );
             if ( std::abs( united.Profile - cut ) > 1e-5f )
                 ++unionWrong;
 

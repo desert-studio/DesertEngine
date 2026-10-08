@@ -740,7 +740,7 @@ namespace Desert::Assets
         if ( !baked.IsSuccess() )
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
         // A copy: Result hands out a const reference only (ResultWithCodes.hpp), so a move would be one in name.
-        result.Voxels = baked.GetValue();
+        result.Voxels                           = baked.GetValue();
         const std::vector<unsigned char>& entry = result.Voxels;
 
         // The DDC stores bytes as chars; viewing uint8_t voxels through char is the one aliasing the language
@@ -1158,8 +1158,8 @@ namespace Desert::Assets
                 // which is what keeps the region's repeats at the horizon from being one sky.
                 const float cellRank = HashUnit( cellSeed );
                 if ( set == CloudProceduralLumpSet::KeptCells &&
-                     CloudProceduralClusterReach( cellRank, params.Coverage, CloudProceduralRankSoftness( params ) ) <=
-                          0.0f )
+                     CloudProceduralClusterReach( cellRank, params.Coverage,
+                                                  CloudProceduralRankSoftness( params ) ) <= 0.0f )
                     continue;
 
                 // EDGE TOP FRACTION IS WHAT A SMALL CLUSTER LOSES. The type says how tall the smallest
@@ -1506,14 +1506,13 @@ namespace Desert::Assets
         return total;
     }
 
-    bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x, uint32_t z,
-                                    const glm::vec4& slotWeather )
+    bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x,
+                                    uint32_t z, const glm::vec4& slotWeather )
     {
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
         {
-            const size_t at =
-                 ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x ) *
-                 kCloudProceduralBytesPerVoxel;
+            const size_t at = ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x ) *
+                              kCloudProceduralBytesPerVoxel;
             if ( at + kCloudProceduralBytesPerVoxel > voxels.size() )
                 continue;
             // THE WINNER'S WEATHER, as the march takes it: the deepest species owns the voxel (strictly
@@ -1546,7 +1545,7 @@ namespace Desert::Assets
     {
         if ( auto valid = ValidateCloudProceduralParams( params ); !valid )
             return Common::MakeFormattedError<std::vector<unsigned char>>( "parameters are not usable: {}",
-                                                                               valid.GetError() );
+                                                                           valid.GetError() );
 
         const uint32_t width  = params.VolumeSideVoxels;
         const uint32_t height = kCloudProceduralVolumeHeight;
@@ -1554,7 +1553,6 @@ namespace Desert::Assets
 
         std::vector<unsigned char> voxels(
              static_cast<size_t>( CloudProceduralVoxelBytes( params.VolumeSideVoxels ) ), 0u );
-
 
         // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
         // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
@@ -1641,7 +1639,7 @@ namespace Desert::Assets
             for ( const CloudProceduralLump& lump : blobs )
             {
                 const CloudModellingBlob& blob   = lump.Blob;
-                const float reach = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
+                const float     reach  = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
                 const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
 
                 for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
@@ -1809,7 +1807,7 @@ namespace Desert::Assets
                                  // slider, so a marginal cluster shows its core and the max over clusters
                                  // joins finished forms. A threshold applied after the max would cut every
                                  // cluster of a voxel by the winner's g.
-                                 float cut = 0.0f;
+                                 float       cut = 0.0f;
                                  const float density =
                                       CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY );
 
@@ -1841,9 +1839,10 @@ namespace Desert::Assets
                                           CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
                                      if ( clusterJoined >= 0.0f )
                                          continue;
-                                     const float profile = std::clamp( -clusterJoined * invProfile, 0.0f, 1.0f ) *
-                                                           density;
-                                     cut = std::max( cut, CloudProceduralCoverRemap( profile, placed[column[k]].Reach ) );
+                                     const float profile =
+                                          std::clamp( -clusterJoined * invProfile, 0.0f, 1.0f ) * density;
+                                     cut = std::max(
+                                          cut, CloudProceduralCoverRemap( profile, placed[column[k]].Reach ) );
                                  }
 
                                  if ( cut <= 0.0f )
