@@ -184,11 +184,11 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     void VulkanAllocator::RT_DestroyImage( VkImage image, VmaAllocation allocation, VkImageView imageView,
-                                           VkSampler sampler, const std::vector<VkImageView>& mipImageViews )
+                                           const std::vector<VkImageView>& mipImageViews )
     {
         if ( !image || !allocation ) return;
         uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-        m_ImageDeletionQueue.push_back( { image, allocation, imageView, sampler, mipImageViews, frameIndex } );
+        m_ImageDeletionQueue.push_back( { image, allocation, imageView, mipImageViews, frameIndex } );
     }
 
     void VulkanAllocator::RT_DestroyFramebuffer( VkFramebuffer framebuffer )
@@ -326,7 +326,6 @@ namespace Desert::Graphic::API::Vulkan
             if ( takeFrame( it->FrameIndex ) )
             {
                 if ( it->ImageView != VK_NULL_HANDLE ) vkDestroyImageView( device, it->ImageView, nullptr );
-                if ( it->Sampler != VK_NULL_HANDLE )   vkDestroySampler( device, it->Sampler, nullptr );
                 for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
 
                 vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );

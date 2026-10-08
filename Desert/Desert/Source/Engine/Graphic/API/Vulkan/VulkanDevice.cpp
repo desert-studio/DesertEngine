@@ -369,6 +369,10 @@ namespace Desert::Graphic::API::Vulkan
             if ( const auto context = EngineContext::GetInstance().GetRendererContext() )
                 context->Shutdown();
 
+            // Every texture, slot and graph pass that held a sampler is gone with the content released above;
+            // the samplers themselves are the device's, so they go here, last before the device.
+            m_Samplers.reset();
+
             if ( m_PipelineCache != VK_NULL_HANDLE )
             {
                 // The pipelines built since the last in-run write (PersistPipelineCache is throttled).
@@ -426,8 +430,20 @@ namespace Desert::Graphic::API::Vulkan
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetTransferFamily(), 0, &m_TransferQueue );
 
         CreatePipelineCache();
+        m_Samplers = std::make_unique<VulkanSamplerCache>( m_LogicalDevice );
 
         return Common::MakeSuccess( true );
+    }
+
+    VulkanSamplerCache& VulkanLogicalDevice::GetSamplerCache()
+    {
+        DESERT_VERIFY( m_Samplers != nullptr, "GetSamplerCache: the device was not created or is already destroyed" );
+        return *m_Samplers;
+    }
+
+    VulkanSamplerCache& EngineSamplerCache()
+    {
+        return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetSamplerCache();
     }
 
     void VulkanLogicalDevice::CreatePipelineCache()

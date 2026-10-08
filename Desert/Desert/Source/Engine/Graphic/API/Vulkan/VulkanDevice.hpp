@@ -4,10 +4,12 @@
 
 #include <Engine/Core/Device.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 
 #include <vulkan/vulkan.h>
 
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <optional>
 
@@ -184,6 +186,9 @@ namespace Desert::Graphic::API::Vulkan
 
         Common::ResultStr<bool> CreateDevice();
 
+        /// This device's one sampler cache — every VkSampler of the engine comes from it (VulkanSamplerCache).
+        [[nodiscard]] VulkanSamplerCache& GetSamplerCache();
+
     private:
         // Create the device-wide VkPipelineCache, seeding it from the on-disk cache if present. The driver
         // validates the header (vendor/device/UUID) and silently ignores mismatched or corrupt data.
@@ -201,6 +206,8 @@ namespace Desert::Graphic::API::Vulkan
         // Rewritten during the run, not only at a clean exit, which a crash or a kill never reaches.
         PipelineCacheFile::PersistSchedule    m_PersistSchedule{ std::chrono::seconds( 2 ) };
         std::string                           m_DeviceName;
+        // Made with the device in CreateDevice, released in Destroy before vkDestroyDevice.
+        std::unique_ptr<VulkanSamplerCache>   m_Samplers;
 
         // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining
         // `VkPhysicalDeviceMemoryBudgetPropertiesEXT` into a properties query whose extension the device

@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
@@ -286,7 +287,7 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRdgPassDescriptors
     {
     public:
-        VulkanRdgPassDescriptors( VkDevice device, uint32_t frameSlots );
+        VulkanRdgPassDescriptors( VkDevice device, VulkanSamplerCache& samplers, uint32_t frameSlots );
         ~VulkanRdgPassDescriptors();
         VulkanRdgPassDescriptors( const VulkanRdgPassDescriptors& )            = delete;
         VulkanRdgPassDescriptors& operator=( const VulkanRdgPassDescriptors& ) = delete;
@@ -302,8 +303,8 @@ namespace Desert::Graphic::API::Vulkan
                                            const RDG::BufferBinding& buffer );
         // The frame loop, after the slot's fence: resets that slot's pool.
         void BeginFrameSlot( uint32_t slot );
-        // The sampler @p desc describes: made on its first request, kept until this object is destroyed (with the
-        // device), shared by every entry with an equal description. Nothing is created per frame.
+        // The sampler @p desc describes, from the device's VulkanSamplerCache: made on its first request, shared by
+        // every entry (and every texture) with an equal state, owned by the cache. Nothing is created per frame.
         Common::ResultStr<VkSampler> GetSampler( const RDG::SamplerDesc& desc );
 
     private:
@@ -318,8 +319,7 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice               m_Device = VK_NULL_HANDLE;
         std::vector<SlotPools> m_Slots; // one per frame slot
         uint32_t               m_Slot = 0;
-        // SamplerDesc::GetKey -> the sampler; owned here, destroyed in the destructor.
-        std::unordered_map<uint32_t, VkSampler> m_Samplers;
+        VulkanSamplerCache&    m_SamplerCache;
     };
 
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,
