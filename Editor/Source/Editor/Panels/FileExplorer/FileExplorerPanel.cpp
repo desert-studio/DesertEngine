@@ -500,7 +500,7 @@ namespace Desert::Editor
 
     std::size_t FileExplorerPanel::WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
                                                           const std::vector<ThumbnailWarmup::WarmItem>& project,
-                                                          const Assets::ItemProgress& progress )
+                                                          const Assets::ItemProgress&                   progress )
     {
         using ThumbnailWarmup::WarmItem;
         using ThumbnailWarmup::WarmKind;
@@ -544,7 +544,7 @@ namespace Desert::Editor
         // list, the capture loop below and the prefetch pass all ask it; judged here, in the counted pass, the
         // later questions are lookups.
         std::unordered_map<std::string, bool> judged;
-        const auto needsCapture = [&]( const WarmItem& item )
+        const auto                            needsCapture = [&]( const WarmItem& item )
         {
             if ( const auto known = judged.find( item.Path ); known != judged.end() )
                 return known->second;
@@ -566,10 +566,10 @@ namespace Desert::Editor
         {
             for ( const WarmItem& item : *list )
             {
-                Assets::ReportItem( progress,
-                                    std::format( "Thumbnail {}",
-                                                 std::filesystem::path( item.Path ).filename().generic_string() ),
-                                    judgedDone++, judgedTotal );
+                Assets::ReportItem(
+                     progress,
+                     std::format( "Thumbnail {}", std::filesystem::path( item.Path ).filename().generic_string() ),
+                     judgedDone++, judgedTotal );
                 if ( item.Kind != WarmKind::Decoded )
                     (void)needsCapture( item );
                 if ( item.Kind == WarmKind::Decoded )
