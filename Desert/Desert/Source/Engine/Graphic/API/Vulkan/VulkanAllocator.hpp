@@ -31,7 +31,6 @@ namespace Desert::Graphic::API::Vulkan
         VkImage                  Image;
         VmaAllocation            Allocation;
         VkImageView              ImageView;
-        VkSampler                Sampler;
         std::vector<VkImageView> MipImageViews;
         uint32_t                 FrameIndex;
     };
@@ -95,8 +94,8 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] static std::size_t AllocationSize( VmaAllocation allocation );
 
         void RT_DestroyBuffer( VkBuffer buffer, VmaAllocation allocation );
+        // An image's sampler is not its own (VulkanSamplerCache owns every VkSampler), so it is not queued here.
         void RT_DestroyImage( VkImage image, VmaAllocation allocation, VkImageView imageView = VK_NULL_HANDLE,
-                              VkSampler sampler = VK_NULL_HANDLE,
                               const std::vector<VkImageView>& mipImageViews = {} );
         void RT_DestroyFramebuffer( VkFramebuffer framebuffer );
         void RT_DestroyRenderPass( VkRenderPass renderPass );

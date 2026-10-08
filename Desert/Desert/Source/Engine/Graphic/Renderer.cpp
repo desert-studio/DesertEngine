@@ -285,7 +285,8 @@ namespace Desert::Graphic
 
     void Renderer::RecreateImageSamplers()
     {
-        // Idle first: we destroy/recreate VkSamplers that in-flight frames may still reference.
+        // Each image re-points at the sampler the new setting names (the device's VulkanSamplerCache); the old
+        // sampler is never destroyed here. Idle first anyway: the image descriptors are rewritten next frame.
         WaitDeviceIdle();
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
         for ( const auto& image : imageService->All() )
@@ -315,7 +316,6 @@ namespace Desert::Graphic
         Runtime::ResourceRegistry::ClearAll();
         Geometry::PrimitiveMeshFactory::ReleaseShared();
 
-        API::Vulkan::ReleaseSlotSamplers();
         if ( const auto released = FallbackTextures::Get().Release(); !released )
         {
             LOG_ERROR( "[Renderer] fallback textures were not released: {}", released.GetError() );

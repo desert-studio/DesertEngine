@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -91,8 +92,8 @@ namespace Desert::Graphic::API::Vulkan
         // @p slot is the material slot's state (Core::Formats::SamplerState); the default state is exactly
         // the REPEAT/global-filter sampler every image carries, so an image's own sampler and a slot's
         // default one are the same VkSamplerCreateInfo.
-        static void CreateSampler( VkDevice device, VkSampler& outSampler, SamplerFilterPolicy policy,
-                                   const Core::Formats::SamplerState& slot = {} )
+        static VkSamplerCreateInfo SamplerCreateInfo( SamplerFilterPolicy                policy,
+                                                      const Core::Formats::SamplerState& slot = {} )
         {
             // The machine's global filter (Common::Settings::MachineSettings, pushed into RenderConfig by
             // SceneRenderer): Nearest | Bilinear (linear, nearest mip) | Trilinear | Anisotropic.
@@ -150,7 +151,18 @@ namespace Desert::Graphic::API::Vulkan
                                "A volume sampler must be LINEAR/REPEAT regardless of the texture filter" );
             }
 
-            VK_CHECK_RESULT( vkCreateSampler( device, &info, nullptr, &outSampler ) );
+            return info;
+        }
+
+        // The engine device's sampler for this state (VulkanSamplerCache: one VkSampler per distinct state, owned
+        // by the device — an image or a slot only points at it). A refusal here is the device running out of
+        // samplers or a create info the cache cannot key, never a state to paper over.
+        static VkSampler AcquireSampler( SamplerFilterPolicy policy, const Core::Formats::SamplerState& slot = {} )
+        {
+            const Common::ResultStr<VkSampler> sampler =
+                 EngineSamplerCache().Acquire( SamplerCreateInfo( policy, slot ) );
+            DESERT_VERIFY( sampler.IsSuccess(), "{}", sampler.IsSuccess() ? std::string{} : sampler.GetError() );
+            return sampler.GetValue();
         }
 
         static VkImageView CreateView( VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspect, 
@@ -232,7 +244,7 @@ namespace Desert::Graphic::API::Vulkan
         DropGraphTexture(); // its views name the VkImage released below
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
-        allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_Resource.Sampler, m_MipViews );
+        allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_MipViews );
         m_Resource = {}; m_MipViews.clear(); m_IsLoaded = false;
         return BOOLSUCCESS;
     }
@@ -519,7 +531,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
 
         if ( m_Specification.Properties & Core::Formats::Sample )
-            Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::SamplerFilterPolicy::Global );
+            m_Resource.Sampler = Utils::AcquireSampler( Utils::SamplerFilterPolicy::Global );
 
         for ( uint32_t i = 0; i < m_Resource.MipLevels; ++i )
             m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, 1, i ) );
@@ -969,7 +981,7 @@ namespace Desert::Graphic::API::Vulkan
         DropGraphTexture(); // its views name the VkImage released below
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
-        allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_Resource.Sampler, m_MipViews );
+        allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_MipViews );
         m_Resource = {};
         m_MipViews.clear();
         return BOOLSUCCESS;
@@ -1052,7 +1064,7 @@ namespace Desert::Graphic::API::Vulkan
         RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
 
         m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, 6, m_Resource.MipLevels );
-        Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::SamplerFilterPolicy::Global );
+        m_Resource.Sampler = Utils::AcquireSampler( Utils::SamplerFilterPolicy::Global );
 
         for ( uint32_t i = 0; i < m_Resource.MipLevels; ++i )
             m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, 6, 1, i ) );
@@ -1358,8 +1370,7 @@ namespace Desert::Graphic::API::Vulkan
                               .get();
         // Deferred by frame index inside the allocator, so a volume released while a frame that still
         // references it is in flight is destroyed only once the GPU is done with it.
-        allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView,
-                                    m_Resource.Sampler, m_MipViews );
+        allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_MipViews );
         m_Resource = {};
         m_MipViews.clear();
         return BOOLSUCCESS;
@@ -1452,7 +1463,7 @@ namespace Desert::Graphic::API::Vulkan
                                                  VK_IMAGE_VIEW_TYPE_3D, 1, 1 ) );
 
         if ( m_Specification.Properties & Core::Formats::Sample )
-            Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::SamplerFilterPolicy::AlwaysLinear );
+            m_Resource.Sampler = Utils::AcquireSampler( Utils::SamplerFilterPolicy::AlwaysLinear );
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )
@@ -1559,14 +1570,11 @@ namespace Desert::Graphic::API::Vulkan
 
     // --- Live sampler recreation (texture-filter setting change) ---
 
+    // The state the setting now names, from the device's cache. Nothing is destroyed: the previous sampler is
+    // the cache's too and stays valid for any descriptor that still names it (VulkanSamplerCache).
     static void RecreateSamplerImpl( VulkanImageResource& res, Utils::SamplerFilterPolicy policy )
     {
-        auto vkDevice =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-        if ( res.Sampler )
-            vkDestroySampler( vkDevice, res.Sampler, nullptr );
-        res.Sampler = VK_NULL_HANDLE;
-        Utils::CreateSampler( vkDevice, res.Sampler, policy );
+        res.Sampler = Utils::AcquireSampler( policy );
     }
 
     void VulkanImage2D::RecreateSampler()
@@ -1586,58 +1594,13 @@ namespace Desert::Graphic::API::Vulkan
             RecreateSamplerImpl( m_Resource, Utils::SamplerFilterPolicy::AlwaysLinear );
     }
 
-    // --- Slot sampler cache (MAT1s): one sampling state, one VkSampler ---
+    // --- Slot samplers (MAT1s) ---
     //
-    // A material slot that states a non-default SamplerState (clamp, mirror, nearest) does not use the
-    // image's own sampler; it takes one from here. The key carries the global texture-filter setting too,
-    // so a filter change mints new samplers instead of recreating ones a descriptor may still point at; the
-    // superseded ones live until ReleaseSlotSamplers at device teardown (a handful at most: 3*3*2 states
-    // times the settings a session visits).
-    namespace
-    {
-        struct SlotSamplerCache
-        {
-            std::mutex                              Mutex;
-            std::unordered_map<uint64_t, VkSampler> Samplers;
-        };
-
-        SlotSamplerCache& SlotSamplers()
-        {
-            static SlotSamplerCache cache;
-            return cache;
-        }
-    } // namespace
-
+    // A material slot that states a non-default SamplerState (clamp, mirror, nearest) does not use the image's own
+    // sampler; it takes the one for its state from the device's sampler cache. The state carries the global
+    // texture filter, so a filter change names a new sampler instead of recreating one a descriptor still uses.
     VkSampler AcquireSlotSampler( const Core::Formats::SamplerState& state )
     {
-        // The resolved anisotropy level already folds in the device's limit (Scalability::Resolve narrows it to
-        // CapabilityCatalog::AnisotropyLevels), so the global filter state is TextureFilter + AnisotropyLevel.
-        const uint64_t key =
-             static_cast<uint64_t>( state.Key() ) |
-             ( static_cast<uint64_t>( Graphic::RenderConfig::TextureFilter.load() & 0xFF ) << 16 ) |
-             ( static_cast<uint64_t>( Graphic::RenderConfig::AnisotropyLevel.load() & 0xFF ) << 24 );
-        auto&                             cache = SlotSamplers();
-        const std::lock_guard<std::mutex> lock( cache.Mutex );
-        if ( const auto it = cache.Samplers.find( key ); it != cache.Samplers.end() )
-            return it->second;
-        VkSampler sampler = VK_NULL_HANDLE;
-        Utils::CreateSampler(
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice(),
-             sampler, Utils::SamplerFilterPolicy::Global, state );
-        cache.Samplers.emplace( key, sampler );
-        return sampler;
-    }
-
-    void ReleaseSlotSamplers()
-    {
-        auto&                             cache = SlotSamplers();
-        const std::lock_guard<std::mutex> lock( cache.Mutex );
-        if ( cache.Samplers.empty() )
-            return;
-        VkDevice device =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-        for ( const auto& [key, sampler] : cache.Samplers )
-            vkDestroySampler( device, sampler, nullptr );
-        cache.Samplers.clear();
+        return Utils::AcquireSampler( Utils::SamplerFilterPolicy::Global, state );
     }
 } // namespace Desert::Graphic::API::Vulkan
