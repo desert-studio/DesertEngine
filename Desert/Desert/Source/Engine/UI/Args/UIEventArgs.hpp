@@ -49,7 +49,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::PointerEvents;
+        static constexpr ArgKind Arg = ArgKind::PointerEvents;
 
         PROPERTY( DisplayName( "On Enter" ), Category( "UI Pointer Events" ) )
         std::string OnEnterMessage;
@@ -82,7 +82,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Draggable;
+        static constexpr ArgKind Arg = ArgKind::Draggable;
 
         PROPERTY( DisplayName( "Payload" ), Category( "UI Drag" ) )
         std::string Payload; // e.g. "item:sword" — a drop target filters on its prefix
@@ -97,7 +97,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::DropTarget;
+        static constexpr ArgKind Arg = ArgKind::DropTarget;
 
         PROPERTY( DisplayName( "Accepts (prefix)" ), Category( "UI Drop" ) )
         std::string Accepts; // "" = anything; "item:" = only payloads starting with it

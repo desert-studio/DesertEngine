@@ -26,7 +26,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::LayoutGroup;
+        static constexpr ArgKind Arg = ArgKind::LayoutGroup;
 
         PROPERTY( DisplayName( "Type" ), Category( "UI Layout Group" ) )
         UILayoutType Type = UILayoutType::Vertical;
@@ -128,7 +128,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Layout;
+        static constexpr ArgKind Arg = ArgKind::Layout;
 
         PROPERTY( DisplayName( "Anchor Min" ), Category( "UI Layout" ) )
         glm::vec2 AnchorMin = glm::vec2( 0.0f, 0.0f );

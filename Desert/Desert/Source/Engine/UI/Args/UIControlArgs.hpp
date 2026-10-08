@@ -18,7 +18,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::ProgressBar;
+        static constexpr ArgKind Arg = ArgKind::ProgressBar;
 
         PROPERTY( DisplayName( "Value" ), Category( "UI Progress Bar" ), Range( 0.0f, 1.0f ) )
         float Value = 0.5f;
@@ -38,7 +38,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Toggle;
+        static constexpr ArgKind Arg = ArgKind::Toggle;
 
         PROPERTY( DisplayName( "Value (on)" ), Category( "UI Toggle" ) )
         bool Value = false;
@@ -59,7 +59,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Slider;
+        static constexpr ArgKind Arg = ArgKind::Slider;
 
         PROPERTY( DisplayName( "Value" ), Category( "UI Slider" ) )
         float Value = 0.5f;
@@ -86,7 +86,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::InputField;
+        static constexpr ArgKind Arg = ArgKind::InputField;
 
         PROPERTY( DisplayName( "Text" ), Category( "UI Input Field" ) )
         std::string Text;
@@ -122,7 +122,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Dropdown;
+        static constexpr ArgKind Arg = ArgKind::Dropdown;
 
         // EACH OPTION is localisable on its own — a leading hash on one entry makes that entry a key, and
         // the separator is not part of any of them. Per option rather than per list because a dropdown

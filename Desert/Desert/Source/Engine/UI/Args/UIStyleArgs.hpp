@@ -39,7 +39,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Style;
+        static constexpr ArgKind Arg = ArgKind::Style;
 
         PROPERTY( DisplayName( "Source" ), Category( "UI Style" ),
                   Tooltip( "Theme: bound slots come from the canvas's theme, the rest from this element. "

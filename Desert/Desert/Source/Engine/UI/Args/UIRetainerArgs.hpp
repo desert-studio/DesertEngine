@@ -21,7 +21,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Retainer;
+        static constexpr ArgKind Arg = ArgKind::Retainer;
 
         PROPERTY( DisplayName( "Opacity" ), Category( "UI Retainer" ), Range( 0.0f, 1.0f ) )
         float Opacity = 1.0f;

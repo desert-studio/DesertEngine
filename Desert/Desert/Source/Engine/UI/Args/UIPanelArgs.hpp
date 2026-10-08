@@ -17,7 +17,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Panel;
+        static constexpr ArgKind Arg = ArgKind::Panel;
 
         PROPERTY( DisplayName( "Color" ), Category( "UI Panel" ), Color )
         glm::vec3 Color = glm::vec3( 0.15f, 0.16f, 0.2f );

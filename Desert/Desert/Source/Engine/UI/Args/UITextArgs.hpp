@@ -43,7 +43,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Text;
+        static constexpr ArgKind Arg = ArgKind::Text;
 
         // A LEADING '#' MAKES THIS A KEY into the project's string tables ("#menu.play"); anything else is
         // a literal and is never translated. '##' at the start is an escape for a literal '#'. One field,

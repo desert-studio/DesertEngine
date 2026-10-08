@@ -35,7 +35,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Binding;
+        static constexpr ArgKind Arg = ArgKind::Binding;
 
         // NOTE: the header tool reads a tooltip up to the first quote, so keep literals out of them.
         PROPERTY( DisplayName( "Key" ), Category( "UI Binding" ),

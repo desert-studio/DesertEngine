@@ -36,7 +36,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Tween;
+        static constexpr ArgKind Arg = ArgKind::Tween;
 
         PROPERTY( DisplayName( "Property" ), Category( "UI Tween" ) )
         UITweenProperty Property = UITweenProperty::Offset;

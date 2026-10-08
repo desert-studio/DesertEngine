@@ -19,7 +19,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Screen;
+        static constexpr ArgKind Arg = ArgKind::Screen;
 
         PROPERTY( DisplayName( "Screen Name" ), Category( "UI Screen" ) )
         std::string Name; // referenced by a ShowScreen button; empty = never selectable
@@ -31,7 +31,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::ScreenStack;
+        static constexpr ArgKind Arg = ArgKind::ScreenStack;
 
         PROPERTY( DisplayName( "Initial Screen" ), Category( "UI Screens" ) )
         std::string InitialScreen; // empty = the first UIScreen found

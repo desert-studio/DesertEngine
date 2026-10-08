@@ -21,7 +21,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Icon;
+        static constexpr ArgKind Arg = ArgKind::Icon;
 
         PROPERTY( DisplayName( "Icon" ), Category( "UI Icon" ), Asset<IconAsset> )
         Assets::AssetHandle Icon; // .svg vector icon — drag one from the Content Browser or pick a built-in
@@ -40,7 +40,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Image;
+        static constexpr ArgKind Arg = ArgKind::Image;
 
         PROPERTY( DisplayName( "Sprite" ), Category( "UI Image" ), Asset<TextureAsset> )
         Assets::AssetHandle Sprite; // drag a texture (PNG/JPG/TGA/GIF) from the Content Browser
@@ -76,7 +76,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::RenderTexture;
+        static constexpr ArgKind Arg = ArgKind::RenderTexture;
 
         // The scene to render, as a path a host can open ("Resources/Assets/Scenes/UI_Portrait.desce").
         // A PATH at runtime and not an AssetHandle because there is no SceneAsset type and no service that

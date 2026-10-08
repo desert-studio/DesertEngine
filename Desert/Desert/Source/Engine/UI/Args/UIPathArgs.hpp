@@ -35,7 +35,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Path;
+        static constexpr ArgKind Arg = ArgKind::Path;
 
         PROPERTY( DisplayName( "Curve" ), Category( "UI Path" ) )
         UIPathCurve Curve = UIPathCurve::Smooth;

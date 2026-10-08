@@ -40,7 +40,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Button;
+        static constexpr ArgKind Arg = ArgKind::Button;
 
         PROPERTY( DisplayName( "Normal" ), Category( "UI Button" ), Color )
         glm::vec3 NormalColor = glm::vec3( 0.20f, 0.40f, 0.70f );

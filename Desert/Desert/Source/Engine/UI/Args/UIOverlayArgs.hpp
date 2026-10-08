@@ -60,7 +60,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Overlay;
+        static constexpr ArgKind Arg = ArgKind::Overlay;
 
         PROPERTY( DisplayName( "Kind" ), Category( "UI Overlay" ) )
         UIOverlayKind Kind = UIOverlayKind::Tooltip;
@@ -130,7 +130,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::OverlayTrigger;
+        static constexpr ArgKind Arg = ArgKind::OverlayTrigger;
 
         PROPERTY( DisplayName( "Overlay" ), Category( "UI Overlay Trigger" ) )
         std::string Overlay; // the UIOverlayData::Name to open

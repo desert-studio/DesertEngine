@@ -4,7 +4,7 @@
 
 namespace Desert::UI
 {
-    // Which authored argument a UI*Data is. Each *Data in Engine/UI/Args names its own as `Kind`, so code
+    // Which authored argument a UI*Data is. Each *Data in Engine/UI/Args names its own as `Arg`, so code
     // that is handed "the arguments of a node" can ask for one by kind without knowing who stores them
     // (today the ECS wraps every *Data in a UI*Component; the tree interface asks through this key).
     enum class ArgKind : uint8_t

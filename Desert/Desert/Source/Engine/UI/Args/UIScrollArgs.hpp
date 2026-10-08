@@ -19,7 +19,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::ScrollView;
+        static constexpr ArgKind Arg = ArgKind::ScrollView;
 
         PROPERTY( DisplayName( "Scroll Y" ), Category( "UI Scroll View" ) )
         float ScrollY = 0.0f;
@@ -60,7 +60,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::ListView;
+        static constexpr ArgKind Arg = ArgKind::ListView;
 
         PROPERTY( DisplayName( "Scroll Y" ), Category( "UI List View" ) )
         float ScrollY = 0.0f;

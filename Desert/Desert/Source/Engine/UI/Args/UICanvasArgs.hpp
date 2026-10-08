@@ -43,7 +43,7 @@ namespace Desert::UI
     {
         REFLECT()
 
-        static constexpr ArgKind Kind = ArgKind::Canvas;
+        static constexpr ArgKind Arg = ArgKind::Canvas;
 
         PROPERTY( DisplayName( "Scale Mode" ), Category( "UI Canvas" ) )
         UICanvasScaleMode ScaleMode = UICanvasScaleMode::Stretch;
