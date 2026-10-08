@@ -31,25 +31,25 @@ namespace Desert::Graphic
     // door — every material in this engine binds by NAME, so one function serves every shader that
     // declares the block, whatever slot number it chose for it.
     //
-    // These bodies used to be static members of the former PBR base class taking a MaterialInstance*, which each
+    // These bodies used to be static members of the former lit base class taking a MaterialInstance*, which each
     // immediately turned into GetParentMaterial(). That signature is what kept them out of reach of the
     // generic (data-driven) mesh path, which draws through a Material with no instance at all — and the
     // consequence was not "generic materials get a bit less". It was that MeshRenderer::DrawGenericMeshes
     // grew its OWN filler for the three blocks it happened to need (CameraUB, TimeUB, DirectionLightsUB),
     // which is a second implementation of the same job, and the blocks it did not think of — the
-    // environment cubes, the light counts, the point and spot buffers, the cloud shadow — reached the PBR
+    // environment cubes, the light counts, the point and spot buffers, the cloud shadow — reached the lit
     // materials and nothing else. A custom-shader mesh therefore could not be lit like the mesh beside it
     // however its shader was written.
     //
     // EVERY LOOKUP IS GUARDED. A material whose shader does not declare a block gets nothing written and
     // no complaint: that is not a silent fallback, it is the whole mechanism by which one frame-state
-    // applier serves the PBR shaders, the terrain, an unlit graph material and the text system's SDF
+    // applier serves the lit shaders, the terrain, an unlit graph material and the text system's SDF
     // quads. `LightsMetadata` in particular used to be dereferenced unguarded, which was a null crash
     // waiting for the first material without it — and the first material without it is every unlit
     // generic shader the moment it is handed the same snapshot.
     //
     // The BLOCK LAYOUT and the block NAMES are not restated here; they are SceneResources', which is
-    // where Desert/Tests/Engine/PBRSceneFrame asserts them against the reflected GLSL. One mirror, so a
+    // where Desert/Tests/Engine/SceneFrameBinding asserts them against the reflected GLSL. One mirror, so a
     // writer and a test cannot end up describing two different ShadowUBs.
     // ------------------------------------------------------------------------------------------------
 
@@ -136,7 +136,7 @@ namespace Desert::Graphic
         // The block's layout and its cascade count are NOT restated here. They are one mirror
         // (SceneResources::ShadowUBData / ::kMaxCascades), and the reason is the defect shape this whole
         // seam exists to remove: a second declaration of one layout is a disagreement waiting to happen,
-        // and Desert/Tests/Engine/PBRSceneFrame asserts that mirror against the reflected GLSL block —
+        // and Desert/Tests/Engine/SceneFrameBinding asserts that mirror against the reflected GLSL block —
         // an assertion a private copy here would quietly stop covering.
         constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
 

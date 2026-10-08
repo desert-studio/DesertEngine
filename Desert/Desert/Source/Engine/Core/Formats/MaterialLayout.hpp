@@ -59,7 +59,7 @@ namespace Desert::Core::Formats
     // Which groups of SCENE state a template reads — the frame's contribution to a surface, as opposed to
     // the material's own row and textures. Filled by Graphic::ShaderReflection::ReconcileCellLayout from the
     // resource names the compiled stages declare (Graphic::SceneResources is the one name table), and read
-    // by Graphic::PBRSceneFrame::ApplyTo, which writes exactly these groups. A capability of the TEMPLATE,
+    // by Graphic::SceneFrameBinding::ApplyTo, which writes exactly these groups. A capability of the TEMPLATE,
     // so any surface — the shipped lit one or a data-driven one — that samples the shadow map is handed the
     // cascades for that reason alone.
     enum class SceneRead : uint32_t

@@ -2,9 +2,9 @@
 -- Attach to any mesh entity (Details -> Add Component -> Script) and press Play.
 --
 -- Showcases the scripting API:
---   self:setMaterialParam(name, x, y, z, w)  -- params by shader-schema name (PBR or custom)
+--   self:setMaterialParam(name, x, y, z, w)  -- params by shader-schema name (Lit or custom)
 --   self:getMaterialParam(name)              -- -> x, y, z, w
---   self:setShader(name) / self:getShader()  -- assign a surface shader ("" = PBR slots)
+--   self:setShader(name) / self:getShader()  -- assign a surface shader ("" = Lit slots)
 --   Log.info / Log.warn / Log.error          -- leveled output into the Logs panel
 --
 -- Edit this file while the scene is PLAYING — it hot-reloads on save.
@@ -31,7 +31,7 @@ function OnUpdate(dt)
     local g = 0.5 + 0.5 * math.sin(t + 2.094)
     local b = 0.5 + 0.5 * math.sin(t + 4.188)
 
-    -- Same param name drives the PBR tint AND the Unlit shader's Color — one protocol.
+    -- Same param name drives the lit tint AND the Unlit shader's Color — one protocol.
     if self:getShader() == "Unlit" then
         self:setMaterialParam("Color", r, g, b, 1.0)
     else

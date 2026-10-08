@@ -158,13 +158,13 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
                                       << " material(s) did not resolve their shader:" << joined;
 
     // THE TEMPLATE REGISTRY over the engine corpus: each role and the default are declared by exactly one file.
-    const auto pbr = Desert::Assets::FindTemplateByRole( manager, Common::Content::kPBRSurfaceRole );
-    ASSERT_TRUE( pbr ) << pbr.GetError();
+    const auto standard = Desert::Assets::FindTemplateByRole( manager, Common::Content::kStandardSurfaceRole );
+    ASSERT_TRUE( standard ) << standard.GetError();
     const auto debugColor = Desert::Assets::FindTemplateByRole( manager, Common::Content::kDebugColorRole );
     ASSERT_TRUE( debugColor ) << debugColor.GetError();
     const auto byDefault = Desert::Assets::FindDefaultSurfaceTemplate( manager, "", "" );
     ASSERT_TRUE( byDefault ) << byDefault.GetError();
-    EXPECT_EQ( byDefault.GetValue(), pbr.GetValue() ) << "StandardSurface.shader declares `Default Surface`";
+    EXPECT_EQ( byDefault.GetValue(), standard.GetValue() ) << "StandardSurface.shader declares `Default Surface`";
 }
 
 namespace
@@ -260,11 +260,11 @@ TEST( EngineShaderByGuid, RenamingTheShaderDoesNotChangeResolution )
     }
 }
 
-// THE ROLE IS NOT READ FROM A SHELL (THM1n-10). The PBR surface template registered UNREAD (the boot scan's
+// THE ROLE IS NOT READ FROM A SHELL (THM1n-10). The lit surface template registered UNREAD (the boot scan's
 // loadAfterCreate=false) or EVICTED (ShaderAsset::Unload clears the Role) answered an empty role, the material
-// took 'StaticMeshPBR' for a custom DSL shader, the material build refused its (Skinned x Forward) cell, and the
+// took 'StaticMeshLit' for a custom DSL shader, the material build refused its (Skinned x Forward) cell, and the
 // skinned thumbnail drew the sky. Resolving loads the template as the dependency the header says it is.
-TEST( EngineShaderByGuid, ThePBRSurfaceRoleIsReadFromAnUnreadOrEvictedShader )
+TEST( EngineShaderByGuid, TheStandardSurfaceRoleIsReadFromAnUnreadOrEvictedShader )
 {
     const ScratchDir dir;
     const fs::path   material = WriteMaterial(
@@ -276,7 +276,7 @@ TEST( EngineShaderByGuid, ThePBRSurfaceRoleIsReadFromAnUnreadOrEvictedShader )
     {
         Desert::Assets::AssetManager manager;
         const auto                   shader = manager.CreateAsset<Desert::Assets::ShaderAsset>(
-             WriteMockShader( dir.Root, "MockPBR", kMockGuidA, "    Role PBRSurface\n" ),
+             WriteMockShader( dir.Root, "MockStandardSurface", kMockGuidA, "    Role StandardSurface\n" ),
              /*loadAfterCreate=*/!unread );
         ASSERT_TRUE( shader );
         if ( unread )
@@ -286,10 +286,10 @@ TEST( EngineShaderByGuid, ThePBRSurfaceRoleIsReadFromAnUnreadOrEvictedShader )
         Desert::Assets::SurfaceMaterialAsset asset( material );
         ASSERT_TRUE( asset.LoadFromFile() );
         asset.ResolveDependencies( manager );
-        EXPECT_EQ( asset.GetShaderName(), "MockPBR" );
+        EXPECT_EQ( asset.GetShaderName(), "MockStandardSurface" );
         EXPECT_FALSE( asset.UsesCustomShader() )
              << ( unread ? "an unread" : "an evicted" )
-             << " PBRSurface template was taken for a custom shader: its role was read from an empty manifest";
+             << " StandardSurface template was taken for a custom shader: its role was read from an empty manifest";
     }
 }
 
@@ -389,22 +389,22 @@ namespace
     }
 } // namespace
 
-// A MaterialComponent's Shader names an override only (MAT1g): the PBRSurface template is refused
+// A MaterialComponent's Shader names an override only (MAT1g): the StandardSurface template is refused
 // with the path the reference states - not dropped, not substituted - and any other template resolves.
-TEST( EngineShaderByGuid, AComponentShaderNamingThePBRSurfaceTemplateIsRefused )
+TEST( EngineShaderByGuid, AComponentShaderNamingTheStandardSurfaceTemplateIsRefused )
 {
     const ScratchDir             dir;
     Desert::Assets::AssetManager manager;
     ASSERT_TRUE( manager.CreateAsset<Desert::Assets::ShaderAsset>(
-         WriteMockShader( dir.Root, "MockPBR", kMockGuidA, "    Role PBRSurface\n" ) ) );
+         WriteMockShader( dir.Root, "MockStandardSurface", kMockGuidA, "    Role StandardSurface\n" ) ) );
     ASSERT_TRUE( manager.CreateAsset<Desert::Assets::ShaderAsset>(
          WriteMockShader( dir.Root, "MockOverride", kMockGuidB, "" ) ) );
     const Desert::Assets::AssetRefSite site{ "shader", "Material.Shader", "Entities[id=1]" };
 
     const auto refused = Desert::Assets::FindOverrideShaderNameByRef(
-         manager, { kMockGuidA, "Resources/Shaders/MockPBR.shader" }, site );
-    ASSERT_FALSE( refused ) << "the PBRSurface template was accepted as an override";
-    EXPECT_NE( refused.GetError().find( "Resources/Shaders/MockPBR.shader" ), std::string::npos )
+         manager, { kMockGuidA, "Resources/Shaders/MockStandardSurface.shader" }, site );
+    ASSERT_FALSE( refused ) << "the StandardSurface template was accepted as an override";
+    EXPECT_NE( refused.GetError().find( "Resources/Shaders/MockStandardSurface.shader" ), std::string::npos )
          << refused.GetError();
     EXPECT_NE( refused.GetError().find( "Entities[id=1]" ), std::string::npos ) << refused.GetError();
 

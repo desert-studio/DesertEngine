@@ -37,7 +37,7 @@ Shader "Toon"
         // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
         // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
         // whereas (0.5,0.5,1) decodes to +Z, which is what "this surface has no normal detail" means.
-        // The fragment stages here, in StaticMeshGBuffer and in StaticMeshPBR_Instanced all guard with
+        // The fragment stages here, in StaticMeshGBuffer and in StaticMeshLit_Instanced all guard with
         // `textureSize(u_NormalTexture,0).x > 1` and skip a 1x1, so this changes no pixel today; it is
         // written down so the guard is a fast path rather than the only thing standing between an empty
         // slot and a wrong normal.
@@ -65,22 +65,22 @@ Shader "Toon"
             vec2 tiling = u_Material.UVTiling;
             if ( tiling.x <= 0.0 ) tiling.x = 1.0;
             if ( tiling.y <= 0.0 ) tiling.y = 1.0;
-            const vec2 uv = PBRTransformUV( PBRSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
+            const vec2 uv = SurfaceTransformUV( SurfaceSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
                                             u_Material.UVRotation );
             const float mask = texture( u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
             if ( u_Material.AlphaCutoff > 0.0 && mask < u_Material.AlphaCutoff )
                 discard;
-            s.BaseColor = PBRBaseColor( u_Material.AlbedoColor.rgb,
+            s.BaseColor = SurfaceBaseColor( u_Material.AlbedoColor.rgb,
                                         pow( texture( u_AlbedoTexture, uv ).rgb, vec3( 2.2 ) ), vec3( 1.0 ) );
             const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
-                s.Normal = PBRScaleTangentNormal( SampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
-            const vec3 orm = PBRResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.OcclusionStrength,
+                s.Normal = SurfaceScaleTangentNormal( SampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
+            const vec3 orm = SurfaceResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.OcclusionStrength,
                                             u_Material.RoughnessFactor, u_Material.MetallicFactor );
             s.Metallic          = orm.z;
             s.Roughness         = orm.y;
             s.AmbientOcclusion  = u_Material.AOStrength * orm.x;
-            s.Emissive          = PBREmission( pow( texture( u_EmissiveTexture, uv ).rgb, vec3( 2.2 ) ),
+            s.Emissive          = SurfaceEmission( pow( texture( u_EmissiveTexture, uv ).rgb, vec3( 2.2 ) ),
                                                u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = u_Material.ReceiveSunShadows;

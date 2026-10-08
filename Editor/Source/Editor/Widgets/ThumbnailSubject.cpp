@@ -60,7 +60,7 @@ namespace Desert::Editor::ThumbnailSubject
         const ::Desert::Core::Formats::ShaderDomain domain = shader->GetProgramMeta().Domain;
 
         // The domain alone decides. A masked material is NOT flattened onto a card: it goes on the ball
-        // like any other surface and the mesh path's alpha discard cuts it (StaticMeshPBR.shader).
+        // like any other surface and the mesh path's alpha discard cuts it (StaticMeshLit.shader).
         if ( const auto how =
                   PreviewForMaterial( domain, asset.Data().ThumbnailOrDefault().PreviewMesh.has_value() ) )
             return Common::MakeSuccess( *how );
@@ -230,7 +230,7 @@ namespace Desert::Editor::ThumbnailSubject
         // used to sit inside the create branch above, so a material the PRELOADER had already registered
         // never got one — and the boot scanner of the time registered every `.demat` under MATERIAL_PATH
         // with `loadAfterCreate=false`, i.e. as an unparsed shell; on-demand shells are created the same way. A
-        // shell states no ShaderName, `SurfaceMaterialAsset::GetShaderName()` answers "StaticMeshPBR", and every
+        // shell states no ShaderName, `SurfaceMaterialAsset::GetShaderName()` answers "StaticMeshLit", and every
         // question below was then answered about a material that does not exist.
         //
         // MEASURED, because this is what it cost: on a clean start of this repository the sweep resolved

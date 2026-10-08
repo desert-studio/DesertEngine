@@ -4430,7 +4430,7 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     for ( const DeclaredBindingEntry& entry : glassBlock.Block.Entries )
         EXPECT_EQ( entry.ShaderName.rfind( "u_ShadowMap", 0 ), std::string::npos ) << entry.ShaderName;
 
-    ShaderBindingLayout lit{ "StaticMeshPBR", SceneViewSlotsWithoutCascades(), 0 };
+    ShaderBindingLayout lit{ "StaticMeshLit", SceneViewSlotsWithoutCascades(), 0 };
     for ( const std::string_view name : Desert::Graphic::kSceneViewShadowMapNames )
         lit.Slots.push_back( { std::string( name ), ShaderResourceKind::SampledTexture } );
     CollectedBlock litBlock;

@@ -33,7 +33,7 @@
 #     CloudNoiseVolume 6.88   NewCloudAsset 6.63   CloudPlacementSpectrum 5.41
 #     CloudProceduralField 4.25   CloudField 2.57
 #     MeshVertexPath 1.00   PureVirtualCensus 0.99   CloudType 0.90
-#     ShaderCacheKey 0.88   PBRSceneFrame 0.85
+#     ShaderCacheKey 0.88   SceneFrameBinding 0.85
 #
 # The parallel ones size their pools from `std::thread::hardware_concurrency()`
 # (Common/Core/JobSystem.cpp, Engine/Assets/CloudNoiseVolumeGenerator.cpp), so on a four-core runner

@@ -487,11 +487,11 @@ TEST( AtmosphereSunRules, TheTravelDirectionIsUnitLengthOrAbsent )
 //
 // The shadow pass draws a mesh WHOLE (no submesh mask — depth is material-independent), so the caster
 // belongs to the entity and exactly one of its draws may carry it. These tests are the double-caster
-// guard: a mesh split across a custom slot and a PBR slot must appear in a cascade ONCE.
+// guard: a mesh split across a custom slot and a lit slot must appear in a cascade ONCE.
 
 TEST( MeshShadowCasterRules, CastShadowsOffMeansNobodyCasts )
 {
-    // Every shape of entity, all silent when the flag is off — including the ones that have no PBR
+    // Every shape of entity, all silent when the flag is off — including the ones that have no lit
     // draw at all, which is exactly where a "well, SOMEBODY should cast" fallback would creep in.
     EXPECT_EQ( RouteMeshShadowCaster( false, false, 0, true ), MeshShadowCaster::None );
     EXPECT_EQ( RouteMeshShadowCaster( false, true, 0, false ), MeshShadowCaster::None );
@@ -499,16 +499,16 @@ TEST( MeshShadowCasterRules, CastShadowsOffMeansNobodyCasts )
     EXPECT_EQ( RouteMeshShadowCaster( false, false, 2, true ), MeshShadowCaster::None );
 }
 
-TEST( MeshShadowCasterRules, PlainPbrMeshStillCastsFromItsPbrDraw )
+TEST( MeshShadowCasterRules, PlainSurfaceMeshStillCastsFromItsSurfaceDraw )
 {
     // The pre-existing behaviour, pinned: introducing generic casters must not move the caster of an
-    // ordinary mesh, or every all-PBR scene in the corpus shifts under us.
-    EXPECT_EQ( RouteMeshShadowCaster( true, false, 0, true ), MeshShadowCaster::PbrDraw );
+    // ordinary mesh, or every all-lit scene in the corpus shifts under us.
+    EXPECT_EQ( RouteMeshShadowCaster( true, false, 0, true ), MeshShadowCaster::SurfaceDraw );
 }
 
-TEST( MeshShadowCasterRules, ShaderOverrideCastsBecauseItReplacedThePbrDraw )
+TEST( MeshShadowCasterRules, ShaderOverrideCastsBecauseItReplacedTheSurfaceDraw )
 {
-    // A MaterialComponent naming a non-PBR shader takes the WHOLE entity off the PBR path
+    // A MaterialComponent naming a non-lit shader takes the WHOLE entity off the lit path
     // (MeshECSSystem returns early), so before this rule such a mesh cast no shadow at all — the defect.
     EXPECT_EQ( RouteMeshShadowCaster( true, true, 0, false ), MeshShadowCaster::ShaderOverride );
 
@@ -517,18 +517,18 @@ TEST( MeshShadowCasterRules, ShaderOverrideCastsBecauseItReplacedThePbrDraw )
     EXPECT_EQ( RouteMeshShadowCaster( true, true, 4, true ), MeshShadowCaster::ShaderOverride );
 }
 
-TEST( MeshShadowCasterRules, MixedMeshCastsOnceFromThePbrDrawNotFromBoth )
+TEST( MeshShadowCasterRules, MixedMeshCastsOnceFromTheSurfaceDrawNotFromBoth )
 {
-    // THE double-caster case: submesh 0 on a custom slot material, submesh 1 still PBR. Both draws
+    // THE double-caster case: submesh 0 on a custom slot material, submesh 1 still lit. Both draws
     // exist and either could rasterize the mesh into the cascade — the rule picks one, and it picks
     // the one that was already casting.
-    EXPECT_EQ( RouteMeshShadowCaster( true, false, 1, true ), MeshShadowCaster::PbrDraw );
-    EXPECT_EQ( RouteMeshShadowCaster( true, false, 7, true ), MeshShadowCaster::PbrDraw );
+    EXPECT_EQ( RouteMeshShadowCaster( true, false, 1, true ), MeshShadowCaster::SurfaceDraw );
+    EXPECT_EQ( RouteMeshShadowCaster( true, false, 7, true ), MeshShadowCaster::SurfaceDraw );
 }
 
 TEST( MeshShadowCasterRules, AllSlotsCustomFallsToTheFirstSlotDrawOnly )
 {
-    // Every submesh went custom, so no PBR draw was emitted and the slot draws are all there is.
+    // Every submesh went custom, so no lit draw was emitted and the slot draws are all there is.
     // ONE of them casts — the first — however many there are.
     EXPECT_EQ( RouteMeshShadowCaster( true, false, 1, false ), MeshShadowCaster::FirstSlotDraw );
     EXPECT_EQ( RouteMeshShadowCaster( true, false, 5, false ), MeshShadowCaster::FirstSlotDraw );
@@ -548,23 +548,23 @@ TEST( MeshShadowCasterRules, NeverMoreThanOneCasterForAnyEntityShape )
     for ( int castShadows = 0; castShadows <= 1; ++castShadows )
         for ( int shaderOverride = 0; shaderOverride <= 1; ++shaderOverride )
             for ( size_t slotDraws = 0; slotDraws <= 4; ++slotDraws )
-                for ( int pbrEmitted = 0; pbrEmitted <= 1; ++pbrEmitted )
+                for ( int surfaceEmitted = 0; surfaceEmitted <= 1; ++surfaceEmitted )
                 {
                     const MeshShadowCaster route = RouteMeshShadowCaster( castShadows != 0, shaderOverride != 0,
-                                                                          slotDraws, pbrEmitted != 0 );
+                                                                          slotDraws, surfaceEmitted != 0 );
 
                     // Count the draws that would set CastShadows on their render data.
                     int casters = 0;
-                    casters += ( route == MeshShadowCaster::PbrDraw ) ? 1 : 0;
+                    casters += ( route == MeshShadowCaster::SurfaceDraw ) ? 1 : 0;
                     casters += ( route == MeshShadowCaster::ShaderOverride ) ? 1 : 0;
                     casters += ( route == MeshShadowCaster::FirstSlotDraw ) ? 1 : 0;
 
                     EXPECT_LE( casters, 1 ) << "cast=" << castShadows << " override=" << shaderOverride
-                                            << " slots=" << slotDraws << " pbr=" << pbrEmitted;
+                                            << " slots=" << slotDraws << " standard=" << surfaceEmitted;
 
                     // And a caster is never routed to a draw that was not emitted.
-                    if ( route == MeshShadowCaster::PbrDraw )
-                        EXPECT_TRUE( pbrEmitted != 0 );
+                    if ( route == MeshShadowCaster::SurfaceDraw )
+                        EXPECT_TRUE( surfaceEmitted != 0 );
                     if ( route == MeshShadowCaster::ShaderOverride )
                         EXPECT_TRUE( shaderOverride != 0 );
                     if ( route == MeshShadowCaster::FirstSlotDraw )

@@ -128,7 +128,7 @@ TEST( MaterialDocumentOpen, ARecordIsLoadedByTheEditorsOwnPreparationNotByTheRou
     Assets::MaterialData data;
     const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
     ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
-    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StandardSurface.shader" );
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/Surface/StandardSurface.shader" );
     const auto written = Assets::WriteMaterialFile( tmp.File, data );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
 
@@ -225,7 +225,7 @@ TEST( MaterialDocumentOpen, SavingAnEditedMaterialKeepsTheGuidItsFileStates )
     Assets::MaterialData data;
     const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
     ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
-    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/Surface/StaticMeshLit.shader" );
     const auto written = Assets::WriteMaterialFile( tmp.File, data );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     const auto fileGuid = Assets::ReadTextHeaderGuid( Common::Filepath( tmp.File ) );
@@ -256,7 +256,7 @@ TEST( MaterialDocumentOpen, AnEvictedMaterialRefusesToSaveInsteadOfMintingANewGu
     Assets::MaterialData data;
     const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
     ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
-    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/Surface/StaticMeshLit.shader" );
     ASSERT_TRUE( Assets::WriteMaterialFile( tmp.File, data ).IsSuccess() );
 
     auto record = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Common::Filepath( tmp.File ), false );

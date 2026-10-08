@@ -76,7 +76,7 @@ namespace Common::Content
     // The roles engine code asks the template registry for. A role is declared by the shader file
     // (`Role <Name>`), exactly one loaded shader per role; the asset registry carries it as the Role tag so
     // the world cook knows a material's backend without loading the shader (WorldCells::CustomShaderFrom).
-    inline constexpr std::string_view kPBRSurfaceRole    = "PBRSurface"; // the batched PBR backend (until MAT1a)
+    inline constexpr std::string_view kStandardSurfaceRole    = "StandardSurface"; // the batched lit backend (until MAT1a)
     inline constexpr std::string_view kDebugColorRole    = "DebugColor"; // the scripting flat-colour material
     inline constexpr std::string_view kTerrainRole       = "Terrain";    // a new landscape material's template
     inline constexpr std::string_view kCloudMaterialRole = "CloudMaterial"; // a new cloud material's template

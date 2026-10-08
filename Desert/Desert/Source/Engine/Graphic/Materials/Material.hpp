@@ -53,7 +53,7 @@ namespace Desert::Graphic
 
         // Name the row of the shared `Materials[]` storage buffer that the NEXT recorded draw reads.
         //
-        // ON `Material` AND NOT ON ITS SUBCLASSES BECAUSE THERE IS ONE TRANSPORT. A PBR surface, a shader
+        // ON `Material` AND NOT ON ITS SUBCLASSES BECAUSE THERE IS ONE TRANSPORT. A Lit surface, a shader
         // graph, the terrain and the SDF text all deliver their parameters as a row indexed by a push
         // constant — the push field `MaterialIndex`, found BY NAME in the shader's reconciled MaterialLayout
         // (Graphic/Materials/MaterialBinder.hpp) — so this writes that one field for all of them, and there
@@ -154,7 +154,7 @@ namespace Desert::Graphic
          * the write, and the descriptor went on holding the LAST image assigned. So a material could be
          * given a texture and never have it taken away — clearing the slot in the editor emptied the
          * `.demat` while the surface kept drawing the old map, a file and a picture disagreeing with
-         * nothing in between to notice. This is the same operation for a PBR material and for a
+         * nothing in between to notice. This is the same operation for a lit material and for a
          * data-driven one, so it lives once, on the base both of them are.
          *
          * The default comes from the shader's `Properties … = "white"` (`ShaderParam::DefaultTexture`),

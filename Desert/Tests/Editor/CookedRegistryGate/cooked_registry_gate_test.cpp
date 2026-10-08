@@ -7,7 +7,7 @@
 // is therefore two relations:
 //
 //   * A CHECKOUT WITH NOTHING DERIVED FINDS ITS CONTENT - the owner's case: `Editor/Cooked` deleted, no
-//     `AssetRegistry.dreg`, and the shader preload must still find StaticMeshPBR.
+//     `AssetRegistry.dreg`, and the shader preload must still find StaticMeshLit.
 //   * THE REGISTRY FROM THE SCAN IS THE REGISTRY FROM THE CACHE - byte for byte, with no header re-read.
 //
 // plus the old census that every tracked content file reaches the engine, now against the gathered rows.
@@ -122,10 +122,10 @@ TEST( CookedRegistryGate, WithNoCacheAndNoCookedRegistryTheScanFindsTheShaders )
     EXPECT_EQ( gathered.FromCache, 0u );
     EXPECT_EQ( gathered.Read, gathered.Registry.Count() );
 
-    bool staticMeshPBR = false;
+    bool staticMeshLit = false;
     for ( const Common::Utils::AssetRegistryEntry* row : gathered.Registry.OfKind( "Shader" ) )
-        staticMeshPBR = staticMeshPBR || row->Key.find( "StandardSurface" ) != std::string::npos;
-    EXPECT_TRUE( staticMeshPBR ) << "the header scan found " << gathered.Registry.OfKind( "Shader" ).size()
+        staticMeshLit = staticMeshLit || row->Key.find( "StandardSurface" ) != std::string::npos;
+    EXPECT_TRUE( staticMeshLit ) << "the header scan found " << gathered.Registry.OfKind( "Shader" ).size()
                                  << " shader row(s) and none is StandardSurface";
 }
 

@@ -328,7 +328,7 @@ namespace Desert::Runtime
             const std::string key = path.generic_string();
 
             // Only the shader NAME is snapshotted before the re-parse. A `wasCustom` flag was taken here
-            // too and then never read: whether the asset crossed between PBR and data-driven is already
+            // too and then never read: whether the asset crossed between lit and data-driven is already
             // answered below by `classMatches`, which asks whether every built variant is still the one runtime
             // type a `.demat` builds, against the C++ class of each live runtime material — a stronger question,
             // because it also catches a variant built as the wrong class for a reason other than an edit.

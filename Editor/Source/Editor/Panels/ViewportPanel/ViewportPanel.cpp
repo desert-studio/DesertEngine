@@ -1178,7 +1178,7 @@ namespace Desert::Editor
                 VM_Wireframe,
                 VM_Normals,
                 // К7: the entry that closes the OTHER half of a dead setting. `DebugView.LightingDebug` was
-                // read all the way down to a twenty-five-line branch in three PBR shaders and written by no
+                // read all the way down to a twenty-five-line branch in three lit shaders and written by no
                 // widget anywhere, so the only way to see it was to edit editor.json by hand — working code
                 // a person could not reach. §1.3 names the mirror case (a control that does nothing) and
                 // not this one; they are the same gap between what the code does and what is available,

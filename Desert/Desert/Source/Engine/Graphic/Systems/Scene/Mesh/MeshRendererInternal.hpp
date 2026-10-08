@@ -44,8 +44,8 @@ namespace Desert::Graphic::System
     namespace MeshRendererDetail
     {
         // The slot a batched path draws, AND its surface: the one cast is asked here, so no caller downcasts
-        // the parent again on the promise that FirstPBRSlot already checked it.
-        struct PBRSlot
+        // the parent again on the promise that FirstSurfaceSlot already checked it.
+        struct SurfaceSlot
         {
             MaterialInstance*   Instance = nullptr;
             DataDrivenMaterial* Surface  = nullptr;
@@ -60,7 +60,7 @@ namespace Desert::Graphic::System
                                                       MaterialInstance*         instance );
         bool                            IsTranslucent( const DataDrivenMaterial* material );
         uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row );
-        PBRSlot  FirstPBRSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
+        SurfaceSlot  FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
         std::optional<std::string>          DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,
@@ -82,8 +82,8 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::DefaultSurfaceProgramVariant;
     using MeshRendererDetail::DefaultSurfaceShaderName;
     using MeshRendererDetail::EffectiveRow;
-    using MeshRendererDetail::FirstPBRSlot;
+    using MeshRendererDetail::FirstSurfaceSlot;
     using MeshRendererDetail::IsTranslucent;
     using MeshRendererDetail::MeshPathOwnBufferName;
-    using MeshRendererDetail::PBRSlot;
+    using MeshRendererDetail::SurfaceSlot;
 } // namespace Desert::Graphic::System

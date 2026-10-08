@@ -122,7 +122,7 @@ namespace Desert::Editor
                 emissive->a = 1.0f;
             put( "EmissiveColor", emissive, texture( aiTextureType_EMISSIVE ) );
             put( "TransparentColor", std::nullopt, texture( aiTextureType_OPACITY ) );
-            // PBR keys as assimp's FBX converter hands them over (FBXConverter.cpp SetTextureProperties /
+            // Lit keys as assimp's FBX converter hands them over (FBXConverter.cpp SetTextureProperties /
             // SetShadingPropertiesCommon): Maya Stingray PBS and 3ds Max Physical maps land in METALNESS,
             // DIFFUSE_ROUGHNESS and AMBIENT_OCCLUSION; their factors in METALLIC_FACTOR and ROUGHNESS_FACTOR (the
             // latter also derived from a Phong ShininessExponent, Blender's rule). A map in SHININESS (a Phong

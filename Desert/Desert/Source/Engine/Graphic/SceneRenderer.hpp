@@ -212,7 +212,7 @@ namespace Desert::Graphic
         void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
                                   const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
 
-        // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-PBR shader).
+        // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-lit shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for
         // procedural textures with no TextureAsset handle (the text SDF atlas).
         // castShadows: rasterize this draw into the shadow cascades. Off by default — see the note on
@@ -232,7 +232,7 @@ namespace Desert::Graphic
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;
 
-        // UE-style Instanced Static Mesh: one mesh + one PBR material drawn for every transform in
+        // UE-style Instanced Static Mesh: one mesh + one lit material drawn for every transform in
         // @p transforms. Material and transforms are both co-owned handles for the reason SubmitMesh's
         // binding is (A8-3).
         // `castShadows` is NOT defaulted: a default here is a place for a caller to forget the flag,
@@ -461,7 +461,7 @@ namespace Desert::Graphic
 
         /// THE frame's cloud-shadow payload — the map, its projection, and the numbers a receiver needs
         /// to read it. Gathered HERE, once, and handed to every consumer: the deferred composite, the
-        /// forward PBR materials (through Graphic::PBRSceneFrame), the skinned material and the terrain
+        /// forward lit materials (through Graphic::SceneFrameBinding), the skinned material and the terrain
         /// material. While the composite was the only reader, this gather sat inline in the deferred
         /// branch and the answer to "does this surface receive a cloud shadow" was "only if a deferred
         /// pass drew it".

@@ -14,8 +14,8 @@
 
 namespace Desert::Graphic::Render
 {
-    // A static mesh drawn with a generic data-driven material (a MaterialComponent assigning a non-PBR
-    // shader). Per-object path — does NOT go through the batched PBR SSBO.
+    // A static mesh drawn with a generic data-driven material (a MaterialComponent assigning a non-lit
+    // shader). Per-object path — does NOT go through the batched lit SSBO.
     struct DrawGenericMeshCommand : RenderCommand
     {
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's

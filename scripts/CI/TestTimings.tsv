@@ -229,7 +229,7 @@ PakChunks	83	13	111
 PaletteCommands	1	1	1
 PanelInterfaceBoundary	1	1	1
 PathCensus	1	1	1
-PBRSceneFrame	77	6	28
+SceneFrameBinding	77	6	28
 PeImports	1	1	1
 PickerRegistryRows	6	1	3
 PipelineCacheFile	1	1	1

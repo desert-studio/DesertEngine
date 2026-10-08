@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Mesh/PBRFunctions.glslh, Mesh/DirectLighting.glslh and Mesh/LightSources.glslh
+// Compiles Editor/Resources/Shaders/Mesh/BRDF.glslh, Mesh/DirectLighting.glslh and Mesh/LightSources.glslh
 // (with the ShadingModels/ShadingModelContract.glslh it includes) AS C++: a point light reaches a surface as
 // DesertPointLightAt's DesertLight, and DefaultLit's Evaluate is EvaluateDirectLight on it times its Shadow.
 //
@@ -9,7 +9,7 @@
 // about a point light receive the same light, and the only honest way to ask it is to put the question
 // to THE shading text rather than to a CPU model of it that could be right while the shader is wrong.
 //
-// PBRFunctions.glslh is under test here as well as included for its helpers: `LightFalloffFactor` is
+// BRDF.glslh is under test here as well as included for its helpers: `LightFalloffFactor` is
 // the point light's whole distance model, and the symmetry claim ("equidistant, therefore equally lit")
 // is a statement about that function as much as about the BRDF.
 //
@@ -80,9 +80,9 @@ namespace Desert::Tests::CornellSymmetryRef
             return v * static_cast<float>( scalar );
         }
 
-// PBRFunctions first: DirectLighting.glslh names PI, DistributionGGX, VisibilitySmith and
+// BRDF first: DirectLighting.glslh names PI, DistributionGGX, VisibilitySmith and
 // fresnelSchlick, exactly as it says at the top of itself and exactly as every shader includes them.
-#include <Mesh/PBRFunctions.glslh>
+#include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
         // The contract's shading-word helpers (compiled with LightSources, unused here) name GLSL's bit built-ins.
         using uint = std::uint32_t;

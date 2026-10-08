@@ -43,7 +43,7 @@ namespace Desert::Assets
         copy->m_Data       = source.m_Data;
         copy->m_ShaderName         = source.m_ShaderName;
         copy->m_ShaderHandle       = source.m_ShaderHandle;
-        copy->m_ShaderIsPBRSurface = source.m_ShaderIsPBRSurface;
+        copy->m_ShaderIsStandardSurface = source.m_ShaderIsStandardSurface;
         // Carried over so a working copy of a material that is running on substituted defaults refuses to
         // save for the same reason its source does. Nothing saves the copy today, and this is what keeps
         // that true if something ever tries.
@@ -90,7 +90,7 @@ namespace Desert::Assets
     {
         m_ShaderName.clear();
         m_ShaderHandle       = Common::AssetHandle::Null();
-        m_ShaderIsPBRSurface = false;
+        m_ShaderIsStandardSurface = false;
         // No template stated: an instance takes its parent's (resolved through the chain by the callers);
         // anything else was refused by Load — there is no default template to fall back on.
         if ( !m_Data.Shader.has_value() || manager == nullptr )
@@ -107,8 +107,8 @@ namespace Desert::Assets
         m_ShaderName = name.GetValue();
         // THE ROLE IS READ FROM A PARSED MANIFEST, NEVER FROM A SHELL. A shader registered unloaded (the boot
         // scan, an on-demand shell) or evicted (ShaderAsset::Unload clears the Role) answers an EMPTY role, and
-        // the PBR surface template was then taken for a custom DSL shader: a skinned mesh's thumbnail asked
-        // for a (Skinned x Forward) cell of 'StaticMeshPBR', was told none exists, and drew the sky (THM1n-10).
+        // the lit surface template was then taken for a custom DSL shader: a skinned mesh's thumbnail asked
+        // for a (Skinned x Forward) cell of 'StaticMeshLit', was told none exists, and drew the sky (THM1n-10).
         // The shader is named in this file's header Dependencies, so it is loaded as the dependency it is.
         const auto shader = manager->FindByHandle<ShaderAsset>( m_ShaderHandle );
         if ( !shader )
@@ -122,7 +122,7 @@ namespace Desert::Assets
             m_ShaderHandle = Common::AssetHandle::Null();
             return;
         }
-        m_ShaderIsPBRSurface = shader->GetRole() == Common::Content::kPBRSurfaceRole;
+        m_ShaderIsStandardSurface = shader->GetRole() == Common::Content::kStandardSurfaceRole;
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::StateShader( MaterialData& data, const AssetManager& manager,

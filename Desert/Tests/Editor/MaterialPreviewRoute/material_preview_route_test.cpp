@@ -272,14 +272,14 @@ TEST_F( MaterialPreviewRoute, TheCubemapDomainTakesTheCubemapRouteAndSurfaceTheS
     ASSERT_NE( otherwise, std::string::npos )
          << "the Skybox branch has no else — the surface domain must still reach SetMaterial.";
 
-    const std::string cubemapBranch = body.substr( cubemapGate, otherwise - cubemapGate );
+    const std::string cubemapArm = body.substr( cubemapGate, otherwise - cubemapGate );
     const std::string surfaceBranch = body.substr( otherwise );
 
-    EXPECT_NE( cubemapBranch.find( "SetCubemapMaterial" ), std::string::npos )
+    EXPECT_NE( cubemapArm.find( "SetCubemapMaterial" ), std::string::npos )
          << "the Skybox branch does not call PreviewViewport::SetCubemapMaterial. That entry point IS the "
             "cubemap domain's draw (an external pass ray-tracing the ball, re-resolving the cube every "
             "frame); without it the domain has no way to fill the pane.";
-    EXPECT_EQ( cubemapBranch.find( "SetMaterial(" ), std::string::npos )
+    EXPECT_EQ( cubemapArm.find( "SetMaterial(" ), std::string::npos )
          << "the Skybox branch reaches for SetMaterial — the mesh/slot route. The routes are SWAPPED. A "
             "Skybox-domain program cannot ride a StaticMeshComponent slot at all (MeshRenderer refuses it by "
             "name), so this draws nothing and says nothing.";

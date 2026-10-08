@@ -22,7 +22,7 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
+#include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -201,7 +201,7 @@ namespace Desert::Graphic::System
             bool                        CastShadows = true;
         };
 
-        // A UE-style Instanced Static Mesh: ONE mesh + ONE PBR material drawn N times. The material and the
+        // A UE-style Instanced Static Mesh: ONE mesh + ONE Lit material drawn N times. The material and the
         // transforms are CO-OWNED handles on what the component produced, not pointers into it (A8-3).
         // Rendered through the SAME instanced pipeline/SSBO as the auto-batched static meshes.
         struct InstancedMeshRenderData
@@ -209,7 +209,7 @@ namespace Desert::Graphic::System
             // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
             // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
             class Desert::Mesh*                           Mesh = nullptr;
-            MaterialInstancePtr                           Material;   // slot 0 (PBR)
+            MaterialInstancePtr                           Material;   // slot 0 (Lit)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
             // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
@@ -236,7 +236,7 @@ namespace Desert::Graphic::System
             Graphic::MaterialOverrides Overrides;
             bool                      Outlined = false; // selected -> JFA outline
 
-            // Whether this record rasterizes into the shadow cascades. DEFAULT OFF, unlike the PBR
+            // Whether this record rasterizes into the shadow cascades. DEFAULT OFF, unlike the lit
             // queue's flag: a generic draw is not necessarily a solid object. The text system submits
             // its SDF glyph quads through this same queue, and the shadow pass has no alpha test — a
             // default of true would hang an opaque rectangle in the cascade behind every 3D label.
@@ -256,12 +256,12 @@ namespace Desert::Graphic::System
 
         using RenderSystem::RenderSystem;
 
-        // Gathers the scene's whole per-frame contribution (Graphic::PBRSceneFrame) from the scene
+        // Gathers the scene's whole per-frame contribution (Graphic::SceneFrameBinding) from the scene
         // renderer + this renderer's own cascade state. One place that knows what "per-frame scene state"
         // IS; the snapshot itself lives beside the materials it is applied to, because it is their
         // payload and not this renderer's private business.
-        // `view` is the view the draws are for (PBRSceneFrame::View).
-        PBRSceneFrame CaptureFrameState( const ViewFrame* view ) const;
+        // `view` is the view the draws are for (SceneFrameBinding::View).
+        SceneFrameBinding CaptureFrameState( const ViewFrame* view ) const;
 
         // The scene's game time this frame (Core::WorldTime), handed over by SceneRenderer::BeginScene and
         // published to materials through CaptureFrameState.
@@ -553,7 +553,7 @@ namespace Desert::Graphic::System
         const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
 
         // Debug visualizations. TWO KINDS, and the boundary runs between them: `showNormals` and
-        // `lightingDebug` are BRANCHES IN THE PBR SHADER, so they travel with the program and cost no
+        // `lightingDebug` are BRANCHES IN THE Lit SHADER, so they travel with the program and cost no
         // pipeline; the AABB wireframes are drawn by a pipeline of their own, so a player's build has
         // neither the pipeline nor the fields, and the three arguments are accepted and dropped.
         void SetDebugView( bool showNormals, [[maybe_unused]] bool showBoundingBoxes,
@@ -790,7 +790,7 @@ namespace Desert::Graphic::System
                                                 glm::mat4( 1.0f ) };
         static_assert( kMaxCascades == 4, "m_CascadeVP's initializer lists one identity per cascade" );
         // World-space size of one shadow-map texel per cascade (2*radius/res) — drives a cascade-correct
-        // normal-offset/bias in the PBR shader instead of the old fixed world-unit constants.
+        // normal-offset/bias in the lit shader instead of the old fixed world-unit constants.
         glm::vec4                         m_CascadeWorldPerTexel    = glm::vec4( 1.0f );
         bool                              m_ShadowsEnabled  = true;
         float                             m_ShadowBias      = 0.005f;
@@ -798,8 +798,8 @@ namespace Desert::Graphic::System
         float                             m_SplitLambda     = 0.6f;  // cascade split uniform<->log blend
 
         // Debug visualization (Scene Settings -> Debug)
-        bool      m_ShowNormals          = false; // per-pixel normal color (PBR shader branch)
-        bool      m_LightingDebug        = false; // per-light colored "where light lands" (PBR shader branch)
+        bool      m_ShowNormals          = false; // per-pixel normal color (Lit shader branch)
+        bool      m_LightingDebug        = false; // per-light colored "where light lands" (Lit shader branch)
 #if DESERT_DEV_INSTRUMENTS
         bool      m_ShowBoundingBoxes    = false; // AABB wireframes via the debug line renderer below
         glm::vec3 m_BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );

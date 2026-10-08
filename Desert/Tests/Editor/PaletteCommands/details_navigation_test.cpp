@@ -11,13 +11,13 @@ namespace
 {
     using Desert::Editor::DetailsNavigation;
 
-    constexpr std::uint64_t kPbr = 11;
+    constexpr std::uint64_t kSurface = 11;
     constexpr std::uint64_t kSky = 22;
 
     // One Details frame of an entity with a material slot and a transform section.
-    void DrawPbrFrame( DetailsNavigation& nav )
+    void DrawSurfaceFrame( DetailsNavigation& nav )
     {
-        nav.BeginFrame( kPbr, "PBR_Metal_0" );
+        nav.BeginFrame( kSurface, "Metal_0" );
         nav.NoteComponent( "Transform" );
         nav.NoteField( "Position" );
         nav.NoteComponent( "Materials" );
@@ -44,10 +44,10 @@ TEST( DetailsNavigation, OffersOnlyWhatTheLastCompleteFrameDrew )
     DetailsNavigation nav;
     EXPECT_TRUE( Labels( nav ).empty() ) << "nothing drawn yet, nothing offered";
 
-    DrawPbrFrame( nav );
+    DrawSurfaceFrame( nav );
     EXPECT_TRUE( Labels( nav ).empty() ) << "the frame being drawn is not published until the next BeginFrame";
 
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    nav.BeginFrame( kSurface, "Metal_0" );
     const auto labels = Labels( nav );
     EXPECT_TRUE( Has( labels, "Details|Show field: Transform" ) );
     EXPECT_TRUE( Has( labels, "Details|Show field: Transform / Position" ) );
@@ -59,7 +59,7 @@ TEST( DetailsNavigation, OffersOnlyWhatTheLastCompleteFrameDrew )
 TEST( DetailsNavigation, ChangingTheSelectionDropsTheOldEntitysFields )
 {
     DetailsNavigation nav;
-    DrawPbrFrame( nav );
+    DrawSurfaceFrame( nav );
     nav.BeginFrame( kSky, "Sky" );
     EXPECT_TRUE( nav.Fields().empty() );
     EXPECT_TRUE( nav.Pickers().empty() );
@@ -68,10 +68,10 @@ TEST( DetailsNavigation, ChangingTheSelectionDropsTheOldEntitysFields )
 TEST( DetailsNavigation, NotesOutsideADetailsFrameAreIgnored )
 {
     DetailsNavigation nav;
-    DrawPbrFrame( nav );
+    DrawSurfaceFrame( nav );
     nav.NoteField( "Albedo" ); // the Material Editor draws reflected fields through the same builder
     nav.NotePicker( "Skybox" );
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    nav.BeginFrame( kSurface, "Metal_0" );
     EXPECT_EQ( nav.Fields().size(), 3U );
     EXPECT_EQ( nav.Pickers().size(), 1U );
 }
@@ -79,8 +79,8 @@ TEST( DetailsNavigation, NotesOutsideADetailsFrameAreIgnored )
 TEST( DetailsNavigation, RequestIsTakenOnceAtItsDrawSite )
 {
     DetailsNavigation nav;
-    DrawPbrFrame( nav );
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    DrawSurfaceFrame( nav );
+    nav.BeginFrame( kSurface, "Metal_0" );
     ASSERT_TRUE( nav.RequestPicker( "Material slot 0" ).IsSuccess() );
     using Step = DetailsNavigation::PickerStep;
     EXPECT_EQ( nav.TakePicker( "Skybox" ), Step::None );
@@ -93,14 +93,14 @@ TEST( DetailsNavigation, RequestIsTakenOnceAtItsDrawSite )
 TEST( DetailsNavigation, RequestNotTakenByTheNextFrameExpires )
 {
     DetailsNavigation nav;
-    DrawPbrFrame( nav );
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    DrawSurfaceFrame( nav );
+    nav.BeginFrame( kSurface, "Metal_0" );
     nav.EndFrame();
     // Delivered after this frame's draw: must survive into the next one.
     ASSERT_TRUE( nav.RequestReveal( "Transform / Position" ).IsSuccess() );
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    nav.BeginFrame( kSurface, "Metal_0" );
     nav.EndFrame(); // the section was collapsed: nobody took it
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    nav.BeginFrame( kSurface, "Metal_0" );
     EXPECT_FALSE( nav.TakeReveal( "Transform / Position" ) ) << "a stale request fired a frame nobody asked about";
 }
 
@@ -111,20 +111,20 @@ TEST( DetailsNavigation, RefusesWithTheReasonAndWhatIsShown )
     ASSERT_FALSE( none.IsSuccess() );
     EXPECT_NE( none.GetError().find( "no entity is selected" ), std::string::npos ) << none.GetError();
 
-    DrawPbrFrame( nav );
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    DrawSurfaceFrame( nav );
+    nav.BeginFrame( kSurface, "Metal_0" );
     auto missing = nav.RequestPicker( "Skybox" );
     ASSERT_FALSE( missing.IsSuccess() );
     EXPECT_NE( missing.GetError().find( "'Skybox'" ), std::string::npos ) << missing.GetError();
-    EXPECT_NE( missing.GetError().find( "PBR_Metal_0" ), std::string::npos ) << missing.GetError();
+    EXPECT_NE( missing.GetError().find( "Metal_0" ), std::string::npos ) << missing.GetError();
     EXPECT_NE( missing.GetError().find( "Material slot 0" ), std::string::npos ) << missing.GetError();
 }
 
 TEST( DetailsNavigation, PaletteEntryRechecksWhenRun )
 {
     DetailsNavigation nav;
-    DrawPbrFrame( nav );
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    DrawSurfaceFrame( nav );
+    nav.BeginFrame( kSurface, "Metal_0" );
     const auto commands = Desert::Editor::DetailsPaletteCommands( nav );
     nav.EndFrame();
     nav.BeginFrame( kSky, "Sky" ); // selection moved between building the dictionary and running it
@@ -138,13 +138,13 @@ TEST( DetailsNavigation, PickerScrollsThenOpensOnTheNextFrame )
 {
     using Step = DetailsNavigation::PickerStep;
     DetailsNavigation nav;
-    DrawPbrFrame( nav );
-    DrawPbrFrame( nav ); // the ledger a command reads is the one the PREVIOUS frame published
+    DrawSurfaceFrame( nav );
+    DrawSurfaceFrame( nav ); // the ledger a command reads is the one the PREVIOUS frame published
     ASSERT_TRUE( nav.RequestPicker( "Material slot 0" ).IsSuccess() );
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    nav.BeginFrame( kSurface, "Metal_0" );
     EXPECT_EQ( nav.TakePicker( "Material slot 0" ), Step::Scroll );
     nav.EndFrame();
-    nav.BeginFrame( kPbr, "PBR_Metal_0" );
+    nav.BeginFrame( kSurface, "Metal_0" );
     EXPECT_EQ( nav.TakePicker( "Material slot 0" ), Step::Open );
     nav.EndFrame();
 }
@@ -156,13 +156,13 @@ TEST( DetailsNavigation, AButtonIsOfferedByItsCaptionAndPressedOnceAtItsDrawSite
     DetailsNavigation nav;
     const auto        drawFox = [&nav]
     {
-        nav.BeginFrame( kPbr, "Fox" );
+        nav.BeginFrame( kSurface, "Fox" );
         nav.NoteComponent( "Animation" );
         nav.NoteAction( "New AnimGraph" );
         nav.EndFrame();
     };
     drawFox();
-    nav.BeginFrame( kPbr, "Fox" );
+    nav.BeginFrame( kSurface, "Fox" );
     const auto labels = Labels( nav );
     EXPECT_TRUE( Has( labels, "Details|New AnimGraph" ) );
     nav.EndFrame();
@@ -172,7 +172,7 @@ TEST( DetailsNavigation, AButtonIsOfferedByItsCaptionAndPressedOnceAtItsDrawSite
     EXPECT_NE( refused.GetError().find( "New AnimGraph" ), std::string::npos ) << refused.GetError();
 
     ASSERT_TRUE( nav.RequestAction( "New AnimGraph" ).IsSuccess() );
-    nav.BeginFrame( kPbr, "Fox" );
+    nav.BeginFrame( kSurface, "Fox" );
     EXPECT_FALSE( nav.TakeAction( "Other" ) );
     EXPECT_TRUE( nav.TakeAction( "New AnimGraph" ) ) << "the button's draw site takes the press";
     EXPECT_FALSE( nav.TakeAction( "New AnimGraph" ) ) << "one-shot";

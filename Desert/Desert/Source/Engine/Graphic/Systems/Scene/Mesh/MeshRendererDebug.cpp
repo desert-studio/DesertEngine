@@ -89,7 +89,7 @@ namespace Desert::Graphic::System
     // WHAT CUTTING THEM IS WORTH, and the number is small on purpose rather than by accident: on a warm
     // machine 1.1 ms of an 82 ms pipeline phase; on a COLD one 127 ms of 9 611 ms, because the cost is not
     // the pipeline object — it is the driver compiling that pipeline's shader for the first time.
-    // StaticMeshWireframe shares StaticMeshPBR's modules and therefore costs 0.2 ms cold; DebugLine,
+    // StaticMeshWireframe shares StaticMeshLit's modules and therefore costs 0.2 ms cold; DebugLine,
     // Overdraw and OverdrawResolve own theirs and cost 43.3, 5.7 and 77.9 ms. Time is not the whole
     // argument: an instrument a player's binary cannot use is surface it should not carry.
     //

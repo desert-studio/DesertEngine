@@ -583,7 +583,7 @@ namespace Desert::Graphic::System
         // It used to return early and change nothing, which made the sentence unsayable: SkyboxECSSystem
         // emitted a command only when a cubemap existed, so deleting the SkyboxComponent — or loading a
         // level that has none onto a renderer that had one — left the previous cubemap drawing behind the
-        // new world AND feeding its IBL into every PBR surface. This is the same explicit-absence rule the
+        // new world AND feeding its IBL into every lit surface. This is the same explicit-absence rule the
         // sky, the fog and the cloud layer already follow, and it is what lets a render system outlive the
         // scene it was built for (IRenderSystem::OnSceneReplaced).
         m_MaterialSkybox = material; // an empty weak_ptr when the scene has none

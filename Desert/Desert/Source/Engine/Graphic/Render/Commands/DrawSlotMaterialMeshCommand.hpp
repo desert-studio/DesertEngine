@@ -17,7 +17,7 @@ namespace Desert::Graphic::Render
 {
     // v3 per-slot custom shaders: draws the submeshes of ONE material slot with the slot's own
     // runtime material (a MaterialService-owned DataDrivenMaterial). The rest of the mesh stays
-    // on the batched PBR path — the two paths split the submesh set via masks.
+    // on the batched lit path — the two paths split the submesh set via masks.
     struct DrawSlotMaterialMeshCommand : RenderCommand
     {
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
@@ -29,7 +29,7 @@ namespace Desert::Graphic::Render
         uint64_t           VisibleSubmeshMask;
         bool               Outlined = false;
 
-        // Set on AT MOST ONE of an entity's slot draws, and only when no PBR draw was emitted for it —
+        // Set on AT MOST ONE of an entity's slot draws, and only when no lit draw was emitted for it —
         // the shadow pass draws the mesh whole, so a second caster would be the same silhouette twice.
         bool CastShadows = false;
 

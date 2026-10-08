@@ -631,7 +631,7 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Shade this surface with the engine's standard model: the baked sky "
                                    "(image-based ambient), the sun and every point/spot light through "
-                                   "the same BRDF a PBR material uses, and both occluders of the sun — "
+                                   "the same BRDF a lit material uses, and both occluders of the sun — "
                                    "cascaded shadows from scene geometry and the cloud layer.\n\n"
                                    "Feed Metallic / Roughness / Occlusion on the Surface Output node; "
                                    "unwired they default to a standard material's 0 / 0.5 / 1." );

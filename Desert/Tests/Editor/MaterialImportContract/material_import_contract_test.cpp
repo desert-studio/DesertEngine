@@ -41,16 +41,16 @@ namespace
         return m;
     }
 
-    std::vector<ImportTemplate> PBRAndUnlit()
+    std::vector<ImportTemplate> LitAndUnlit()
     {
-        return { Template( "StaticMeshPBR", true, {}, { "gltf.baseColorFactor", "gltf.baseColorTexture" } ),
+        return { Template( "StaticMeshLit", true, {}, { "gltf.baseColorFactor", "gltf.baseColorTexture" } ),
                  Template( "Unlit", false, { "gltf.KHR_materials_unlit" }, { "gltf.baseColorFactor" } ) };
     }
 } // namespace
 
-TEST( MaterialImportContract, AGltfPBRMaterialGoesToTheTemplateThatRequiresNothing )
+TEST( MaterialImportContract, AGltfSurfaceMaterialGoesToTheTemplateThatRequiresNothing )
 {
-    const auto chosen = ChooseImportTemplate( Material( { "gltf.baseColorTexture" } ), PBRAndUnlit(), "a.gltf" );
+    const auto chosen = ChooseImportTemplate( Material( { "gltf.baseColorTexture" } ), LitAndUnlit(), "a.gltf" );
     ASSERT_TRUE( chosen.IsSuccess() ) << chosen.GetError();
     EXPECT_EQ( chosen.GetValue(), 0u );
 }
@@ -58,14 +58,14 @@ TEST( MaterialImportContract, AGltfPBRMaterialGoesToTheTemplateThatRequiresNothi
 TEST( MaterialImportContract, TheTemplateThatRequiresMoreWins )
 {
     const auto chosen = ChooseImportTemplate( Material( { "gltf.KHR_materials_unlit", "gltf.baseColorFactor" } ),
-                                              PBRAndUnlit(), "a.gltf" );
+                                              LitAndUnlit(), "a.gltf" );
     ASSERT_TRUE( chosen.IsSuccess() ) << chosen.GetError();
     EXPECT_EQ( chosen.GetValue(), 1u );
 }
 
 TEST( MaterialImportContract, NoTakerIsARefusalNamingMaterialAndFile )
 {
-    const auto chosen = ChooseImportTemplate( Material( { "obj.Kd" } ), PBRAndUnlit(), "Meshes/tree.obj" );
+    const auto chosen = ChooseImportTemplate( Material( { "obj.Kd" } ), LitAndUnlit(), "Meshes/tree.obj" );
     ASSERT_FALSE( chosen.IsSuccess() );
     EXPECT_NE( chosen.GetError().find( "Leaves" ), std::string::npos ) << chosen.GetError();
     EXPECT_NE( chosen.GetError().find( "Meshes/tree.obj" ), std::string::npos ) << chosen.GetError();
@@ -75,7 +75,7 @@ TEST( MaterialImportContract, NoTakerIsARefusalNamingMaterialAndFile )
 TEST( MaterialImportContract, ATemplateWithoutAnImportBlockTakesNothingEvenIfItIsTheDefault )
 {
     std::vector<ImportTemplate> onlyDefault( 1 );
-    onlyDefault[0].ShaderName              = "StaticMeshPBR";
+    onlyDefault[0].ShaderName              = "StaticMeshLit";
     onlyDefault[0].Manifest.DefaultSurface = true;
     EXPECT_FALSE( ChooseImportTemplate( Material( {} ), onlyDefault, "a.fbx" ).IsSuccess() );
 }
@@ -99,7 +99,7 @@ TEST( MaterialImportContract, ATieIsBrokenOnlyByDefaultSurface )
 TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 {
     const std::vector<std::pair<std::string, std::string>> files = {
-         { "StandardSurface", "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader" },
+         { "StandardSurface", "Editor/Resources/Shaders/Programs/Surface/StandardSurface.shader" },
          { "Unlit", "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } };
     std::vector<ImportTemplate> shipped;
     for ( const auto& [name, file] : files )
@@ -115,10 +115,10 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
         t.ShaderName      = name;
         t.Manifest        = manifest.GetValue();
     }
-    const auto pbr = ChooseImportTemplate(
+    const auto standard = ChooseImportTemplate(
          Material( { "gltf.baseColorTexture", "gltf.metallicRoughnessTexture" } ), shipped, "a.gltf" );
-    ASSERT_TRUE( pbr.IsSuccess() ) << pbr.GetError();
-    EXPECT_EQ( shipped[pbr.GetValue()].ShaderName, "StandardSurface" );
+    ASSERT_TRUE( standard.IsSuccess() ) << standard.GetError();
+    EXPECT_EQ( shipped[standard.GetValue()].ShaderName, "StandardSurface" );
 
     const auto unlit = ChooseImportTemplate( Material( { "gltf.KHR_materials_unlit", "gltf.baseColorTexture" } ),
                                              shipped, "a.gltf" );
@@ -134,9 +134,9 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 // The document is the chosen template and the fill's values, nothing that names a mesh.
 TEST( MaterialImportContract, AnImportedMaterialNamesNoPreviewMesh )
 {
-    ImportTemplate chosen = Template( "StaticMeshPBR", true, {}, { "gltf.baseColorFactor" } );
+    ImportTemplate chosen = Template( "StaticMeshLit", true, {}, { "gltf.baseColorFactor" } );
     chosen.Guid           = "0123456789abcdef0123456789abcdef";
-    chosen.Locator        = "engine:Shaders/StaticMeshPBR.dshader";
+    chosen.Locator        = "engine:Shaders/StaticMeshLit.dshader";
     TemplateFill fill;
     fill.Params.push_back( { "BaseColor", glm::vec4( 0.5f ) } );
 

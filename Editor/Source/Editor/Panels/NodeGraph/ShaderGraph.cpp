@@ -61,7 +61,7 @@ namespace Desert::Editor::ShaderGraph
         static const std::vector<NodeSpec> s_Specs = {
             // ---- domain-specific: outputs & special inputs ----
             // The MATERIAL ATTRIBUTES a lit surface hands the engine's shading model, in the order
-            // they were added: Albedo/Emission/Alpha first, then the three the shared PBR texts need
+            // they were added: Albedo/Emission/Alpha first, then the three the shared lit texts need
             // (Mesh/AmbientIBL.glslh and Mesh/DirectLighting.glslh both take metalness and roughness,
             // and the ambient takes an occlusion factor). APPENDED and never reordered — a saved
             // .dgraph stores pins positionally, and MigrateToCatalogue below can only grow a node
@@ -1293,9 +1293,9 @@ namespace Desert::Editor::ShaderGraph
             alpha    = compiler.EmitInput( *output, 2, "1.0" );
             // Only when the surface is lit: an unlit graph has no shading model to feed, and asking
             // for these would emit the nodes behind them into a shader that never reads the result.
-            // The fallbacks are the schema defaults of the standard material (StaticMeshPBR's
+            // The fallbacks are the schema defaults of the standard material (StaticMeshLit's
             // Properties block), so an unwired Metallic/Roughness/Occlusion pin and an untouched
-            // PBR material describe the same surface.
+            // Lit material describe the same surface.
             if ( doc.Lit )
             {
                 metallic  = compiler.EmitInput( *output, 3, "0.0" );
@@ -1334,7 +1334,7 @@ namespace Desert::Editor::ShaderGraph
         {
             out << "    Properties";
             // The row block sits beside the engine's per-pass blocks: after the scene texture of a post
-            // process, and for a surface where the standard material keeps it (StaticMeshPBR), because a
+            // process, and for a surface where the standard material keeps it (StaticMeshLit), because a
             // surface cell's skinned vertex path already owns binding 1 for its bones.
             if ( !colorParams.empty() || !floatParams.empty() )
                 out << ( domain == Domain::PostProcess ? " Binding(1)" : " Binding(2)" );

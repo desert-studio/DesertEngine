@@ -118,7 +118,7 @@ TEST( GltfAlphaMask, AMaskCardTakesTheCutoffTheFileStates )
     EXPECT_FLOAT_EQ( alpha.AlphaCutoff, 0.3f ) << "AlphaCutoff 0 is the solid-square defect";
 
     // The mask is the base colour's alpha: the card names no opacity map, only the albedo the importer
-    // loads into u_AlbedoTexture (the PBR passes then read the albedo alpha).
+    // loads into u_AlbedoTexture (the lit passes then read the albedo alpha).
     EXPECT_EQ( card.Material().GetTextureCount( aiTextureType_OPACITY ), 0u );
     EXPECT_EQ( card.Material().GetTextureCount( aiTextureType_DIFFUSE ), 1u );
 }

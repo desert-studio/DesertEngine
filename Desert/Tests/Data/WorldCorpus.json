@@ -1,14 +1,14 @@
 {
     "Props": [
         {
-            "Theme": "Skinned PBR",
+            "Theme": "Skinned lit",
             "Mesh": "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
             "Skinned": true,
             "Material": "Materials/base_basic_pbr/model.demat",
             "ScalePercent": 100
         },
         {
-            "Theme": "Skinned PBR",
+            "Theme": "Skinned lit",
             "Mesh": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
             "Skinned": true,
             "Material": "Materials/base_basic_pbr/model.demat",

@@ -1,5 +1,5 @@
 // Surface cell vertex path: one static mesh, its transform in the push block — the vertex stage of
-// Programs/PBR/StaticMeshPBR.shader and StaticMeshGBuffer.shader, and of Programs/Shadow/Shadow.shader for the
+// Programs/Surface/StaticMeshLit.shader and StaticMeshGBuffer.shader, and of Programs/Shadow/Shadow.shader for the
 // depth cell of an opaque template.
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;

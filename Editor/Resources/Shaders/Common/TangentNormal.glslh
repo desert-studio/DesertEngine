@@ -33,7 +33,7 @@
 // the 14.5 the normal map itself is worth — close, and not identical, which is what a lossy encode in a
 // path that works looks like. `NRM_WitnessDeferred` and `NRM_WitnessInstanced` carry the G-buffer and
 // the two instanced readings, so four of the six shaders that include this file are now drawn by a
-// committed scene. StaticMeshGlass and SkinnedMeshPBR are NOT — one needs a transmissive material and
+// committed scene. StaticMeshGlass and SkinnedMeshLit are NOT — one needs a transmissive material and
 // the other a rigged mesh — and both are still held only by the census in
 // `Desert/Tests/Engine/ShippedShaderPasses`, which also fails if no scene draws a bound normal map.
 

@@ -242,7 +242,7 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 // Seam 2, the hand-numbered declarations (a template's own `layout( binding = n )` textures, a pass header's
 // lighting slots — none of which goes through the Properties block): over the WHOLE shipped shader tree, the
 // reserved numbers carry the two scene-read resources and nothing else, and ObjectMotion.glslh spells exactly the
-// C++ numbers PBRSceneFrame's resources are reserved under. Text, not reflection, because a resource that only
+// C++ numbers SceneFrameBinding's resources are reserved under. Text, not reflection, because a resource that only
 // collides inside one cell would need that cell compiled to be seen; the after-compile half is
 // ShaderReflection::ReflectStage, which refuses a slot claimed twice by name.
 // Mutation: move SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) ->
@@ -442,7 +442,7 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
 
     const auto meshes =
          ReadFile( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    const auto capture = meshes.find( "PBRSceneFrame MeshRenderer::CaptureFrameState(" );
+    const auto capture = meshes.find( "SceneFrameBinding MeshRenderer::CaptureFrameState(" );
     ASSERT_NE( capture, std::string::npos );
     const auto end = meshes.find( "return frame;", capture );
     ASSERT_NE( end, std::string::npos );

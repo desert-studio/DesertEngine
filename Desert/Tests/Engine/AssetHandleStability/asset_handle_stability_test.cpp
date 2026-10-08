@@ -718,9 +718,9 @@ TEST( AssetHandleStability, EveryRootsKeyExpandsBackToThePathItCameFrom )
     // relative `Resources/...` would be read off the PROJECT and is not an engine path. The mount-prefixed
     // spelling a material stores is its own key.
     const std::string shaderKey = Common::AssetHandle::StableKeyForPath( Common::Constants::Path::EngineDir() /
-                                                                         "Resources/Shaders/Programs/PBR.shader" );
-    EXPECT_EQ( shaderKey, "engine:Shaders/Programs/PBR.shader" );
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "engine:Shaders/Programs/PBR.shader" ), shaderKey )
+                                                                         "Resources/Shaders/Programs/Lit.shader" );
+    EXPECT_EQ( shaderKey, "engine:Shaders/Programs/Lit.shader" );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "engine:Shaders/Programs/Lit.shader" ), shaderKey )
          << "a mount-prefixed engine path was read as a project-relative one";
     const std::filesystem::path underOneProject = Common::AssetHandle::PathForStableKey( shaderKey );
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Other", "Assets" );
@@ -833,9 +833,9 @@ TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWit
     const ProjectRootGuard guard;
 
     const Desert::TestSupport::EngineDirScope engineDir;
-    const std::filesystem::path shader           = Common::Constants::Path::SHADERDIR_PATH / "Programs/PBR.shader";
+    const std::filesystem::path shader           = Common::Constants::Path::SHADERDIR_PATH / "Programs/Lit.shader";
     const uint64_t              beforeAnyProject = HandleValue( shader );
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( shader ), "engine:Shaders/Programs/PBR.shader" );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( shader ), "engine:Shaders/Programs/Lit.shader" );
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     EXPECT_EQ( HandleValue( shader ), beforeAnyProject )
@@ -1040,7 +1040,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
                R"("Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},)"
                R"("Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44",)"
-               R"("Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},)"
+               R"("Path":"engine:Shaders/Programs/Surface/StandardSurface.shader"},)"
                R"("Params":[],"Textures":[],"CloudAssets":[]})";
     }
 

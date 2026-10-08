@@ -103,7 +103,7 @@ namespace Desert::Editor
         //
         // The thresholds sit in the gaps, not at the measurements: 45 dB lies between noise (37.8) and
         // the lowest keeper (52.5 — and below the two the other gate rejects anyway), and 32 lies
-        // between the worst keeper (11) and the packed-PBR map (84).
+        // between the worst keeper (11) and the packed-lit map (84).
         //
         // AND SITTING IN A GAP IS EXACTLY WHY THE AUTHORED FIELD HAD TO EXIST. Both numbers are fitted
         // to eight images. A normal map that lands at 46 dB with a worst texel of 20 clears both and

@@ -586,7 +586,7 @@ namespace Desert::Core
             }
 
             // The engine supports EXACTLY ONE directional light (DirectionLightsUB is a single
-            // struct — a second payload overflows every PBR material's UB and aborts). Truncate
+            // struct — a second payload overflows every lit material's UB and aborts). Truncate
             // loudly instead of crashing; name the extras so the offending entity is findable.
             if ( sceneRendererInfo.DirLights.DirectionLights.size() > 1 )
             {

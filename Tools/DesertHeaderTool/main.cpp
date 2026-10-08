@@ -92,8 +92,8 @@ namespace
 
     struct ReflectedType
     {
-        std::string        fqn;          // fully-qualified C++ name, e.g. Desert::Assets::PBRMaterialData
-        std::string        registryName; // short name used as the registry key, e.g. PBRMaterialData
+        std::string        fqn;          // fully-qualified C++ name, e.g. Desert::Assets::SurfaceMaterialData
+        std::string        registryName; // short name used as the registry key, e.g. SurfaceMaterialData
         std::vector<Field> fields;
         std::string        headerInclude; // include path relative to source root
     };

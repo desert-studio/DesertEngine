@@ -2,8 +2,8 @@
 
 // Compiles Editor/Resources/Shaders/Mesh/DirectLighting.glslh AS C++.
 //
-// Not a port and not a paraphrase — the same text, the same file, that StaticMeshPBR.shader,
-// StaticMeshPBR_Instanced.shader, SkinnedMeshPBR.shader, Deferred/DeferredLighting.shader,
+// Not a port and not a paraphrase — the same text, the same file, that StaticMeshLit.shader,
+// StaticMeshLit_Instanced.shader, SkinnedMeshLit.shader, Deferred/DeferredLighting.shader,
 // ShadingModels/DefaultLit.shadingmodel compile as GLSL. A hand-written CPU copy could only
 // ever prove that the copy agrees with itself, and this is precisely the quantity where that failed:
 // there were FOUR copies of this BRDF in the shaders and the forward mesh shaders' copy had lost the
@@ -82,9 +82,9 @@ namespace Desert::Tests::DirectLightingRef
             return v * static_cast<float>( scalar );
         }
 
-// PBRFunctions first: DirectLighting.glslh names PI, DistributionGGX, VisibilitySmith and
+// BRDF first: DirectLighting.glslh names PI, DistributionGGX, VisibilitySmith and
 // fresnelSchlick, exactly as it says at the top of itself and exactly as every shader includes them.
-#include <Mesh/PBRFunctions.glslh>
+#include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
         DESERT_GLSL_AS_CPP_END
 

@@ -11,7 +11,7 @@ namespace FbxSplit
     {
         bool        Success      = false;
         int         MeshCount    = 0;
-        int         MaterialCount = 0; // PBR materials detected from texture files (by filename suffix)
+        int         MaterialCount = 0; // Lit materials detected from texture files (by filename suffix)
         std::string ManifestPath; // collection.json written next to the FBX
         std::string Error;
     };

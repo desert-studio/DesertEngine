@@ -125,7 +125,7 @@ namespace Desert::Editor
     // material carries every key the template `Requires`, and at least one of the template's rows reads a key
     // the material carries (a material with an empty dictionary is taken by any template that requires
     // nothing). Among the takers the one that requires MOST wins (Unlit's `gltf.KHR_materials_unlit` beats
-    // StaticMeshPBR); a tie goes to the `Default Surface` template. No taker, or a tie nothing breaks, is a
+    // StaticMeshLit); a tie goes to the `Default Surface` template. No taker, or a tie nothing breaks, is a
     // refusal naming the material and the source file — never a fallback to a template by name.
     // Returns the index into `templates`.
     Common::ResultStr<std::size_t> ChooseImportTemplate( const SourceMaterial&           material,

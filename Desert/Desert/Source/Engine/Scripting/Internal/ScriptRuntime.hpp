@@ -237,7 +237,7 @@ namespace Desert::Scripting
             }
 
             // ── Material access (the unified material protocol: params by shader-schema name) ──
-            // PBR path: writes go STRAIGHT to the slot-0 runtime MaterialInstance (live override, no
+            // Lit path: writes go STRAIGHT to the slot-0 runtime MaterialInstance (live override, no
             // per-frame re-apply channel — the authored material slots stay the source of truth).
             // Custom Shader Override path: the MaterialComponent params ARE the draw state consumed
             // per draw by the generic path. Before the first instance build (Init() runs before the
@@ -263,7 +263,7 @@ namespace Desert::Scripting
                     }
                 }
 
-                // PBR path: live write on the slot-0 instance.
+                // Lit path: live write on the slot-0 instance.
                 if ( Reg().has<ECS::StaticMeshComponent>( handle ) )
                 {
                     auto& smc = Reg().get<ECS::StaticMeshComponent>( handle );
@@ -294,7 +294,7 @@ namespace Desert::Scripting
                             return { p.Value.x, p.Value.y, p.Value.z, p.Value.w };
                 }
 
-                // PBR path: read the live override off the slot-0 instance.
+                // Lit path: read the live override off the slot-0 instance.
                 if ( Reg().has<ECS::StaticMeshComponent>( handle ) )
                 {
                     const auto& smc = Reg().get<ECS::StaticMeshComponent>( handle );
@@ -341,7 +341,7 @@ namespace Desert::Scripting
                 }
             }
 
-            // Assign a surface shader by name ("" -> back to the PBR slot materials). Same routing
+            // Assign a surface shader by name ("" -> back to the lit slot materials). Same routing
             // as the editor's Shader Override section.
             void SetShader( const std::string& name )
             {

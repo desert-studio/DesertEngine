@@ -104,7 +104,7 @@ namespace Desert::Graphic
         // variant), which is why a scene file was the worst possible owner for it: one saved `true` and the
         // level silently changed rendering path for everyone who opened it.
         bool WireframeMode = false;
-        // Per-pixel normal colour (PBR shader branch) and the per-light "where light lands" branch.
+        // Per-pixel normal colour (Lit shader branch) and the per-light "where light lands" branch.
         bool ShowNormals   = false;
         bool LightingDebug = false;
 

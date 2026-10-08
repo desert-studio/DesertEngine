@@ -1,6 +1,6 @@
 // Surface cell vertex path: skinned mesh. A view pass skins from the view's ObjectBones at its row's BoneOffset /
 // PrevBoneOffset (binding 26); a light view from its pass's BoneMatrices[BoneOffset...] (binding 1) — the
-// vertex stage of Programs/PBR/SkinnedMeshPBR.shader and, for the depth cell of an opaque template,
+// vertex stage of Programs/Surface/SkinnedMeshLit.shader and, for the depth cell of an opaque template,
 // Programs/Shadow/Shadow_Skinned.shader.
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;

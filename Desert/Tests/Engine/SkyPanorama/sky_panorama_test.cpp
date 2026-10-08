@@ -275,7 +275,7 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
          "Programs/Deferred/DeferredLighting.shader", // the deferred composite's ambient
          "Mesh/Surface/Pass_Forward.glslh", // every surface template's forward cell (StandardSurface, graphs)
          // a Translucent template's forward cell: the sky's reflection at the glass's grazing edge; its
-         // instance gets the cube AND the look together from PBRSceneFrame::ApplyTo -> SceneEnvironmentBind
+         // instance gets the cube AND the look together from SceneFrameBinding::ApplyTo -> SceneEnvironmentBind
          // (MeshRenderer::RenderGlassManual)
          "Mesh/Surface/Pass_Forward_Translucent.glslh",
          "Programs/Preview/CubemapSphere.shader", // the Details panel's ball beside the sliders

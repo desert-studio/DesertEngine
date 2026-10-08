@@ -42,7 +42,7 @@ namespace Desert::Core
      */
     /**
      * THE RESERVED SCENE-READ RANGE: set-0 slots a VIEW-pass surface cell reads per-(frame x view) scene data at,
-     * bound by name by Graphic::PBRSceneFrame::ApplyTo — the view's per-primitive motion rows (`ObjectMotions`)
+     * bound by name by Graphic::SceneFrameBinding::ApplyTo — the view's per-primitive motion rows (`ObjectMotions`)
      * and the view's bone palettes (`ObjectBones`), both declared by Common/ObjectMotion.glslh (TAA1 step 4).
      *
      * They need fixed numbers because one header declares them into EVERY view-pass cell of EVERY surface

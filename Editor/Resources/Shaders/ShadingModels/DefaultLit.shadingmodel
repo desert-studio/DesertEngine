@@ -12,7 +12,7 @@ Inputs
     Roughness;
 }
 
-#include <Mesh/PBRFunctions.glslh>
+#include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
 // The pure half of the ambient text. A lighting pass has already included the whole file (its samplers too);
 // a G-buffer pass, which only packs the shading word, has not, and gets the half that declares no binding.

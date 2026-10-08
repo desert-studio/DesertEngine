@@ -41,7 +41,7 @@ namespace Desert::ECS
     /**
      * @brief The material slots a Material Parameter track writes (UE: MovieSceneComponentMaterialTrack's
      * dynamic instance on the component): slot @p parameter.Slot's runtime material instance of the entity's
-     * Static or Skinned mesh — the instance the PBR / slot draws bind, which MeshECSSystem builds per entity from
+     * Static or Skinned mesh — the instance the lit / slot draws bind, which MeshECSSystem builds per entity from
      * the slot's asset, so the asset itself is never written. A mesh with no authored slot (it draws the shared
      * engine default instance), a slot past the authored ones, or a slot whose instance is not built yet is not
      * the actor's to write: Set is false and the host refuses the track by name. Shared by the play-time system

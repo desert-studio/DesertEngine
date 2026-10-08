@@ -279,7 +279,7 @@ namespace Desert::WorldGen
         //
         // THEMES ARE CHOSEN FOR WHAT A CELL DEPARTURE CAN FREE (WP13 handover): skinned meshes and
         // custom-shader materials are HLOD-excluded, so their meshes, skeletons, materials and textures are
-        // rooted only by the cell that holds them. A static PBR prop is the control - its mesh and material an
+        // rooted only by the cell that holds them. A static lit prop is the control - its mesh and material an
         // Instancing HLOD keeps resident after the cell leaves.
         constexpr const char* kCorpusFileName = "WorldCorpus.json";
         // A corpus list that cannot be read: the path, then the reader's own reason.

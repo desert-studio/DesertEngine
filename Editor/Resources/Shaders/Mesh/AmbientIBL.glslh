@@ -1,7 +1,7 @@
 #ifndef AMBIENT_IBL_GLSLH
 #define AMBIENT_IBL_GLSLH
 
-// THE ambient term of this engine's PBR — one text, compiled by every shader that has one.
+// THE ambient term of this engine's lit — one text, compiled by every shader that has one.
 //
 // Why it is a header and not four copies: the forward mesh shaders and the deferred lighting pass shade
 // the SAME materials in the SAME scene, and a scene picks which of them runs with a single enum field.
@@ -19,13 +19,13 @@
 //     u_BRDFLUTTexture and the `skyLook` block (Common/SkyLook.glslh), which the includer must have
 //     declared. Define AMBIENT_IBL_NO_SAMPLERS to take only the algebra half.
 //
-// Requires Mesh/PBRFunctions.glslh (fresnelSchlick) to have been included first.
+// Requires Mesh/BRDF.glslh (fresnelSchlick) to have been included first.
 
 // The anti-black epsilon, and NOT an ambient model. Real ambient comes from the environment cubes above;
 // this only keeps a fully-occluded face with no environment bound from reading as a pure-black hole. It
 // is deliberately two orders of magnitude below the old deferred constant so it cannot double-count the
 // sky the way that constant did. Multiply it by albedo * ao at the call site.
-const vec3 PBR_AMBIENT_FLOOR = vec3(0.008, 0.009, 0.012);
+const vec3 SURFACE_AMBIENT_FLOOR = vec3(0.008, 0.009, 0.012);
 
 // Split-sum image-based lighting (Karis 2013) from samples the caller already took:
 //   irradiance    — the diffuse irradiance cube at N (exitant radiance for a Lambertian BRDF, so it is
@@ -62,7 +62,7 @@ vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, ve
 //               shaders); the deferred composite passes its screen-space or RSM gather here.
 vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
 {
-	return ibl * ao + albedo * ao * (PBR_AMBIENT_FLOOR + indirect);
+	return ibl * ao + albedo * ao * (SURFACE_AMBIENT_FLOOR + indirect);
 }
 
 #ifndef AMBIENT_IBL_NO_SAMPLERS

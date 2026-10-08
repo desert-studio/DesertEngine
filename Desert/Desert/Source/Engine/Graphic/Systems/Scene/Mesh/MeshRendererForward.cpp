@@ -55,7 +55,7 @@ namespace Desert::Graphic::System
         if ( m_GenericQueue.empty() )
             return;
 
-        // THE SAME per-frame scene snapshot the PBR queue is drawn with — camera, lights, cascades, the
+        // THE SAME per-frame scene snapshot the lit queue is drawn with — camera, lights, cascades, the
         // baked environment and the cloud shadow — gathered once here as it is there.
         //
         // What stood in its place was three hand-written fills (CameraUB, TimeUB, DirectionLightsUB) and
@@ -65,7 +65,7 @@ namespace Desert::Graphic::System
         // exactly what it did: a flat ambient constant, an unnormalized Lambert and full sun under a
         // cloud. Every one of those blocks is bound by NAME and guarded, so this costs the shaders that
         // do not declare them nothing.
-        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         const Core::Frustum frustum = camera->GetFrustum();
 
@@ -126,7 +126,7 @@ namespace Desert::Graphic::System
             // draw here, silently and wrongly, and NOTHING below this point was ever going to object.
             //
             // What was measured, with a `.demat` naming the Terrain shader in a mesh slot: the submesh
-            // reached this loop, left the batched PBR path (so it was masked out of the PBR draw), and
+            // reached this loop, left the batched lit path (so it was masked out of the lit draw), and
             // then drew nothing, with no log line and no validation error -- validation layers were
             // active and reported only an unrelated teardown leak. No pipeline was built for it either:
             // the spec assembled below differs from the terrain's own only in DebugName and Layout, and
@@ -320,19 +320,19 @@ namespace Desert::Graphic::System
         // ONE DRAW PER OBJECT, AND THE ROW TRANSPORT IS NOT WHAT STOPS THAT. Measured 2026-09-05 in Debug
         // on Resources/Assets/Scenes/MAT_ProbeGraphBatchStress.desce — 1025 cubes on one graph material,
         // the exact scene MAT_ProbeBatchStress is except that its material is a `MatProbe` graph rather
-        // than a `.demat` PBR surface. Minimum of six interleaved runs across two builds, reading the
+        // than a `.demat` Lit surface. Minimum of six interleaved runs across two builds, reading the
         // pass's own profiler line; the machine was shared with another agent, and the two builds' minima
         // agreed to 0.001 ms:
         //
         //   scene (1025 cubes)     RenderMesh calls   MeshGeometryPass CPU   frame (wall)
-        //   PBR material           6                  0.742 ms               11.254 ms  (89 FPS)
+        //   Lit material           6                  0.742 ms               11.254 ms  (89 FPS)
         //   graph material         5125               12.417 ms              56.178 ms  (18 FPS)
         //
         // Moving the parameters onto rows halved this pass (26.647 -> 12.417 ms, and 71.029 -> 56.178 ms
         // of frame) by deleting the per-draw uniform-field writes and flushes. It did NOT change the draw
         // count, and it could not have: what collapses 1025 objects into 6 draws is INSTANCING, and
         // instancing needs a vertex stage that reads its transform from `InstanceTransforms[]` instead of
-        // the push constant. `MeshShaderFor(Instanced, Forward)` names a whole second .shader for the PBR
+        // the push constant. `MeshShaderFor(Instanced, Forward)` names a whole second .shader for the lit
         // surface; a data-driven shader has no such variant and the DSL has no way to express one, so the
         // vertex-path axis of Materials/Mesh/MeshVertexPath.hpp has exactly one cell filled for every
         // material whose template has no mesh-table row.
@@ -537,8 +537,8 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const auto [pbrInst, mat] = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
-            if ( pbrInst == nullptr || !IsTranslucent( mat ) )
+            const auto [surfaceInst, mat] = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
+            if ( surfaceInst == nullptr || !IsTranslucent( mat ) )
             {
                 continue; // opaque -> drawn by the opaque pass, not here
             }
@@ -550,7 +550,7 @@ namespace Desert::Graphic::System
             // AL1-12 INSIDE THE GRAPH (RDG-PSO): a translucent cell still in the driver is drawn by the default
             // surface with the translucent draw state (its own row, its own material) — recording the cell would
             // fail this node and drop the frame graph.
-            Core::Formats::MaterialParamRow row = EffectiveRow( mat, pbrInst );
+            Core::Formats::MaterialParamRow row = EffectiveRow( mat, surfaceInst );
             switch ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
                                          standInState != nullptr ? standInState->Pipeline.get() : nullptr ) )
             {
@@ -577,7 +577,7 @@ namespace Desert::Graphic::System
 
         // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill
         // is what its draws will read: its rows and the scene snapshot ---
-        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( auto& [state, cellRows] : rows )
         {
             if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
@@ -669,7 +669,7 @@ namespace Desert::Graphic::System
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
         // the resolved IBL cubes + BRDF LUT). Applied per material GROUP below, not per object: only the
         // transform is per-object, and it rides a push constant.
-        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         // FRUSTUM CULLING, AND IT LIVES IN THE PASS RATHER THAN AT SUBMIT. The queues this pass reads are
         // read by FIVE passes, and three of them look at the scene from somewhere else: the four shadow
@@ -705,11 +705,11 @@ namespace Desert::Graphic::System
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
 
-            // First PBR slot drives the batch. Slots holding a custom-shader material
-            // (DataDrivenMaterial) are not PBR — their submeshes were routed to the generic
-            // path at submit and are masked out of this draw; an object with NO PBR slot at
+            // First lit slot drives the batch. Slots holding a custom-shader material
+            // (DataDrivenMaterial) are not lit — their submeshes were routed to the generic
+            // path at submit and are masked out of this draw; an object with NO Lit slot at
             // all has nothing for this path to do.
-            if ( const auto slot = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static ) )
+            if ( const auto slot = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static ) )
                 groupFor( slot.Surface ).push_back( &data );
         }
 
@@ -875,7 +875,7 @@ namespace Desert::Graphic::System
             bool twoSided = mat->IsTwoSided();
             for ( const auto* obj : members )
                 if ( const auto* inst =
-                          FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance )
+                          FirstSurfaceSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance )
                     twoSided = twoSided || inst->IsTwoSided();
             return cellDrawOf( mat, twoSided, /*perObject*/ true );
         };
@@ -934,7 +934,7 @@ namespace Desert::Graphic::System
                 // defaults row — the waiting material's overrides are not the stand-in's to show.
                 od.Inst = mat == standInKey
                                ? standIn->Instance.get()
-                               : FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance;
+                               : FirstSurfaceSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance;
                 od.Row  = EffectiveRow( mat, od.Inst );
                 if ( od.Inst != nullptr )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
@@ -1026,7 +1026,7 @@ namespace Desert::Graphic::System
 
             // WHICH MATERIAL RECORDS THE DRAW. The group is keyed by the (surface x Static x Forward)
             // material a mesh slot resolved to, but the deferred pass rasterizes with the G-buffer
-            // pipeline — whose layout comes from StaticMeshGBuffer's reflection, not StaticMeshPBR's. A
+            // pipeline — whose layout comes from StaticMeshGBuffer's reflection, not StaticMeshLit's. A
             // material is one shader's descriptor sets plus a payload, so the sets have to come from the
             // shader that is about to be bound: this asks the service for the SAME `.demat` on the SAME
             // vertex path in the G-buffer pass, and the twin carries the same parameters and the same
@@ -1327,7 +1327,7 @@ namespace Desert::Graphic::System
         // deferred scene they are drawn FORWARD over the composite and receive nothing the composite
         // computed: this is the only route by which the sun's shadows, the baked sky and the cloud
         // layer's shadow reach them at all.
-        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         // One pipeline on both paths: it is built against SceneTargetLayout, and the graph opens the pass with
         // each slot's load op (LOAD over the deferred composite, CLEAR on the forward path's first writer).
@@ -1469,7 +1469,7 @@ namespace Desert::Graphic::System
         spec.TargetLayout   = SceneTargetLayout();
 
         // Pipelines come from the shared cache (deduped by shader + target + state). The mesh keeps its
-        // explicit state for now; PBR's render-state moves to the shader's #pragma state in Phase 2.
+        // explicit state for now; Lit's render-state moves to the shader's #pragma state in Phase 2.
         const auto staticPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !staticPipeline )
         {

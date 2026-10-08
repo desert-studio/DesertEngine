@@ -190,7 +190,7 @@ namespace Desert::Runtime
         }
 
         // ONE PATH FOR EVERY TEMPLATE. There used to be a branch here: the template declaring `Role
-        // PBRSurface` was built as the C++ PBR class and every other one as a DataDrivenMaterial,
+        // StandardSurface` was built as the C++ Lit class and every other one as a DataDrivenMaterial,
         // with two appliers that had to be kept saying the same thing. A material is one template cell's
         // descriptor sets plus a parameter row, whatever the template shades like; the scene's part of the
         // draw is declared by the template's resources (Core::Formats::MaterialLayout::SceneReads), so the

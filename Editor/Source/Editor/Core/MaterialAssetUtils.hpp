@@ -105,7 +105,7 @@ namespace Desert::Editor::MaterialAssetUtils
     // this is safe before shaders are preloaded) and returns the handle to drop into a mesh material
     // slot.
     //
-    // IT IS NAMED FOR WHAT IT DOES. It was called `CreatePBRMaterialAsset` and it creates nothing at all
+    // IT IS NAMED FOR WHAT IT DOES. It was called `CreateSurfaceMaterialAsset` and it creates nothing at all
     // when a file already exists — an EXISTING file is never rewritten, on purpose, so that a user's
     // edits to a demo material survive a restart. That intent is kept. What is gone is the silence
     // around it: a reused material is now COMPARED against the request, and every parameter that
@@ -118,7 +118,7 @@ namespace Desert::Editor::MaterialAssetUtils
     // could not have fixed it on any launch because it never looked. The values at the call site had
     // quietly become unreachable code.
     [[nodiscard]] inline MaterialAssetOutcome
-    FindOrCreatePBRMaterialAsset( const Assets::AssetManager* am, const std::string& name,
+    FindOrCreateSurfaceMaterialAsset( const Assets::AssetManager* am, const std::string& name,
                                   const std::vector<Assets::MaterialParamRequest>& params,
                                   std::string_view                                 templateGuid = {} )
     {
@@ -199,7 +199,7 @@ namespace Desert::Editor::MaterialAssetUtils
 
     // The brace-list spelling the demo builders read best. Same function.
     [[nodiscard]] inline MaterialAssetOutcome
-    FindOrCreatePBRMaterialAsset( const Assets::AssetManager* am, const std::string& name,
+    FindOrCreateSurfaceMaterialAsset( const Assets::AssetManager* am, const std::string& name,
                                   std::initializer_list<std::pair<const char*, glm::vec4>> params,
                                   std::string_view                                         templateGuid = {} )
     {
@@ -207,15 +207,15 @@ namespace Desert::Editor::MaterialAssetUtils
         requested.reserve( params.size() );
         for ( const auto& [pname, value] : params )
             requested.push_back( { std::string( pname ), value } );
-        return FindOrCreatePBRMaterialAsset( am, name, requested, templateGuid );
+        return FindOrCreateSurfaceMaterialAsset( am, name, requested, templateGuid );
     }
 
-    [[nodiscard]] inline MaterialAssetOutcome FindOrCreatePBRMaterialAsset( const Assets::AssetManager* am,
+    [[nodiscard]] inline MaterialAssetOutcome FindOrCreateSurfaceMaterialAsset( const Assets::AssetManager* am,
                                                                             const std::string&          name,
                                                                             const glm::vec4&            albedo,
                                                                             float                       roughness )
     {
-        return FindOrCreatePBRMaterialAsset(
+        return FindOrCreateSurfaceMaterialAsset(
              am, name,
              { { "AlbedoColor", albedo }, { "RoughnessFactor", glm::vec4( roughness, 0.0f, 0.0f, 0.0f ) } } );
     }

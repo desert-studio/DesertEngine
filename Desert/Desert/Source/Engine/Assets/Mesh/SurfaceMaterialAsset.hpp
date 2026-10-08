@@ -9,9 +9,9 @@ namespace Desert::Assets
     // The concrete material asset (.demat): a shader + generic parameter values (MaterialData —
     // THE single material protocol; the shader's schema defines what the params mean).
     // The template is named by the shader file's GUID and nothing else; there is no default template
-    // (a material that names none is refused on load). The two engine PBR templates route to the batched
+    // (a material that names none is refused on load). The two engine lit templates route to the batched
     // backend; any other Surface-domain DSL shader routes to the generic per-object path. Pre-protocol files
-    // (typed PBR fields / the ancient cooker format) are migrated on Load and the file is upgraded on disk.
+    // (typed lit fields / the ancient cooker format) are migrated on Load and the file is upgraded on disk.
     class SurfaceMaterialAsset final : public MaterialAsset
     {
     public:
@@ -90,11 +90,11 @@ namespace Desert::Assets
             return m_ShaderName;
         }
 
-        // The template declaring `Role PBRSurface` takes the batched PBR backend; every other template is
+        // The template declaring `Role StandardSurface` takes the batched lit backend; every other template is
         // drawn through the generic data-driven path. Asked of the RESOLVED template's manifest, never of a name.
         [[nodiscard]] bool UsesCustomShader() const
         {
-            return !m_ShaderIsPBRSurface;
+            return !m_ShaderIsStandardSurface;
         }
 
         // Resolves Data().Shader's GUID to the ShaderAsset registered under HandleForGuid of it. The loads
@@ -130,7 +130,7 @@ namespace Desert::Assets
         MaterialData m_Data;
         std::string         m_ShaderName;                 // display only
         Common::AssetHandle m_ShaderHandle;               // THE identity of the template; null = none resolved
-        bool                m_ShaderIsPBRSurface = false; // the resolved template declares `Role PBRSurface`
+        bool                m_ShaderIsStandardSurface = false; // the resolved template declares `Role StandardSurface`
 
         // TRUE when m_Data is NOT what the file says — the file exists but could not be read, or it
         // read and would not parse. The asset is deliberately still usable in that state (see Load),

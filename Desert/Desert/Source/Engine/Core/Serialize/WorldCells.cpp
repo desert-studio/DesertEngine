@@ -353,7 +353,7 @@ namespace Desert::Core::WorldCells
                         continue;
                     // The shader's manifest role, as the registry's Role tag carries it — never its name.
                     if ( row->Kind == "Shader" )
-                        return row->Role != CC::kPBRSurfaceRole;
+                        return row->Role != CC::kStandardSurfaceRole;
                     if ( row->Kind == "Material" && parent == nullptr )
                         parent = row;
                 }

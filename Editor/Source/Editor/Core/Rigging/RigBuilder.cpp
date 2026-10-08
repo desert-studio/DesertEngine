@@ -203,7 +203,7 @@ namespace Desert::Editor
         auto skinnedMesh = std::make_shared<SkinnedMesh>( skinned, indices, submeshes, skeleton.get(),
                                                           meshAsset->GetVertexStreams() );
 
-        // Swap the component. Materials are left to the default skinned PBR material (a static PBR instance is
+        // Swap the component. Materials are left to the default skinned lit material (a static lit instance is
         // bound to the wrong vertex/pipeline layout) — the user re-assigns skinned materials afterward.
         entity.RemoveComponent<ECS::StaticMeshComponent>();
         auto& out           = entity.AddComponent<ECS::SkinnedMeshComponent>();

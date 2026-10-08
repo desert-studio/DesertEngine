@@ -222,7 +222,7 @@ namespace Desert::Editor
                 const Assets::AssetHandle normal    = resolveTex( mat.Normal );
                 const Assets::AssetHandle opacity   = resolveTex( mat.Opacity );
 
-                // ONE ORM SLOT (MAT1a): the PBR templates read occlusion, roughness and metal from u_ORMTexture
+                // ONE ORM SLOT (MAT1a): the lit templates read occlusion, roughness and metal from u_ORMTexture
                 // (.r / .g / .b). A collection names the three as separate images, so they are packed into one
                 // derived texture beside them — the importer's own packer, so the name, the GUID (kept by path)
                 // and the "unchanged inputs are not rewritten" rule are the ones a mesh import gets.

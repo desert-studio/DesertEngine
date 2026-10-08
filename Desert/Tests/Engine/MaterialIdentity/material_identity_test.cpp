@@ -334,7 +334,7 @@ TEST( MaterialIdentity, TwoDifferentFilesOnOneHandleAreACollision )
 }
 
 // The case that must NOT refuse, and the one that would have made this rule useless if it did: a
-// material re-registering is routine (MaterialAssetUtils::CreatePBRMaterialAsset re-registers whatever it
+// material re-registering is routine (MaterialAssetUtils::CreateSurfaceMaterialAsset re-registers whatever it
 // finds, and the editor re-registers on every shader change), and refusing there would break live edit.
 TEST( MaterialIdentity, TheSameFileRegisteringAgainIsNotACollision )
 {

@@ -147,7 +147,7 @@ namespace Desert::ECS
                                  binding->Slots.push_back( inst.get() );
                              mesh.RuntimeSlots = std::move( binding );
 
-                             // One-shot seed, CONSUMED here: PBR-channel MaterialComponent params exist only
+                             // One-shot seed, CONSUMED here: Lit-channel MaterialComponent params exist only
                              // as a hand-off buffer (scripts that ran before this build + legacy scenes).
                              // They land as slot-0 instance overrides once and the buffer is cleared — the
                              // authored slots stay the single source of truth, nothing re-applies per frame,
@@ -218,8 +218,8 @@ namespace Desert::ECS
                          // Outline: editor selection OR the per-entity "Draw outline" toggle.
                          const bool outlined = isSelected || mesh.OutlineDraw;
 
-                         // A MaterialComponent assigning a NON-PBR shader takes this mesh off the batched
-                         // PBR path onto the generic per-object data-driven path.
+                         // A MaterialComponent assigning a NON-Lit shader takes this mesh off the batched
+                         // Lit path onto the generic per-object data-driven path.
                          if ( registry.has<MaterialComponent>( entity ) )
                          {
                              const auto& matc = registry.get<MaterialComponent>( entity );
@@ -235,13 +235,13 @@ namespace Desert::ECS
                                  for ( const auto& t : matc.Textures )
                                      texOverrides.emplace_back( t.Name, t.TextureHandle );
 
-                                 // This draw REPLACES the entity's PBR draw (note the return), so it is
+                                 // This draw REPLACES the entity's lit draw (note the return), so it is
                                  // the only draw that could carry the caster — and before it did, a
                                  // Shader Override mesh cast no shadow at all.
                                  const bool overrideCasts =
                                       Rules::RouteMeshShadowCaster( mesh.CastShadows, /*shaderOverride*/ true,
                                                                     /*slotDrawCount*/ 0,
-                                                                    /*pbrDrawEmitted*/ false ) ==
+                                                                    /*surfaceDrawEmitted*/ false ) ==
                                       Rules::MeshShadowCaster::ShaderOverride;
 
                                  renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
@@ -250,14 +250,14 @@ namespace Desert::ECS
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
                                       overrideCasts );
-                                 return; // skip the PBR path for this entity
+                                 return; // skip the lit path for this entity
                              }
                          }
 
                          // ── v3 per-slot shader routing ──────────────────────────────────────
                          // Submesh i uses slot min(i, slots-1). Submeshes whose slot material is
-                         // a custom-shader material (DataDrivenMaterial) leave the batched PBR
-                         // path and are drawn per-slot through the generic path; the PBR draw
+                         // a custom-shader material (DataDrivenMaterial) leave the batched lit
+                         // path and are drawn per-slot through the generic path; the lit draw
                          // masks them out. Materials are MaterialService-owned -> pointers are
                          // stable for the frame.
                          uint64_t customMask = 0;
@@ -296,14 +296,14 @@ namespace Desert::ECS
                          }
 
                          // Decided BEFORE anything is emitted, because the caster belongs to the ENTITY:
-                         // the shadow pass draws a mesh whole, so the PBR draw and the slot draws are
+                         // the shadow pass draws a mesh whole, so the lit draw and the slot draws are
                          // candidates for the same silhouette and only one of them may record it.
                          const uint64_t allMask = submeshCount >= 64 ? ~0ull : ( ( 1ull << submeshCount ) - 1ull );
-                         const uint64_t pbrHidden      = mesh.HiddenSubmeshes | customMask;
-                         const bool     pbrDrawEmitted = submeshCount == 0 || ( ~pbrHidden & allMask ) != 0;
+                         const uint64_t surfaceHidden      = mesh.HiddenSubmeshes | customMask;
+                         const bool     surfaceDrawEmitted = submeshCount == 0 || ( ~surfaceHidden & allMask ) != 0;
 
                          const auto shadowRoute = Rules::RouteMeshShadowCaster(
-                              mesh.CastShadows, /*shaderOverride*/ false, slotDraws.size(), pbrDrawEmitted );
+                              mesh.CastShadows, /*shaderOverride*/ false, slotDraws.size(), surfaceDrawEmitted );
 
                          bool slotCasterPlaced = false;
                          for ( const auto& d : slotDraws )
@@ -324,13 +324,13 @@ namespace Desert::ECS
                                   outlined, casts );
                          }
 
-                         // PBR path draws the remaining submeshes (skip entirely when every
+                         // Lit path draws the remaining submeshes (skip entirely when every
                          // submesh went custom).
-                         if ( pbrDrawEmitted )
+                         if ( surfaceDrawEmitted )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawStaticMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots, worldTransform,
-                                  outlined, pbrHidden, mesh.ForcedLOD, mesh.LODBias,
-                                  shadowRoute == Rules::MeshShadowCaster::PbrDraw, mesh.ReceiveShadows,
+                                  outlined, surfaceHidden, mesh.ForcedLOD, mesh.LODBias,
+                                  shadowRoute == Rules::MeshShadowCaster::SurfaceDraw, mesh.ReceiveShadows,
                                   mesh.TranslucencySortPriority );
                      } );
             }
@@ -366,7 +366,7 @@ namespace Desert::ECS
                              ism.SeenMaterialsVersion = materialsVersion;
                          }
 
-                         // One PBR material instance (slot 0), rebuilt only when the slot set changes.
+                         // One lit material instance (slot 0), rebuilt only when the slot set changes.
                          const size_t slotCount = ism.MaterialSlots.empty() ? 1 : ism.MaterialSlots.size();
                          if ( ism.RuntimeMaterialInstances.size() != slotCount )
                          {
@@ -387,8 +387,8 @@ namespace Desert::ECS
                          if ( ism.RuntimeMaterialInstances.empty() )
                              return;
 
-                         // ISM draws through the batched PBR instancing path — a custom-shader slot
-                         // material can't drive it. Use the first PBR slot; if none, warn once and
+                         // ISM draws through the batched lit instancing path — a custom-shader slot
+                         // material can't drive it. Use the first lit slot; if none, warn once and
                          // skip (per-instance generic draws would defeat the point of an ISM).
                          // CO-OWNED, for the same reason the static path's slots are: this instance is
                          // owned by THIS component's RuntimeMaterialInstances, and the entity can be
@@ -411,8 +411,8 @@ namespace Desert::ECS
                              if ( !s_WarnedCustomISM )
                              {
                                  LOG_WARN( "Instanced Static Mesh doesn't support custom-shader materials "
-                                           "(instancing is a PBR-path optimization) — entity skipped. "
-                                           "Assign a PBR material." );
+                                           "(instancing is a lit-path optimization) — entity skipped. "
+                                           "Assign a lit material." );
                                  s_WarnedCustomISM = true;
                              }
                              return;
@@ -479,7 +479,7 @@ namespace Desert::ECS
                          if ( !mesh.RuntimeMesh )
                              AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
 
-                         // One skinned PBR material instance (default if no slot assigned), rebuilt only when
+                         // One skinned lit material instance (default if no slot assigned), rebuilt only when
                          // the slot set changes.
                          // Invalidation stamp (see the static path) — rebuild on any Invalidate().
                          if ( mesh.SeenMaterialsVersion != materialsVersion )

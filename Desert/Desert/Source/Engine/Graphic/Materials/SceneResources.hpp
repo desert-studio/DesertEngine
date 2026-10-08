@@ -20,22 +20,22 @@ namespace Desert::Graphic::SceneResources
 {
     // WHAT THE SCENE HANDS A SURFACE, BY NAME — for ANY surface template, not for one C++ material class.
     //
-    // These constants and the table below used to be the static members of the PBR base class, which made
+    // These constants and the table below used to be the static members of the lit base class, which made
     // "reads the shadow cascades / the IBL environment" something a material got by INHERITING from the
-    // PBR class. A template is what reads them, so the template says so: every cell's reconciled layout
+    // Lit class. A template is what reads them, so the template says so: every cell's reconciled layout
     // carries `SceneReads` (Core::Formats::SceneRead), classified from the resources its compiled stages
-    // declare by the one table here (ShaderReflection::ReconcileCellLayout), and PBRSceneFrame::ApplyTo
+    // declare by the one table here (ShaderReflection::ReconcileCellLayout), and SceneFrameBinding::ApplyTo
     // writes exactly the groups the layout names. A data-driven template that samples the shadow map gets
     // the cascades because it declares them — not because someone wrote a C++ class for it.
 
     // How many shadow cascades the ShadowUB block carries, and therefore how many cascade maps a lit draw
-    // binds. ONE number for the whole chain: PBRSceneFrame::CascadeMaps and the renderer's cascade count
+    // binds. ONE number for the whole chain: SceneFrameBinding::CascadeMaps and the renderer's cascade count
     // are defined from it.
     inline constexpr uint32_t kMaxCascades = 4;
 
     // The C++ half of the `ShadowUB` block every lit surface declares. PUBLIC because the other half is
     // GLSL: reflecting the block and comparing it with this is the only way to assert the pair agrees on a
-    // machine with no device (Desert/Tests/Engine/PBRSceneFrame).
+    // machine with no device (Desert/Tests/Engine/SceneFrameBinding).
     struct ShadowUBData
     {
         glm::mat4 LightViewProj[kMaxCascades];

@@ -45,7 +45,7 @@ namespace Desert::Editor
             out.AlphaMode = mode.C_Str();
 
         // A separate opacity map is the mask whatever else the file says (FBX cards, e.g. Poly Haven's
-        // `*_alpha.png`): the PBR passes prefer it over the albedo's alpha.
+        // `*_alpha.png`): the lit passes prefer it over the albedo's alpha.
         if ( material.GetTextureCount( aiTextureType_OPACITY ) > 0 )
         {
             out.Kind        = SourceAlphaKind::OpacityMap;

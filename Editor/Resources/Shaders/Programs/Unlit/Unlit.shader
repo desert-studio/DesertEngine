@@ -9,8 +9,8 @@ Shader "Unlit"
     Domain Surface
     Role DebugColor
 
-    // The import contract (see StaticMeshPBR): this template takes only a glTF material that declares
-    // KHR_materials_unlit, and it takes it over StaticMeshPBR because it requires more of the source.
+    // The import contract (see StaticMeshLit): this template takes only a glTF material that declares
+    // KHR_materials_unlit, and it takes it over StaticMeshLit because it requires more of the source.
     Import
     {
         Requires "gltf.KHR_materials_unlit"

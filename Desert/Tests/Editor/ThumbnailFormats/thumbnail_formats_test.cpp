@@ -432,7 +432,7 @@ TEST( ThumbnailMaterialDomains, EachDrawableDomainGetsThePictureItsOwnPathProduc
 
 // A MASKED material goes on the ball, like UE's material thumbnail. The rule this replaces flattened any
 // material with AlphaCutoff > 0 onto a camera-facing card, so a grass atlas previewed as a flat rectangle
-// and the mask — which the mesh path honours by discard (StaticMeshPBR.shader) — was never seen on a
+// and the mask — which the mesh path honours by discard (StaticMeshLit.shader) — was never seen on a
 // shape. The material's cutoff is not an input of the routing at all now: the answer is the surface
 // domain's, and the surface domain's answer is the sphere.
 TEST( ThumbnailMaterialDomains, AMaskedSurfaceMaterialPreviewsOnTheSphere )

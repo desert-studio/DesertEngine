@@ -61,7 +61,7 @@ namespace Desert::Assets
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         // Shader driving this material, by the shader file's header GUID (MATL 4; `Path` relative to
-        // Editor/Resources is only a locator, see AssetGuidRef). Absent -> "StaticMeshPBR" (the standard
+        // Editor/Resources is only a locator, see AssetGuidRef). Absent -> "StaticMeshLit" (the standard
         // surface shader with the batched backend); an instance states none and draws with its base's shader.
         // The name the renderer binds is resolved from the GUID by SurfaceMaterialAsset::ResolveDependencies.
         std::optional<AssetGuidRef> Shader;

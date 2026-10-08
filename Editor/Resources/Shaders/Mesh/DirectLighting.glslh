@@ -1,12 +1,12 @@
 #ifndef DIRECT_LIGHTING_GLSLH
 #define DIRECT_LIGHTING_GLSLH
 
-// THE analytic-light term of this engine's PBR — one text, compiled by every shader and every light
+// THE analytic-light term of this engine's lit — one text, compiled by every shader and every light
 // type that has one. The companion of Mesh/AmbientIBL.glslh, and here for the same reason: a scene
 // picks which shading path runs with a single enum field, and while the paths carried their own copies
 // of this formula they disagreed.
 //
-// The defect: `Programs/PBR/StaticMeshPBR.shader` computed its sun diffuse as `kd * albedo` while
+// The defect: `Programs/Surface/StaticMeshLit.shader` computed its sun diffuse as `kd * albedo` while
 // `Programs/Deferred/DeferredLighting.shader` computed it as `kd * albedo / PI`. The Lambertian BRDF is
 // albedo/PI — radiance out per irradiance in, over a hemisphere of PI steradians of projected solid
 // angle — so the deferred form was right and the forward form was PI times too bright on the sun. It
@@ -30,7 +30,7 @@
 // it compile as C++, so Desert/Tests/Engine/DirectLighting asserts these properties on the shipped text
 // rather than on a paraphrase of it.
 //
-// Requires Mesh/PBRFunctions.glslh (PI, DistributionGGX, VisibilitySmith, fresnelSchlick) first.
+// Requires Mesh/BRDF.glslh (PI, DistributionGGX, VisibilitySmith, fresnelSchlick) first.
 
 // The Cook-Torrance response of a surface to ONE analytic light.
 //
