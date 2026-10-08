@@ -1235,6 +1235,39 @@ TEST( CloudProceduralField, TheProfileRampSpansAtLeastTwoVoxelsAtEveryReach )
     EXPECT_FLOAT_EQ( CloudProceduralCoverRemap( 0.6f, 1.0f ), 0.6f ) << "a full reach changed the profile";
 }
 
+// THE SILHOUETTE NOISE TILES WITH THE VOLUME AND STAYS IN ITS RANGE (SHAPE-NOISE). It moves every lump's
+// distance before the join, so a noise that did not repeat at RegionSizeKm would put a seam where the baked
+// volume wraps, and the preview at a point would stop being the bake at its wrap. It also has to MOVE: a
+// constant would leave every silhouette the ellipsoid join it was.
+// MUTATION: drop the std::round in CloudProceduralShapeNoise's cell count and the period rows go red; make it
+// return 0 and the variation row goes red.
+TEST( CloudProceduralField, TheSilhouetteNoiseTilesWithTheVolumeAndVaries )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    ASSERT_FALSE( params.Species.empty() );
+
+    float lowest  = 1.0f;
+    float highest = -1.0f;
+    for ( uint32_t i = 0; i < 64u; ++i )
+    {
+        const glm::vec3 point( 0.37f + 0.731f * static_cast<float>( i ),
+                               params.LayerBottomKm + 0.05f * static_cast<float>( i % 40u ),
+                               1.13f + 0.419f * static_cast<float>( i ) );
+        const float     here = CloudProceduralShapeNoise( params, 0u, point );
+        EXPECT_GE( here, -1.0f );
+        EXPECT_LE( here, 1.0f );
+        EXPECT_NEAR( here, CloudProceduralShapeNoise( params, 0u, point + glm::vec3( params.RegionSizeKm, 0, 0 ) ),
+                     1e-3f )
+             << "the noise does not repeat along x at the region";
+        EXPECT_NEAR( here, CloudProceduralShapeNoise( params, 0u, point - glm::vec3( 0, 0, params.RegionSizeKm ) ),
+                     1e-3f )
+             << "the noise does not repeat along z at the region";
+        lowest  = std::min( lowest, here );
+        highest = std::max( highest, here );
+    }
+    EXPECT_GT( highest - lowest, 0.5f ) << "the silhouette noise barely moves, so the bodies stay ellipsoids";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

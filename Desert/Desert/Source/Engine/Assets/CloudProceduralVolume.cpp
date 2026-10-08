@@ -5,17 +5,61 @@
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <mutex>
+
+// Common/CloudNoise.glslh COMPILED AS C++ for the body's silhouette noise (SHAPE-NOISE), the arrangement
+// CloudNoiseVolumeGenerator.cpp established: the same text the noise volume is generated from, so the
+// Perlin and the billow channel here are THE engine's and not a copy that could drift. A NAMED namespace,
+// not an anonymous one, because this file calls two of the library's functions and an anonymous copy would
+// warn on every one it leaves unused. The dialect rules are the .glslh's own: glm supplies the GLSL types
+// and built-ins and `uint` is GLSL's 32-bit word. The shader root is on every project that compiles this.
+namespace Desert::Assets::CloudShapeNoiseGlsl
+{
+    using vec3 = glm::vec3;
+    using vec4 = glm::vec4;
+
+    using uint = std::uint32_t;
+
+    using glm::clamp;
+    using glm::floor;
+    using glm::max;
+    using glm::min;
+    using glm::mix;
+    using glm::mod;
+    using glm::pow;
+
+#include <Common/CloudNoise.glslh>
+} // namespace Desert::Assets::CloudShapeNoiseGlsl
 
 namespace Desert::Assets
 {
     namespace
     {
+        /// THE SILHOUETTE NOISE'S LATTICE, in placement cells (SHAPE-NOISE): two fifths of the slot's CellKm,
+        /// which at the shipped 3 km cell is a 1.2 km Perlin cell against a cluster about 4 km across — three
+        /// to four bumps over one body, the scale Nubis 2017's low-frequency Perlin-Worley carves its base at.
+        /// Finer and the silhouette is the detail noise's job (CloudMedium's erosion); coarser and a whole
+        /// cluster sits inside one bump and is merely shifted, still an ellipse.
+        constexpr float kCloudShapeNoiseCellsPerCell = 0.4f;
+
+        /// How far the silhouette noise moves a lump's surface, in its own CloudProceduralLumpDepthKm. At
+        /// 0.6 the deepest carve leaves two fifths of the lump's thinnest radius, so a lump is reshaped and
+        /// never cut through; the growth side is the same distance outward, paid for in the bake's boxes.
+        constexpr float kCloudShapeNoiseReachOfDepth = 0.6f;
+
+        /// The median of `mix(billow, 1, perlin)` for two channels whose medians are 0.5 (CloudAlligator01 is
+        /// shaped to it; the periodic Perlin is symmetric about 0): 0.5 + 0.5 * 0.5. The signed noise is 0
+        /// there, so on average a body neither grows nor shrinks and the cover stays the Coverage mapping's.
+        constexpr float kCloudShapeNoiseMedian = 0.75f;
+
         /// How many blend radii past the nearest lump a lump may be before it is dropped from the join.
         ///
         /// FOURTEEN, AND THE NUMBER IS A QUANTISATION ARGUMENT rather than a feel. A dropped lump's term
@@ -1488,6 +1532,34 @@ namespace Desert::Assets
         return std::max( { deepestLumpKm, floorKm, 1e-6f } );
     }
 
+    float CloudProceduralShapeReachKm( const CloudModellingBlob& blob )
+    {
+        return kCloudShapeNoiseReachOfDepth * CloudProceduralLumpDepthKm( blob );
+    }
+
+    float CloudProceduralShapeNoise( const CloudProceduralFieldParams& params, uint32_t slot,
+                                     const glm::vec3& pointKm )
+    {
+        if ( slot >= params.Species.size() )
+            return 0.0f;
+
+        // A WHOLE NUMBER OF CELLS ACROSS THE REGION, so the noise repeats exactly where the volume does.
+        const float wantedKm = std::max( kCloudShapeNoiseCellsPerCell * params.Species[slot].CellKm, 1e-3f );
+        const float cells    = std::max( std::round( params.RegionSizeKm / wantedKm ), 1.0f );
+        const float cellKm   = params.RegionSizeKm / cells;
+
+        const glm::vec3 lattice = pointKm / cellKm;
+        const uint32_t  seed    = HashCombine( CloudSpeciesSeed( params, slot ), 0x5a4e0153u );
+
+        // Nubis 2017's Perlin-Worley: the Perlin dilated by the billow, `remap(perlin, 0, 1, billow, 1)`.
+        const float perlin = std::clamp(
+             0.5f + CloudShapeNoiseGlsl::CloudPerlinPeriodic( lattice, cells, seed ), 0.0f, 1.0f );
+        const float billow = CloudShapeNoiseGlsl::CloudAlligator01( lattice, cells, HashCombine( seed, 0x1u ) );
+        const float pw     = billow + ( 1.0f - billow ) * perlin;
+
+        return std::clamp( ( kCloudShapeNoiseMedian - pw ) / ( 1.0f - kCloudShapeNoiseMedian ), -1.0f, 1.0f );
+    }
+
     namespace
     {
         /// One lump a point asks about: its distance (+inf when it cannot reach the point), its join weight, the
@@ -1588,6 +1660,9 @@ namespace Desert::Assets
         std::vector<float>     invDepths;
         CloudClusterBodyDepths( params, lumps, sites, invDepths );
 
+        // THE SILHOUETTE NOISE moves every lump's distance BEFORE the join (SHAPE-NOISE), as the bake does.
+        const float shape = CloudProceduralShapeNoise( params, slot, pointKm );
+
         std::vector<CloudClusterCandidate> candidates;
         candidates.reserve( lumps.size() );
         for ( const CloudProceduralLump& lump : lumps )
@@ -1595,7 +1670,9 @@ namespace Desert::Assets
             const auto cluster =
                  static_cast<uint32_t>( std::find( sites.begin(), sites.end(), lump.ClusterKm ) - sites.begin() );
             candidates.push_back( CloudClusterCandidate{
-                 CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ), lump.Blob.Weight,
+                 CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ) +
+                      CloudProceduralShapeReachKm( lump.Blob ) * shape,
+                 lump.Blob.Weight,
                  cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ),
                  invDepths[cluster] } );
         }
@@ -1725,6 +1802,8 @@ namespace Desert::Assets
                 uint32_t Cluster = 0u;
                 /// 1 / the cluster's CloudProceduralBodyDepthKm (PROFILE-BODY).
                 float InvDepth = 0.0f;
+                /// CloudProceduralShapeReachKm of the lump (SHAPE-NOISE).
+                float ShapeReachKm = 0.0f;
             };
 
             // EACH CLUSTER'S BODY DEPTH over all its kept lumps, before a wrap or a bin culls one — the same
@@ -1756,7 +1835,11 @@ namespace Desert::Assets
                 const float     reach  = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
                 const float               invDepth = invDepths[static_cast<size_t>(
                      std::find( depthSites.begin(), depthSites.end(), lump.ClusterKm ) - depthSites.begin() )];
-                const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
+                // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
+                // reaches that much past its own ellipsoid (SHAPE-NOISE).
+                const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
+                const glm::vec3 extent =
+                     CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm + shapeReachKm );
 
                 for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
                 {
@@ -1780,7 +1863,7 @@ namespace Desert::Assets
                             continue;
 
                         placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, reach,
-                                                  clusterOf( lump.ClusterKm, wx, wz ), invDepth } );
+                                                  clusterOf( lump.ClusterKm, wx, wz ), invDepth, shapeReachKm } );
                     }
                 }
             }
@@ -1907,6 +1990,10 @@ namespace Desert::Assets
                                  // (EvaluateCloudProceduralProfile) shares: the lumps of each cluster joined by
                                  // the smooth minimum, each cluster cut by its reach, clusters met by `max`
                                  // (JOIN-PER-CLUSTER).
+                                 // The silhouette noise moves every lump's distance BEFORE the join
+                                 // (SHAPE-NOISE), the preview's CloudProceduralShapeNoise at this point.
+                                 const float shape = CloudProceduralShapeNoise( params, slot, point );
+
                                  candidates.clear();
                                  for ( uint32_t index : column )
                                  {
@@ -1914,7 +2001,8 @@ namespace Desert::Assets
                                      candidates.push_back( CloudClusterCandidate{
                                           point.y < item.MinKm.y || point.y > item.MaxKm.y
                                                ? std::numeric_limits<float>::infinity()
-                                               : CloudModellingBlobDistanceKm( item.Blob, point ),
+                                               : CloudModellingBlobDistanceKm( item.Blob, point ) +
+                                                      item.ShapeReachKm * shape,
                                           item.Blob.Weight, item.Cluster, item.Reach, item.InvDepth } );
                                  }
 

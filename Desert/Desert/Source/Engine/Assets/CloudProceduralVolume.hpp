@@ -856,6 +856,21 @@ namespace Desert::Assets
     /// here) put the whole rise in a shell thinner than one voxel and made every cut a facet.
     float CloudProceduralBodyDepthKm( const CloudProceduralFieldParams& params, float deepestLumpKm );
 
+    /// THE BODY'S SILHOUETTE NOISE (SHAPE-NOISE), in [-1, 1]: Nubis 2017's low-frequency Perlin-Worley —
+    /// periodic Perlin dilated by the billow channel, `mix(billow, 1, perlin)` — centred on its median and
+    /// signed so that +1 carves and -1 grows. The billow is CloudAlligator01, the inverted-Worley successor
+    /// Common/CloudNoise.glslh documents (Nubis Cubed). Its lattice cell is kCloudShapeNoiseCellsPerCell of
+    /// the slot's CellKm, rounded so a whole number of cells spans RegionSizeKm: the field tiles with the
+    /// volume, so the bake's wrap stays seamless and the preview at any point is the bake at its wrap.
+    float CloudProceduralShapeNoise( const CloudProceduralFieldParams& params, uint32_t slot,
+                                     const glm::vec3& pointKm );
+
+    /// How far CloudProceduralShapeNoise moves one lump's surface, kilometres: a fixed fraction of its
+    /// CloudProceduralLumpDepthKm, so a lump is never carved through and a small lobe is reshaped as much
+    /// as a large one, relative to its own size. The distance a lump reports to the join is
+    /// `distance + reach * noise` — BEFORE the smooth minimum, in the bake and the preview alike.
+    float CloudProceduralShapeReachKm( const CloudModellingBlob& blob );
+
     /// Whether column (@p x, @p z) of the baked @p voxels shows sky or cloud under the per-slot weathers
     /// @p slotWeather (CloudProceduralLocalWeathers): cloud when ANY voxel's winning profile survives
     /// CloudProceduralCoverRemap by its winner's weather, as the march decides. What a census reads.
