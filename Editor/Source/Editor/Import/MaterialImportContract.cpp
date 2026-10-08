@@ -101,7 +101,11 @@ namespace Desert::Editor
             return Common::MakeError<ImportTemplate>( std::format( "'{}': {}", out.Locator, parsed.GetError() ) );
         for ( const auto& param : parsed.GetValue().Meta.Params )
             if ( param.IsTexture )
+            {
                 out.TextureProperties.insert( param.Name );
+                if ( param.SlotIntent != ::Desert::Core::Formats::TextureIntent::Unspecified )
+                    out.TextureIntents.emplace( param.Name, param.SlotIntent );
+            }
         return Common::MakeSuccess( std::move( out ) );
     }
 

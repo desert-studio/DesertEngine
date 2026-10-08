@@ -21,7 +21,7 @@ Shader "Unlit"
     Properties Binding(2)
     {
         Color     Color           ("Color")  = (0.8, 0.4, 0.1, 1)
-        Texture2D u_AlbedoTexture ("Albedo")
+        Texture2D u_AlbedoTexture ("Albedo", Intent(Colour))
     }
 
     State
