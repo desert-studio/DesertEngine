@@ -109,7 +109,8 @@ namespace Common::Content
         if ( const fs::path importRecord = ImportRecordPathFor( record.From ); fs::exists( importRecord, ec ) )
             originals.push_back( importRecord );
         if ( record.From.extension() == Constants::Extensions::SCENE_EXTENSION )
-            if ( const fs::path entities = ExternalEntitiesDirectoryOf( record.From ); fs::is_directory( entities, ec ) )
+            if ( const fs::path entities = ExternalEntitiesDirectoryOf( record.From );
+                 fs::is_directory( entities, ec ) )
                 originals.push_back( entities );
 
         // The rows those files hold, found BEFORE anything moves (a key is a function of the path).
@@ -158,11 +159,12 @@ namespace Common::Content
         Utils::AssetRegistry rows;
         for ( const Utils::AssetRegistryEntry& row : record.Rows )
             static_cast<void>( rows.Insert( row ) );
-        const auto writtenManifest = Json::WriteFileAtomic( record.Slot / kManifestName, manifest );
-        const auto writtenRows =
+        const std::string rowsText        = rows.Serialize();
+        const auto        writtenManifest = Json::WriteFileAtomic( record.Slot / kManifestName, manifest );
+        const auto        writtenRows =
              writtenManifest ? Utils::FileSystem::WriteBytesToFileAtomic(
-                                    record.Slot / kRowsName, std::as_bytes( std::span( rows.Serialize() ) ) )
-                             : writtenManifest;
+                                    record.Slot / kRowsName, std::as_bytes( std::span<const char>( rowsText ) ) )
+                                    : writtenManifest;
         if ( !writtenRows )
         {
             static_cast<void>( MoveBack( moved ) );

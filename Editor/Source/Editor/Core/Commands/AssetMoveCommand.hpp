@@ -181,7 +181,8 @@ namespace Desert::Editor
 
     // The editor's delete: every path into the project's trash (Saved/Trash), one undo entry for what was
     // trashed. Each refusal is returned by name; the rest are still deleted (and undoable).
-    [[nodiscard]] inline std::vector<std::string> DeleteAssetsWithUndo( const std::vector<std::filesystem::path>& paths )
+    [[nodiscard]] inline std::vector<std::string>
+    DeleteAssetsWithUndo( const std::vector<std::filesystem::path>& paths )
     {
         std::vector<Common::Content::AssetTrashRecord> records;
         std::vector<std::string>                       refusals;

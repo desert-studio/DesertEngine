@@ -891,8 +891,8 @@ namespace Desert::Assets
         // slot of `trashRoot` and the rows they held leave the registry, under this registry's lock (see
         // `Common::Content::MoveToTrash`). `RestoreTrashed` is the inverse: the same bytes at the same paths,
         // the same rows back, each restored row's path handle recorded as `Publish` records every row.
-        inline Common::ResultStr<Common::Content::AssetTrashRecord> TrashAsset( const std::filesystem::path& path,
-                                                                                const std::filesystem::path& trashRoot )
+        inline Common::ResultStr<Common::Content::AssetTrashRecord>
+        TrashAsset( const std::filesystem::path& path, const std::filesystem::path& trashRoot )
         {
             Detail::State&                    state = Detail::Get_();
             const std::lock_guard<std::mutex> lock( state.Mutex );
