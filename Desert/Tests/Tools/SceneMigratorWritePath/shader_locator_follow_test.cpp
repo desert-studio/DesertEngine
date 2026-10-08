@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <map>
 #include <string>
 
@@ -17,8 +18,9 @@ namespace
 
     std::string Material( const std::string& path )
     {
-        return std::string( R"({"Header":{"Versions":{"MATL":4}},"Shader":{"Guid":")" ) + kGuid + R"(","Path":")" +
-               path + R"("},"Parameters":{}})";
+        return std::format(
+             R"({{"Header":{{"Versions":{{"MATL":4}}}},"Shader":{{"Guid":"{}","Path":"{}"}},"Parameters":{{}}}})",
+             kGuid, path );
     }
 
     const std::map<std::string, std::string> kEngine = {

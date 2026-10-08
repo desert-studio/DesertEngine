@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <format>
 #include <regex>
 #include <set>
 #include <string>
@@ -49,7 +50,7 @@ namespace UniformBlockLayoutTest
     void ExpectTwin( const char* shaderFile, const char* blockName, const std::vector<Twin>& cpp,
                      const size_t cppSize )
     {
-        SCOPED_TRACE( std::string( shaderFile ) + " " + blockName );
+        SCOPED_TRACE( std::format( "{} {}", shaderFile, blockName ) );
         const Std140::Block block =
              Std140::ParseBlock( Std140::ReadText( DeferredProgram( shaderFile ) ), blockName );
         ASSERT_EQ( block.Members.size(), cpp.size() ) << "the GLSL block and its C++ twin differ in member count";

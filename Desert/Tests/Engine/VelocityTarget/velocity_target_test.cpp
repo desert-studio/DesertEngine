@@ -34,6 +34,7 @@
 #include <cstring>
 #include <cstddef>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <map>
 #include <optional>
@@ -68,8 +69,8 @@ namespace VelocityTargetTest
                                                                         const std::string& name )
     {
         std::vector<std::pair<std::string, std::string>> members;
-        const std::regex                                 head( R"(struct\s+)" + name + R"(\s*\{([^}]*)\})" );
-        std::smatch                                      match;
+        const std::regex head( std::format( R"(struct\s+{}\s*\{{([^}}]*)\}})", name ) );
+        std::smatch      match;
         if ( !std::regex_search( source, match, head ) )
             return members;
         // Line comments go first: the twin's member comments are prose ("... palette in objectBones; 0
@@ -205,12 +206,13 @@ namespace VelocityTargetTest
     // A minimal surface program whose Properties block is @p properties; nothing else in it can fail to parse.
     std::string ProbeWithProperties( const std::string& properties )
     {
-        return "Shader \"SceneReadRangeProbe\"\n{\n    Domain Surface\n\n    " + properties +
-               "\n    State { Cull Back ZTest LEqual ZWrite On }\n"
-               "    Vertex\n    {\n        In(0) vec3 a_Position;\n"
-               "        void main() { gl_Position = vec4( a_Position, 1.0 ); }\n    }\n"
-               "    Fragment\n    {\n        Out(0) vec4 o_Color;\n"
-               "        void main() { o_Color = vec4( 1.0 ); }\n    }\n}\n";
+        return std::format( "Shader \"SceneReadRangeProbe\"\n{{\n    Domain Surface\n\n    {}"
+                            "\n    State {{ Cull Back ZTest LEqual ZWrite On }}\n"
+                            "    Vertex\n    {{\n        In(0) vec3 a_Position;\n"
+                            "        void main() {{ gl_Position = vec4( a_Position, 1.0 ); }}\n    }}\n"
+                            "    Fragment\n    {{\n        Out(0) vec4 o_Color;\n"
+                            "        void main() {{ o_Color = vec4( 1.0 ); }}\n    }}\n}}\n",
+                            properties );
     }
 } // namespace VelocityTargetTest
 
@@ -226,9 +228,10 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 
     const auto textures = []( uint32_t first )
     {
-        return "Properties Binding(1) TextureBinding(" + std::to_string( first ) +
-               ")\n    {\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n"
-               "        Texture2D u_First (\"First\")\n        Texture2D u_Second (\"Second\")\n    }\n";
+        return std::format(
+             "Properties Binding(1) TextureBinding({})\n    {{\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n"
+             "        Texture2D u_First (\"First\")\n        Texture2D u_Second (\"Second\")\n    }}\n",
+             first );
     };
     // Two textures from one below the range: the second lands on its first slot.
     const auto intoRange = DShaderParser::Parse( ProbeWithProperties( textures( kSceneReadBindingFirst - 1u ) ) );
@@ -236,9 +239,9 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
     EXPECT_NE( intoRange.GetError().find( "scene-read" ), std::string::npos ) << intoRange.GetError();
     EXPECT_NE( intoRange.GetError().find( "u_Second" ), std::string::npos ) << intoRange.GetError();
 
-    const auto row = DShaderParser::Parse(
-         ProbeWithProperties( "Properties Binding(" + std::to_string( kSceneReadBindingFirst ) +
-                              ")\n    {\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n    }\n" ) );
+    const auto row = DShaderParser::Parse( ProbeWithProperties(
+         std::format( "Properties Binding({})\n    {{\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n    }}\n",
+                      kSceneReadBindingFirst ) ) );
     ASSERT_FALSE( row.IsSuccess() );
     EXPECT_NE( row.GetError().find( "scene-read" ), std::string::npos ) << row.GetError();
 
@@ -818,20 +821,20 @@ TEST( VelocityTarget, EachColourSlotTakesItsOwnClearOnItsFirstWriter )
 TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
 {
     using VelocityTargetTest::ReadFile;
-    const auto        root = Desert::TestSupport::RepositoryRoot();
-    const std::string E    = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/";
+    const auto                  root = Desert::TestSupport::RepositoryRoot();
+    const std::filesystem::path E    = "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
     // file -> how many pipelines in it draw into a view target (scene target or G-buffer)
-    const std::map<std::string, int> sites = {
-         { E + "Skybox/SkyboxRenderer.cpp", 2 },
-         { E + "Mesh/MeshRendererForward.cpp", 5 },
-         { E + "Mesh/MeshRendererDebug.cpp", 2 },
-         { E + "Mesh/MeshRendererDeferred.cpp", 2 },
-         { E + "Deferred/DeferredLightingRenderer.hpp", 1 },
-         { E + "Deferred/SSRRenderer.hpp", 1 },
-         { E + "Clouds/VolumetricCloudRenderer.cpp", 1 },
-         { E + "Fog/HeightFogRenderer.cpp", 1 },
-         { E + "Particles/ParticleRenderer.cpp", 1 },
-         { E + "Terrain/TerrainRenderer.cpp", 1 }, // CreateTerrainPipeline, called with both layouts
+    const std::map<std::filesystem::path, int> sites = {
+         { E / "Skybox/SkyboxRenderer.cpp", 2 },
+         { E / "Mesh/MeshRendererForward.cpp", 5 },
+         { E / "Mesh/MeshRendererDebug.cpp", 2 },
+         { E / "Mesh/MeshRendererDeferred.cpp", 2 },
+         { E / "Deferred/DeferredLightingRenderer.hpp", 1 },
+         { E / "Deferred/SSRRenderer.hpp", 1 },
+         { E / "Clouds/VolumetricCloudRenderer.cpp", 1 },
+         { E / "Fog/HeightFogRenderer.cpp", 1 },
+         { E / "Particles/ParticleRenderer.cpp", 1 },
+         { E / "Terrain/TerrainRenderer.cpp", 1 }, // CreateTerrainPipeline, called with both layouts
          { "Editor/Source/Editor/RenderSystems/Passes/EditorColliderPass.cpp", 1 },
          { "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp", 1 },
          { "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp", 1 },
@@ -844,14 +847,15 @@ TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
     for ( const auto& [file, expected] : sites )
     {
         const std::string text = ReadFile( root / file );
-        ASSERT_FALSE( text.empty() ) << file;
+        ASSERT_FALSE( text.empty() ) << file.generic_string();
         const auto count =
              std::distance( std::sregex_iterator( text.begin(), text.end(), layout ), std::sregex_iterator() );
-        EXPECT_EQ( count, expected ) << file << ": a view-target pipeline is not built against its target layout";
+        EXPECT_EQ( count, expected ) << file.generic_string()
+                                     << ": a view-target pipeline is not built against its target layout";
         EXPECT_FALSE( std::regex_search( text, framebuffer ) )
-             << file << ": a view-target pipeline names a Framebuffer";
+             << file.generic_string() << ": a view-target pipeline names a Framebuffer";
     }
-    const std::string terrain = ReadFile( root / ( E + "Terrain/TerrainRenderer.cpp" ) );
+    const std::string terrain = ReadFile( root / E / "Terrain/TerrainRenderer.cpp" );
     EXPECT_NE( terrain.find( "GBufferLayout(), error" ), std::string::npos ) << "terrain G-buffer pipeline";
     EXPECT_NE( terrain.find( "SceneTargetLayout(), error" ), std::string::npos ) << "terrain scene pipeline";
 }
@@ -989,10 +993,10 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
     // The includer resolves `#include <...>` against ShaderDir(), derived from the engine directory.
     Common::Constants::Path::SetEngineDir( root / "Editor" );
 
-    const std::string E  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/";
-    const std::string Ed = "Editor/Source/Editor/RenderSystems/Passes/";
+    const std::filesystem::path E  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
+    const std::filesystem::path Ed = "Editor/Source/Editor/RenderSystems/Passes";
     // shader name -> the site that builds its scene-target pipeline; the comment is why it owes no velocity.
-    const std::vector<std::pair<std::string, std::string>> mustNotWrite = {
+    const std::vector<std::pair<std::string, std::filesystem::path>> mustNotWrite = {
          { "Skybox", E + "Skybox/SkyboxRenderer.cpp" },                       // sky
          { "ProceduralSky", E + "Skybox/SkyboxRenderer.cpp" },                // sky
          { "HeightFogApply", E + "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
@@ -1014,10 +1018,11 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
     for ( const auto& [name, site] : mustNotWrite )
     {
         const std::string siteText = ReadFile( root / site );
-        ASSERT_FALSE( siteText.empty() ) << site;
-        EXPECT_NE( siteText.find( "\"" + name + "\"" ), std::string::npos ) << site << " no longer loads " << name;
+        ASSERT_FALSE( siteText.empty() ) << site.generic_string();
+        EXPECT_NE( siteText.find( std::format( "\"{}\"", name ) ), std::string::npos )
+             << site.generic_string() << " no longer loads " << name;
         EXPECT_NE( siteText.find( "SceneTargetLayout()" ), std::string::npos )
-             << site << " no longer builds " << name << " against the scene target layout";
+             << site.generic_string() << " no longer builds " << name << " against the scene target layout";
 
         const auto fragment = FindFragment( shaders, name );
         if ( !fragment.has_value() )
