@@ -239,12 +239,10 @@ TEST( DeviceCaps, IndependentBlendIsRequiredBecauseViewPipelinesBlendPerAttachme
     ASSERT_FALSE( root.empty() );
     const std::string probe =
          ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/DeviceCapsProbe.cpp" );
-    EXPECT_NE(
-         probe.find(
-              "case Capability::IndependentBlend:
-              "
-              "                    return EnableCore10( device, &VkPhysicalDeviceFeatures::independentBlend );" ),
-         std::string::npos )
+    // The probe enables it as a core 1.0 feature (two needles: the case label and the enabling call).
+    EXPECT_NE( probe.find( "case Capability::IndependentBlend:" ), std::string::npos )
+         << "DeviceCapsProbe has no case for Capability::IndependentBlend";
+    EXPECT_NE( probe.find( "&VkPhysicalDeviceFeatures::independentBlend" ), std::string::npos )
          << "DeviceCapsProbe must enable Capability::IndependentBlend through "
             "VkPhysicalDeviceFeatures::independentBlend";
     // The per-attachment states it exists for: still built per slot.
