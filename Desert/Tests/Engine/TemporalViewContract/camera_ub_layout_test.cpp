@@ -265,7 +265,7 @@ TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
             continue;
         ++scanned;
         const std::string rel    = fs::relative( entry.path(), shaders ).generic_string();
-        const std::string source = CameraUBLayoutTest::ReadText( entry.path() );
+        const std::string source = ReadText( entry.path() );
         if ( source.find( "cameraUB.JitteredViewProjection" ) != std::string::npos &&
              source.find( "gl_Position" ) != std::string::npos )
             ++jittered;
@@ -285,9 +285,8 @@ TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
     EXPECT_GT( scanned, 50u ) << "the scan found too few shaders to mean anything";
     EXPECT_GE( jittered, 5u ) << "Vertex_Static/Skinned/Instanced, TextSDF and Overdraw raster jittered";
 
-    const std::string terrain =
-         CameraUBLayoutTest::ReadText( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" /
-                                       "Scene" / "Terrain" / "TerrainRenderer.cpp" );
+    const std::string terrain = ReadText( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
+                                          "Systems" / "Scene" / "Terrain" / "TerrainRenderer.cpp" );
     EXPECT_EQ( terrain.find( "GetProjectionMatrix() * camera->GetViewMatrix()" ), std::string::npos )
          << "the terrain pushes the unjittered camera matrix; push the view's JitteredViewProjection";
     EXPECT_NE( terrain.find( "->JitteredViewProjection" ), std::string::npos );
@@ -311,8 +310,7 @@ TEST( CameraUBLayout, MaterialTexturesAreFetchedWithTheViewMipBias )
                 out.push_back( c );
         return out;
     };
-    const std::string types =
-         compact( CameraUBLayoutTest::ReadText( shaders / "Mesh" / "Surface" / "SurfaceTypes.glslh" ) );
+    const std::string types = compact( ReadText( shaders / "Mesh" / "Surface" / "SurfaceTypes.glslh" ) );
     EXPECT_NE(
          types.find( "vec4SurfaceSampleMaterial(sampler2DmaterialTexture,vec2uv){returntexture(materialTexture,uv,"
                      "cameraUB.MaterialMipBias);}" ),
@@ -327,7 +325,7 @@ TEST( CameraUBLayout, MaterialTexturesAreFetchedWithTheViewMipBias )
         if ( entry.path().extension() != ".shader" )
             continue;
         ++templates;
-        const std::string body = compact( CameraUBLayoutTest::ReadText( entry.path() ) );
+        const std::string body = compact( ReadText( entry.path() ) );
         // A material sampler is u_<Name>Texture; textureSize( ..., 0 ) is a size query, not a fetch.
         static const std::regex direct( R"(texture(Lod)?\(u_\w+Texture,)" );
         EXPECT_FALSE( std::regex_search( body, direct ) )
@@ -336,8 +334,8 @@ TEST( CameraUBLayout, MaterialTexturesAreFetchedWithTheViewMipBias )
     }
     EXPECT_GE( templates, 3u );
 
-    const std::string graph = compact( CameraUBLayoutTest::ReadText(
-         root / "Editor" / "Source" / "Editor" / "Panels" / "NodeGraph" / "ShaderGraph.cpp" ) );
+    const std::string graph =
+         compact( ReadText( root / "Editor" / "Source" / "Editor" / "Panels" / "NodeGraph" / "ShaderGraph.cpp" ) );
     EXPECT_NE(
          graph.find( "doc.DomainEnum()==Domain::Surface?std::format(\"vec4{}=SurfaceSampleMaterial({},{});\"" ),
          std::string::npos )
