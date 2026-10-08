@@ -1169,10 +1169,12 @@ namespace Desert::Assets
 
         // THE DENSITY DOES NOT ADD MATTER, IT REDISTRIBUTES IT: a patch of density `d` holds `d` times the
         // bodies, each `1/sqrt(d)` of the width, so their summed area is the same (see the body count below).
-        // The type's Body Diameter is floored at two of the volume's lump floors — a body narrower than that
-        // is lumps the floor has already widened.
+        // The floor is on the body AS PLACED — the type's Body Diameter after the density has shrunk it — and
+        // it is two of the volume's lump floors: a body narrower than that is lumps the floor has already
+        // widened. Floored before the shrink, a dense patch of a small type still came out below it.
         const float densityShrinkSq = std::max( params.PlacementDensity, 1e-3f );
-        const float bodyMeanKm = std::max( shape.BodyDiameterKm, 2.0f * CloudProceduralLumpFloorKm( params ) );
+        const float bodyMeanKm =
+             std::max( shape.BodyDiameterKm / std::sqrt( densityShrinkSq ), 2.0f * CloudProceduralLumpFloorKm( params ) );
 
         const float scatter = std::max( params.PlacementScatter, 0.0f );
         const float variety = std::clamp( params.PlacementSizeVariety, 0.0f, 1.0f );
@@ -1240,7 +1242,7 @@ namespace Desert::Assets
                 // count and shrinks each body by its square root, so it redistributes matter instead of
                 // adding it — for bodies placed independently the cover depends on the summed area alone.
                 const float meanBodyRadiusSqKm =
-                     0.25f * bodyMeanKm * bodyMeanKm * CloudBodyDiameterMeanSquare( variety ) / densityShrinkSq;
+                     0.25f * bodyMeanKm * bodyMeanKm * CloudBodyDiameterMeanSquare( variety );
                 const float meanBodies =
                      kBodyFillOfPatch * baseRadiusKm * baseRadiusKm / std::max( meanBodyRadiusSqKm, 1e-6f );
                 const uint32_t bodies = CloudBodyCount( cellSeed, meanBodies );
@@ -1269,7 +1271,7 @@ namespace Desert::Assets
                 for ( const uint32_t index : order )
                 {
                     CloudPatchBody& body = patch[index];
-                    body.RadiusKm        = 0.5f * bodyMeanKm * body.Size / std::sqrt( densityShrinkSq );
+                    body.RadiusKm        = 0.5f * bodyMeanKm * body.Size;
 
                     if ( massifs.empty() ||
                          !CloudBodyIsLobe( variety, body.Size, HashUnit( HashCombine( body.Seed, 0x6u ) ) ) )
