@@ -183,6 +183,12 @@ namespace Desert::Input
         std::sort( order.begin(), order.end(), []( const ActiveContext* a, const ActiveContext* b )
                    { return a->Priority != b->Priority ? a->Priority > b->Priority : a->Order < b->Order; } );
 
+        // UE RebuildControlMappings copies the trigger and modifier instance data of every mapping that is
+        // still there: a key held across a context switch keeps its last value and its held time, so a
+        // Pressed does not fire again and a Hold does not start over. "Still there" is the same action on the
+        // same key (UE: FEnhancedActionKeyMapping equality), whichever context now maps it.
+        std::vector<MappingRuntime> previous = std::move( m_Mappings );
+        std::vector<bool>           carried( previous.size(), false );
         m_Mappings.clear();
         std::vector<InputKey> consumed; // by the contexts above the one being walked
         for ( const ActiveContext* context : order )
@@ -190,11 +196,16 @@ namespace Desert::Input
             std::vector<InputKey> consumedHere;
             for ( const InputKeyMappingData& mapping : context->Data.Mappings )
             {
-                const InputKey key = *InputKeyFromName( mapping.Key );
-                if ( std::find( consumed.begin(), consumed.end(), key ) != consumed.end() )
-                    continue;
                 const std::string actionKey = Common::Content::AssetGuidToText(
                      Common::Content::AssetGuidFromText( mapping.Action.Guid ).GetValue() );
+                // The player's key for this mapping when it has one (validated on the way in), else the asset's.
+                std::string keyName = mapping.Key;
+                for ( const UserKeyOverride& o : m_UserKeys.Overrides )
+                    if ( o.Context == context->GuidText && o.Action == actionKey && o.DefaultKey == mapping.Key )
+                        keyName = o.Key;
+                const InputKey key = *InputKeyFromName( keyName );
+                if ( std::find( consumed.begin(), consumed.end(), key ) != consumed.end() )
+                    continue;
                 // AddMappingContext refused a context naming an unregistered action, and actions are never
                 // unregistered, so every mapped action is here.
                 const auto     action = m_Actions.find( actionKey );
@@ -205,11 +216,71 @@ namespace Desert::Input
                 runtime.Modifiers = mapping.Modifiers;
                 for ( const InputTriggerData& trigger : mapping.Triggers )
                     runtime.Triggers.push_back( TriggerRuntime{ trigger } );
+                CarryMappingState( runtime, previous, carried );
                 m_Mappings.push_back( std::move( runtime ) );
                 if ( action->second.Data.ConsumeInput )
                     consumedHere.push_back( key );
             }
             consumed.insert( consumed.end(), consumedHere.begin(), consumedHere.end() );
+        }
+    }
+
+    std::vector<InputKey> EnhancedInputSubsystem::MappedKeys() const
+    {
+        std::vector<InputKey> keys;
+        for ( const MappingRuntime& mapping : m_Mappings )
+            if ( std::find( keys.begin(), keys.end(), mapping.Key ) == keys.end() )
+                keys.push_back( mapping.Key );
+        return keys;
+    }
+
+    void EnhancedInputSubsystem::SetUserKeyBindings( UserKeyBindings bindings )
+    {
+        m_UserKeys = std::move( bindings );
+        RebuildMappings();
+    }
+
+    Common::BoolResultStr EnhancedInputSubsystem::RemapKey( const Common::Content::AssetGuid& context,
+                                                            const Common::Content::AssetGuid& action,
+                                                            const std::string& defaultKey, const std::string& key )
+    {
+        if ( !InputKeyFromName( defaultKey ) )
+            return Common::MakeFormattedError<bool>( "'{}' is not a key name", defaultKey );
+        if ( !InputKeyFromName( key ) )
+            return Common::MakeFormattedError<bool>( "'{}' is not a key name", key );
+        const std::string contextText = Common::Content::AssetGuidToText( context );
+        const std::string actionText  = Common::Content::AssetGuidToText( action );
+        auto&             overrides   = m_UserKeys.Overrides;
+        std::erase_if( overrides,
+                       [&]( const UserKeyOverride& o ) {
+                           return o.Context == contextText && o.Action == actionText && o.DefaultKey == defaultKey;
+                       } );
+        if ( key != defaultKey )
+            overrides.push_back( UserKeyOverride{ contextText, actionText, defaultKey, key } );
+        RebuildMappings();
+        return BOOLSUCCESS;
+    }
+
+    void EnhancedInputSubsystem::CarryMappingState( MappingRuntime&                    runtime,
+                                                    const std::vector<MappingRuntime>& previous,
+                                                    std::vector<bool>&                 carried )
+    {
+        for ( size_t i = 0; i < previous.size(); ++i )
+        {
+            const MappingRuntime& old = previous[i];
+            if ( carried[i] || old.ActionKey != runtime.ActionKey || !( old.Key == runtime.Key ) )
+                continue;
+            carried[i]        = true;
+            runtime.LastValue = old.LastValue;
+            // A trigger keeps its state when the trigger at its place is the same kind; a changed stack
+            // starts the changed triggers fresh (their state would mean something else).
+            for ( size_t t = 0; t < runtime.Triggers.size() && t < old.Triggers.size(); ++t )
+                if ( runtime.Triggers[t].Data.Type == old.Triggers[t].Data.Type )
+                {
+                    runtime.Triggers[t].LastState    = old.Triggers[t].LastState;
+                    runtime.Triggers[t].HeldDuration = old.Triggers[t].HeldDuration;
+                }
+            return;
         }
     }
 

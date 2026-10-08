@@ -383,6 +383,33 @@ namespace Desert::Scripting
         m_Impl->MouseDy = dy;
     }
 
+    void ScriptEngine::TickPlayerInput( entt::registry& registry, const float deltaSeconds )
+    {
+        if ( !m_Impl->PlayerInputBegun )
+        {
+            m_Impl->PlayerInputBegun = true;
+            if ( m_Impl->Assets != nullptr )
+                m_Impl->PlayerInput.BeginPlay( registry, *m_Impl->Assets );
+            else if ( !registry.view<ECS::EnhancedInputPlayerComponent>().empty() )
+                LOG_ERROR( "[Input] this world plays without an asset manager: the player's mapping contexts "
+                           "cannot be read" );
+        }
+        m_Impl->PlayerInput.Tick( { m_Impl->MouseDx, m_Impl->MouseDy }, deltaSeconds );
+    }
+
+    void ScriptEngine::EndPlayerInput()
+    {
+        if ( !m_Impl->PlayerInputBegun )
+            return;
+        m_Impl->PlayerInput.EndPlay();
+        m_Impl->PlayerInputBegun = false;
+    }
+
+    Input::LocalPlayerInput& ScriptEngine::PlayerInput()
+    {
+        return m_Impl->PlayerInput;
+    }
+
     void ScriptEngine::NewInputFrame()
     {
         for ( Common::KeyCode key : TrackedKeys() )

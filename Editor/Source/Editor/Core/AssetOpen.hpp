@@ -66,6 +66,8 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
             case Assets::AssetTypeID::VFXSystem:          // the VFX System editor is VFX-12
             case Assets::AssetTypeID::Fracture:           // the Fracture Mode panel arrives with DST-02
+            case Assets::AssetTypeID::InputAction:        // the input asset editor is GP1c
+            case Assets::AssetTypeID::InputMappingContext: // the input asset editor is GP1c
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";

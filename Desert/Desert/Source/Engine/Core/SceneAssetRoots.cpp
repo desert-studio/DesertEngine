@@ -117,6 +117,11 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
             roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,
                         "a foliage field is painted with it" );
+        // The local player adds its mapping contexts when Play begins (UE: AddMappingContext at BeginPlay).
+        for ( const auto entity : registry.view<ECS::EnhancedInputPlayerComponent>() )
+            for ( const Assets::AssetHandle context :
+                  registry.get<ECS::EnhancedInputPlayerComponent>( entity ).Data.Contexts )
+                roots.Mark( context, "the local player maps its keys with it" );
         // A level sequence actor plays its `.dseq` (UE: ALevelSequenceActor::LevelSequenceAsset).
         for ( const auto entity : registry.view<ECS::LevelSequenceComponent>() )
             roots.Mark( registry.get<ECS::LevelSequenceComponent>( entity ).Sequence,

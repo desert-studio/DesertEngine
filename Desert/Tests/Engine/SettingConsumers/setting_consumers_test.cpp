@@ -494,6 +494,12 @@ namespace
          { "Far", kScene },
     };
 
+    constexpr const char* kPlayerInput               = "Desert/Desert/Source/Engine/Input/LocalPlayerInput.cpp";
+    constexpr Row         kEnhancedInputPlayerRows[] = {
+         { "Contexts", kPlayerInput },
+         { "BasePriority", kPlayerInput },
+    };
+
     constexpr Row kLandscapeMaterialRows[] = {
          { "Material", kLandscape },
     };
@@ -1024,6 +1030,8 @@ namespace
 
          { "CameraData", "CameraComponent", nullptr, CENSUS_ROWS( kCameraRows ) },
          { "LandscapeMaterialData", "LandscapeMaterialComponent", nullptr, CENSUS_ROWS( kLandscapeMaterialRows ) },
+         { "EnhancedInputPlayerData", "EnhancedInputPlayerComponent", nullptr,
+           CENSUS_ROWS( kEnhancedInputPlayerRows ) },
          // NOT `DirectionalLightComponent`. The wrapper dropped the "al", and a census that guessed the
          // spelling would have found no receivers at all and called ten live fields dead.
          { "DirectionalLightData", "DirectionLightComponent", nullptr, CENSUS_ROWS( kDirLightRows ) },

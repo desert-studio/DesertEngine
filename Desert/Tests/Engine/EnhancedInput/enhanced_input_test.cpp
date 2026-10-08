@@ -6,6 +6,13 @@
 
 #include <Engine/Assets/Serialization/InputAssets.hpp>
 #include <Engine/Input/EnhancedInputSubsystem.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
+#include <Engine/Input/UserKeyBindings.hpp>
+#include <Engine/ECS/Components.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -414,6 +421,171 @@ TEST( EnhancedInputContexts, AContextNamingAnUnregisteredActionIsRefused )
     EXPECT_FALSE( input.AddMappingContext( Loaded( { Mapping( 1, "Space" ), Mapping( 9, "F" ) } ), 0 ) );
     input.Tick( Keys( { Common::KeyCode::Space } ), 0.016f );
     EXPECT_EQ( input.GetTriggerState( Guid( 1 ) ), TriggerState::None ); // nothing of it was added
+}
+
+// ---- GP1b: state across a context switch (UE RebuildControlMappings keeps the mappings' instance data) ----
+
+TEST( EnhancedInputContexts, AKeyHeldAcrossAContextSwitchDoesNotPressAgain )
+{
+    EnhancedInputSubsystem input;
+    input.RegisterAction( Guid( 1 ), InputActionData{} );
+    const InputMappingContextData onFoot =
+         Loaded( { Mapping( 1, "Space", {}, { Trigger( InputTriggerType::Pressed ) } ) } );
+    const InputMappingContextData inCar =
+         Loaded( { Mapping( 1, "Space", {}, { Trigger( InputTriggerType::Pressed ) } ) } );
+    ASSERT_TRUE( input.AddMappingContext( onFoot, 0 ) );
+    input.Tick( Keys( { Common::KeyCode::Space } ), 0.016f );
+    EXPECT_TRUE( input.GetTriggerEvents( Guid( 1 ) ).Triggered );
+
+    // The switch happens while Space is still held: the same action on the same key is still mapped.
+    ASSERT_TRUE( input.AddMappingContext( inCar, 5 ) );
+    ASSERT_TRUE( input.RemoveMappingContext( ContextGuid( onFoot ) ) );
+    input.Tick( Keys( { Common::KeyCode::Space } ), 0.016f );
+    EXPECT_FALSE( input.GetTriggerEvents( Guid( 1 ) ).Triggered ) << "the held key pressed again after the switch";
+    EXPECT_FALSE( input.GetTriggerEvents( Guid( 1 ) ).Started );
+
+    // A NEW press through the new context still fires.
+    input.Tick( Keys( {} ), 0.016f );
+    input.Tick( Keys( { Common::KeyCode::Space } ), 0.016f );
+    EXPECT_TRUE( input.GetTriggerEvents( Guid( 1 ) ).Triggered );
+}
+
+TEST( EnhancedInputContexts, AHoldKeepsItsTimeAcrossAContextSwitch )
+{
+    EnhancedInputSubsystem input;
+    input.RegisterAction( Guid( 1 ), InputActionData{} );
+    const InputMappingContextData a = Loaded( { Mapping( 1, "E", {}, { Hold( 0.5f, false ) } ) } );
+    const InputMappingContextData b = Loaded( { Mapping( 1, "E", {}, { Hold( 0.5f, false ) } ) } );
+    ASSERT_TRUE( input.AddMappingContext( a, 0 ) );
+    input.Tick( Keys( { Common::KeyCode::E } ), 0.2f );
+    input.Tick( Keys( { Common::KeyCode::E } ), 0.2f );
+    EXPECT_EQ( input.GetTriggerState( Guid( 1 ) ), TriggerState::Ongoing );
+    ASSERT_TRUE( input.AddMappingContext( b, 1 ) );
+    ASSERT_TRUE( input.RemoveMappingContext( ContextGuid( a ) ) );
+    input.Tick( Keys( { Common::KeyCode::E } ), 0.2f ); // 0.6 s held in all
+    EXPECT_EQ( input.GetTriggerState( Guid( 1 ) ), TriggerState::Triggered ) << "the hold started over";
+}
+
+// ---- GP1b: the player's own keys (UE player-mappable keys), saved per user, never in the asset ----
+
+TEST( EnhancedInputUserKeys, ARemappedKeyDrivesTheMappingAndTheDefaultNoLonger )
+{
+    EnhancedInputSubsystem input;
+    input.RegisterAction( Guid( 1 ), InputActionData{} );
+    const InputMappingContextData context = Loaded( { Mapping( 1, "Space" ) } );
+    ASSERT_TRUE( input.AddMappingContext( context, 0 ) );
+    ASSERT_TRUE( input.RemapKey( ContextGuid( context ), Guid( 1 ), "Space", "F" ) );
+    input.Tick( Keys( { Common::KeyCode::Space } ), 0.016f );
+    EXPECT_EQ( input.GetTriggerState( Guid( 1 ) ), TriggerState::None );
+    input.Tick( Keys( { Common::KeyCode::F } ), 0.016f );
+    EXPECT_EQ( input.GetTriggerState( Guid( 1 ) ), TriggerState::Triggered );
+    ASSERT_EQ( input.MappedKeys().size(), 1u );
+    EXPECT_EQ( input.MappedKeys()[0], *Desert::Input::InputKeyFromName( "F" ) );
+    EXPECT_EQ( context.Mappings[0].Key, "Space" ) << "the asset's key changed";
+
+    EXPECT_FALSE( input.RemapKey( ContextGuid( context ), Guid( 1 ), "Space", "NoSuchKey" ) );
+    ASSERT_TRUE( input.RemapKey( ContextGuid( context ), Guid( 1 ), "Space", "Space" ) );
+    EXPECT_TRUE( input.GetUserKeyBindings().Overrides.empty() ) << "mapping back to the default kept an override";
+}
+
+TEST( EnhancedInputUserKeys, BindingsRoundTripThroughTheUserFileAndRefuseAnUnknownKey )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "GP1bUserKeys";
+    fs::remove_all( dir );
+    const auto missing = Desert::Input::LoadUserKeyBindings( dir / "input.json" );
+    ASSERT_TRUE( missing );
+    EXPECT_TRUE( missing.GetValue().Overrides.empty() );
+
+    Desert::Input::UserKeyBindings bindings;
+    bindings.Overrides.push_back( { GuidText( 7 ), GuidText( 1 ), "Space", "F" } );
+    ASSERT_TRUE( Desert::Input::SaveUserKeyBindings( dir / "input.json", bindings ) );
+    const auto read = Desert::Input::LoadUserKeyBindings( dir / "input.json" );
+    ASSERT_TRUE( read ) << read.GetError();
+    EXPECT_EQ( read.GetValue(), bindings );
+
+    bindings.Overrides[0].Key = "NoSuchKey";
+    ASSERT_TRUE( Desert::Input::SaveUserKeyBindings( dir / "input.json", bindings ) );
+    EXPECT_FALSE( Desert::Input::LoadUserKeyBindings( dir / "input.json" ) );
+    fs::remove_all( dir );
+}
+
+// ---- GP1b: the local player (UE ULocalPlayer + its Enhanced Input subsystem) ----
+
+TEST( EnhancedInputPlayer, SamplesOnlyTheKeysTheActiveMappingsRead )
+{
+    const std::vector<Desert::Input::InputKey> keys  = { *Desert::Input::InputKeyFromName( "Space" ),
+                                                         *Desert::Input::InputKeyFromName( "LeftMouseButton" ) };
+    const RawInputFrame                        frame = Desert::Input::SampleRawInput(
+         keys, { 3.0f, -2.0f }, []( Common::KeyCode ) { return true; },
+         []( Common::MouseButton ) { return true; } );
+    EXPECT_EQ( frame.KeysDown, std::vector<Common::KeyCode>{ Common::KeyCode::Space } );
+    EXPECT_EQ( frame.MouseButtonsDown, std::vector<Common::MouseButton>{ Common::MouseButton::Left } );
+    EXPECT_EQ( frame.MouseDelta, glm::vec2( 3.0f, -2.0f ) );
+}
+
+TEST( EnhancedInputPlayer, ComponentContextsAreAddedHighestPriorityFirst )
+{
+    Desert::ECS::EnhancedInputPlayerData player;
+    player.Contexts     = { Desert::Assets::AssetHandle( uint64_t{ 11 } ),
+                            Desert::Assets::AssetHandle( uint64_t{ 22 } ),
+                            Desert::Assets::AssetHandle( uint64_t{ 33 } ) };
+    player.BasePriority = 10;
+    const auto ordered  = Desert::Input::PlayerContextPriorities( player );
+    ASSERT_EQ( ordered.size(), 3u );
+    EXPECT_EQ( ordered[0].second, 12 );
+    EXPECT_EQ( ordered[1].second, 11 );
+    EXPECT_EQ( ordered[2].second, 10 );
+    EXPECT_EQ( static_cast<uint64_t>( ordered[0].first ), 11u );
+}
+
+TEST( EnhancedInputPlayer, ActionsAndContextsAreCalledByTheirFileNames )
+{
+    Desert::Input::LocalPlayerInput player;
+    const InputMappingContextData   context = Loaded( { Mapping( 1, "Space" ) } );
+    EXPECT_FALSE( player.AddLoadedContext( "IMC_Default", context, {}, 0 ) ) << "an action with no data was added";
+    ASSERT_TRUE( player.AddLoadedContext( "IMC_Default", context, { { GuidText( 1 ), InputActionData{} } }, 0 ) );
+    ASSERT_TRUE( player.ActionNamed( "IA_1" ).has_value() );
+    EXPECT_EQ( *player.ActionNamed( "IA_1" ), Guid( 1 ) );
+    player.Subsystem().Tick( Keys( { Common::KeyCode::Space } ), 0.016f );
+    EXPECT_EQ( player.Subsystem().GetTriggerState( Guid( 1 ) ), TriggerState::Triggered );
+    EXPECT_TRUE( player.RemoveContext( "IMC_Default" ) );
+    EXPECT_FALSE( player.RemoveContext( "IMC_Default" ) );
+}
+
+namespace
+{
+    std::string SourceText( const char* path )
+    {
+        std::ifstream      in( path, std::ios::binary );
+        std::ostringstream text;
+        text << in.rdbuf();
+        return text.str();
+    }
+} // namespace
+
+// The player's input is evaluated once per played frame, BEFORE the scripts read it, and ended with Play.
+TEST( EnhancedInputPlayer, ScriptSystemTicksThePlayerInputBeforeTheScripts )
+{
+    const std::string system = SourceText( "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp" );
+    ASSERT_FALSE( system.empty() );
+    const size_t tick    = system.find( "m_Engine.TickPlayerInput(" );
+    const size_t scripts = system.find( "m_Engine.CallUpdate(" );
+    ASSERT_NE( tick, std::string::npos ) << "nothing ticks the player's Enhanced Input in Play";
+    EXPECT_EQ( system.find( "m_Engine.TickPlayerInput(", tick + 1 ), std::string::npos ) << "ticked twice";
+    EXPECT_LT( tick, scripts );
+    EXPECT_NE( system.find( "m_Engine.EndPlayerInput()" ), std::string::npos );
+}
+
+// The Lua `Input` table keeps its raw keys and gains the actions, contexts and rebinding.
+TEST( EnhancedInputPlayer, LuaInputTableNamesActionsContextsAndRebinding )
+{
+    const std::string lua = SourceText( "Desert/Desert/Source/Engine/Scripting/InputBindings.cpp" );
+    ASSERT_FALSE( lua.empty() );
+    for ( const char* name :
+          { "isKeyDown", "wasPressed", "actionValue", "actionTriggered", "actionStarted", "actionOngoing",
+            "actionCompleted", "actionCanceled", "actionSeconds", "addContext", "removeContext", "rebindKey" } )
+        EXPECT_NE( lua.find( std::string( "input[\"" ) + name + "\"]" ), std::string::npos ) << name;
 }
 
 namespace

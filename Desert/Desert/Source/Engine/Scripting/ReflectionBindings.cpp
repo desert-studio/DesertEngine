@@ -58,6 +58,7 @@ namespace Desert::Scripting
              MakeEntry<ECS::PointLightComponent>( "PointLight", "PointLightData" ),
              MakeEntry<ECS::SpotLightComponent>( "SpotLight", "SpotLightData" ),
              MakeEntry<ECS::LandscapeMaterialComponent>( "LandscapeMaterial", "LandscapeMaterialData" ),
+             MakeEntry<ECS::EnhancedInputPlayerComponent>( "EnhancedInputPlayer", "EnhancedInputPlayerData" ),
              MakeEntry<ECS::ColliderComponent>( "Collider", "ColliderData" ),
              MakeEntry<ECS::RigidBodyComponent>( "RigidBody", "RigidBodyData" ),
              MakeEntry<ECS::DestructibleComponent>( "Destructible", "DestructibleData" ),

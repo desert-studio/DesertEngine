@@ -50,6 +50,7 @@
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
+#include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
@@ -184,6 +185,13 @@ namespace
                &MetadataTypeOf<Desert::Assets::VFXSystemAsset>, &DeclaredTypeOf<Desert::Assets::VFXSystemAsset> },
              { AssetTypeID::Fracture, "FractureAsset", &HandleOf<Desert::Assets::FractureAsset>,
                &MetadataTypeOf<Desert::Assets::FractureAsset>, &DeclaredTypeOf<Desert::Assets::FractureAsset> },
+             { AssetTypeID::InputAction, "InputActionAsset", &HandleOf<Desert::Assets::InputActionAsset>,
+               &MetadataTypeOf<Desert::Assets::InputActionAsset>,
+               &DeclaredTypeOf<Desert::Assets::InputActionAsset> },
+             { AssetTypeID::InputMappingContext, "InputMappingContextAsset",
+               &HandleOf<Desert::Assets::InputMappingContextAsset>,
+               &MetadataTypeOf<Desert::Assets::InputMappingContextAsset>,
+               &DeclaredTypeOf<Desert::Assets::InputMappingContextAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1323,6 +1331,8 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::LevelSequence,
          AssetTypeID::VFXSystem,
          AssetTypeID::Fracture,
+         AssetTypeID::InputAction,
+         AssetTypeID::InputMappingContext,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1512,6 +1522,27 @@ TEST( AssetHandleStability, AVFXSystemHandleIsHandleForGuidOfItsHeader )
     data.Category = "Probe";
     ASSERT_TRUE( Desert::Assets::VFXSystemAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::VFXSystemAsset>( file, Common::Content::ContentKind::VFXSystem );
+    fs::remove_all( dir );
+}
+
+// GP1b: a mapping context names its actions by GUID and the player names its contexts by handle, so both
+// handles must be the file's header GUID.
+TEST( AssetHandleStability, InputActionAndMappingContextHandlesAreHandleForGuidOfTheirHeaders )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "GP1bInputHandles";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path action = dir / "IA_Jump.deinputaction";
+    ASSERT_TRUE(
+         Desert::Assets::InputActionAsset::Save( action, Desert::Assets::Serialization::InputActionData{} ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::InputActionAsset>( action,
+                                                                Common::Content::ContentKind::InputAction );
+    const fs::path context = dir / "IMC_Default.deinputcontext";
+    ASSERT_TRUE( Desert::Assets::InputMappingContextAsset::Save(
+         context, Desert::Assets::Serialization::InputMappingContextData{} ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::InputMappingContextAsset>(
+         context, Common::Content::ContentKind::InputMappingContext );
     fs::remove_all( dir );
 }
 

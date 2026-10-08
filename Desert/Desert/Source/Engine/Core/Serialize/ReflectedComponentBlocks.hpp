@@ -90,6 +90,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<UITextComponent2D, UITextData>{ "UIText", "UITextData", &UITextComponent2D::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<UIButtonComponent, UIButtonData>{ "UIButton", "UIButtonData", &UIButtonComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<UIIconComponent, UIIconData>{ "UIIcon", "UIIconData", &UIIconComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<EnhancedInputPlayerComponent, EnhancedInputPlayerData>{ "EnhancedInputPlayer", "EnhancedInputPlayerData", &EnhancedInputPlayerComponent::Data, R::ActorsAndUI } );
 
         visit( ReflectedMemberBlock<UIBindingComponent, UIBindingData>{ "UIBinding", "UIBindingData", &UIBindingComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<UIScreenComponent, UIScreenData>{ "UIScreen", "UIScreenData", &UIScreenComponent::Data, R::UIAfterRenderTexture } );

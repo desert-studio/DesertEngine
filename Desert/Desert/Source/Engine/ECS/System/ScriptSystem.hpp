@@ -63,6 +63,7 @@ namespace Desert::ECS
                     m_CursorLocked = false;
                 }
                 m_LookSuspended = false; // next Play starts captured again
+                m_Engine.EndPlayerInput();
                 return;
             }
 
@@ -97,6 +98,10 @@ namespace Desert::ECS
             const glm::vec2 delta = ( wantLock && !toggled ) ? ( mouseNow - m_LastMouse ) : glm::vec2( 0.0f );
             m_LastMouse           = mouseNow;
             m_Engine.SetFrameMouseDelta( delta.x, delta.y );
+
+            // The local player's Enhanced Input evaluates THIS frame before any script reads it (UE: the
+            // player input is processed before the pawn ticks).
+            m_Engine.TickPlayerInput( registry, ts.GetSeconds() );
 
             // ---- Run the scripts (each entity may run several script SLOTS, like UE ActorComponents) ----
             auto view = registry.view<ScriptComponent>();

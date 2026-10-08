@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/Serialization/InputAssets.hpp>
 #include <Engine/Input/InputKey.hpp>
+#include <Engine/Input/UserKeyBindings.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -83,6 +84,24 @@ namespace Desert::Input
         /// Evaluates one frame. @p deltaSeconds advances the timed triggers (Hold).
         void Tick( const RawInputFrame& frame, float deltaSeconds );
 
+        /// Every key the active mappings read this frame (after the player's overrides), each once — what the
+        /// owner samples from the devices into the RawInputFrame.
+        [[nodiscard]] std::vector<InputKey> MappedKeys() const;
+
+        // ---- The player's own keys (UE UEnhancedInputUserSettings::MapPlayerKey) ----
+
+        /// Replaces every override and rebuilds; a mapping an override names reads the override's key.
+        void                                 SetUserKeyBindings( UserKeyBindings bindings );
+        [[nodiscard]] const UserKeyBindings& GetUserKeyBindings() const
+        {
+            return m_UserKeys;
+        }
+        /// The player maps @p key in place of @p defaultKey for @p action in @p context. Mapping a key back to
+        /// its default removes the override. An unknown key name is an error naming it.
+        Common::BoolResultStr RemapKey( const Common::Content::AssetGuid& context,
+                                        const Common::Content::AssetGuid& action, const std::string& defaultKey,
+                                        const std::string& key );
+
         // ---- The C++ query API (UE's FInputActionInstance / BindAction events, polled) ----
 
         /// The action's value this frame (zero when its state is None or it is unknown).
@@ -128,11 +147,14 @@ namespace Desert::Input
         };
 
         void         RebuildMappings();
+        static void  CarryMappingState( MappingRuntime& runtime, const std::vector<MappingRuntime>& previous,
+                                        std::vector<bool>& carried );
         TriggerState EvaluateTriggers( MappingRuntime& mapping, const glm::vec3& value, float deltaSeconds );
 
         std::map<std::string, ActionRuntime> m_Actions; // keyed by AssetGuidToText
         std::vector<ActiveContext>           m_Contexts;
         std::vector<MappingRuntime>          m_Mappings; // the evaluation order, rebuilt on any change
         uint64_t                             m_NextOrder = 0;
+        UserKeyBindings                      m_UserKeys;
     };
 } // namespace Desert::Input
