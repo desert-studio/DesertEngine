@@ -10,9 +10,9 @@ namespace Desert::Graphic
 {
     // Writes a cascade's light view into @p material's camera block (Projection, View, the light's eye and the
     // world clock @p timeSeconds) — the one statement of how a caster sees the light, shared by the renderer's own
-    // caster materials and the per-cascade copies a Masked material casts through (MaterialService::GetViewVariant).
-    // The clock is the frame's (UE's shadow view shares View.GameTime): a Masked surface whose mask reads
-    // SurfaceInput.Time clips its shadow at the same instant it clips itself.
+    // caster materials and the per-cascade copies a Masked material casts through
+    // (MaterialService::GetViewVariant). The clock is the frame's (UE's shadow view shares View.GameTime): a
+    // Masked surface whose mask reads SurfaceInput.Time clips its shadow at the same instant it clips itself.
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
                            double timeSeconds );
 

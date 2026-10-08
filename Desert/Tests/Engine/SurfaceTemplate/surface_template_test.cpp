@@ -360,7 +360,7 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
 TEST_F( SurfaceTemplateFixture, ASurfaceReadsTheViewBlocksTimeAndCameraPositionWithNoEngineCode )
 {
     const Desert::TestSupport::DerivedDataSandbox cache( "SurfaceTemplateView" );
-    constexpr const char* kViewTemplate = R"(Shader "ViewSurface"
+    constexpr const char*                         kViewTemplate = R"(Shader "ViewSurface"
 {
     Domain Surface
 
@@ -376,8 +376,8 @@ TEST_F( SurfaceTemplateFixture, ASurfaceReadsTheViewBlocksTimeAndCameraPositionW
     }
 }
 )";
-    const std::string kFragmentRead = "set 0 binding 0 type 6 count 1 stages 0x11";
-    const std::string kVertexOnly   = "set 0 binding 0 type 6 count 1 stages 0x1";
+    const std::string                             kFragmentRead = "set 0 binding 0 type 6 count 1 stages 0x11";
+    const std::string                             kVertexOnly   = "set 0 binding 0 type 6 count 1 stages 0x1";
     for ( const auto& cell : ExpectedCells() )
     {
         const auto built = Desert::Core::BuildShaderMap( { kViewTemplate,
@@ -394,7 +394,8 @@ TEST_F( SurfaceTemplateFixture, ASurfaceReadsTheViewBlocksTimeAndCameraPositionW
         // An opaque depth cell evaluates no surface, so its fragment stage declares nothing (the casters' layout).
         const bool                     evaluates = !cell.ends_with( ".ShadowDepth" );
         const std::vector<std::string> layout    = DescribeProgramLayout( built.GetValue().Stages );
-        EXPECT_NE( std::find( layout.begin(), layout.end(), evaluates ? kFragmentRead : kVertexOnly ), layout.end() )
+        EXPECT_NE( std::find( layout.begin(), layout.end(), evaluates ? kFragmentRead : kVertexOnly ),
+                   layout.end() )
              << cell << ": the view block is not where the surface reads it";
     }
 }
