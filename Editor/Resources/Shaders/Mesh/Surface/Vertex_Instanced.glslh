@@ -46,7 +46,6 @@ void main()
     v_Surface.UV1            = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
-    v_Surface.CameraPosition = cameraUB.CameraPos;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // An instanced batch is world-static by construction (moving an instance rebuilds the batch), so its previous

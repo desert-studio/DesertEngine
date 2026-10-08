@@ -24,6 +24,11 @@ struct SurfaceInput
     mat3 TBN; // tangent -> world; SurfaceOutput.Normal goes through it
     vec2 UV1;         // the mesh's second UV set; (0,0) when it has none
     vec4 VertexColor; // linear RGBA; white when the mesh has none (UE's VertexColor node)
+    // From the view block, not the vertex: the drawing view's eye (world cm; a light's eye in a shadow-depth cell,
+    // as UE's View.WorldCameraOrigin in a shadow view) and the world clock in seconds (UE's View.GameTime — the
+    // scene's game time, so a paused world holds still; the same value in every view of the frame).
+    vec3  CameraPosition;
+    float Time;
 };
 
 struct SurfaceOutput
@@ -82,9 +87,16 @@ SurfaceOutput DefaultSurfaceOutput()
 #define DESERT_SURFACE_VIEW_PASS 1
 #endif
 
+// THE view block (UE's View uniform buffer): one per view per frame, filled from the ViewFrame by its one writer
+// (ShaderProtocols::MakeCameraUB). Every vertex header reads it for its matrices; every stage that evaluates the
+// surface reads it here for the time and camera position SurfaceInput carries. An opaque depth cell's fragment
+// stage evaluates nothing and declares nothing, so its layout stays the shadow casters' (vertex-only block).
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+#include <Common/CameraUB.glslh>
+#endif
+
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
-// The lit shaders' five `Vertex` members first, in the same order, then UV1 and VertexColor — so a cell's fragment
-// inputs sit at the locations the shader it replaces read them from.
+// What only the vertex can know; what the view knows (camera position, time) the fragment reads from the view block.
 #define DESERT_SURFACE_VARYINGS( q ) \
     layout( location = 0 ) q SurfaceVaryings \
     { \
@@ -92,13 +104,13 @@ SurfaceOutput DefaultSurfaceOutput()
         vec3 Normal; \
         vec2 UV0; \
         mat3 TBN; \
-        vec3 CameraPosition; \
         vec2 UV1; \
         vec4 VertexColor; \
         vec4 Clip; \
         vec4 PrevClip; \
     } v_Surface;
 
+#ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor )
 {
     SurfaceInput i;
@@ -108,8 +120,11 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
     i.TBN           = tbn;
     i.UV1           = uv1;
     i.VertexColor   = vertexColor;
+    i.CameraPosition = cameraUB.CameraPos;
+    i.Time           = cameraUB.Time;
     return i;
 }
+#endif
 
 // The shading normal: the tangent-space output through the interpolated TBN. For the default (0,0,1) this is
 // the TBN's third column, the interpolated geometric normal — what the lit shaders used without a normal map.

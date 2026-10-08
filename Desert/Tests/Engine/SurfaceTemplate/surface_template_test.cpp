@@ -354,6 +354,51 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
     }
 }
 
+// SURF-VIEW: the view block is the surface's, not the C++'s. A template that reads the clock and the eye from its
+// input compiles into every cell and reflects with no engine line written for it: the block is the one the vertex
+// header already declared at binding 0, now read by the fragment stage as well (UE's View UB, read where needed).
+TEST_F( SurfaceTemplateFixture, ASurfaceReadsTheViewBlocksTimeAndCameraPositionWithNoEngineCode )
+{
+    const Desert::TestSupport::DerivedDataSandbox cache( "SurfaceTemplateView" );
+    constexpr const char* kViewTemplate = R"(Shader "ViewSurface"
+{
+    Domain Surface
+
+    Surface
+    {
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
+        {
+            SurfaceOutput s = DefaultSurfaceOutput();
+            const float   d = length( i.CameraPosition - i.WorldPosition );
+            s.Emissive      = vec3( 0.5 + 0.5 * sin( i.Time ), fract( d / 100.0 ), 0.0 );
+            return s;
+        }
+    }
+}
+)";
+    const std::string kFragmentRead = "set 0 binding 0 type 6 count 1 stages 0x11";
+    const std::string kVertexOnly   = "set 0 binding 0 type 6 count 1 stages 0x1";
+    for ( const auto& cell : ExpectedCells() )
+    {
+        const auto built = Desert::Core::BuildShaderMap( { kViewTemplate,
+                                                           "Resources/Shaders/Programs/Test/ViewSurface.shader",
+                                                           cell,
+                                                           {},
+                                                           std::format( "ViewSurface/{}", cell ) } );
+        ASSERT_TRUE( built.IsSuccess() ) << "cell '" << cell << "': " << built.GetError();
+        const auto reconciled = Desert::Graphic::API::Vulkan::ShaderReflection::ReconcileCellLayout(
+             built.GetValue().Meta, built.GetValue().Stages, "ViewSurface", cell );
+        for ( const auto& error : reconciled.Errors )
+            ADD_FAILURE() << cell << ": " << error;
+
+        // An opaque depth cell evaluates no surface, so its fragment stage declares nothing (the casters' layout).
+        const bool                     evaluates = !cell.ends_with( ".ShadowDepth" );
+        const std::vector<std::string> layout    = DescribeProgramLayout( built.GetValue().Stages );
+        EXPECT_NE( std::find( layout.begin(), layout.end(), evaluates ? kFragmentRead : kVertexOnly ), layout.end() )
+             << cell << ": the view block is not where the surface reads it";
+    }
+}
+
 namespace
 {
     // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
