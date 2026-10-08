@@ -414,10 +414,39 @@ namespace Desert::Core::Preprocess
                     if ( !Expect( c, ')', err, "closing Sampler" ) )
                         return false;
                 }
+                // WHAT THE SLOT'S TEXTURE IS FOR — `Intent(NormalMap)`, an unquoted name from
+                // `TextureIntent.hpp`'s one table (case-sensitive, as the `.detex` spells it). Only on a
+                // Texture2D.
+                else if ( attr == "intent" )
+                {
+                    if ( !param.IsTexture || param.IsCubeTexture )
+                    {
+                        err = { c.Line, std::format( "Intent(...) on '{}', which is not a Texture2D property",
+                                                     param.Name ) };
+                        return false;
+                    }
+                    if ( !Expect( c, '(', err, "after Intent" ) )
+                        return false;
+                    SkipTrivia( c );
+                    const std::string word   = ReadIdent( c );
+                    const auto        intent = ::Desert::Core::Formats::TextureIntentFromName( word );
+                    if ( intent == ::Desert::Core::Formats::TextureIntent::Count ||
+                         intent == ::Desert::Core::Formats::TextureIntent::Unspecified )
+                    {
+                        err = { c.Line,
+                                std::format( "Intent({}) on '{}': expected Colour, NormalMap, Mask or Data", word,
+                                             param.Name ) };
+                        return false;
+                    }
+                    param.SlotIntent = intent;
+                    if ( !Expect( c, ')', err, "closing Intent" ) )
+                        return false;
+                }
                 else
                 {
                     err = { c.Line, "unknown property attribute '" + attr +
-                                         "' (expected Range, Category, Tooltip, Timing, EngineSet or Sampler)" };
+                                         "' (expected Range, Category, Tooltip, Timing, EngineSet, Sampler or "
+                                         "Intent)" };
                     return false;
                 }
                 SkipTrivia( c );

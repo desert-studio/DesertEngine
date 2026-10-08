@@ -696,6 +696,18 @@ namespace Desert::Editor
                                                                  sourcePath.generic_string(),
                                                                  packed.GetError() ) );
             }
+            // THE SLOT SAYS WHAT THE IMAGE IS FOR (IMP-DDS-BLOCKS): a FIRST import writes the template Property's
+            // `Intent(...)` into the asset, so the normal slot's image cooks as BC5 (UE FbxMaterialImport sets
+            // TC_Normalmap the same way). An existing asset keeps its own settings, as on any reimport.
+            if ( const auto it = chosen.TextureIntents.find( slot.Slot ); it != chosen.TextureIntents.end() )
+            {
+                if ( const auto created = TextureImporter::ImportSourceAsset( image, it->second ); !created )
+                    return Common::MakeError<bool>(
+                         std::format( "material '{}' in '{}': texture '{}' for slot '{}' "
+                                      "was not imported: {}",
+                                      material.Name, sourcePath.generic_string(), image.generic_string(),
+                                      slot.Slot, created.GetError() ) );
+            }
             if ( static_cast<uint64_t>( ImportTexture( image.string() ) ) == 0 )
                 return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}' for slot '{}' "
                                                              "was not imported (the texture importer logged why)",

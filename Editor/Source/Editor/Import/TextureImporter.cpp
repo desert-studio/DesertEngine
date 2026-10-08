@@ -583,6 +583,36 @@ namespace Desert::Editor
         std::vector<unsigned char>         base;
         Desert::Core::Formats::ImageFormat format = Desert::Core::Formats::ImageFormat::RGBA8F;
 
+        // THE ONE TAIL OF EVERY BUILD THAT SUCCEEDED, whether its levels were encoded here or taken from a DDS.
+        auto store = [&]( const Assets::Serialization::TextureAssetData& built ) -> TextureCookResult
+        {
+            // A HANDLE IS ONLY RETURNED FOR PLATFORM DATA THAT IS STORED. The DDC entry is the one place the
+            // runtime finds it; a build that could not be Put would be a texture nobody can load.
+            const std::string encoded = Assets::Serialization::EncodeTextureBinary( built );
+            if ( const auto stored = Common::DDC::Put( Assets::kTextureDeriver, ddcKey, encoded ); !stored )
+            {
+                LOG_ERROR(
+                     "[TextureImporter] '{0}' was built but its platform data could not be stored in the DDC "
+                     "({1}): {2}. The null handle is returned and nothing is cached.",
+                     assetPath.string(), Common::DDC::PathFor( Assets::kTextureDeriver, ddcKey ).string(),
+                     stored.GetError() );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Unwritten };
+            }
+
+            m_Cache[abs] = handle;
+            Assets::ContentRegistry::NoteFile( assetPath );
+            return { handle, TextureCookOutcome::Cooked };
+        };
+
+        // A DDS WHOSE BLOCKS ARE ALREADY LOSSY (IMP-DDS-BLOCKS). Its blocks are stored as they are when they are
+        // the format the intent asks for, with the file's own mips (UE takes a DDS's mips as the source's);
+        // otherwise they are decoded and encoded into that format WITHOUT the measurement's gates, because a
+        // gate grading the re-encode against an image that was itself decoded from blocks measures the first
+        // loss as if it were the second, and refused 13 of 34 Bistro textures into 4x the bytes. An unspecified
+        // intent asks for the source's nearest engine format (`DdsBlockChain::Nearest`).
+        bool             ddsBlockSource = false;
+        Fmt::ImageFormat ddsTarget      = Fmt::ImageFormat::Count;
+
         if ( isEXR )
         {
             // stb has no EXR decoder; OpenEXRCore is the one (ThirdParty/openexr). A refusal is the same
@@ -612,6 +642,52 @@ namespace Desert::Editor
         {
             // stb has no DDS decoder either (it answers "unknown image type"); DdsSource.cpp is the one.
             // Same refusal shape as EXR: nothing written, nothing cached, the path and the format logged.
+            auto chainRead = ReadDdsBlockChain( stbSource.data(), stbSource.size() );
+            if ( !chainRead.IsSuccess() )
+            {
+                LOG_ERROR( "[TextureImporter] DDS read failed for '{0}' ({1}); no cooked texture was "
+                           "written and the null handle is returned.",
+                           abs, chainRead.GetError() );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            }
+            const DdsBlockChain& chain = chainRead.GetValue();
+            if ( chain.Nearest != Fmt::ImageFormat::Count )
+            {
+                ddsBlockSource = true;
+                if ( authored.Intent == Fmt::TextureIntent::Unspecified )
+                    ddsTarget = chain.Nearest;
+                else if ( const Fmt::BlockPolicy policy =
+                               Fmt::BlockPolicyForIntent( authored.Intent, Fmt::ImageFormat::RGBA8F );
+                          policy.Verdict == Fmt::BlockPolicyVerdict::Encode )
+                    ddsTarget = policy.Format;
+            }
+            if ( ddsBlockSource && ddsTarget == chain.Twin &&
+                 chain.LevelCount == Fmt::MipChainLength( std::max( chain.Width, chain.Height ) ) )
+            {
+                Assets::Serialization::TextureAssetData taken;
+                taken.SourceContentHash = sourceHash;
+                taken.Width             = chain.Width;
+                taken.Height            = chain.Height;
+                taken.Format            = ddsTarget;
+                taken.Intent            = authored.Intent;
+                taken.EncoderHash       = cookSignature;
+                auto table = Assets::Serialization::BuildLevelTable( chain.Width, chain.Height, chain.LevelCount,
+                                                                     1, ddsTarget, chain.Images, taken.Pixels );
+                if ( !table.IsSuccess() )
+                {
+                    LOG_ERROR( "[TextureImporter] DDS '{0}' ({1}) could not be laid out as stored: {2}. The null "
+                               "handle is returned and nothing is cached.",
+                               abs, chain.SourceName, table.GetError() );
+                    return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+                }
+                taken.Levels = table.ExtractValue();
+                LOG_INFO(
+                     "[TextureImporter] '{0}' keeps its DDS blocks ({1}, {2} levels, {3} bytes): they are the "
+                     "format its intent {4} asks for.",
+                     abs, chain.SourceName, chain.LevelCount, taken.Pixels.size(),
+                     Fmt::TextureIntentName( authored.Intent ) );
+                return store( taken );
+            }
             auto dds = DecodeDdsSource( stbSource.data(), stbSource.size() );
             if ( !dds.IsSuccess() )
             {
@@ -729,7 +805,33 @@ namespace Desert::Editor
         // extended-range source by name as well; that is the braces to this belt, and both are here
         // because the authored field made the old spelling of this guard (`blockFormat == BC7_UNORM`)
         // stop meaning what it said — three block formats are reachable from RGBA8 now.
-        if ( data.Format == Fmt::ImageFormat::RGBA8F )
+        if ( data.Format == Fmt::ImageFormat::RGBA8F && ddsBlockSource )
+        {
+            if ( ddsTarget == Fmt::ImageFormat::Count )
+            {
+                LOG_INFO( "[TextureImporter] '{0}' is kept uncompressed: it is authored as {1}, which forbids a "
+                          "block format.",
+                          abs, Fmt::TextureIntentName( authored.Intent ) );
+            }
+            else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget ); encoded.Encoded )
+            {
+                // NO GATE: the grade is against blocks already decoded once, so it is reported, not obeyed.
+                LOG_INFO( "[TextureImporter] '{0}' (DDS blocks of another format) is re-encoded as format {1} for "
+                          "intent {2}: {3:.2f} dB against the decoded source, worst texel off by {4}.",
+                          abs, static_cast<uint32_t>( ddsTarget ), Fmt::TextureIntentName( authored.Intent ),
+                          encoded.Grade.Psnr, encoded.Grade.MaxAbsoluteDelta );
+                data.Format = ddsTarget;
+                data.Levels = std::move( encoded.Levels );
+                data.Pixels = std::move( encoded.Pixels );
+            }
+            else
+            {
+                LOG_WARN( "[TextureImporter] '{0}' could not be encoded as format {1}: {2}; it is stored "
+                          "uncompressed.",
+                          abs, static_cast<uint32_t>( ddsTarget ), encoded.Problem );
+            }
+        }
+        else if ( data.Format == Fmt::ImageFormat::RGBA8F )
         {
             const Fmt::BlockPolicy policy = Fmt::BlockPolicyForIntent( authored.Intent, data.Format );
 
@@ -866,25 +968,11 @@ namespace Desert::Editor
             }
         }
 
-        // A HANDLE IS ONLY RETURNED FOR PLATFORM DATA THAT IS STORED. The DDC entry is the one place the
-        // runtime finds it; a build that could not be Put would be a texture nobody can load.
-        const std::string encoded = Assets::Serialization::EncodeTextureBinary( data );
-        if ( const auto stored = Common::DDC::Put( Assets::kTextureDeriver, ddcKey, encoded ); !stored )
-        {
-            LOG_ERROR( "[TextureImporter] '{0}' was built but its platform data could not be stored in the DDC "
-                       "({1}): {2}. The null handle is returned and nothing is cached.",
-                       assetPath.string(), Common::DDC::PathFor( Assets::kTextureDeriver, ddcKey ).string(),
-                       stored.GetError() );
-            return { Common::AssetHandle::Null(), TextureCookOutcome::Unwritten };
-        }
-
-        m_Cache[abs] = handle;
-        Assets::ContentRegistry::NoteFile( assetPath );
-        return { handle, TextureCookOutcome::Cooked };
+        return store( data );
     }
 
     Common::ResultStr<std::filesystem::path>
-    TextureImporter::ImportSourceAsset( const std::filesystem::path& source )
+    TextureImporter::ImportSourceAsset( const std::filesystem::path& source, const Fmt::TextureIntent slotIntent )
     {
         namespace fs             = std::filesystem;
         const fs::path assetPath = TextureIntentPath( source ); // `<stem>.detex` beside the file
@@ -925,6 +1013,10 @@ namespace Desert::Editor
                        "is imported as Data (uncompressed); set its intent to change that.",
                        assetPath.string(), authored.Problem );
             settings.Intent = Fmt::TextureIntent::Data;
+        }
+        else
+        {
+            settings.Intent = slotIntent; // the material slot's word, or Unspecified when nobody said
         }
         const fs::path rel =
              fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );

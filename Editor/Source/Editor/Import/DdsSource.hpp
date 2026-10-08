@@ -29,6 +29,7 @@
 // format as the file spelled it. The importer adds the path. There is no "best effort" decode.
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -56,4 +57,30 @@ namespace Desert::Editor
     /// Decode the top mip of the first slice. The error text names the format; the caller names the path.
     [[nodiscard]] Common::ResultStr<DdsSourceImage> DecodeDdsSource( const unsigned char* bytes,
                                                                      std::size_t          size );
+
+    /// A DDS SOURCE'S BLOCKS AS STORED — the first slice's whole mip chain, level 0 first, in its own block
+    /// format. The cook stores them in the `.tex` byte for byte when they are already the format the texture's
+    /// intent asks for (UE takes a DDS's mips as the source's; re-encoding blocks that were decoded from blocks
+    /// would grade a second loss against the first). `Twin` says whether the engine has the same block format
+    /// at all, `Nearest` what an unspecified intent re-encodes the source to.
+    struct DdsBlockChain
+    {
+        uint32_t Width      = 0;
+        uint32_t Height     = 0;
+        uint32_t LevelCount = 1; ///< the file's dwMipMapCount (0 read as 1)
+        /// The engine format with the same block bytes (BC4/BC5/BC7 UNORM incl. sRGB, BC6H UF16); Count when
+        /// the source's blocks have no twin (BC1-BC3, signed BC4/BC5, BC6H SF16) or it is not a block format.
+        ::Desert::Core::Formats::ImageFormat Twin = ::Desert::Core::Formats::ImageFormat::Count;
+        /// The LDR block format an unspecified intent cooks this source to; Count for a float or an
+        /// uncompressed source, which takes the cook's ordinary path.
+        ::Desert::Core::Formats::ImageFormat Nearest = ::Desert::Core::Formats::ImageFormat::Count;
+        /// Every level of the first slice, tightly packed, level 0 first; filled only when `Twin` is.
+        std::vector<unsigned char> Images;
+        std::string                SourceName; ///< as `DdsSourceImage::Format`
+    };
+
+    /// Read the header and, for a source with a twin, the chain. A chain shorter than its declared levels is an
+    /// error naming both sizes; the caller names the path.
+    [[nodiscard]] Common::ResultStr<DdsBlockChain> ReadDdsBlockChain( const unsigned char* bytes,
+                                                                      std::size_t          size );
 } // namespace Desert::Editor

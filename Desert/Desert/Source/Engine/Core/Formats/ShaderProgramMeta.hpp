@@ -3,6 +3,7 @@
 #include <Engine/Core/Formats/DefaultTexture.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
+#include <Engine/Core/Formats/TextureIntent.hpp>
 
 #include <glm/glm.hpp>
 
@@ -128,6 +129,11 @@ namespace Desert::Core::Formats
         // Meaningless (and left at White) for a non-texture param; see DefaultTexture.hpp for why the
         // implicit value reproduces the old picture rather than choosing a new one.
         DefaultTextureKind DefaultTexture = DefaultTextureKind::White;
+        /// WHAT A TEXTURE BOUND HERE IS FOR — `Intent(NormalMap)` on a Texture2D property, UE's sampler type.
+        /// An importer filling this slot writes it into the texture asset it creates (TextureImportSettings::
+        /// Intent), so a normal map imported for the normal slot cooks as BC5 without anybody authoring a
+        /// `.detex` by hand. `Unspecified` = the property does not say.
+        TextureIntent SlotIntent = TextureIntent::Unspecified;
 
         // The template's sampling state for this Texture2D slot — the DSL `Sampler(Clamp, Clamp, Nearest)`
         // attribute. A material slot may override it (MaterialAssetRef::Sampler); ResolveSlotSampler picks.
