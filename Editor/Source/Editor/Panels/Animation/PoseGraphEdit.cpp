@@ -90,21 +90,24 @@ namespace Desert::Editor::Graph
                 return "Two Bone IK";
             case G::PoseNodeKind::LookAt:
                 return "Look At";
+            case G::PoseNodeKind::BlendSpace1D:
+                return "Blend Space 1D";
         }
         return "?";
     }
 
     std::vector<G::PoseNodeKind> AddableKinds( G::GraphScope scope )
     {
-        std::vector<G::PoseNodeKind> kinds{ G::PoseNodeKind::SequencePlayer,
-                                            G::PoseNodeKind::StateMachine,
-                                            G::PoseNodeKind::LayeredBlendPerBone,
-                                            G::PoseNodeKind::ApplyAdditive,
-                                            G::PoseNodeKind::LinkedAnimLayer,
-                                            G::PoseNodeKind::TwoBoneIK,
-                                            G::PoseNodeKind::LookAt };
+        std::vector<G::PoseNodeKind> kinds{ G::PoseNodeKind::SequencePlayer, G::PoseNodeKind::BlendSpace1D,
+                                            G::PoseNodeKind::StateMachine,   G::PoseNodeKind::LayeredBlendPerBone,
+                                            G::PoseNodeKind::ApplyAdditive,  G::PoseNodeKind::LinkedAnimLayer,
+                                            G::PoseNodeKind::TwoBoneIK,      G::PoseNodeKind::LookAt };
         if ( scope == G::GraphScope::Layer )
+        {
+            // PlanPoseGraph refuses a blend space in a layer graph (its link plays one clip per source node).
+            std::erase( kinds, G::PoseNodeKind::BlendSpace1D );
             kinds.push_back( G::PoseNodeKind::LinkedInputPose );
+        }
         return kinds;
     }
 
@@ -158,6 +161,10 @@ namespace Desert::Editor::Graph
                 break;
             case G::PoseNodeKind::LookAt:
                 node.LookAt = G::LookAtNode{};
+                break;
+            case G::PoseNodeKind::BlendSpace1D:
+                // One sample of the picked clip at 0: a playable node the details panel then extends.
+                node.BlendSpace = G::BlendSpace1DNode{ .Samples = { G::BlendSample{ clip, 0.0F } } };
                 break;
             case G::PoseNodeKind::ApplyAdditive:
             case G::PoseNodeKind::LinkedInputPose:

@@ -98,3 +98,37 @@ TEST( HumanoidLocomotionGraph, FallingEntersJumpFromEveryGroundStateAndLandingLe
              << "landing at " << speed << " cm/s";
     }
 }
+
+// GP2d: a Blend Space 1D node survives the .danimgraph writer and the strict reader field for field (ANGR 4: the
+// payload is optional, so the corpus reads unchanged).
+TEST( HumanoidLocomotionGraph, ABlendSpace1DNodeRoundTripsThroughTheDanimgraphText )
+{
+    AnimGraph graph = LoadLocomotionGraph();
+    PoseNode  node;
+    node.Name            = "SpeedBlend";
+    node.Kind            = static_cast<int>( PoseNodeKind::BlendSpace1D );
+    node.ParameterInputs = { ParameterPin{ std::string( kBlendSpaceAxisPin ), "Speed" } };
+    node.BlendSpace      = BlendSpace1DNode{
+              .Samples = { BlendSample{ "Idle", 0.0F }, BlendSample{ "Walk", 300.0F }, BlendSample{ "Run", 600.0F } },
+              .WeightSpeed = 4.0F,
+              .Loop        = false };
+    node.X = 40.0F;
+    graph.Nodes.push_back( node );
+
+    const auto back = Deserialize( Serialize( graph ) );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    const PoseNode* read = FindNode( back.GetValue(), "SpeedBlend" );
+    ASSERT_NE( read, nullptr );
+    EXPECT_EQ( read->Kind, node.Kind );
+    ASSERT_TRUE( read->BlendSpace.has_value() );
+    ASSERT_EQ( read->BlendSpace->Samples.size(), 3u );
+    for ( size_t s = 0; s < 3; ++s )
+    {
+        EXPECT_EQ( read->BlendSpace->Samples[s].Clip, node.BlendSpace->Samples[s].Clip );
+        EXPECT_EQ( read->BlendSpace->Samples[s].Value, node.BlendSpace->Samples[s].Value );
+    }
+    EXPECT_EQ( read->BlendSpace->WeightSpeed, 4.0F );
+    EXPECT_FALSE( read->BlendSpace->Loop );
+    ASSERT_EQ( read->ParameterInputs.size(), 1u );
+    EXPECT_EQ( read->ParameterInputs[0].Parameter, "Speed" );
+}
