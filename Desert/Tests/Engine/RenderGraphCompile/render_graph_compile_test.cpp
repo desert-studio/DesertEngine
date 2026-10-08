@@ -1943,6 +1943,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             const size_t compute = text.find( "AddComputeNodes(", at );
             // A DeferredFrameNodes declaration: followed into its body in DeferredFrameNodes.hpp.
             const size_t deferred = text.find( "DeferredFrameNodes::Add", at );
+            // TAA1-B: the view's temporal upscaler declares its own nodes (ITemporalUpscaler::AddPasses); the
+            // entry names the member that holds it.
+            const size_t temporal = text.find( "->AddPasses(", at );
             // A graph node: its name is the first string literal of the call (a std::format loop name keeps
             // its "{}", one entry per call site).
             size_t node = text.find( "graph.AddPass(", at );
@@ -1951,7 +1954,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { pass, phases, frame, raster, node, compute, deferred } );
+            const size_t first = std::min( { pass, phases, frame, raster, node, compute, deferred, temporal } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1962,6 +1965,15 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
+            }
+            else if ( first == temporal )
+            {
+                size_t holder = temporal;
+                while ( holder > 0 && ( std::isalnum( static_cast<unsigned char>( text[holder - 1] ) ) ||
+                                        text[holder - 1] == '_' ) )
+                    --holder;
+                added.push_back( std::format( "temporal[{}]", text.substr( holder, temporal - holder ) ) );
+                at = temporal + 1;
             }
             else if ( first == deferred )
             {
@@ -2037,10 +2049,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
-         "compute[clouds->DeclareFrameNodes(graph)]",
+         "compute[clouds->DeclareFrameNodes(graph,frame)]",
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
+         // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
+         // phases, which draw into its output.
+         "temporal[m_TemporalUpscaler]",
          "phases[phase==RenderPhase::Debug]",
          "UI: BackdropBlur{}",
          "phases[phase==RenderPhase::UI]",
@@ -2077,7 +2092,14 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node
     // delegates.
     declares( "AddFrameSSAO",
-              { "PassFlags::Raster", "ssao->DeclareBindings(pass,worldPos,normal)", "ColorTarget(0,ao," } );
+              { "PassFlags::Raster", "ssao->DeclareBindings(pass,depth,normal)", "ColorTarget(0,ao," } );
+    // TAA1-B: the temporal resolve reads the scene colour, the scene depth, the frame's velocity, the previous
+    // adapted luminance and the registered history, and hands its output back as the post input.
+    declares( "AddFrameTemporal",
+              { "m_ViewState.History().Register(graph)", ".SceneColor=textures.Import(m_TargetFramebuffer->",
+                ".SceneDepth=textures.Depth(m_TargetFramebuffer,", ".Velocity=textures.Transients.Velocity",
+                ".History=histories", "m_TemporalUpscaler->AddPasses(graph,frame,inputs)",
+                "returnadded.GetValue().SceneColor;" } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );
@@ -3022,8 +3044,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     for ( const char* needle :
           { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
-            "node.ColorTarget(slot,targets->Colors[slot],color)", "node.DepthTarget(targets->Depth,depth)",
-            "node.ResolveTarget(slot,targets->Resolves[slot])",
+            "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=sceneColor;",
+            "node.DepthTarget(targets->Depth,depth)", "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
@@ -3125,7 +3147,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
             "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
             "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
-            "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph))" } )
+            "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
                std::string::npos );
@@ -3582,7 +3604,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     const std::string exec        = particles.substr( pass, declare - pass );
     const std::string declaration = particles.substr( declare );
     EXPECT_EQ( exec.find( "->Update(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
-    const size_t update   = declaration.find( "fe.Gpu->Material->Update(camera);" );
+    const size_t update   = declaration.find( "fe.Gpu->Material->Update(*view);" );
     const size_t bindings = declaration.find( "fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill()" );
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );

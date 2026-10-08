@@ -2075,6 +2075,21 @@ namespace Desert::Tests::PointerCensus
           "KeyCarrier", "Keys", Guard::CallScoped,
           "CarriersOf( prefs ) points each row at a CarriedKeys member of the EditorPreferences it was handed; the array is a local of the read/save call that walks it, and that EditorPreferences outlives the call" },
 
+        { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",
+          "SceneRenderer", "m_CurrentViewFrame", Guard::FrameScoped,
+          "TAA1-VIEW: points at the ViewFrame local OnUpdate took from m_ViewState.BeginFrame (SceneRenderer.cpp ~:904); set right after it and cleared by the CurrentViewFrameScope destructor declared after that local, so every exit path of OnUpdate nulls it before the frame dies; nothing owns the pointee but OnUpdate's stack, and GetViewFrame() answers null outside OnUpdate" },
+        { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
+          "CurrentViewFrameScope", "Slot", Guard::CallScoped,
+          "TAA1-VIEW: a reference to the SceneRenderer member m_CurrentViewFrame, held by a const local of OnUpdate whose only job is to null that member in its destructor; `this` outlives its own OnUpdate call, so the referenced member outlives the scope object" },
+        { "Desert/Desert/Source/Engine/Graphic/SceneRendererFrame.hpp",
+          "FrameTextures", "m_GraphColors", Guard::IdentityOnly,
+          "TAA1-B: `framebuffer.get()` is only a lookup key (AddGraphColor emplaces under it, GraphColorsOf does `m_GraphColors.find(framebuffer)`), never dereferenced; FrameTextures is a stack local of one SceneRenderer graph build, same argument as its m_Refs row" },
+        { "Desert/Desert/Source/Engine/Graphic/View/SceneViewState.hpp",
+          "HistoryTextureDesc", "Name", Guard::StaticStorage,
+          "TAA1-B: every ITemporalUpscaler::HistoryDescs writer passes a string literal ('TAA.History'); the field comment requires a static string because the graph keeps a string_view of it while building, and SceneViewState::BeginFrame refuses empty or duplicate names" },
+        { "Desert/Desert/Source/Engine/Graphic/View/SceneViewState.hpp",
+          "HistoryTextureDesc", "PreviousName", Guard::StaticStorage,
+          "TAA1-B: as HistoryTextureDesc::Name — a string literal ('TAA.History.Previous') from the upscaler's HistoryDescs, kept as a view by the graph, checked non-empty and distinct by SceneViewState::BeginFrame" },
         };
         return rows;
     }

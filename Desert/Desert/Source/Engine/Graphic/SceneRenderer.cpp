@@ -655,8 +655,8 @@ namespace Desert::Graphic
         // What the frame renders, handed to SceneViewState::BeginFrame as resolved: TAA stays TAA (its
         // PostProcess is None, so no FXAA/SMAA runs after it and the tonemap output is the final image).
         m_RenderedAntiAliasing = aa;
-        m_TemporalAAQuality =
-             static_cast<TemporalAAQuality>( quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
+        m_TemporalAAQuality    = static_cast<TemporalAAQuality>(
+             quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
@@ -891,7 +891,8 @@ namespace Desert::Graphic
         // The implementation of the frame's temporal method; a split or method BeginFrame refuses leaves it
         // unchanged and BeginFrame reports that error.
         if ( const auto split = MakeResolutionSplit( inputs.Output, inputs.RenderScalePercent ) )
-            if ( const auto method = SelectTemporalMethod( inputs.AntiAliasing, split.GetValue(), inputs.Upscaler ) )
+            if ( const auto method =
+                      SelectTemporalMethod( inputs.AntiAliasing, split.GetValue(), inputs.Upscaler ) )
                 EnsureTemporalUpscaler( method.GetValue() );
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
@@ -1059,7 +1060,8 @@ namespace Desert::Graphic
 
         // After the last node that draws the scene geometry's velocity into the scene target (the Transparency
         // phase), before its one reader, the temporal node. The overlays and post nodes below never write velocity
-        // (their fragment shaders do not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
+        // (their fragment shaders do not write slot 1: colour write mask 0,
+        // VulkanPipeline::CreateColorBlendState).
         AddFrameGraphColorResolves( graph, textures );
 
         // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlay phases draw into
@@ -1067,8 +1069,8 @@ namespace Desert::Graphic
         // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
         // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
         // colour, as before.
-        const RDG::TextureRef exposurePrevious = PrepareFrameAutoExposure( textures );
-        const RDG::TextureRef temporal         = AddFrameTemporal( graph, textures, frame, exposurePrevious );
+        const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( textures );
+        const RDG::TextureRef              temporal = AddFrameTemporal( graph, textures, frame, exposurePrevious );
         const std::vector<RDG::TextureRef> postInput =
              temporal.IsValid() ? std::vector<RDG::TextureRef>{ temporal } : sceneColor();
 
@@ -1508,14 +1510,16 @@ namespace Desert::Graphic
                .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
                .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
                .Velocity   = textures.Transients.Velocity,
-               // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
+             // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
                .Exposure = exposure.IsValid() ? exposure : textures.System.White,
                .History  = histories };
-        const Common::ResultStr<TemporalUpscalerOutputs> added = m_TemporalUpscaler->AddPasses( graph, frame, inputs );
+        const Common::ResultStr<TemporalUpscalerOutputs> added =
+             m_TemporalUpscaler->AddPasses( graph, frame, inputs );
         if ( !added )
         {
-            LOG_ERROR( "[SceneRenderer] {}: the temporal resolve was not added; the frame continues unresolved: {}",
-                       m_ViewResources.GetName(), added.GetError() );
+            LOG_ERROR(
+                 "[SceneRenderer] {}: the temporal resolve was not added; the frame continues unresolved: {}",
+                 m_ViewResources.GetName(), added.GetError() );
             return {};
         }
         return added.GetValue().SceneColor;
