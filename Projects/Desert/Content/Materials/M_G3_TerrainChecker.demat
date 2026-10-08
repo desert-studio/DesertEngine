@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "c2407e5571ff7898af741eafd1abdfeb",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["9d6d6db70d7f0b397eac782bfb709efd"]
     },
@@ -14,7 +14,7 @@
     "Params": [
         {
             "Name": "Tint",
-            "Value": [1.0, 0.550000011920929, 0.44999998807907104, 1.0]
+            "Value": [1.0, 0.55, 0.45, 1.0]
         }
     ],
     "Textures": [],

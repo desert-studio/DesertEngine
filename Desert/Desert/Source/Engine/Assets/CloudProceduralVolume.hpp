@@ -199,6 +199,11 @@ namespace Desert::Assets
     /// g = (Coverage - rank) / softness (CloudProceduralClusterReach), applied by the bake per cluster.
     inline constexpr float kCloudRankSoftness = 0.25f;
 
+    /// THE WEATHER MAP'S SHORE (CloudWeatherPresence, FIELD-GRAIN-b): the half-width of the step from busy
+    /// to clear, in the weather's uniform rank, as a fraction of the smaller side. The shader's
+    /// CloudLocalWeather states the same number.
+    inline constexpr float kCloudWeatherShore = 0.15f;
+
     /// THE PERIOD OF THE WORLD WEATHER, kilometres. 997 is prime and shares no small factor with any
     /// region an artist can author, so the weather does not repeat with the region: the least common
     /// multiple with the shipped 48 km is 47 856 km. A weather periodic WITH the region (what WeatherGaussian
@@ -398,12 +403,13 @@ namespace Desert::Assets
         /// sky inside the layer, so every gap there was closed by the cloud behind it.
         float PatchTileKm = 30.0f;
 
-        /// How much of the sky the weather map empties, 0..1 (CloudWeatherPresence: W = saturate(1 - 2 s u),
-        /// u the weather's own uniform rank). Zero is W = 1 everywhere, a uniformly busy sky; above one half
-        /// the weather has TRUE ZEROS — a fraction `1 - 1/(2s)` of the sky that no Coverage fills, as wide
-        /// as the weather system (PatchTileKm) — and at one half of the sky is clear. 0.70 leaves 29 per
-        /// cent of the sky empty in gaps fifteen to thirty kilometres across. RECAL calibrates it once.
-        float PatchStrength = 0.70f;
+        /// THE FRACTION OF THE SKY THE WEATHER LEAVES CLEAR, 0..1 (CloudWeatherPresence, MATL 5): W is one
+        /// over the other 1 - s and zero over s, joined by a shore 0.15 min(s, 1 - s) wide in the weather's
+        /// rank, so the Coverage slider is the cover WHERE there is weather. Zero is W = 1 everywhere, a
+        /// uniformly busy sky. The clear gaps are as wide as the weather system (PatchTileKm). 0.29 is the
+        /// clear share MATL 4's 0.70 had (1 - 1/(2 * 0.70)), now with the rest at W = 1 rather than a ramp.
+        /// RECAL calibrates it once.
+        float PatchStrength = 0.29f;
 
         /// The horizontal wind direction the lattice's anisotropy is measured against, world XZ. Need not
         /// be normalized; a zero vector means east, which is what CloudSpeciesPlacementBasis also does.
@@ -788,8 +794,9 @@ namespace Desert::Assets
 
     /// THE WEATHER MAP W (WX-NUBIS; Nubis' weather-map coverage, Schneider 2015/2022): the presence of
     /// weather at a column, 0..1 with TRUE ZEROS, from the standard normal world weather @p weather.
-    /// `saturate(1 - 2 * strength * Phi(weather))`: one everywhere at strength 0, empty over a fraction
-    /// `max(0, 1 - 1/(2 strength))` of the sky. The shader's CloudLocalWeather is the same expression.
+    /// `1 - smoothstep(f - delta, f + delta, Phi(weather))` with f = 1 - strength and
+    /// delta = kCloudWeatherShore * min(f, 1 - f) (FIELD-GRAIN-b): ONE over a fraction f - delta of the sky,
+    /// zero over strength - delta, E[W] = f. The shader's CloudLocalWeather is the same expression.
     float CloudWeatherPresence( float strength, float weather );
 
     /// THE WEATHER the march remaps the baked profile by at a world column, for species @p slot: the slot's
@@ -897,7 +904,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000fULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000010ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.

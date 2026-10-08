@@ -168,7 +168,7 @@ TEST( MaterialIdentity, EveryShippedMaterialIsMatl3WithOneIdentityAndNoTwoShareI
 TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
 {
     const std::string head = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
-                             R"("Versions":{"MATL":4},"Dependencies":[)";
+                             R"("Versions":{"MATL":5},"Dependencies":[)";
     const std::string good = head +
                              R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],"CloudAssets":[],)"
                              R"("Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})";
@@ -188,7 +188,7 @@ TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
          << "a MATL 1 number in Parent is not a GUID";
 
     std::string v1 = good;
-    v1.replace( v1.find( R"("MATL":4)" ), 8, R"("MATL":1)" );
+    v1.replace( v1.find( R"("MATL":5)" ), 8, R"("MATL":1)" );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "v1", v1 ) ) << "a MATL 1 file must be refused";
 }
 

@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "29ae4a94857a92450f49defa33cc0104",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "a210ced5741f721e9e8fb6a007fd6b76", "d94e908187d8af1402f059c246ca3844", "a50621f5968b47879367ef22927ae110"]
     },
@@ -14,7 +14,7 @@
     "Params": [
         {
             "Name": "Coverage",
-            "Value": [0.7620000243186951, 0.0, 0.0, 0.0]
+            "Value": [0.762, 0.0, 0.0, 0.0]
         },
         {
             "Name": "WeatherTileSize",
@@ -46,15 +46,15 @@
         },
         {
             "Name": "PatchStrength",
-            "Value": [0.6000000238418579, 0.0, 0.0, 0.0]
+            "Value": [0.16666669, 0.0, 0.0, 0.0]
         },
         {
             "Name": "LayoutPatternStrength",
-            "Value": [0.3499999940395355, 0.0, 0.0, 0.0]
+            "Value": [0.35, 0.0, 0.0, 0.0]
         },
         {
             "Name": "LayoutMaskStrength",
-            "Value": [0.3499999940395355, 0.0, 0.0, 0.0]
+            "Value": [0.35, 0.0, 0.0, 0.0]
         },
         {
             "Name": "LayoutRepeats",
@@ -74,7 +74,7 @@
         },
         {
             "Name": "DetailStrength",
-            "Value": [0.6499999761581421, 0.0, 0.0, 0.0]
+            "Value": [0.65, 0.0, 0.0, 0.0]
         },
         {
             "Name": "DensityScale",
@@ -86,19 +86,19 @@
         },
         {
             "Name": "ScatteringAlbedo",
-            "Value": [0.9800000190734863, 0.9800000190734863, 0.9800000190734863, 0.0]
+            "Value": [0.98, 0.98, 0.98, 0.0]
         },
         {
             "Name": "PhaseG",
-            "Value": [0.800000011920929, 0.0, 0.0, 0.0]
+            "Value": [0.8, 0.0, 0.0, 0.0]
         },
         {
             "Name": "PhaseGBackward",
-            "Value": [0.16670000553131104, 0.0, 0.0, 0.0]
+            "Value": [0.1667, 0.0, 0.0, 0.0]
         },
         {
             "Name": "PhaseBlend",
-            "Value": [0.574999988079071, 0.0, 0.0, 0.0]
+            "Value": [0.575, 0.0, 0.0, 0.0]
         },
         {
             "Name": "AmbientOcclusionStrength",
@@ -110,7 +110,7 @@
         },
         {
             "Name": "MultiScatterContribution",
-            "Value": [0.6669999957084656, 0.0, 0.0, 0.0]
+            "Value": [0.667, 0.0, 0.0, 0.0]
         },
         {
             "Name": "MultiScatterOcclusion",
@@ -118,7 +118,7 @@
         },
         {
             "Name": "MultiScatterEccentricity",
-            "Value": [0.18000000715255737, 0.0, 0.0, 0.0]
+            "Value": [0.18, 0.0, 0.0, 0.0]
         },
         {
             "Name": "AmbientScale",

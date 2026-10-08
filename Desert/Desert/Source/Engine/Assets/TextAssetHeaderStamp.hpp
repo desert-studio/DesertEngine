@@ -21,9 +21,11 @@ namespace Desert::Assets
     // slot names its asset by header GUID + a path locator (MaterialAssetRef), the cloud slots in a list of
     // their own, and each GUID is a header Dependency too. v4 (T7k): the shader is named by its header GUID
     // + a path locator (`Shader`, was `ShaderName`), and the cloud Medium joins CloudAssets (was ShaderRefs,
-    // by path); both are header Dependencies.
+    // by path); both are header Dependencies. v5 (FIELD-GRAIN-b): the cloud material's PatchStrength is the
+    // clear share of the sky (W = 1 elsewhere, Assets::CloudWeatherPresence), was the slope of a ramp that
+    // emptied 1 - 1/(2s); Tools/SceneMigrator raises v4 by s -> max(0, 1 - 1/(2s)), the clear share kept.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
-    inline constexpr uint32_t kMaterialSchemaVersion = 4;
+    inline constexpr uint32_t kMaterialSchemaVersion = 5;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as

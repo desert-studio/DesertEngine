@@ -674,7 +674,8 @@ TEST( CloudPlacementSpectrum, TheCoverageSliderIsMonotoneAndOneLeavesTheWeathers
 
         if ( coverage >= 1.0f )
         {
-            const double zeroShare = 1.0 - 1.0 / ( 2.0 * static_cast<double>( params.PatchStrength ) );
+            const double ps        = static_cast<double>( params.PatchStrength );
+            const double zeroShare = ps - 0.15 * std::min( ps, 1.0 - ps );
             EXPECT_LT( measured, 1.0 - 0.5 * zeroShare )
                  << "Coverage 1 kept cloud over " << measured << " of the sky: the weather's gaps were filled";
         }
@@ -3323,9 +3324,9 @@ TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndO
     CloudProceduralFieldParams shipped = ShippedParams();
     shipped.Coverage                   = 0.50f;
 
-    // E[W] for W = saturate(1 - 2 s u), u uniform: 1 - s at s <= 1/2, 1 / (4 s) above.
+    // E[W] for W = 1 - smoothstep(f - d, f + d, u), f = 1 - s, u uniform: f (the shore is symmetric).
     const double s     = static_cast<double>( shipped.PatchStrength );
-    const double meanW = s <= 0.5 ? 1.0 - s : 1.0 / ( 4.0 * s );
+    const double meanW = 1.0 - s;
     ASSERT_GT( s, 0.0 ) << "the shipped layer has no weather, so there is nothing to measure";
 
     CloudProceduralFieldParams flat = shipped;
@@ -3410,10 +3411,10 @@ TEST( CloudPlacementSpectrum, ALayerWithNoWeatherAtCoverageOneIsASolidDeck )
 }
 
 // THE WEATHER MAP AT ITS SOURCE, OVER THE WORLD (WX-NUBIS). A cell's cover is Coverage * W with
-// W = saturate(1 - 2 s u), u the weather's uniform rank, so over the world its mean is Coverage * E[W] —
-// E[W] = 1 - s for s <= 1/2 and 1/(4 s) above — and a fraction max(0, 1 - 1/(2 s)) of the cells is EXACTLY
-// empty at every Coverage. Measured over many regions across the far torus, on the function the bake calls.
-// MUTATION: drop the clamp's lower bound in CloudWeatherPresence and the zero census goes red.
+// W = 1 - smoothstep(f - d, f + d, u), f = 1 - s, d = 0.15 min(f, s), u the weather's uniform rank, so over the
+// world its mean is Coverage * (1 - s) and a fraction s - d of the cells is EXACTLY empty at every Coverage
+// (FIELD-GRAIN-b). Measured over many regions across the far torus, on the function the bake calls.
+// MUTATION: f = s instead of 1 - s in CloudWeatherPresence and the zero census goes red.
 TEST( CloudPlacementSpectrum, TheWeatherMapScalesTheCellsCoverAndEmptiesItsZeros )
 {
     constexpr int kWorldRegions = 32;
@@ -3454,9 +3455,10 @@ TEST( CloudPlacementSpectrum, TheWeatherMapScalesTheCellsCoverAndEmptiesItsZeros
             sumOfZeros += zeros / cells;
         }
 
+        // W = 1 - smoothstep(f - d, f + d, u), f = 1 - s, d = 0.15 min(f, s): E[W] = f, zero over s - d.
         const double s         = static_cast<double>( ShippedParams().PatchStrength );
-        const double presence  = s <= 0.5 ? 1.0 - s : 1.0 / ( 4.0 * s );
-        const double zeroShare = std::max( 0.0, 1.0 - 1.0 / ( 2.0 * s ) );
+        const double presence  = 1.0 - s;
+        const double zeroShare = s - 0.15 * std::min( s, 1.0 - s );
         const double mean      = sumOfMeans / 8.0;
         const double empty     = sumOfZeros / 8.0;
         std::printf( "[CloudPlacementSpectrum] coverage %.2f: cells' cover %.4f (expected %.4f), %.3f empty "

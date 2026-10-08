@@ -885,7 +885,8 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
     }
 
     const double fullCover = KeptCover( params, 16 );
-    const double zeroShare = 1.0 - 1.0 / ( 2.0 * static_cast<double>( params.PatchStrength ) );
+    const double ps        = static_cast<double>( params.PatchStrength );
+    const double zeroShare = ps - 0.15 * std::min( ps, 1.0 - ps ); // CloudWeatherPresence's true zeros
     EXPECT_LT( fullCover, 1.0 - 0.5 * zeroShare )
          << "a coverage of one kept cloud over " << fullCover << " of the sky: the weather's gaps were filled";
     const std::vector<CloudModellingBlob> full = GenerateCloudProceduralBlobs( params, 0u, origin );

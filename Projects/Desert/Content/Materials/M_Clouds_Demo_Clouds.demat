@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "9f3d4f0bb90f356828bfc9dacab2e61d",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "a210ced5741f721e9e8fb6a007fd6b76"]
     },
@@ -14,7 +14,7 @@
     "Params": [
         {
             "Name": "Coverage",
-            "Value": [0.44999998807907104, 0.0, 0.0, 0.0]
+            "Value": [0.45, 0.0, 0.0, 0.0]
         },
         {
             "Name": "WeatherTileSize",

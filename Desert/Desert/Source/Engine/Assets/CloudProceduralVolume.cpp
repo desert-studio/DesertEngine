@@ -2221,7 +2221,18 @@ namespace Desert::Assets
             return 1.0f;
         // Phi(weather) is uniform over the sky because the weather is standard normal; the busy end is low.
         const float u = static_cast<float>( NormalCdf( static_cast<double>( weather ) ) );
-        return std::clamp( 1.0f - 2.0f * s * u, 0.0f, 1.0f );
+
+        // OCCUPIED OR CLEAR, WITH A NARROW SHORE (FIELD-GRAIN-b): a fraction f = 1 - s of the sky is weather at
+        // W = 1 — the Coverage slider is then the cover there, not a fraction of it — and s is clear, the two
+        // joined by a smoothstep 2 delta wide in rank. delta = 0.15 min(f, 1 - f) keeps the shore inside both
+        // sides at every s, so E[W] = f exactly and the true zeros are a fraction s - delta. The shader's
+        // CloudLocalWeather is the same expression.
+        const float f     = 1.0f - s;
+        const float delta = kCloudWeatherShore * std::min( f, s );
+        if ( delta <= 1e-6f )
+            return u < f ? 1.0f : 0.0f;
+        const float t = std::clamp( ( u - ( f - delta ) ) / ( 2.0f * delta ), 0.0f, 1.0f );
+        return 1.0f - t * t * ( 3.0f - 2.0f * t );
     }
 
     float CloudProceduralLocalWeather( const CloudProceduralFieldParams& params, uint32_t slot,

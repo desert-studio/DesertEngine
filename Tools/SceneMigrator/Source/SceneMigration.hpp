@@ -422,6 +422,15 @@ namespace Desert::Migration
     // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
 
+    // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
+    // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).
+    float MigratePatchStrengthV4ToV5( float strength );
+
+    // The v5 text of a v4 `.demat`: every `PatchStrength` parameter (the cloud material's and its instances')
+    // raised by MigratePatchStrengthV4ToV5, everything else and the header's GUID kept. A file that does not
+    // state MATL 4 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

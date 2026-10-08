@@ -555,7 +555,7 @@ TEST( AssetHandleStability, AnUnloadedMaterialShellAlreadyWearsItsHeaderGuidHand
     {
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Header":{"Kind":"Material","Guid":"df51ca6ed9cb71779a9b5634db0863bc","Versions":{"MATL":4},)"
+        out << R"({"Header":{"Kind":"Material","Guid":"df51ca6ed9cb71779a9b5634db0863bc","Versions":{"MATL":5},)"
             << R"("Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})";
     }
     const auto guid = Desert::Assets::ReadTextHeaderGuid( Common::Filepath( scratch ) );
@@ -1029,7 +1029,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
-               R"("Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},)"
+               R"("Versions":{"MATL":5},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},)"
                R"("Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44",)"
                R"("Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},)"
                R"("Params":[],"Textures":[],"CloudAssets":[]})";

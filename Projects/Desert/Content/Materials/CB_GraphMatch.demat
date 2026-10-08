@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "f4263dfdcb77af201c6050be35f5394f",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44"]
     },
@@ -14,7 +14,7 @@
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [0.949999988079071, 0.550000011920929, 0.10000000149011612, 1.0]
+            "Value": [0.95, 0.55, 0.1, 1.0]
         },
         {
             "Name": "MetallicFactor",

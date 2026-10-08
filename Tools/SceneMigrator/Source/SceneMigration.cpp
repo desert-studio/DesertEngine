@@ -1746,6 +1746,45 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
+    float MigratePatchStrengthV4ToV5( float strength )
+    {
+        const float s = std::clamp( strength, 0.0f, 1.0f );
+        // At s <= 1/2 the v4 ramp never reached zero: no sky was clear, which is v5's zero.
+        return s <= 0.5f ? 0.0f : 1.0f - 1.0f / ( 2.0f * s );
+    }
+
+    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text )
+    {
+        const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<std::string>( "MATL 4 body does not read: {}", parsed.GetError() );
+        Assets::MaterialData data = parsed.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises MATL 4 only" );
+        const auto stated = data.Header->Versions.find( "MATL" );
+        if ( stated == data.Header->Versions.end() || stated->second != 4u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states MATL {}, and this step raises MATL 4 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+
+        // BY NAME, NOT BY SHADER: an instance of the cloud material states no Shader of its own and may still
+        // override PatchStrength, and no other schema has a parameter of that name.
+        for ( Assets::MaterialShaderParam& param : data.Params )
+            if ( param.Name == "PatchStrength" )
+                param.Value.x = MigratePatchStrengthV4ToV5( param.Value.x );
+
+        auto written = Assets::WriteMaterialJson( data );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
+                                                            written.GetError() );
+        if ( auto reread = Assets::ParseMaterialJson( "MATL 4 -> 5", written.GetValue() ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 5: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::string( written.GetValue() ) );
+    }
+
     Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text )
     {
         if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 6u )

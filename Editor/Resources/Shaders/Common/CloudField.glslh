@@ -339,9 +339,23 @@ vec2 CloudLayoutUv( vec4 place, vec2 windPosXz )
 
 // THE LOCAL WEATHER at a world column for species @p slot — Assets::CloudProceduralLocalWeather, written for the
 // GPU (WX-NUBIS, WX-PAINT, CUT-AT-BAKE): Nubis' weather map W = 1 - PatternStrength * (1 - painted) when a
-// pattern is bound (Unreal's Layout, per pixel), else the world weather map W = saturate(1 - 2 s Phi(w)) with
-// true zeros (Assets::CloudWeatherPresence); plus the mask, which adds. The Coverage slider is not in it: the
-// bake chose the clusters by it.
+// pattern is bound (Unreal's Layout, per pixel), else the world weather map W = 1 - smoothstep(f - d, f + d,
+// Phi(w)), f = 1 - s, d = CLOUD_WEATHER_SHORE * min(f, s): one where there is weather, true zeros where the sky
+// is clear (Assets::CloudWeatherPresence, FIELD-GRAIN-b); plus the mask, which adds. The Coverage slider is not
+// in it: the bake chose the clusters by it.
+#define CLOUD_WEATHER_SHORE 0.15f // Assets::kCloudWeatherShore
+
+float CloudWeatherPresence( float strength, float w )
+{
+    float u     = CloudNormalCdf( w );
+    float f     = 1.0f - strength;
+    float delta = CLOUD_WEATHER_SHORE * min( f, strength );
+    if ( delta <= 1e-6f )
+        return u < f ? 1.0f : 0.0f;
+    float t = clamp( ( u - ( f - delta ) ) / ( 2.0f * delta ), 0.0f, 1.0f );
+    return 1.0f - t * t * ( 3.0f - 2.0f * t );
+}
+
 float CloudLocalWeather( vec2 weather, vec4 layoutPlace, vec2 layoutStrength, int slot, vec2 windPosXz )
 {
     float modulated = 1.0f;
@@ -355,7 +369,7 @@ float CloudLocalWeather( vec2 weather, vec4 layoutPlace, vec2 layoutStrength, in
     else if ( weather.x > 1e-4f )
     {
         float w   = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.y, windPosXz.y * weather.y ) );
-        modulated = clamp( 1.0f - 2.0f * weather.x * CloudNormalCdf( w ), 0.0f, 1.0f );
+        modulated = CloudWeatherPresence( clamp( weather.x, 0.0f, 1.0f ), w );
     }
 
     if ( layoutStrength.y > 1e-4f )

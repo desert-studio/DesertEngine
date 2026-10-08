@@ -206,7 +206,7 @@ namespace
                                  "\""
                               << guid
                               << "\",\n        \"Versions\": {\n            "
-                                 "\"MATL\": 4\n        },\n        \"Dependencies\": ["
+                                 "\"MATL\": 5\n        },\n        \"Dependencies\": ["
                               << dependencies << "]\n    },\n"
                               << shaderPart
                               << "    \"Params\": [],\n    \"Textures\": [],\n    \"CloudAssets\": []\n}\n";
