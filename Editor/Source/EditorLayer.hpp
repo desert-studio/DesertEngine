@@ -200,27 +200,28 @@ namespace Desert::Editor
         // Autosave, the crash lock and its recovery pop-up, the device-lost save (UE: FPackageAutoSaver). See
         // Editor/LevelEditor/SessionRecovery.hpp.
         SessionRecovery m_Recovery{ m_Workspace, m_SceneFiles, m_Play, m_AssetManager };
-        // The palette's dictionary, the Ctrl+P overlay and the level's global shortcuts (UE: FLevelEditorCommands),
-        // after every module whose commands it lists. See Editor/LevelEditor/LevelEditorCommands.hpp.
-        LevelEditorCommands m_LevelCommands{ { .Workspace      = m_Workspace,
-                                               .Files          = m_SceneFiles,
-                                               .Play           = m_Play,
-                                               .Documents      = m_Documents,
-                                               .Dock           = m_Dock,
-                                               .Menu           = m_MainMenu,
-                                               .Compiling      = m_AssetCompiling,
-                                               .Panels         = m_Panels,
-                                               .AssetsSlot     = m_AssetManager,
-                                               .FileExplorer   = m_FileExplorerPanel,
-                                               .WorldPartition = m_WorldPartitionPanel,
-                                               .App            = m_Application,
-                                               .Chrome         = m_WindowChrome,
-                                               .ShowFolder     = [this]( const std::string& folder )
-                                               { return ShowFolderInBrowser( folder ); } } };
+        // The palette's dictionary, the Ctrl+P overlay and the level's global shortcuts (UE:
+        // FLevelEditorCommands), after every module whose commands it lists. See
+        // Editor/LevelEditor/LevelEditorCommands.hpp.
+        LevelEditorCommands m_LevelCommands{
+             { .Workspace      = m_Workspace,
+               .Files          = m_SceneFiles,
+               .Play           = m_Play,
+               .Documents      = m_Documents,
+               .Dock           = m_Dock,
+               .Menu           = m_MainMenu,
+               .Compiling      = m_AssetCompiling,
+               .Panels         = m_Panels,
+               .AssetsSlot     = m_AssetManager,
+               .FileExplorer   = m_FileExplorerPanel,
+               .WorldPartition = m_WorldPartitionPanel,
+               .App            = m_Application,
+               .Chrome         = m_WindowChrome,
+               .ShowFolder     = [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } } };
         // The control channel (UE: Remote Control), after every module it reads. See
         // Editor/LevelEditor/ControlService.hpp.
-        ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
-                                  m_Capture,   m_Panels,     m_LevelCommands.Registry() };
+        ControlService m_Control{
+             m_Workspace, m_SceneFiles, m_Play, m_Documents, m_Capture, m_Panels, m_LevelCommands.Registry() };
 
         // QualityBoot::Start's answer, taken in the constructor (before the workspace's first renderer) and
         // returned by OnAttach.

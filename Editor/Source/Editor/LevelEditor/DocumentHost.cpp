@@ -768,8 +768,7 @@ namespace Desert::Editor
                                           // Re-resolved rather than captured: the focus can move, and the
                                           // document can be destroyed, between this list being built and
                                           // the entry being run.
-                                          ISubjectDocument* target =
-                                               Documents().Find( FocusedDocument() );
+                                          ISubjectDocument* target = Documents().Find( FocusedDocument() );
                                           if ( target == nullptr || !target->HasPreview() )
                                           {
                                               // REFUSES INSTEAD OF SLIPPING PAST. That re-resolution is
