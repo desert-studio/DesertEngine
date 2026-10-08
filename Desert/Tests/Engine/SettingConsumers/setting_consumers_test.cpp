@@ -308,8 +308,6 @@ namespace
          // packer as an offset. WIND STAYS ON THE COMPONENT deliberately (the one named divergence from
          // the UE split): the collector may not touch Runtime::ResourceRegistry, and accumulating in the
          // renderer would let two viewports of one scene drift apart.
-         { "WindDirection", kCloudSystem },
-         { "WindSpeed", kCloudSystem },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -826,6 +824,14 @@ namespace
          { "Radius", kFieldFire },
          { "Falloff", kFieldFire },
     };
+    // The scene's wind (WIND-SRC): every field is read by the one query, ECS::WindAtFromSources.
+    constexpr const char* kWindQuery        = "Desert/Desert/Source/Engine/ECS/WindSourceComponent.hpp";
+    constexpr Row         kWindSourceRows[] = {
+         { "Direction", kWindQuery },
+         { "Speed", kWindQuery },
+         { "PointWind", kWindQuery },
+         { "Radius", kWindQuery },
+    };
     constexpr Row kStrainFieldRows[] = {
          { "Magnitude", kFieldFire },
          { "Radius", kFieldFire },
@@ -1054,6 +1060,7 @@ namespace
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
          { "KillFieldData", "KillFieldComponent", nullptr, CENSUS_ROWS( kKillFieldRows ) },
+         { "WindSourceData", "WindSourceComponent", nullptr, CENSUS_ROWS( kWindSourceRows ) },
          { "AnchorFieldData", "AnchorFieldComponent", nullptr, CENSUS_ROWS( kAnchorFieldRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
@@ -1672,4 +1679,29 @@ TEST( SettingConsumers, TheScatteringSeriesClampsItsOctavesAtTheSameCeilingTheSl
          << "CloudLighting.glslh does not cap the multiple-scattering series at "
          << Desert::ECS::kCloudMultiScatterMaxOctaves << ", which is the ceiling the slider offers and the "
          << "payload packs. Expected to find:\n  " << expected;
+}
+
+// WIND-SRC: the wind is ONE query over the scene's WindSource entities (ECS::WindAt). Red when a consumer stops
+// asking it, or when the cloud layer grows its own wind fields back.
+TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
+{
+    const std::string root = RepoRoot();
+    const std::string cloudSystem =
+         ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp" );
+    EXPECT_NE( cloudSystem.find( "ECS::WindAt(" ), std::string::npos )
+         << "the cloud layer's drift must ask ECS::WindAt";
+
+    const std::string cloud = ReadFile( root + "Desert/Desert/Source/Engine/ECS/VolumetricCloudComponent.hpp" );
+    for ( const char* own : { "glm::vec3 WindDirection", "float WindSpeed" } )
+        EXPECT_EQ( cloud.find( own ), std::string::npos ) << "VolumetricCloudData declares its own wind: " << own;
+
+    // Cloth and groom are seams (no stepping system yet): their contexts carry the query's answer, and say so.
+    for ( const char* seam : { "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+                               "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
+                               "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp" } )
+        EXPECT_NE( ReadFile( root + seam ).find( "ECS::WindAt" ), std::string::npos )
+             << seam << ": WindVelocity must be the answer of ECS::WindAt";
+
+    const std::string query = ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/WindField.hpp" );
+    EXPECT_NE( query.find( "WindAtFromSources(" ), std::string::npos ) << "ECS::WindAt must run the one pure core";
 }

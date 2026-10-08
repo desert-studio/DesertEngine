@@ -29,7 +29,8 @@ namespace Desert::Graphic::Render
     {
         bool                     Present;
         ECS::VolumetricCloudData Data;
-        glm::vec3                WindOffset; // world units, accumulated
+        glm::vec3                WindOffset;    // world units, accumulated
+        glm::vec3                WindDirection; // unit, the scene's wind at the layer (ECS::WindAt): lattice axis
 
         // THE HERO CLOUDS RIDE IN THE LAYER'S COMMAND rather than in one of their own, and the reason is
         // that they are not a second subsystem: they are slot A of the same field, joined by a `max`
@@ -42,14 +43,15 @@ namespace Desert::Graphic::Render
         std::vector<HeroCloudInstance> HeroClouds;
 
         VolumetricCloudCommand( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
-                                std::vector<HeroCloudInstance> heroClouds = {} )
-             : Present( present ), Data( data ), WindOffset( windOffset ), HeroClouds( std::move( heroClouds ) )
+                                const glm::vec3& windDirection, std::vector<HeroCloudInstance> heroClouds = {} )
+             : Present( present ), Data( data ), WindOffset( windOffset ), WindDirection( windDirection ),
+               HeroClouds( std::move( heroClouds ) )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SetVolumetricClouds( Present, Data, WindOffset, HeroClouds );
+            renderer.SetVolumetricClouds( Present, Data, WindOffset, WindDirection, HeroClouds );
         }
     };
 } // namespace Desert::Graphic::Render

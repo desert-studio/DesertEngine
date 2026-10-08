@@ -176,9 +176,6 @@ namespace
          // true of the cost and says nothing about the picture: halving the side moves the zenith by 109
          // levels. It is a quality knob that is also visible, and both halves belong in the row.
          { "VolumeResolution", "max 109/255 over 55.9% at AZ270 EL85 (256 -> 128)", "", kO1D },
-
-         { "WindDirection", "max 154/255 over 87.1% at AZ270 EL85", "", kP11 },
-         { "WindSpeed", "max 161/255 over 88.6% at AZ270 EL85", "", kP11 },
     };
 
     // ── THE HERO CLOUD: the only route a sculpted `.dcmv` has into a scene ───────────────────────────

@@ -123,6 +123,8 @@ namespace Desert::Graphic::System
          *                   deleted mid-session must take its clouds with it.
          * @param windOffset the drift the ECS accumulated, world units. Owned there because that is where
          *                   the timestep is.
+         * @param windDirection unit, the scene's wind at the layer (ECS::WindAt; +X in still air): the axis the
+         *                   species' placement lattice is laid along.
          * @param heroClouds this frame's sculpted bodies — slot A of the seam. Empty is the ordinary case
          *                   and means the march's authored loop does not run at all.
          * @param quality    this machine's cloud quality tier, taken from Common::Settings::MachineSettings each
@@ -132,7 +134,7 @@ namespace Desert::Graphic::System
          *                   other.
          */
         void SetCloudSettings( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
-                               Common::Settings::CloudQuality        quality,
+                               const glm::vec3& windDirection, Common::Settings::CloudQuality quality,
                                const std::vector<HeroCloudInstance>& heroClouds );
 
         /**
@@ -769,6 +771,7 @@ namespace Desert::Graphic::System
 
         ECS::VolumetricCloudData m_Data{};
         glm::vec3                m_WindOffset{ 0.0f };
+        glm::vec3                m_WindDirection{ 1.0f, 0.0f, 0.0f };
 
         /// The frame's resolved cloud LOOK — CloudRaymarch schema defaults with the `.demat` chain of
         /// m_Data.Material applied over them (O1). Filled by ResolveMaterial() from SetCloudSettings,

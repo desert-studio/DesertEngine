@@ -480,8 +480,6 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
          "MaxSteps",
          "StopTransmittance",
          "VolumeResolution",
-         "WindDirection",
-         "WindSpeed",
     };
 
     const TypeInfo& cloud = Type( "VolumetricCloudData" );
@@ -662,9 +660,9 @@ TEST( VolumetricCloudReflection, DefaultsAreTheOnesTheComponentArguesFor )
     EXPECT_FLOAT_EQ( Find( cloud, "VolumeResolution" )->Meta.RangeMin,
                      static_cast<float>( Desert::Assets::kCloudProceduralVolumeSideMin ) );
 
-    // Animation: 30 m/s along +X.
-    EXPECT_EQ( DefaultOf<glm::vec3>( cloud, "WindDirection" ), glm::vec3( 1.0f, 0.0f, 0.0f ) );
-    EXPECT_FLOAT_EQ( DefaultOf<float>( cloud, "WindSpeed" ), 3000.0f );
+    // The layer states no wind (WIND-SRC): its drift is the scene's WindSource, read through ECS::WindAt.
+    EXPECT_EQ( Find( cloud, "WindDirection" ), nullptr );
+    EXPECT_EQ( Find( cloud, "WindSpeed" ), nullptr );
 }
 
 // A RELATION BETWEEN TWO DEFAULTS, and the one that Docs/Clouds/CALIBRATION.md section 4 was written
@@ -1294,9 +1292,8 @@ TEST( VolumetricCloudReflection, DistancesAreLengthsExceptTheTwoThatCarryTheirOw
 {
     const TypeInfo& cloud = Type( "VolumetricCloudData" );
 
-    for ( const char* name :
-          { "MaxViewDistance", "TracingStartDistance", "TracingStartMaxDistance", "RegionSize",
-            "NearFadeStartDistance", "NearFadeEndDistance", "LightMarchDistance", "WindSpeed" } )
+    for ( const char* name : { "MaxViewDistance", "TracingStartDistance", "TracingStartMaxDistance", "RegionSize",
+                               "NearFadeStartDistance", "NearFadeEndDistance", "LightMarchDistance" } )
         EXPECT_TRUE( Find( cloud, name )->Meta.IsLength ) << name;
 
     // The one that is NOT world units, and says which unit it is instead. Marking it as a length would
@@ -1315,8 +1312,6 @@ TEST( VolumetricCloudReflection, DistancesAreLengthsExceptTheTwoThatCarryTheirOw
     // The dimensionless ones stay dimensionless.
     for ( const char* name : { "ShadowStrength", "StopTransmittance" } )
         EXPECT_FALSE( Find( cloud, name )->Meta.IsLength ) << name;
-
-    EXPECT_EQ( Find( cloud, "WindDirection" )->Type, FieldType::Vec3 );
 
     for ( const auto& f : cloud.Fields )
     {

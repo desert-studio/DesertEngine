@@ -747,6 +747,7 @@ namespace Desert::Core
         r.prepare<ECS::ExponentialHeightFogComponent>();
         r.prepare<ECS::PostProcessVolumeComponent>();
         r.prepare<ECS::VolumetricCloudComponent>();
+        r.prepare<ECS::WindSourceComponent>();
         r.prepare<ECS::HeroCloudComponent>();
         r.prepare<ECS::ProceduralFoliageComponent>();
         r.prepare<ECS::ProceduralFoliageFieldComponent>();

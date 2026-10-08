@@ -798,8 +798,8 @@ namespace Desert::Editor
         // pane and costs almost nothing — it is the IBL panorama: SkyboxRenderer re-bakes the environment
         // whenever the cloud FINGERPRINT changes, and a moving deck changes it every frame, so a 485 ms
         // bake was running continuously. Wind also shows nothing in a still frame, so the animation was
-        // paying that for a picture nobody could see.
-        cloud.Data.WindSpeed = 0.0f;
+        // paying that for a picture nobody could see. The preview scene has no WindSource entity, so
+        // ECS::WindAt answers still air and the layer does not drift.
         // THE HANDLE, resolved by the layer every frame through MaterialService — which is what makes an
         // edit in the parameter table show here without an Apply, exactly as the ball does for a surface.
         cloud.Data.Material          = material;

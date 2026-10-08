@@ -713,8 +713,8 @@ namespace Desert::Editor
             cloud.Data.Enabled = true;
             // A STILL SKY. Measured in the interactive pane at 90.5 ms of a 105.8 ms frame: wind changes
             // the cloud fingerprint every frame, and SkyboxRenderer re-bakes its 485 ms environment
-            // panorama whenever that changes. It also shows nothing in a still photograph.
-            cloud.Data.WindSpeed         = 0.0f;
+            // panorama whenever that changes. It also shows nothing in a still photograph. The thumbnail scene
+            // has no WindSource entity, so ECS::WindAt answers still air and the layer does not drift.
             cloud.Data.Material          = m_PendingHandle;
             cloud.Data.MaxSteps          = kDomeMaxSteps;
             cloud.Data.StopTransmittance = kDomeStopTransmittance;

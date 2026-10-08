@@ -411,6 +411,94 @@ namespace Desert::Migration
         return report;
     }
 
+    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities,
+                                                const std::string& fileName, bool createSource )
+    {
+        constexpr const char* kDirection = "WindDirection";
+        constexpr const char* kSpeed     = "WindSpeed";
+        WindSourceReport      report;
+
+        // The wind one layer stated: [x, y, z] and cm/s, the v41 defaults where a key was missing.
+        struct LayerWind
+        {
+            std::vector<double> Direction{ 1.0, 0.0, 0.0 };
+            double              Speed = 3000.0;
+            bool                Blows = false;
+        };
+        std::optional<LayerWind> kept;
+
+        for ( auto& entity : entities )
+        {
+            EditBlock( entity.Components, "VolumetricCloud",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           LayerWind wind;
+                           if ( const auto stated = block.get( kDirection ); stated.has_value() )
+                               if ( const auto array = stated.value().to_array();
+                                    array.has_value() && array.value().size() == 3 )
+                                   for ( std::size_t i = 0; i < 3; ++i )
+                                       wind.Direction[i] = array.value()[i].to_double().value_or( 0.0 );
+                           if ( const auto stated = block.get( kSpeed ); stated.has_value() )
+                               wind.Speed = stated.value().to_double().value_or( 0.0 );
+                           bool enabled = true;
+                           if ( const auto stated = block.get( "Enabled" ); stated.has_value() )
+                               enabled = stated.value().to_bool().value_or( true );
+                           const double lengthSquared = wind.Direction[0] * wind.Direction[0] +
+                                                        wind.Direction[1] * wind.Direction[1] +
+                                                        wind.Direction[2] * wind.Direction[2];
+                           wind.Blows = enabled && wind.Speed > 0.0 && lengthSquared > 1e-12;
+
+                           const bool droppedDirection = DropKey( block, kDirection );
+                           const bool droppedSpeed     = DropKey( block, kSpeed );
+                           report.CloudWinds += ( droppedDirection || droppedSpeed ) ? 1 : 0;
+                           if ( wind.Blows )
+                           {
+                               if ( !kept )
+                                   kept = wind;
+                               else if ( kept->Direction != wind.Direction || kept->Speed != wind.Speed )
+                                   ++report.Disagreeing;
+                           }
+                           return droppedDirection || droppedSpeed;
+                       } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                EditBlock( override_.Components, "VolumetricCloud",
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const int dropped = ( DropKey( block, kDirection ) ? 1 : 0 ) +
+                                                   ( DropKey( block, kSpeed ) ? 1 : 0 );
+                               report.OverridesDropped += static_cast<std::size_t>( dropped );
+                               return dropped != 0;
+                           } );
+        }
+
+        if ( !createSource || !kept )
+            return report;
+
+        // FNV-1a over the file's name: the same scene migrated twice, on any machine, names the same record.
+        uint64_t id = 14695981039346656037ull;
+        for ( const char c : "WindSource:" + fileName )
+            id = ( id ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
+
+        rfl::Generic::Array direction;
+        for ( const double component : kept->Direction )
+            direction.push_back( rfl::Generic( component ) );
+        rfl::Generic::Object block;
+        block["Direction"] = rfl::Generic( std::move( direction ) );
+        block["Speed"]     = rfl::Generic( kept->Speed );
+        block["PointWind"] = rfl::Generic( false );
+        block["Radius"]    = rfl::Generic( 1000.0 );
+
+        Assets::EntityData source;
+        source.id                       = Common::UUID( id == 0 ? 1 : id );
+        source.Tag                      = std::string( "Wind Source" );
+        source.Components["WindSource"] = rfl::Generic( std::move( block ) );
+        entities.push_back( std::move( source ) );
+        report.Created = true;
+        return report;
+    }
+
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
     {
         namespace TL = Animation::Timeline;
@@ -2093,6 +2181,14 @@ namespace Desert::Migration
         RunSteps( scene.Entities, scene.SceneName, statedSceneVersion, assetsRoot, report );
         if ( !report.Refused.empty() )
             return report; // unstamped: the file is FAILED by every caller and written by none
+
+        // The cloud layer's wind becomes the scene's WindSource (WIND-SRC). Scene-side so the record is added
+        // to a scene and never to a prefab; MigratePrefab runs the same step with createSource = false.
+        if ( statedSceneVersion < kSceneVersionWindSource )
+        {
+            report.WindSourceRaised = true;
+            report.WindSource       = MigrateWindSourceV41ToV42( scene.Entities, scene.SceneName, true );
+        }
         if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
             report.EntitiesMovedOut = scene.Entities.size();
 
@@ -2165,6 +2261,11 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, prefab.Name, outcome.FoundSceneVersion, assetsRoot, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionWindSource )
+        {
+            outcome.Steps.WindSourceRaised = true;
+            outcome.Steps.WindSource       = MigrateWindSourceV41ToV42( prefab.Entities, prefab.Name, false );
+        }
         if ( !outcome.Steps.Refused.empty() )
         {
             outcome.Refused = outcome.Steps.Refused;
