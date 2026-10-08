@@ -347,6 +347,9 @@ namespace
            "compile key of the terrain renderer's own program, not a material's template" },
          { "Desert/Common/Source/Common/Content/ShaderAssetHeader.hpp", "Terrain",
            "the ROLE's spelling (`Role Terrain`, kTerrainRole), which shares the word with the template" },
+         { "Desert/Common/Source/Common/Content/ShaderAssetHeader.hpp", "StandardSurface",
+           "the ROLE's spelling (`Role StandardSurface`, kStandardSurfaceRole), which shares the word with the "
+           "template since NO-PBR renamed PBR.shader" },
          { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudMaterialValues.hpp", "CloudRaymarch",
            "compile key of the cloud renderer's own program, whose Properties block is the cloud material "
            "schema" },

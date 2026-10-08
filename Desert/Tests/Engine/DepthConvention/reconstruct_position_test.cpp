@@ -20,7 +20,7 @@
 #include <limits>
 #include <vector>
 
-namespace ReconstructPositionTest
+namespace
 {
     // What the rasteriser stores for a world point: the screen uv of its pixel (NDC y = +1 is the top row,
     // FullscreenTriangle / ScreenUV) and the device depth z/w.
@@ -69,9 +69,7 @@ namespace ReconstructPositionTest
     }
 
     const glm::vec3 kEye{ 300.0f, 200.0f, 900.0f };
-} // namespace ReconstructPositionTest
-
-using namespace ReconstructPositionTest;
+} // namespace
 
 TEST( DepthConvention, ReconstructionRoundTripsReversedZPerspective )
 {

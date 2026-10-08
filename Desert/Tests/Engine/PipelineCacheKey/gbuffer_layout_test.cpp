@@ -34,7 +34,7 @@
 #include <string>
 #include <vector>
 
-namespace GBufferLayoutTest
+namespace
 {
     namespace F = Desert::Graphic::ViewTargetFormats;
     using Desert::Core::Formats::ImageFormat;
@@ -64,9 +64,7 @@ namespace GBufferLayoutTest
         text << file.rdbuf();
         return text.str();
     }
-} // namespace GBufferLayoutTest
-
-using namespace GBufferLayoutTest;
+} // namespace
 
 TEST( GBufferLayout, TheGBufferIsBuiltFromTheViewTargetFormatsInSlotOrder )
 {

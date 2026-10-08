@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-namespace CameraUBLayoutTest
+namespace
 {
     using Desert::Graphic::ViewFrame;
     using Desert::Graphic::ShaderProtocols::Camera;
@@ -110,9 +110,7 @@ namespace CameraUBLayoutTest
         f.MaterialMipBias           = -0.5f;
         return f;
     }
-} // namespace CameraUBLayoutTest
-
-using namespace CameraUBLayoutTest;
+} // namespace
 
 TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
 {

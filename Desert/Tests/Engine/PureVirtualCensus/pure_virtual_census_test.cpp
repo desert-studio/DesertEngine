@@ -705,7 +705,7 @@ namespace
         const char* Task;
     };
 
-    constexpr std::array<AheadOfImplementationRow, 6> k_AheadOfImplementation = { {
+    constexpr std::array<AheadOfImplementationRow, 7> k_AheadOfImplementation = { {
          { "IClothingSimulation", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
            "CLO1: Jolt SoftBody backend" },
          { "IClothingSimulationFactory", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
@@ -717,6 +717,10 @@ namespace
            "HAIR1: groom instance + strand renderer" },
          { "IModularCharacter", "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp",
            "EQP1: ECS modular character + Lua bindings" },
+         // TAA1 wave A lands the seam the view's history and ViewFrame are built around; its fakes live in
+         // Desert/Tests/Engine/TemporalViewContract. The engine's TAA and TAAU are the next TAA1 wave.
+         { "ITemporalUpscaler", "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.hpp",
+           "TAA1 wave B: engine TAA + TAAU" },
     } };
 
     bool DeclaredAheadOfImplementation( const std::string& cls )
@@ -926,7 +930,7 @@ TEST( PureVirtualCensus, InterfacesDeclaredAheadOfImplementationAreStillUnimplem
              << "): delete its k_AheadOfImplementation row so the two census rules hold it like any other base.";
     }
     // Stated so growth is visible, as the count below is.
-    EXPECT_EQ( k_AheadOfImplementation.size(), 6u );
+    EXPECT_EQ( k_AheadOfImplementation.size(), 7u );
 }
 
 TEST( PureVirtualCensus, TheNumberIsStatedSoAShrinkageIsVisible )

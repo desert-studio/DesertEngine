@@ -2037,7 +2037,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
-         "compute[clouds->DeclareFrameNodes(graph)]",
+         "compute[clouds->DeclareFrameNodes(graph,frame)]",
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
@@ -2077,7 +2077,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node
     // delegates.
     declares( "AddFrameSSAO",
-              { "PassFlags::Raster", "ssao->DeclareBindings(pass,worldPos,normal)", "ColorTarget(0,ao," } );
+              { "PassFlags::Raster", "ssao->DeclareBindings(pass,depth,normal)", "ColorTarget(0,ao," } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );
@@ -3022,8 +3022,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     for ( const char* needle :
           { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
-            "node.ColorTarget(slot,targets->Colors[slot],color)", "node.DepthTarget(targets->Depth,depth)",
-            "node.ResolveTarget(slot,targets->Resolves[slot])",
+            "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "node.DepthTarget(targets->Depth,depth)",
+            "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
@@ -3125,7 +3125,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
             "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
             "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
-            "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph))" } )
+            "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
                std::string::npos );
@@ -3582,7 +3582,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     const std::string exec        = particles.substr( pass, declare - pass );
     const std::string declaration = particles.substr( declare );
     EXPECT_EQ( exec.find( "->Update(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
-    const size_t update   = declaration.find( "fe.Gpu->Material->Update(camera);" );
+    const size_t update   = declaration.find( "fe.Gpu->Material->Update(*view);" );
     const size_t bindings = declaration.find( "fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill()" );
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
