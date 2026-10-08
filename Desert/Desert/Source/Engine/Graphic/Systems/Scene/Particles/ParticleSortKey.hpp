@@ -1,5 +1,7 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
 #include <bit>
 #include <cstdint>
 #include <vector>
@@ -32,6 +34,26 @@ namespace Desert::Graphic::System
     }
 
     inline constexpr std::uint32_t kParticleSortPadKey = 0xFFFFFFFFu;
+
+    // THE VIEW DEPTH the key is taken of, in cm: along the camera's forward axis from its position. The view basis
+    // looks down its own -Z (the engine's camera, as glm::lookAt), so forward is -InvView[2]; ParticleSort.shader
+    // computes dot( position - u_ViewOrigin, u_ViewForward ) from exactly these two vectors (ParticleRenderer
+    // pushes them), and the test holds that a farther particle gets the smaller key under a real view matrix.
+    struct ParticleSortView
+    {
+        glm::vec3 Origin{ 0.0f };  // cm, world
+        glm::vec3 Forward{ 0.0f }; // unit, world
+    };
+
+    [[nodiscard]] inline ParticleSortView ParticleSortViewOf( const glm::mat4& invView )
+    {
+        return { glm::vec3( invView[3] ), -glm::normalize( glm::vec3( invView[2] ) ) };
+    }
+
+    [[nodiscard]] inline float ParticleSortDepth( const ParticleSortView& view, const glm::vec3& positionCm )
+    {
+        return glm::dot( positionCm - view.Origin, view.Forward );
+    }
 
     // The bitonic network's length for a range of @p capacity particles: the next power of two (at least 2).
     [[nodiscard]] constexpr std::uint32_t ParticleSortLength( const std::uint32_t capacity )

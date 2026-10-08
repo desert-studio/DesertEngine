@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <vector>
@@ -87,4 +89,34 @@ TEST( ParticleSortKey, StagesCoverTheWholeBitonicNetwork )
             exchanges += 10; // j = 512 .. 1
     }
     EXPECT_EQ( exchanges, 17u * 18u / 2u );
+}
+
+// THE SORT DIRECTION under a real view (VFX-08f lead check "flip the sign if near draws over far"): a camera at a
+// non-origin position looking along +X (glm::lookAt, the engine's -Z-forward view basis), two particles in front
+// of it at 150 cm and 2400 cm and one 300 cm behind. The view the sort pushes (ParticleSortViewOf of InvView) must
+// give those depths, and ascending keys must draw the far one first, the near one second and the one behind last.
+// A flipped forward makes the depths negative and the order near-first: red here, not on screen.
+TEST( ParticleSortKey, AFartherParticleSortsFirstUnderARealViewMatrix )
+{
+    const glm::vec3            eye( 1000.0f, 250.0f, -400.0f );
+    const glm::vec3            look( 1.0f, 0.0f, 0.0f );
+    const glm::mat4            viewMatrix = glm::lookAt( eye, eye + look, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+    const PS::ParticleSortView view       = PS::ParticleSortViewOf( glm::inverse( viewMatrix ) );
+
+    EXPECT_NEAR( glm::dot( view.Forward, look ), 1.0f, 1.0e-5f )
+         << "the sort's forward is the direction the camera looks";
+    EXPECT_NEAR( glm::length( view.Origin - eye ), 0.0f, 1.0e-2f );
+
+    const glm::vec3 nearParticle   = eye + look * 150.0f + glm::vec3( 0.0f, 40.0f, 0.0f );
+    const glm::vec3 farParticle    = eye + look * 2400.0f - glm::vec3( 0.0f, 0.0f, 90.0f );
+    const glm::vec3 behindParticle = eye - look * 300.0f;
+    const float     nearDepth      = PS::ParticleSortDepth( view, nearParticle );
+    const float     farDepth       = PS::ParticleSortDepth( view, farParticle );
+    const float     behindDepth    = PS::ParticleSortDepth( view, behindParticle );
+    EXPECT_NEAR( nearDepth, 150.0f, 1.0e-2f );
+    EXPECT_NEAR( farDepth, 2400.0f, 1.0e-1f );
+    EXPECT_NEAR( behindDepth, -300.0f, 1.0e-2f );
+
+    EXPECT_LT( PS::ParticleSortKey( farDepth ), PS::ParticleSortKey( nearDepth ) ) << "far draws before near";
+    EXPECT_LT( PS::ParticleSortKey( nearDepth ), PS::ParticleSortKey( behindDepth ) ) << "behind the camera last";
 }

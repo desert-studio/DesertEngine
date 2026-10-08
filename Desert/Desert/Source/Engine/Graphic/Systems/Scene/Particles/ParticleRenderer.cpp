@@ -374,9 +374,10 @@ namespace Desert::Graphic::System
 
         const uint64_t aliveBytes              = uint64_t{ 2 } * m_World->Pool().Capacity * sizeof( uint32_t );
         std::tie( m_SortKeysRef, m_SortedRef ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
-        // The view depth is along the camera's forward axis (-Z of the view basis), from its position (cm).
-        const glm::vec4 origin( glm::vec3( view->InvView[3] ), 0.0f );
-        const glm::vec4 forward( -glm::normalize( glm::vec3( view->InvView[2] ) ), 0.0f );
+        // The view depth is along the camera's forward axis from its position (cm): ParticleSortViewOf.
+        const ParticleSortView sortView = ParticleSortViewOf( view->InvView );
+        const glm::vec4        origin( sortView.Origin, 0.0f );
+        const glm::vec4        forward( sortView.Forward, 0.0f );
         for ( const ParticleSortRange& range : plan.Ranges )
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];

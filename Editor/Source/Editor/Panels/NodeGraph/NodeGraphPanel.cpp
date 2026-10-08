@@ -635,6 +635,13 @@ namespace Desert::Editor
                                    "cascaded shadows from scene geometry and the cloud layer.\n\n"
                                    "Feed Metallic / Roughness / Occlusion on the Surface Output node; "
                                    "unwired they default to a standard material's 0 / 0.5 / 1." );
+
+            ImGui::SameLine();
+            ImGui::Checkbox( "Used with Particle Sprites", &m_Doc.UsedWithParticleSprites );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Compile this material for particle sprites too (Usage ParticleSprites), so an "
+                                   "emitter can draw with it. The Particles nodes (Particle Color, SubImage, "
+                                   "Random, Relative Time) read the sprite's particle and need this ticked." );
         }
 
         ImGui::SameLine();
@@ -831,12 +838,17 @@ namespace Desert::Editor
                  std::any_of( m_Doc.Nodes.begin(), m_Doc.Nodes.end(),
                               [&]( const SG::Node& n ) { return n.Kind == outKind; } );
 
+            // Top-level nodes first, then one submenu per category (UE's palette categories), each in
+            // catalogue order. A category with no node in this domain shows no submenu.
+            std::vector<const char*> categories;
             for ( const auto& spec : SG::Specs() )
+                if ( spec.Category && SG::SpecInDomain( spec, domain ) &&
+                     std::none_of( categories.begin(), categories.end(),
+                                   [&]( const char* c ) { return std::string_view( c ) == spec.Category; } ) )
+                    categories.push_back( spec.Category );
+
+            const auto addItem = [&]( const SG::NodeSpec& spec )
             {
-                if ( !SG::SpecInDomain( spec, domain ) )
-                    continue; // only nodes valid in this domain
-                if ( spec.Kind == std::string( outKind ) && hasOutput )
-                    continue; // exactly one output per graph
                 if ( ImGui::MenuItem( spec.Title ) )
                 {
                     // ONE PLACE THAT DECIDES WHERE A NEW NODE IS: its X/Y. The `ed::SetNodePosition`
@@ -848,6 +860,25 @@ namespace Desert::Editor
                     node.Y    = popupCanvasPos.y;
                     m_Doc.Nodes.push_back( std::move( node ) );
                 }
+            };
+            const auto offered = [&]( const SG::NodeSpec& spec )
+            {
+                if ( !SG::SpecInDomain( spec, domain ) )
+                    return false;                                             // only nodes valid in this domain
+                return !( spec.Kind == std::string( outKind ) && hasOutput ); // exactly one output per graph
+            };
+
+            for ( const auto& spec : SG::Specs() )
+                if ( !spec.Category && offered( spec ) )
+                    addItem( spec );
+            for ( const char* category : categories )
+            {
+                if ( !ImGui::BeginMenu( category ) )
+                    continue;
+                for ( const auto& spec : SG::Specs() )
+                    if ( spec.Category && std::string_view( spec.Category ) == category && offered( spec ) )
+                        addItem( spec );
+                ImGui::EndMenu();
             }
             ImGui::EndPopup();
         }

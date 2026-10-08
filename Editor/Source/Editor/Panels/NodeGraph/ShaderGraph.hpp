@@ -74,7 +74,16 @@ namespace Desert::Editor
             bool                 HasColorValue = false; // shows a vec4 editor
             bool                 HasFloatValue = false; // shows a float editor
             unsigned             Domains = AllDomains;  // which domains this node is offered in
+            // The palette submenu the node is listed under; nullptr = the palette's top level.
+            const char* Category = nullptr;
         };
+
+        // The palette category of the particle nodes (UE's "Particles" expression category).
+        inline constexpr const char* kParticlesCategory = "Particles";
+
+        /// True for the node kinds that read the particle half of SurfaceInput (i.Particle), which only the
+        /// ParticleSprite cell fills: a graph using one must be UsedWithParticleSprites.
+        [[nodiscard]] bool ReadsParticleInputs( const std::string& kind );
 
         const std::vector<NodeSpec>& Specs();
         const NodeSpec*              FindSpec( const std::string& kind );
