@@ -23,6 +23,12 @@ namespace Desert::Runtime
     {
     public:
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+        /// The manager destruction reads its assets through (the fractures, and the VFX data channels its events
+        /// are published into - ECS/System/DestructionVFXEvents.hpp); null before a host bound one.
+        [[nodiscard]] std::shared_ptr<Assets::AssetManager> LockAssetManager() const
+        {
+            return m_Assets.lock();
+        }
 
         /// The fracture when it is read; success with null while pending; an error, said once, when it fails.
         Common::ResultStr<std::shared_ptr<const Destruction::FractureData>>
