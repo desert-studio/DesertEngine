@@ -358,6 +358,7 @@ namespace Desert::Editor
         if ( !clipboard.empty() &&
              ImGui::Selectable( m_Selection.ClipboardIsCut() ? "Paste (move)" : "Paste (copy)" ) )
             m_ItemMenu.Paste( m_CurrentDir );
+        m_ItemMenu.DrawTrashMenu();
 
         ImGui::Separator();
 

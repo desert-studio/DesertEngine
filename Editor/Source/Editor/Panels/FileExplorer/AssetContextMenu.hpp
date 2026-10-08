@@ -37,6 +37,9 @@ namespace Desert::Editor
         void Draw( DirectoryInformation& entry, const DirectoryInformation* folder );
         /// The rename / delete modals, once per frame.
         void DrawPopups();
+        /// The Trash submenu (the browser's background menu): every deleted asset of the project with Restore,
+        /// and Empty trash.
+        void DrawTrashMenu();
         /// F2 / Del / Ctrl(Cmd)+C X V on the selection, while the browser has focus and no text field does.
         void HandleShortcuts( const DirectoryInformation* folder );
 

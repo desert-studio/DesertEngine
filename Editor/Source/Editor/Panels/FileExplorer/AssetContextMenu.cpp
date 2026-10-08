@@ -4,6 +4,7 @@
 
 #include <Editor/Core/AssetFileOps.hpp>
 #include <Editor/Core/AssetReferences.hpp>
+#include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserSelection.hpp>
@@ -264,12 +265,11 @@ namespace Desert::Editor
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.6f, 0.15f, 0.15f, 1.0f ) );
             if ( ImGui::Button( "Delete", ImVec2( 110.0f, 0.0f ) ) )
             {
-                for ( const auto& path : m_PendingDeleteList )
-                {
-                    std::string err;
-                    if ( !AssetFileOps::Delete( path, err ) )
-                        m_On.OnStatus( "Delete failed: " + err );
-                }
+                // Into the project's trash, one undo step: Ctrl+Z or the Trash menu puts it back.
+                const std::vector<std::filesystem::path> paths( m_PendingDeleteList.begin(),
+                                                                m_PendingDeleteList.end() );
+                for ( const std::string& refusal : DeleteAssetsWithUndo( paths ) )
+                    m_On.OnStatus( "Delete failed: " + refusal );
                 m_Selection.Deselect();
                 m_On.OnRefresh();
                 ImGui::CloseCurrentPopup();
@@ -280,6 +280,43 @@ namespace Desert::Editor
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
+    }
+
+    void AssetContextMenu::DrawTrashMenu()
+    {
+        if ( !ImGui::BeginMenu( "Trash" ) )
+            return;
+        const std::vector<Common::Content::AssetTrashRecord> slots =
+             Common::Content::ListTrash( Common::Content::ProjectTrashRoot() );
+        if ( slots.empty() )
+            ImGui::TextDisabled( "Nothing deleted" );
+        for ( const Common::Content::AssetTrashRecord& slot : slots )
+        {
+            std::error_code   ec;
+            const std::string shown =
+                 std::filesystem::relative( slot.From, Common::Constants::Path::ASSETS_PATH, ec ).generic_string();
+            const std::string label = "Restore " + ( ec || shown.empty() ? slot.From.generic_string() : shown ) +
+                                      "##" + slot.Slot.filename().string();
+            if ( ImGui::MenuItem( label.c_str() ) )
+            {
+                if ( const auto restored = Assets::ContentRegistry::RestoreTrashed( slot ); !restored )
+                    m_On.OnStatus( "Restore failed: " + restored.GetError() );
+                m_On.OnRefresh();
+            }
+        }
+        ImGui::Separator();
+        if ( ImGui::MenuItem( "Empty trash", nullptr, false, !slots.empty() ) )
+        {
+            // The one permanent delete: the slots go, so nothing in them can come back (the undo entries that
+            // named them refuse by name).
+            for ( const Common::Content::AssetTrashRecord& slot : slots )
+            {
+                std::string err;
+                if ( !AssetFileOps::Delete( slot.Slot.string(), err ) )
+                    m_On.OnStatus( "Empty trash failed: " + err );
+            }
+        }
+        ImGui::EndMenu();
     }
 
     Common::BoolResultStr AssetContextMenu::Rename()
