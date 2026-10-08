@@ -1272,7 +1272,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // DestructibleLifetime.cpp's Sync into the DestructionWorld description).
     // -> 57 with DST-04b's four field components (RadialImpulseField, StrainField, KillField, AnchorField:
     // every field read by ECS::FireDestructionField in DestructionFields.cpp).
-    EXPECT_EQ( all.size(), 57u );
+    // -> 59 with WIND-SRC's WindSourceData and TOD-SPLIT's TimeOfDayData (kWindSourceRows, kTimeOfDayRows).
+    EXPECT_EQ( all.size(), 59u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

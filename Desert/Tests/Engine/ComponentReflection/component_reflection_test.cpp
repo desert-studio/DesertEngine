@@ -158,7 +158,7 @@ TEST( SkyAtmosphereReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     };
 
     const TypeInfo& sky = Type( "SkyAtmosphereData" );
-    EXPECT_EQ( sky.Fields.size(), 47u );
+    EXPECT_EQ( sky.Fields.size(), 42u );
     EXPECT_EQ( FieldNames( sky ), expected );
 }
 
@@ -183,7 +183,8 @@ TEST( SkyAtmosphereReflection, CategoriesAndTypesMatchTheSpecification )
     EXPECT_EQ( CountInCategory( sky, "Sky Color" ), 4u ); // the four palette colours
     EXPECT_EQ( CountInCategory( sky, "Sun" ), 6u );
     EXPECT_EQ( CountInCategory( sky, "Night Sky" ), 1u );
-    EXPECT_EQ( CountInCategory( sky, "Time Of Day" ), 5u );
+    // The clock is TimeOfDayComponent's (TOD-SPLIT): the sky has no Time Of Day group any more.
+    EXPECT_EQ( CountInCategory( sky, "Time Of Day" ), 0u );
     EXPECT_EQ( CountInCategory( sky, "Environment Lighting" ), 3u );
 
     // The physical-atmosphere groups, mirroring UE's Details panel grouping.

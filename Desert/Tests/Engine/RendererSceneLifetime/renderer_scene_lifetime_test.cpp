@@ -522,7 +522,7 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
 
     // The wind: the scene's world clock step (TIME1's WorldTime, handed in through SetWorldTime), nothing else.
     const std::string wind = StripComments( EngineSource( "ECS/System/VolumetricCloudECSSystem.hpp" ) );
-    EXPECT_NE( wind.find( "AdvanceWind( data, m_WorldDeltaSeconds )" ), std::string::npos )
+    EXPECT_NE( wind.find( "AdvanceWind( data, wind, m_WorldDeltaSeconds )" ), std::string::npos )
          << "the cloud wind no longer advances by the world clock's step.";
     EXPECT_NE( wind.find( "m_WorldDeltaSeconds = time.GetDeltaSeconds()" ), std::string::npos )
          << "the cloud wind's step no longer comes from WorldTime.";
