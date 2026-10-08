@@ -33,6 +33,6 @@
         "ExtinctionFactor": 1.0,
         "PlacementScale": 0.8,
         "PlacementAnisotropy": 1.0,
-        "BodyDiameterKm": 0.75
+        "BodyDiameterKm": 2.0
     }
 }

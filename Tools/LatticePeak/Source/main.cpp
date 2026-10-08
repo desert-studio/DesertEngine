@@ -56,8 +56,11 @@
 
 #include <cmath>
 #include <cstdio>
+#include <algorithm>
 #include <cstdlib>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -267,6 +270,86 @@ namespace
                      best.Prominence );
     }
 
+    /// THE BODIES THE SKY IS MADE OF (FIELD-GRAIN-d): every kept lump through the shipped generator, grouped
+    /// into clouds by the cluster site they carry (a massif and its lobes share it), and reported as the
+    /// clouds' horizontal diameters, the share of lumps sitting at the volume's lump floor, and how many
+    /// clouds stand over the camera — within the 30-degree zenith cone at the layer's base, which is the
+    /// patch of sky the `z` shot of the protocol frames. The camera is the region's centre, as in the bake.
+    int BodiesReport( const Desert::Assets::CloudProceduralFieldParams& params, float regionKm, int repeats )
+    {
+        const float floorKm = Desert::Assets::CloudProceduralLumpFloorKm( params );
+        const float coneKm  = params.LayerBottomKm * std::tan( 30.0f * 3.14159265f / 180.0f );
+
+        constexpr int    kBins                = 7;
+        const float      edges[kBins - 1]     = { 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 6.0f };
+        std::vector<int> bins( kBins, 0 );
+        std::vector<float> diameters;
+        size_t             lumpCount = 0, atFloor = 0;
+        double             overhead = 0.0, overheadWeathered = 0.0, zenithWeather = 0.0;
+
+        for ( int repeat = 0; repeat < repeats; ++repeat )
+        {
+            const float     cameraKm = static_cast<float>( repeat ) * regionKm * 4.0f;
+            const glm::vec2 origin   = Desert::Assets::CloudProceduralRegionOriginKm( params, cameraKm, cameraKm );
+            const glm::vec2 eye      = origin + glm::vec2( 0.5f * regionKm );
+
+            const auto lumps = Desert::Assets::GenerateCloudProceduralLumps(
+                 params, 0u, origin, Desert::Assets::CloudProceduralLumpSet::KeptCells );
+
+            std::map<std::pair<float, float>, float> clouds; // site -> horizontal half-extent
+            for ( const auto& lump : lumps )
+            {
+                const glm::vec2 centre( lump.Blob.CentreKm.x, lump.Blob.CentreKm.z );
+                const float     radius = std::max( lump.Blob.RadiiKm.x, lump.Blob.RadiiKm.z );
+                const float     reach  = glm::length( centre - lump.ClusterKm ) + radius;
+                float&          half   = clouds[{ lump.ClusterKm.x, lump.ClusterKm.y }];
+                half                   = std::max( half, reach );
+                ++lumpCount;
+                atFloor += ( std::min( lump.Blob.RadiiKm.x, lump.Blob.RadiiKm.z ) <= 1.2f * floorKm ) ? 1u : 0u;
+            }
+
+            zenithWeather += Desert::Assets::CloudProceduralLocalWeather( params, 0u, eye );
+            for ( const auto& [site, half] : clouds )
+            {
+                const glm::vec2 at( site.first, site.second );
+                const float     d = 2.0f * half;
+                diameters.push_back( d );
+                int bin = 0;
+                while ( bin < kBins - 1 && d >= edges[bin] )
+                    ++bin;
+                ++bins[bin];
+                if ( glm::length( at - eye ) < coneKm + half )
+                {
+                    overhead += 1.0;
+                    overheadWeathered +=
+                         ( Desert::Assets::CloudProceduralLocalWeather( params, 0u, at ) > 0.0f ) ? 1.0 : 0.0;
+                }
+            }
+        }
+
+        std::sort( diameters.begin(), diameters.end() );
+        const auto pct = [&diameters]( float q ) {
+            return diameters.empty() ? 0.0f
+                                     : diameters[std::min( diameters.size() - 1u,
+                                                           static_cast<size_t>( q * static_cast<float>(
+                                                                                         diameters.size() ) ) )];
+        };
+        const double n    = static_cast<double>( repeats );
+        const double area = static_cast<double>( regionKm ) * static_cast<double>( regionKm );
+        std::printf( "bodies  floor %.3f km  zenith cone r %.2f km  clouds/realisation %.0f  (%.2f per 10 km^2)\n",
+                     floorKm, coneKm, static_cast<double>( diameters.size() ) / n,
+                     10.0 * static_cast<double>( diameters.size() ) / n / area );
+        std::printf( "bodies  diameter p10 %.3f  p50 %.3f  p90 %.3f  max %.3f km  lumps/cloud %.1f  lumps at floor %.1f%%\n",
+                     pct( 0.1f ), pct( 0.5f ), pct( 0.9f ), diameters.empty() ? 0.0f : diameters.back(),
+                     static_cast<double>( lumpCount ) / std::max<double>( 1.0, static_cast<double>( diameters.size() ) ),
+                     100.0 * static_cast<double>( atFloor ) / std::max<double>( 1.0, static_cast<double>( lumpCount ) ) );
+        std::printf( "bodies  histogram km  <0.5 %d | 0.5-1 %d | 1-2 %d | 2-3 %d | 3-4 %d | 4-6 %d | >=6 %d  (all realisations)\n",
+                     bins[0], bins[1], bins[2], bins[3], bins[4], bins[5], bins[6] );
+        std::printf( "bodies  over the camera %.1f clouds (%.1f with weather > 0)  weather at zenith %.3f\n",
+                     overhead / n, overheadWeathered / n, zenithWeather / n );
+        return 0;
+    }
+
     int FieldMode( int argc, char** argv )
     {
         float       regionKm = 48.0f;
@@ -289,6 +372,7 @@ namespace
         float       windZ    = 0.0f;
         std::string pgm;
         std::string csv;
+        bool        bodies = false;
 
         // THE GENUS UNDER TEST, and it is a PATH rather than a name on purpose. §SIL measures nine forms,
         // and nine shapes retyped into a tool would be nine more places for the library and the instrument
@@ -362,6 +446,8 @@ namespace
                 repeats = std::max( 1, std::atoi( argv[++i] ) );
             else if ( arg == "--pgm" && has )
                 pgm = argv[++i];
+            else if ( arg == "--bodies" )
+                bodies = true;
             else if ( arg == "--csv" && has )
                 csv = argv[++i];
             else if ( arg == "--project" && has )
@@ -489,6 +575,9 @@ namespace
         // whatever the scene file says, and a tool that refused where the engine draws would be measuring
         // a configuration that cannot occur.
         params.PatchTileKm = std::max( params.PatchTileKm, 3.0f * std::max( extent.x, extent.y ) );
+
+        if ( bodies )
+            return BodiesReport( params, regionKm, repeats );
 
         std::vector<std::vector<double>> curvesX;
         std::vector<std::vector<double>> curvesZ;
@@ -731,6 +820,7 @@ namespace
              "                            [--chord KM] [--maxlag KM] [--repeats N]\n"
              "                            [--density F] [--scatter F] [--variety F] [--patch F]\n"
              "                            [--patch-tile KM] [--project sum|max] [--pgm PATH] [--csv PATH]\n"
+             "                            [--bodies]  (cloud diameters, lump floor share, clouds overhead)\n"
              "       LatticePeak --frame  <png> <x0> <y0> <x1> <y1> [<png> <x0> <y0> <x1> <y1> ...]\n"
              "\n"
              "  --field  bakes the placement field through the shipped generator and measures it; the\n"

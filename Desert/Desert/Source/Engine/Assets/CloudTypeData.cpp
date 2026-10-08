@@ -64,8 +64,10 @@ namespace Desert::Assets
              // what T1 shipped, and this is that, digit for digit.
              /* PlacementScale      */ 1.00f,
              /* PlacementAnisotropy */ 1.00f,
-             // FIELD-GRAIN: a congestus field's bodies, a kilometre on average (Plank's law, D0 0.5-1 km).
-             /* BodyDiameterKm      */ 1.00f,
+             // FIELD-GRAIN-d: a congestus tower, three kilometres on average. Plank's D0 of 0.5-1 km is a
+             // HUMILIS field's; at 1 km under the shipped density the measured lumps sat on the volume's
+             // floor (73 %, LatticePeak --bodies) and every cloud was a pile of equal spheres.
+             /* BodyDiameterKm      */ 3.00f,
         };
         return kDefault;
     }
