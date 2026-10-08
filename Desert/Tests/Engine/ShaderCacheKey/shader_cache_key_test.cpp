@@ -63,6 +63,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -150,6 +151,24 @@ namespace
         if ( result.GetCompilationStatus() != shaderc_compilation_status_success )
             return {};
         return { result.begin(), result.end() };
+    }
+
+    // EVERY SHIPPED STAGE IS COMPILED ONCE PER RUN. Four censuses below walk the whole shipped tree, and each
+    // compiled every stage again. On Windows Debug that is shaderc_combinedd — glslang and SPIRV-Tools
+    // unoptimised, with iterator debugging — and the four took 180-255 s apiece, so CI killed the suite at
+    // its 1200 s cap (macOS links the release archive: the whole suite runs in 107 s). A release shaderc
+    // cannot be linked into a /MDd binary, so the repetition goes instead. Only shipped .shader files come
+    // through here: nothing edits them during a run (ScopedHeader writes a header no shipped file includes),
+    // so the path, the stage and the source text determine the module. A failed compile is reported by the
+    // first census that meets it and cached as empty, which the callers skip.
+    const std::vector<uint32_t>& CompileShippedStage( const std::string& source, const std::filesystem::path& path,
+                                                      shaderc_shader_kind kind )
+    {
+        static std::map<std::tuple<std::string, int, std::string>, std::vector<uint32_t>> s_Modules;
+        auto key = std::make_tuple( path.string(), static_cast<int>( kind ), source );
+        if ( const auto it = s_Modules.find( key ); it != s_Modules.end() )
+            return it->second;
+        return s_Modules.emplace( std::move( key ), CompileStage( source, path, kind ) ).first->second;
     }
 
     // Reflects one compute shader and returns the layout bindings of set 0 — the contract a pipeline
@@ -2028,7 +2047,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedShaderClaimsOneDescriptorSlotTwice )
             ShaderResource::ReflectionData data;
             for ( const auto& [stage, source] : stages )
             {
-                const auto spirv = CompileStage( source, file, KindOf( stage ) );
+                const auto& spirv = CompileShippedStage( source, file, KindOf( stage ) );
                 if ( spirv.empty() )
                     continue; // CompileStage already reported it
 
@@ -2073,7 +2092,7 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsPushBlockFitsTheEngineCap 
             ShaderResource::ReflectionData data;
             for ( const auto& [stage, source] : stages )
             {
-                const auto spirv = CompileStage( source, file, KindOf( stage ) );
+                const auto& spirv = CompileShippedStage( source, file, KindOf( stage ) );
                 if ( spirv.empty() )
                     continue; // CompileStage already reported it
                 const auto diagnostics = ShaderReflection::ReflectStage( spirv, stage, data );
@@ -2215,7 +2234,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedProgramDeclaresABindingInTheGraphsRes
             ShaderResource::ReflectionData data;
             for ( const auto& [stage, source] : stages )
             {
-                const auto spirv = CompileStage( source, file, KindOf( stage ) );
+                const auto& spirv = CompileShippedStage( source, file, KindOf( stage ) );
                 if ( spirv.empty() )
                     continue; // CompileStage already reported it
 
@@ -2724,7 +2743,7 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedShaderStageCompilesAndReflects )
                 const shaderc_shader_kind kind  = stage == ShaderStage::Vertex     ? shaderc_glsl_vertex_shader
                                                   : stage == ShaderStage::Fragment ? shaderc_glsl_fragment_shader
                                                                                    : shaderc_glsl_compute_shader;
-                const auto                spirv = CompileStage( source, entry.path(), kind );
+                const auto&               spirv = CompileShippedStage( source, entry.path(), kind );
                 if ( spirv.empty() )
                 {
                     failures += std::format( "{} pass '{}' stage {}: does not compile\n", entry.path().string(),
