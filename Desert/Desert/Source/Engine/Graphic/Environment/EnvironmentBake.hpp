@@ -128,11 +128,16 @@ namespace Desert::Graphic
         }
 
     private:
+        // THE ENCODED CUBE CROSSES THE FUTURE BY POINTER. `ImageCubeSpecification` is immutable (const
+        // members), and MSVC's `std::future<T>` assigns its stored T, so a future of the spec itself does
+        // not compile there; the pointer carries the same value without loosening the type.
+        using EncodedCube = std::unique_ptr<Common::ResultStr<Core::Formats::ImageCubeSpecification>>;
+
         struct Write
         {
             EnvironmentCacheEntry                 Entry;
             std::shared_ptr<ImageReadback>        Readback;
-            std::future<Common::ResultStr<Core::Formats::ImageCubeSpecification>> Encoded;
+            std::future<EncodedCube>              Encoded;
             std::chrono::steady_clock::time_point StartedAt;
         };
         static void Finish( Write& write, bool adopt );

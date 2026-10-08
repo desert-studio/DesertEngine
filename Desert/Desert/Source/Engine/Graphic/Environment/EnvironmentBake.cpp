@@ -291,12 +291,14 @@ namespace Desert::Graphic
                 // may run elsewhere. The entry is not erased until the future below is ready.
                 const ImageReadback* readback = write.Readback.get();
                 write.Encoded                 = Common::JobSystem::Get().Async(
-                     [readback, entry = write.Entry]() -> Common::ResultStr<Core::Formats::ImageCubeSpecification>
+                     [readback, entry = write.Entry]() -> EncodedCube
                      {
                          auto bytes = readback->ReadBytes();
                          if ( !bytes.IsSuccess() )
-                             return Common::MakeError<Core::Formats::ImageCubeSpecification>( bytes.GetError() );
-                         return CacheAndReloadBakedEnvironmentCube( entry, bytes.GetValue() );
+                             return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                                  Common::MakeError<Core::Formats::ImageCubeSpecification>( bytes.GetError() ) );
+                         return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                              CacheAndReloadBakedEnvironmentCube( entry, bytes.GetValue() ) );
                      } );
                 ++it;
                 continue;
@@ -324,14 +326,16 @@ namespace Desert::Graphic
                 const auto&          entry    = write.Entry;
                 write.Encoded                 = std::async(
                      std::launch::deferred,
-                     [readback, &entry]() -> Common::ResultStr<Core::Formats::ImageCubeSpecification>
+                     [readback, &entry]() -> EncodedCube
                      {
                          while ( !readback->IsComplete() )
                              std::this_thread::yield();
                          auto bytes = readback->ReadBytes();
                          if ( !bytes.IsSuccess() )
-                             return Common::MakeError<Core::Formats::ImageCubeSpecification>( bytes.GetError() );
-                         return CacheAndReloadBakedEnvironmentCube( entry, bytes.GetValue() );
+                             return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                                  Common::MakeError<Core::Formats::ImageCubeSpecification>( bytes.GetError() ) );
+                         return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                              CacheAndReloadBakedEnvironmentCube( entry, bytes.GetValue() ) );
                      } );
             }
             write.Encoded.wait();
@@ -342,7 +346,8 @@ namespace Desert::Graphic
 
     void EnvironmentCacheWriter::Finish( Write& write, const bool adopt )
     {
-        auto                        written = write.Encoded.get();
+        const EncodedCube           encoded = write.Encoded.get();
+        const auto&                 written = *encoded;
         const double                ms =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.StartedAt )
                   .count();
