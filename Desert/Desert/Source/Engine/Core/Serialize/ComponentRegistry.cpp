@@ -2181,7 +2181,6 @@ namespace Desert::Core::Serialize
         // own registration source and refuses to let a sixth one exist. No version bump: an added key is
         // what ForeignKeys is for, and no scene in this repository carries these blocks yet — nothing
         // ever wrote one.
-        Register( MakeAuthored<ECS::LocomotionComponent>( "Locomotion" ) );
         Register( MakeAuthored<ECS::MorphComponent>( "Morph" ) );
         Register( MakeAuthored<ECS::SocketAttachmentComponent>( "SocketAttachment" ) );
         Register( MakeAuthored<ECS::ProjectileComponent>( "Projectile" ) );

@@ -741,21 +741,6 @@ namespace Desert::ECS
         RetargetData Data;
     };
 
-    // Data-driven state -> clip mapping for LocomotionSystem, so the SYSTEM holds NO clip knowledge (no clip
-    // names or instances baked in). The system maps planar speed / on-ground to one of these clip NAMES and
-    // hands it to AnimationComponent.CurrentClip; the clips themselves come from the AnimationLibrary (imported
-    // assets or the procedural humanoid's built-in clips). LocomotionSystem falls back to a default-constructed
-    // instance of THIS struct when the component is absent, so the defaults live in data, not in the system.
-    struct LocomotionComponent
-    {
-        std::string IdleClip  = "Idle";
-        std::string WalkClip  = "Walk";
-        std::string RunClip   = "Run";
-        std::string JumpClip  = "Jump";
-        float       WalkSpeed = 20.0f;  // planar speed (cm/s) above which -> walk
-        float       RunSpeed  = 450.0f; // planar speed (cm/s) above which -> run
-    };
-
     // Blendshape / morph-target weights for the entity's mesh. Weights[k] (0..1, though over/undershoot is
     // allowed) scales morph target k of the mesh asset; the CPU blend is base + Σ(weight·delta) (see
     // Geometry::ApplyMorphTargets). TargetNames mirrors the mesh's target names for the Details UI and stays

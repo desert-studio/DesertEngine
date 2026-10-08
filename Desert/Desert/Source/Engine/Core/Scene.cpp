@@ -766,7 +766,6 @@ namespace Desert::Core
         r.prepare<ECS::SpringArmComponent>();
         r.prepare<ECS::PlayerStartComponent>();
         r.prepare<ECS::StreamingSourceComponent>();
-        r.prepare<ECS::LocomotionComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
         r.prepare<ECS::SocketAttachmentComponent>();

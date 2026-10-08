@@ -7,6 +7,10 @@
 --   * Character Controller + Enhanced Input Player (Mapping Contexts: Engine/Input/IMC_Default) on the player.
 --   * A child entity with a Spring Arm, and the Camera as ITS child (third person); or a Camera child at the
 --     head (first person).
+--   * The visible body: a child entity with the Humanoid skinned mesh (Engine/Meshes/Skinned/Humanoid.skmesh)
+--     and an Animation component whose Graph is Engine/Meshes/Skinned/Humanoid_Locomotion.danimgraph. The
+--     engine writes Speed (cm/s) and IsFalling into it every frame from the Character Controller
+--     (LocomotionSystem); the graph picks Idle / Walk / Run by Speed and Jump while falling.
 --   * Optional swimming: World.set("waterLevel", <cm>) in a level script.
 
 Properties = {

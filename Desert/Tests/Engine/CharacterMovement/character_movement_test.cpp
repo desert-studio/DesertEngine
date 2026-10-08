@@ -231,7 +231,7 @@ TEST( JoltCentimetres, EveryLengthSpeedAndForceSettingIsAssignedInTheOnePlace )
          "mPenetrationRecoverySpeed", "mMaxCollisionIterations", "mMaxConstraintIterations", "mMinTimeRemaining" };
     for ( const char* name : settings )
     {
-        const std::regex assigned( std::string( "\.\s*" ) + name + "\s*=[^=]" );
+        const std::regex assigned( std::string( R"(\.\s*)" ) + name + R"(\s*=[^=])" );
         EXPECT_TRUE( std::regex_search( block, assigned ) )
              << name << " is not assigned in the centimetre block: it runs at Jolt's metre default";
         EXPECT_FALSE( std::regex_search( outside, assigned ) )
@@ -241,6 +241,36 @@ TEST( JoltCentimetres, EveryLengthSpeedAndForceSettingIsAssignedInTheOnePlace )
          << "the world never receives the centimetre PhysicsSettings";
     EXPECT_NE( source.find( "ApplyCentimetreCharacterSettings( settings )" ), std::string::npos )
          << "CreateCharacter never applies the centimetre CharacterVirtualSettings";
+}
+
+TEST( JoltCentimetres, EveryConvexShapePassesTheCentimetreConvexRadius )
+{
+    const std::string root = RepoRootForCensus();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string source = ReadText( root + "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
+    EXPECT_NE( source.find( "constexpr float kConvexRadiusCm = 5.0f;" ), std::string::npos )
+         << "the engine's convex radius (0.05 m = 5 cm) is gone from the centimetre block";
+
+    // Every construction of a shape that HAS a convex radius: without the argument Jolt's
+    // cDefaultConvexRadius (0.05, a metre value) is used, i.e. half a millimetre in this world.
+    const std::regex site(
+         R"(new\s+JPH::(Box|Cylinder|TaperedCylinder)Shape\s*\(|JPH::(Box|Cylinder|ConvexHull)ShapeSettings\s+\w+\s*\()" );
+    int sites = 0;
+    for ( auto it = std::sregex_iterator( source.begin(), source.end(), site ); it != std::sregex_iterator();
+          ++it )
+    {
+        ++sites;
+        const size_t      close = source.find( ';', static_cast<size_t>( it->position() ) );
+        const std::string call =
+             source.substr( static_cast<size_t>( it->position() ), close - static_cast<size_t>( it->position() ) );
+        EXPECT_NE( call.find( "kConvexRadiusCm" ), std::string::npos )
+             << "a convex shape is built without the engine's convex radius: " << call;
+    }
+    EXPECT_GE( sites, 2 ) << "the Box and ConvexHull construction sites were not found: the census reads nothing";
+    EXPECT_EQ( source.find( "cDefaultConvexRadius" ) == std::string::npos ||
+                    source.find( "cDefaultConvexRadius" ) < source.find( "constexpr float kConvexRadiusCm" ),
+               true )
+         << "cDefaultConvexRadius is used by code (only the centimetre block may name it, in its comment)";
 }
 
 TEST( JoltCentimetres, CharacterStandsOnAFlatFloorWithoutVerticalJitter )

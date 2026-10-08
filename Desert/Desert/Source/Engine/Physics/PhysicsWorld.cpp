@@ -48,6 +48,62 @@ static_assert( Desert::Physics::kHeightFieldNoCollision == JPH::HeightFieldShape
 
 namespace Desert::Physics
 {
+    // ---- Jolt in centimetres (the one place) ----
+    // One world unit is one centimetre (SetGravity takes cm/s^2), while every Jolt default below is tuned for
+    // metres. Each setting with a length, speed or force in it is assigned here explicitly: the metre default
+    // x 100 (x 100^2 for a squared length), and the unitless ones are assigned too, with the reason they stay,
+    // so the census (Engine/CharacterMovement JoltCentimetres) can hold that nothing is left at a metre value.
+    namespace
+    {
+        JPH::PhysicsSettings CentimetrePhysicsSettings()
+        {
+            JPH::PhysicsSettings s;
+            s.mBaumgarte                       = 0.2f;  // fraction of the position error fixed per step: unitless
+            s.mSpeculativeContactDistance      = 2.0f;  // 0.02 m
+            s.mPenetrationSlop                 = 2.0f;  // 0.02 m
+            s.mLinearCastThreshold             = 0.75f; // fraction of the body's inner radius: unitless
+            s.mLinearCastMaxPenetration        = 0.25f; // fraction of the body's inner radius: unitless
+            s.mManifoldTolerance               = 0.1f;  // 1e-3 m
+            s.mMaxPenetrationDistance          = 20.0f; // 0.2 m
+            s.mBodyPairCacheMaxDeltaPositionSq = 0.1f * 0.1f;     // (1 mm)^2
+            s.mContactPointPreserveLambdaMaxDistSq = 1.0f * 1.0f; // (1 cm)^2
+            s.mMinVelocityForRestitution           = 100.0f;      // 1 m/s
+            s.mPointVelocitySleepThreshold         = 3.0f;        // 0.03 m/s
+            return s;
+        }
+
+        void ApplyCentimetreCharacterSettings( JPH::CharacterVirtualSettings& s )
+        {
+            s.mMaxStrength               = 10000.0f; // 100 N = 100 kg*m/s^2 = 10000 kg*cm/s^2
+            s.mPredictiveContactDistance = 10.0f;    // 0.1 m
+            s.mCharacterPadding          = 2.0f;     // 0.02 m
+            s.mCollisionTolerance        = 0.1f;     // 1e-3 m
+            s.mPenetrationRecoverySpeed  = 1.0f;     // fraction of the penetration resolved per update: unitless
+            s.mMaxCollisionIterations    = 5;        // a count of sweep loops: unitless
+            s.mMaxConstraintIterations   = 15;       // a count of solver loops: unitless
+            s.mMinTimeRemaining          = 1.0e-4f;  // seconds: no length in it
+        }
+        // Shapes. Jolt's cDefaultConvexRadius (0.05 m) is a DEFAULT ARGUMENT of the BoxShape and
+        // ConvexHullShapeSettings constructors, not a settings field, so it reaches every shape that does not
+        // pass one: every Box / ConvexHull built in this file passes kConvexRadiusCm (census:
+        // JoltCentimetres.EveryConvexShapePassesTheCentimetreConvexRadius). A box shrinks it to its smallest
+        // half extent itself (BoxShape's constructor), a hull lowers it when the hull needs that. Sphere,
+        // Capsule, Mesh and HeightField shapes have no convex radius. Jolt has no Cylinder use here.
+        // cCapsuleProjectionSlop (0.02 m, "when a capsule's supporting face is an edge") is a constexpr read
+        // inside CapsuleShape::GetSupportingFace and exposed by no settings struct (CharacterVirtualSettings
+        // included): it stays 0.02 cm here, i.e. a capsule reports an edge face only when it is 50x closer to
+        // perpendicular than in a metre world. Changing it means patching ThirdParty/JoltPhysics.
+        constexpr float kConvexRadiusCm = 5.0f; // 0.05 m
+
+        void ApplyCentimetreHullSettings( JPH::ConvexHullShapeSettings& s )
+        {
+            s.mMaxConvexRadius      = kConvexRadiusCm;
+            s.mMaxErrorConvexRadius = 5.0f; // 0.05 m
+            s.mHullTolerance        = 0.1f; // 1e-3 m
+        }
+    } // namespace
+    // ---- end Jolt in centimetres ----
+
     namespace
     {
         // Object layers: which objects can collide. Two are enough (static vs moving).
@@ -226,7 +282,8 @@ namespace Desert::Physics
                 joltPoints.push_back( ToJolt( p ) );
             // The builder stops at cMaxPointsInHull and keeps the hull within tolerance of the rest, so a
             // dense mesh is simplified here rather than refused.
-            const JPH::ConvexHullShapeSettings    settings( joltPoints );
+            JPH::ConvexHullShapeSettings settings( joltPoints, kConvexRadiusCm );
+            ApplyCentimetreHullSettings( settings );
             const JPH::ShapeSettings::ShapeResult result = settings.Create();
             if ( result.HasError() )
                 return Common::MakeError<JPH::ShapeRefC>( std::format(
@@ -361,44 +418,6 @@ namespace Desert::Physics
         std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
         std::function<void( float )> StepCallback;
     };
-
-    // ---- Jolt in centimetres (the one place) ----
-    // One world unit is one centimetre (SetGravity takes cm/s^2), while every Jolt default below is tuned for
-    // metres. Each setting with a length, speed or force in it is assigned here explicitly: the metre default
-    // x 100 (x 100^2 for a squared length), and the unitless ones are assigned too, with the reason they stay,
-    // so the census (Engine/CharacterMovement JoltCentimetres) can hold that nothing is left at a metre value.
-    namespace
-    {
-        JPH::PhysicsSettings CentimetrePhysicsSettings()
-        {
-            JPH::PhysicsSettings s;
-            s.mBaumgarte                       = 0.2f;  // fraction of the position error fixed per step: unitless
-            s.mSpeculativeContactDistance      = 2.0f;  // 0.02 m
-            s.mPenetrationSlop                 = 2.0f;  // 0.02 m
-            s.mLinearCastThreshold             = 0.75f; // fraction of the body's inner radius: unitless
-            s.mLinearCastMaxPenetration        = 0.25f; // fraction of the body's inner radius: unitless
-            s.mManifoldTolerance               = 0.1f;  // 1e-3 m
-            s.mMaxPenetrationDistance          = 20.0f; // 0.2 m
-            s.mBodyPairCacheMaxDeltaPositionSq = 0.1f * 0.1f;     // (1 mm)^2
-            s.mContactPointPreserveLambdaMaxDistSq = 1.0f * 1.0f; // (1 cm)^2
-            s.mMinVelocityForRestitution           = 100.0f;      // 1 m/s
-            s.mPointVelocitySleepThreshold         = 3.0f;        // 0.03 m/s
-            return s;
-        }
-
-        void ApplyCentimetreCharacterSettings( JPH::CharacterVirtualSettings& s )
-        {
-            s.mMaxStrength               = 10000.0f; // 100 N = 100 kg*m/s^2 = 10000 kg*cm/s^2
-            s.mPredictiveContactDistance = 10.0f;    // 0.1 m
-            s.mCharacterPadding          = 2.0f;     // 0.02 m
-            s.mCollisionTolerance        = 0.1f;     // 1e-3 m
-            s.mPenetrationRecoverySpeed  = 1.0f;     // fraction of the penetration resolved per update: unitless
-            s.mMaxCollisionIterations    = 5;        // a count of sweep loops: unitless
-            s.mMaxConstraintIterations   = 15;       // a count of solver loops: unitless
-            s.mMinTimeRemaining          = 1.0e-4f;  // seconds: no length in it
-        }
-    } // namespace
-    // ---- end Jolt in centimetres ----
 
     PhysicsWorld::PhysicsWorld()  = default;
     PhysicsWorld::~PhysicsWorld() { Shutdown(); }
@@ -588,7 +607,8 @@ namespace Desert::Physics
                 shape = new JPH::CapsuleShape( desc.HalfHeight, desc.Radius );
                 break;
             case ShapeType::Box:
-                shape = new JPH::BoxShape( ToJolt( glm::max( desc.HalfExtents, glm::vec3( 1.0f ) ) ) );
+                shape = new JPH::BoxShape( ToJolt( glm::max( desc.HalfExtents, glm::vec3( 1.0f ) ) ),
+                                           kConvexRadiusCm );
                 break;
             case ShapeType::Mesh:
             case ShapeType::ConvexHull:

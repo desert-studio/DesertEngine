@@ -1687,76 +1687,6 @@ namespace Desert::Editor
         return e;
     }
 
-    // Locomotion: the state -> clip mapping LocomotionSystem reads. The clip names are picked from the
-    // animation library rather than typed, because a typo here is a character that simply never walks.
-    static ComponentEditorEntry MakeLocomotionEntry()
-    {
-        using C = ::Desert::ECS::LocomotionComponent;
-        ComponentEditorEntry e;
-        e.Name      = "Locomotion";
-        e.CanRemove = true;
-        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
-        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
-        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
-        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
-        {
-            namespace U = ::Desert::Editor::Utils;
-            auto& c     = en.GetComponent<C>();
-
-            U::ImGuiUtilities::ResetPropertyRows();
-
-            // The clips that fit THIS character's skeleton, if it has one; otherwise the field is still
-            // editable as free text through the same popup (the library may load later).
-            std::vector<std::string> clipNames;
-            if ( ctx.AnimationLibrary && en.HasComponent<::Desert::ECS::SkinnedMeshComponent>() )
-            {
-                const auto&     smc = en.GetComponent<::Desert::ECS::SkinnedMeshComponent>();
-                ::Desert::Mesh* mesh =
-                     smc.RuntimeMesh
-                          ? static_cast<::Desert::Mesh*>( smc.RuntimeMesh.get() )
-                          : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
-                if ( mesh && mesh->IsSkinned() )
-                {
-                    for ( const auto& asset : ctx.AnimationLibrary->GetForMesh(
-                               ctx.AnimationLibrary->IdentifyMeshHandle( smc.MeshHandle ) ) )
-                        if ( asset )
-                            clipNames.push_back( asset->GetClip().AnimationName );
-                }
-            }
-
-            const auto clipRow = [&clipNames]( const char* label, std::string& value, const char* id )
-            {
-                U::ImGuiUtilities::BeginPropertyRow( label );
-                if ( U::ImGuiUtilities::AssetSlot( id, value.empty() ? "None" : value.c_str(), value.empty() ) )
-                    ImGui::OpenPopup( id );
-                if ( ImGui::BeginPopup( id ) )
-                {
-                    if ( clipNames.empty() )
-                        ImGui::TextDisabled( "No clips for this skeleton" );
-                    for ( const auto& name : clipNames )
-                        if ( ImGui::Selectable( name.c_str(), name == value ) )
-                            value = name;
-                    ImGui::EndPopup();
-                }
-                U::ImGuiUtilities::EndPropertyRow();
-            };
-
-            clipRow( "Idle Clip", c.IdleClip, "loco_idle" );
-            clipRow( "Walk Clip", c.WalkClip, "loco_walk" );
-            clipRow( "Run Clip", c.RunClip, "loco_run" );
-            clipRow( "Jump Clip", c.JumpClip, "loco_jump" );
-
-            U::ImGuiUtilities::BeginPropertyRow( "Walk Speed", "Planar speed above which the walk clip plays" );
-            ImGui::DragFloat( "##walkspeed", &c.WalkSpeed, 0.01f, 0.0f, 100.0f, "%.2f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Run Speed", "Planar speed above which the run clip plays" );
-            ImGui::DragFloat( "##runspeed", &c.RunSpeed, 0.01f, 0.0f, 100.0f, "%.2f" );
-            U::ImGuiUtilities::EndPropertyRow();
-        };
-        return e;
-    }
-
     // Projectile: integrated by ProjectileSystem in Play. Everything here is authored data except Owner,
     // which the firing script stamps at spawn — shown read-only so a stray hit can be traced back.
     static ComponentEditorEntry MakeProjectileEntry()
@@ -2284,8 +2214,6 @@ namespace
          ::Desert::Editor::MakeCharacterControllerEntry() );
     const int _desert_socket_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeSocketEntry() );
-    const int _desert_locomotion_component_reg =
-         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLocomotionEntry() );
     const int _desert_projectile_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeProjectileEntry() );
     const int _desert_foliage_component_reg =
