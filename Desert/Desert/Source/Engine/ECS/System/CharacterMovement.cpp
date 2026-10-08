@@ -1,5 +1,7 @@
 #include <Engine/ECS/System/CharacterMovement.hpp>
 
+#include <Engine/Animation/Graph/AnimGraph.hpp>
+
 #include <algorithm>
 
 namespace Desert::ECS::CharacterMovement
@@ -205,5 +207,29 @@ namespace Desert::ECS::CharacterMovement
         // velocity the next frame accelerates from, as UE's Velocity after SafeMoveUpdatedComponent.
         cc.Velocity = glm::vec3( moved.x, onGround && !cc.Swimming && vertical < 0.0f ? 0.0f : moved.y, moved.z );
         cc.CurrentSpeed = glm::length( glm::vec2( cc.Velocity.x, cc.Velocity.z ) );
+    }
+    void PublishAnimGraphParameters( const CharacterControllerComponent& cc, AnimationComponent& anim )
+    {
+        if ( !anim.Graph )
+            return;
+
+        const auto publish = [&anim]( const char* name, float value )
+        {
+            const auto& declared = anim.Graph->Parameters;
+            if ( std::none_of( declared.begin(), declared.end(),
+                               [name]( const Animation::Graph::Parameter& p ) { return p.Name == name; } ) )
+                return;
+            auto&      pending = anim.PendingGraphParams;
+            const auto queued  = std::find_if( pending.begin(), pending.end(),
+                                               [name]( const AnimationComponent::PendingGraphParam& p )
+                                               { return p.Name == name; } );
+            if ( queued != pending.end() )
+                queued->Value = value;
+            else
+                pending.push_back( { name, value } );
+        };
+        publish( kAnimParamSpeed, cc.CurrentSpeed );
+        publish( kAnimParamIsFalling, !cc.OnGround && !cc.Swimming ? 1.0f : 0.0f );
+        publish( kAnimParamIsCrouched, cc.IsCrouched ? 1.0f : 0.0f );
     }
 } // namespace Desert::ECS::CharacterMovement

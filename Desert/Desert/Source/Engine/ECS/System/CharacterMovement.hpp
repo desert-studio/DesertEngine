@@ -54,4 +54,21 @@ namespace Desert::ECS::CharacterMovement
      */
     void Step( CharacterControllerComponent& cc, Physics::PhysicsWorld& world, const glm::vec3& worldInput,
                float dt );
+    /// The AnimGraph parameters the movement state is published under (UE: the AnimBP's Speed / IsFalling /
+    /// IsCrouching read from the CharacterMovementComponent each update). A graph that wants locomotion
+    /// declares them: Speed a Float in cm/s (planar), IsFalling and IsCrouched Bools.
+    inline constexpr const char* kAnimParamSpeed      = "Speed";
+    inline constexpr const char* kAnimParamIsFalling  = "IsFalling";
+    inline constexpr const char* kAnimParamIsCrouched = "IsCrouched";
+
+    /**
+     * @brief Publishes this frame's movement state into @p anim's AnimGraph: Speed = CurrentSpeed (cm/s),
+     * IsFalling = !OnGround (swimming is not falling), IsCrouched. Only the parameters the graph DECLARES are
+     * written (a graph without locomotion is not told about it, and the drain would refuse an undeclared name);
+     * nothing is written before the graph is loaded. The write goes through AnimationComponent's pending
+     * parameter queue, the one path scripts use too, and replaces a value still queued under the same name, so
+     * frames before the evaluator exists do not pile up. This is the ONE path from movement to animation: the
+     * graph picks and blends the clips.
+     */
+    void PublishAnimGraphParameters( const CharacterControllerComponent& cc, AnimationComponent& anim );
 } // namespace Desert::ECS::CharacterMovement

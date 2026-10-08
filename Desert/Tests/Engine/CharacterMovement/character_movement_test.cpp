@@ -1,10 +1,19 @@
 // GP2a: the playable character's movement model (UE CharacterMovementComponent walking / falling / crouch) and
 // the spring arm (UE USpringArmComponent), driven against a device-free PhysicsWorld in centimetres.
+#include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
 #include <gtest/gtest.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <memory>
+#include <fstream>
+#include <regex>
+#include <sstream>
+#include <string>
 
 using namespace Desert;
 
@@ -168,4 +177,178 @@ TEST( SpringArm, CameraLagClosesItsSpeedFractionPerSecondOfTheOrigin )
     ECS::SpringArm::Solve( arm, { 0.0f, 0.0f, 0.0f }, identity, 0.05f, nullptr );
     const auto lagged = ECS::SpringArm::Solve( arm, { 100.0f, 0.0f, 0.0f }, identity, 0.05f, nullptr );
     EXPECT_NEAR( lagged.CameraPosition.x, 50.0f, 0.01f ) << "0.05 s at speed 10 closes half the distance";
+}
+
+// ---- Jolt in centimetres ----
+
+namespace
+{
+    std::string RepoRootForCensus()
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 8; ++up )
+        {
+            if ( std::filesystem::exists( prefix + "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" ) )
+                return prefix;
+            prefix += "../";
+        }
+        return {};
+    }
+
+    std::string ReadText( const std::string& path )
+    {
+        const std::ifstream in( path );
+        std::ostringstream  ss;
+        ss << in.rdbuf();
+        return ss.str();
+    }
+} // namespace
+
+TEST( JoltCentimetres, EveryLengthSpeedAndForceSettingIsAssignedInTheOnePlace )
+{
+    const std::string root = RepoRootForCensus();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string source = ReadText( root + "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
+
+    const std::string kBegin = "// ---- Jolt in centimetres (the one place) ----";
+    const std::string kEnd   = "// ---- end Jolt in centimetres ----";
+    const size_t      begin  = source.find( kBegin );
+    const size_t      end    = source.find( kEnd );
+    ASSERT_NE( begin, std::string::npos ) << "the centimetre block is gone from PhysicsWorld.cpp";
+    ASSERT_NE( end, std::string::npos );
+    ASSERT_LT( begin, end );
+    const std::string block   = source.substr( begin, end - begin );
+    const std::string outside = source.substr( 0, begin ) + source.substr( end );
+
+    const char* const settings[] = {
+         // PhysicsSettings (the world)
+         "mBaumgarte", "mSpeculativeContactDistance", "mPenetrationSlop", "mLinearCastThreshold",
+         "mLinearCastMaxPenetration", "mManifoldTolerance", "mMaxPenetrationDistance",
+         "mBodyPairCacheMaxDeltaPositionSq", "mContactPointPreserveLambdaMaxDistSq", "mMinVelocityForRestitution",
+         "mPointVelocitySleepThreshold",
+         // CharacterVirtualSettings (the character)
+         "mMaxStrength", "mPredictiveContactDistance", "mCharacterPadding", "mCollisionTolerance",
+         "mPenetrationRecoverySpeed", "mMaxCollisionIterations", "mMaxConstraintIterations", "mMinTimeRemaining" };
+    for ( const char* name : settings )
+    {
+        const std::regex assigned( std::string( "\.\s*" ) + name + "\s*=[^=]" );
+        EXPECT_TRUE( std::regex_search( block, assigned ) )
+             << name << " is not assigned in the centimetre block: it runs at Jolt's metre default";
+        EXPECT_FALSE( std::regex_search( outside, assigned ) )
+             << name << " is assigned outside the centimetre block: two places own one unit decision";
+    }
+    EXPECT_NE( source.find( "SetPhysicsSettings( CentimetrePhysicsSettings() )" ), std::string::npos )
+         << "the world never receives the centimetre PhysicsSettings";
+    EXPECT_NE( source.find( "ApplyCentimetreCharacterSettings( settings )" ), std::string::npos )
+         << "CreateCharacter never applies the centimetre CharacterVirtualSettings";
+}
+
+TEST( JoltCentimetres, CharacterStandsOnAFlatFloorWithoutVerticalJitter )
+{
+    Fixture f;
+    ASSERT_TRUE( f.cc.OnGround ) << "the character did not settle on the floor";
+
+    float lowest        = f.world.GetCharacterPosition( f.cc.RuntimeCharacter ).y;
+    float highest       = lowest;
+    int   airborneSteps = 0;
+    for ( int i = 0; i < 300; ++i )
+    {
+        f.Run( { 0.0f, 0.0f, 0.0f }, 1 );
+        const float y = f.world.GetCharacterPosition( f.cc.RuntimeCharacter ).y;
+        lowest        = std::min( lowest, y );
+        highest       = std::max( highest, y );
+        airborneSteps += f.cc.OnGround ? 0 : 1;
+    }
+    EXPECT_LE( highest - lowest, 0.1f ) << "the capsule centre moved " << ( highest - lowest )
+                                        << " cm while standing still: metre-tuned padding / contact distances";
+    EXPECT_EQ( airborneSteps, 0 ) << "the ground state flickered while standing on a flat floor";
+    EXPECT_NEAR( lowest, f.cc.Data.Height * 0.5f, 3.0f ) << "the capsule does not rest on the floor (top y = 0)";
+}
+
+// ---- GP2b: movement -> AnimGraph parameters (UE AnimBP reads Speed / IsFalling / IsCrouching) ----
+
+namespace
+{
+    std::shared_ptr<Animation::Graph::AnimGraph> LocomotionGraph( bool declareCrouch )
+    {
+        auto graph = std::make_shared<Animation::Graph::AnimGraph>();
+        graph->Parameters.push_back(
+             { ECS::CharacterMovement::kAnimParamSpeed, static_cast<int>( Animation::Graph::ParamType::Float ) } );
+        graph->Parameters.push_back( { ECS::CharacterMovement::kAnimParamIsFalling,
+                                       static_cast<int>( Animation::Graph::ParamType::Bool ) } );
+        if ( declareCrouch )
+            graph->Parameters.push_back( { ECS::CharacterMovement::kAnimParamIsCrouched,
+                                           static_cast<int>( Animation::Graph::ParamType::Bool ) } );
+        return graph;
+    }
+
+    const ECS::AnimationComponent::PendingGraphParam* Queued( const ECS::AnimationComponent& anim,
+                                                              const char*                    name )
+    {
+        for ( const auto& p : anim.PendingGraphParams )
+            if ( p.Name == name )
+                return &p;
+        return nullptr;
+    }
+} // namespace
+
+TEST( CharacterAnimGraph, MovementPublishesSpeedFallingAndCrouchIntoTheDeclaredParameters )
+{
+    Fixture f;
+    f.Run( { 0.0f, 0.0f, -1.0f }, 120 ); // walking at Max Walk Speed on the ground
+    ASSERT_TRUE( f.cc.OnGround );
+
+    ECS::AnimationComponent anim;
+    anim.Graph = LocomotionGraph( /*declareCrouch=*/true );
+    ECS::CharacterMovement::PublishAnimGraphParameters( f.cc, anim );
+    ASSERT_NE( Queued( anim, "Speed" ), nullptr ) << "Speed was not published";
+    EXPECT_NEAR( Queued( anim, "Speed" )->Value, f.cc.Data.MaxWalkSpeed, f.cc.Data.MaxWalkSpeed * 0.02f )
+         << "Speed is the planar speed in cm/s";
+    ASSERT_NE( Queued( anim, "IsFalling" ), nullptr );
+    EXPECT_EQ( Queued( anim, "IsFalling" )->Value, 0.0f );
+    ASSERT_NE( Queued( anim, "IsCrouched" ), nullptr );
+    EXPECT_EQ( Queued( anim, "IsCrouched" )->Value, 0.0f );
+
+    // A jump: the next frames are airborne, and the same queue entry carries the new value (no pile-up while
+    // the evaluator does not exist yet).
+    f.cc.JumpRequested = true;
+    f.Run( { 0.0f, 0.0f, 0.0f }, 6 );
+    ASSERT_FALSE( f.cc.OnGround );
+    ECS::CharacterMovement::PublishAnimGraphParameters( f.cc, anim );
+    EXPECT_EQ( Queued( anim, "IsFalling" )->Value, 1.0f ) << "airborne is IsFalling";
+    EXPECT_EQ( anim.PendingGraphParams.size(), 3u ) << "a second publish appended instead of replacing";
+
+    // Crouched on the ground.
+    f.Run( { 0.0f, 0.0f, 0.0f }, 240 );
+    f.cc.CrouchRequested = true;
+    f.Run( { 0.0f, 0.0f, 0.0f }, 2 );
+    ASSERT_TRUE( f.cc.IsCrouched );
+    ECS::CharacterMovement::PublishAnimGraphParameters( f.cc, anim );
+    EXPECT_EQ( Queued( anim, "IsCrouched" )->Value, 1.0f );
+    EXPECT_EQ( Queued( anim, "IsFalling" )->Value, 0.0f );
+}
+
+TEST( CharacterAnimGraph, OnlyDeclaredParametersAreWrittenAndNothingBeforeTheGraphLoads )
+{
+    Fixture                 f;
+    ECS::AnimationComponent anim; // GraphAsset named, graph not loaded yet
+    ECS::CharacterMovement::PublishAnimGraphParameters( f.cc, anim );
+    EXPECT_TRUE( anim.PendingGraphParams.empty() ) << "a write before the graph exists has no declaration to obey";
+
+    anim.Graph = LocomotionGraph( /*declareCrouch=*/false );
+    ECS::CharacterMovement::PublishAnimGraphParameters( f.cc, anim );
+    EXPECT_NE( Queued( anim, "Speed" ), nullptr );
+    EXPECT_EQ( Queued( anim, "IsCrouched" ), nullptr )
+         << "a graph that does not declare IsCrouched must not be told about it (the drain would refuse it)";
+}
+
+TEST( CharacterAnimGraph, LocomotionSystemHasNoClipNameSwitchLeft )
+{
+    const std::string root = RepoRootForCensus();
+    ASSERT_FALSE( root.empty() );
+    const std::string system = ReadText( root + "Desert/Desert/Source/Engine/ECS/System/LocomotionSystem.hpp" );
+    EXPECT_NE( system.find( "PublishAnimGraphParameters" ), std::string::npos )
+         << "LocomotionSystem must drive animation through the AnimGraph parameters";
+    for ( const char* gone : { "CurrentClip", "LocomotionClipFor", "IdleClip", "RunClip" } )
+        EXPECT_EQ( system.find( gone ), std::string::npos ) << gone << ": a second path picks clips by name";
 }
