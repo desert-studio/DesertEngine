@@ -150,6 +150,8 @@ namespace TemporalUpscalerTest
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 500, 500 } ) );
         EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAAU );
+        // The frame's ViewInputs::Upscaler (SceneViewState::BeginFrame re-checks the split with it).
+        EXPECT_EQ( resolved.GetValue().Upscaler, ::Common::Scalability::Upscaler::TAAU );
         EXPECT_TRUE( resolved.GetValue().Clamped.empty() );
     }
 
@@ -163,6 +165,7 @@ namespace TemporalUpscalerTest
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 1000, 1000 } ) );
         EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAA );
+        EXPECT_EQ( resolved.GetValue().Upscaler, ::Common::Scalability::Upscaler::None );
     }
 
     // Below 100 % with no temporal method nothing can upscale (no spatial upscaler): 100 %, said - Resolve's rule.

@@ -166,10 +166,12 @@ namespace Desert::Graphic
             const auto split = MakeResolutionSplit( output, percent );
             if ( !split )
                 return Common::MakeFormattedError<ViewResolution>( "{}", split.GetError() );
-            const auto method = SelectTemporalMethod( antiAliasing, split.GetValue(), *upscalerAt( percent ) );
+            const Common::Scalability::Upscaler upscalerOfView = *upscalerAt( percent );
+            const auto method = SelectTemporalMethod( antiAliasing, split.GetValue(), upscalerOfView );
             if ( !method )
                 return Common::MakeFormattedError<ViewResolution>( "{}", method.GetError() );
-            return Common::MakeSuccess( ViewResolution{ .Split = split.GetValue(), .Method = method.GetValue() } );
+            return Common::MakeSuccess( ViewResolution{
+                 .Split = split.GetValue(), .Method = method.GetValue(), .Upscaler = upscalerOfView } );
         };
         if ( !upscalerAt( requested ) )
         {

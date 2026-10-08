@@ -2117,14 +2117,15 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 "pass.DepthTarget(overlay.Depth,RDG::LoadOp::ClearDepth(Core::kDepthClear),",
                 "renderedwithoutthetemporalresolvethisframe:", "returnwithoutTemporal(added.GetError());",
                 "returnwithoutTemporal(prepared.GetError());" } );
-    declares(
-         "OnUpdate",
-         { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
-           "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
-           // The one resolution function, the render set resized to the frame's split, the velocity at it.
-           "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView.ScreenPercentage,",
-           "ResizeRenderTargets(frame.Split.Render);",
-           "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
+    declares( "OnUpdate",
+              { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
+                "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
+                // The one resolution function, the render set resized to the frame's split, the velocity at it.
+                "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView."
+                "ScreenPercentage,",
+                // The frame's upscaler is the VIEW's (a viewport override at 50 % under a 100 % setting is TAAU).
+                "inputs.Upscaler=resolved.GetValue().Upscaler;", "ResizeRenderTargets(frame.Split.Render);",
+                "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
     // The overlay phases draw into the overlay set: every scene-target attachment replaced, no resolves.
     declares( "AddGraphPhasePasses",
               { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",

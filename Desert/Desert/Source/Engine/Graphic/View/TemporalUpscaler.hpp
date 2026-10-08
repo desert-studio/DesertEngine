@@ -98,6 +98,9 @@ namespace Desert::Graphic
     {
         ResolutionSplit Split;
         TemporalMethod  Method = TemporalMethod::None;
+        // The upscaler this view's percent runs (Scalability UpscalerForScale): the frame's ViewInputs::Upscaler.
+        // Not the setting's resolved one - a viewport override can sit on the other side of 100 %.
+        Common::Scalability::Upscaler Upscaler = Common::Scalability::Upscaler::None;
         // Not empty when the requested scale was clamped to one the method's upscaler supports: why (the caller
         // logs it; this function is pure).
         std::string Clamped;

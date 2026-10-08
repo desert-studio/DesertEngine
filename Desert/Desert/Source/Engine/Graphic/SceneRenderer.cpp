@@ -914,12 +914,12 @@ namespace Desert::Graphic
         }
         if ( !resolved.GetValue().Clamped.empty() )
             LOG_WARN( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), resolved.GetValue().Clamped );
-        inputs.RenderScalePercent = resolved.GetValue().Split.RenderScalePercent;
-        inputs.AntiAliasing       = m_RenderedAntiAliasing;
-        inputs.Upscaler           = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
-        inputs.Quality            = m_TemporalAAQuality;
-        inputs.TimeSeconds        = m_SceneTimeSeconds;
-        m_LastRenderScalePercent  = inputs.RenderScalePercent;
+        inputs.RenderScalePercent                = resolved.GetValue().Split.RenderScalePercent;
+        inputs.AntiAliasing                      = m_RenderedAntiAliasing;
+        inputs.Upscaler                          = resolved.GetValue().Upscaler; // the view's, not the setting's
+        inputs.Quality                           = m_TemporalAAQuality;
+        inputs.TimeSeconds                       = m_SceneTimeSeconds;
+        m_LastRenderScalePercent                 = inputs.RenderScalePercent;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
