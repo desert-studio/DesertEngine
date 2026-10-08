@@ -58,8 +58,8 @@ namespace
     // The browser after the FileExplorer cut (EDL-B1/B3/B4): the tree types its entries in
     // ContentDirectoryModel, an imported file is typed in ContentBrowserImport, and the tile draws through
     // AssetTileThumbnail. The panel itself only composes them.
-    constexpr const char* kBrowserPanel = "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp";
-    constexpr const char* kBrowserTree  = "Editor/Source/Editor/Panels/FileExplorer/ContentDirectoryModel.cpp";
+    constexpr const char* kBrowserPanel  = "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp";
+    constexpr const char* kBrowserTree   = "Editor/Source/Editor/Panels/FileExplorer/ContentDirectoryModel.cpp";
     constexpr const char* kBrowserImport = "Editor/Source/Editor/Panels/FileExplorer/ContentBrowserImport.cpp";
     constexpr const char* kBrowserTile   = "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp";
     // The Details panel's Skybox row, which asks ThumbnailService for the skybox picture.

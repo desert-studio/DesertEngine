@@ -206,9 +206,11 @@ namespace
     };
 
     constexpr Backing kBackings[] = {
-         { "AssetTileThumbnail::DrawDragPreview", "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+         { "AssetTileThumbnail::DrawDragPreview",
+           "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
            "AssetTileThumbnail::DrawRenderedMaterialThumbnail", "RequestMaterial" },
-         { "AssetTileThumbnail::DrawDragPreview", "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+         { "AssetTileThumbnail::DrawDragPreview",
+           "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
            "AssetTileThumbnail::DrawRenderedMeshThumbnail", "RequestMesh" },
          { "AssetThumbnailPool::UploadPrefetchedThumbnails",
            "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
@@ -624,15 +626,16 @@ TEST( ThumbnailRequesters, TheOnlyExceptionIsBackedByTheSiteThatQueuesForIt )
                     "or make this site ask for its own. What it is: "
                  << site.Why;
         }
-        EXPECT_GE( backings, 1 ) << site.Function
-                                 << " is excused from requesting and names no site that queues for it. What it is: "
-                                 << site.Why;
+        EXPECT_GE( backings, 1 )
+             << site.Function
+             << " is excused from requesting and names no site that queues for it. What it is: " << site.Why;
     }
     for ( const Backing& backing : kBackings )
     {
         bool rereads = false;
         for ( const Site& site : kSites )
-            rereads = rereads || ( site.What == Role::Rereads && std::string( site.Function ) == backing.Rereader );
+            rereads =
+                 rereads || ( site.What == Role::Rereads && std::string( site.Function ) == backing.Rereader );
         EXPECT_TRUE( rereads ) << backing.Rereader << " backs no Rereads row: drop the backing deliberately";
     }
 
