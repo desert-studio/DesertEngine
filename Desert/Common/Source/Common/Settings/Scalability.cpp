@@ -678,17 +678,24 @@ namespace Common::Scalability
             NarrowByCatalog( spec, catalog, r );
         }
 
-        // 5. The two axes are coupled.
+        // 5. The two axes are coupled (UE: below 100 % r.ScreenPercentage the AA method's temporal pass upscales).
+        // THE ONE PLACE the upscaler is chosen: below 100 % a temporal AA method upscales (TAA -> TAAU; DLAA /
+        // FSRNative are their own upscaler's pass), and Resolution.Upscaler is only a vendor override on top.
+        // There is no spatial upscaler, so below 100 % without temporal AA the frame stays at 100 %, reported.
+        const auto aa       = static_cast<AntiAliasingMethod>( r.Get( Parameter::AntiAliasingMethod ) );
+        const bool temporal = aa == AntiAliasingMethod::TAA || aa == AntiAliasingMethod::DLAA ||
+                              aa == AntiAliasingMethod::FSRNative;
+        if ( r.Get( Parameter::RenderScalePercent ) < 100 && !temporal )
+            r.Set( Parameter::RenderScalePercent, 100, "no spatial upscaler: render scale needs TAA" );
         const ParameterValue scale = r.Get( Parameter::RenderScalePercent );
         const auto           up    = static_cast<Upscaler>( r.Get( Parameter::Upscaler ) );
-        const auto           aa    = static_cast<AntiAliasingMethod>( r.Get( Parameter::AntiAliasingMethod ) );
         ResolvedQuality      resolved;
         if ( scale < 100 )
         {
             resolved.Scale = ScaleMode::Upscale;
             if ( up == Upscaler::None )
                 r.Set( Parameter::Upscaler, static_cast<ParameterValue>( Upscaler::TAAU ),
-                       "an upscaler is required below 100 %" );
+                       "temporal AA below 100 % upscales with TAAU" );
             const auto upscaler = static_cast<Upscaler>( r.Get( Parameter::Upscaler ) );
             const bool nativePassOfThisUpscaler =
                  ( aa == AntiAliasingMethod::DLAA && upscaler == Upscaler::DLSS ) ||
