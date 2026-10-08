@@ -97,7 +97,7 @@ namespace
     {
         const std::string           name     = TemplateOf( shaderName );
         const std::filesystem::path programs = Common::Constants::Path::ShaderDir() / "Programs";
-        for ( const char* dir : { "Lit", "Silhouette", "Unlit" } )
+        for ( const char* dir : { "Surface", "Silhouette", "Unlit" } )
         {
             const auto candidate = programs / dir / ( name + ".shader" );
             if ( std::filesystem::exists( candidate ) )
