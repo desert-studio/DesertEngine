@@ -331,6 +331,7 @@ def self_check():
         "agent spawns a worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}},
         "agent spawns a sonnet worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "model": "sonnet", "prompt": "x"}},
         "clean the build": {"tool_name": "Bash", "tool_input": {"command": "make -f Desert.make clean"}},
+        "agent removes assets": {"tool_name": "Bash", "tool_input": {"command": "rm Projects/Desert/Content/Materials/Bistro/a.demat"}},
         "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
@@ -382,7 +383,11 @@ def self_check():
     emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
 
 
-MAX_WORKING_AGENTS = 3
+# Owner 10-08: «сниму в рамках этой недели лимит на агентов» — cap lifted through Sunday 2026-10-11 (owner: «не до 15, а до 11»),
+# then back to the 09-30 three. Builds stay serialized (one build on the machine at a time), so more agents queue
+# on the build lock instead of OOM-ing the 16 GB machine.
+import datetime as _dt
+MAX_WORKING_AGENTS = 99 if _dt.date.today() < _dt.date(2026, 10, 12) else 3
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
 
 
@@ -527,6 +532,16 @@ def main():
         save_state(state, path)
         deny("[agent_guard] Дерево сборки не чистится: make clean / rm -rf build стоит полной пересборки. Устаревший "
              "объект — пересобери один файл (touch источника) или удали один .o.", data, agent)
+
+    # Assets are deleted through the editor (referencer check), never from the shell: 2026-10-08 BISTRO-COLOR removed
+    # 132 .demat with rm and only its own ad-hoc copy could bring them back (owner: «надо иметь возможность восстановиться»).
+    if agent and tool == "Bash" and re.search(
+            r"(\b(rm|unlink|shred)\b[^;&|]*|\bfind\b[^;&|]*-delete\b[^;&|]*|\bxargs\b[^;&|]*\brm\b[^;&|]*)"
+            r"(Content/|\.(demat|stmesh|skmesh|detex|desce|deimport|deanim|deprefab|decloudtype|dclayout)\b)", cmd):
+        save_state(state, path)
+        deny("[agent_guard] Ассеты проекта (Content/, .demat/.stmesh/.detex/.desce/…) из шелла не удаляются (владелец "
+             "10-08: «надо иметь возможность восстановиться»). Удаление — через редактор (MCP run_command, проверка "
+             "ссылок) или переимпорт поверх; нужна чистка — строка в REMAINDER, удаляет тимлид.", data, agent)
 
     # --- Economy rules measured on the ledger (owner 2026-09-24: «сделай так, чтобы агенты опять не НЕ исполнили») ---
     if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore" and \
