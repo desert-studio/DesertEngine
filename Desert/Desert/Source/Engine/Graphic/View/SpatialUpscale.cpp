@@ -28,7 +28,7 @@ namespace Desert::Graphic
         // function-local static would outlive the device).
         struct LazyComputePipeline
         {
-            const char*                      ShaderName = nullptr;
+            std::string                      ShaderName;
             std::mutex                       Mutex;
             std::shared_ptr<ComputePipeline> Pipeline;
 
