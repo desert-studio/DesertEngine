@@ -11,11 +11,15 @@
 #include "../../TestSupport/scratch_dir.hpp"
 
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
+#include <Engine/Assets/Serialization/WaterWaves.hpp>
 #include <Engine/Water/WaterWaves.hpp>
+
+#include <Common/Content/ContentKinds.hpp>
 
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -177,4 +181,50 @@ TEST( WaterWaves, TheSharedHeaderCompilesAsGlsl )
     const auto result =
          compiler.CompileGlslToSpv( source, shaderc_compute_shader, host.string().c_str(), options );
     EXPECT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success ) << result.GetErrorMessage();
+}
+
+// THE ASSET: a `.dwaves` stores the generator and its seed; what it reads back generates the same waves.
+TEST( WaterWaves, AWaveSetRoundTripsAndGeneratesTheSameWaves )
+{
+    namespace S = Desert::Assets::Serialization;
+    S::WaterWavesData data;
+    data.Generator.Seed       = 1234;
+    data.Generator.Randomness = 0.5f;
+    data.Generator.NumWaves   = 8;
+
+    const auto parsed = S::ParseWaterWaves( S::WriteWaterWaves( data ) );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    EXPECT_EQ( parsed.GetValue().Generator, data.Generator );
+    EXPECT_EQ( Desert::Water::GenerateGerstnerWaves( parsed.GetValue().Generator ),
+               Desert::Water::GenerateGerstnerWaves( data.Generator ) );
+}
+
+TEST( WaterWaves, AWaveSetTheGeneratorCannotHonourIsRefused )
+{
+    namespace S        = Desert::Assets::Serialization;
+    const auto refused = []( auto edit )
+    {
+        S::WaterWavesData data;
+        edit( data.Generator );
+        return !S::ValidateWaterWavesData( data );
+    };
+    EXPECT_FALSE( refused( []( Desert::Water::GerstnerWaveGenerator& ) {} ) );
+    EXPECT_TRUE( refused( []( auto& g ) { g.NumWaves = 0; } ) );
+    EXPECT_TRUE( refused( []( auto& g ) { g.NumWaves = S::kWaterWavesMaxNumWaves + 1; } ) );
+    EXPECT_TRUE( refused( []( auto& g ) { g.MinWavelength = g.MaxWavelength + 1.0f; } ) );
+    EXPECT_TRUE( refused( []( auto& g ) { g.MinAmplitude = -1.0f; } ) );
+    EXPECT_TRUE( refused( []( auto& g ) { g.SmallWaveSteepness = 1.5f; } ) );
+    EXPECT_TRUE( refused( []( auto& g ) { g.Randomness = -0.1f; } ) );
+    EXPECT_TRUE( refused( []( auto& g ) { g.WindAngleDeg = std::nanf( "" ); } ) );
+}
+
+// One ContentKinds row names `.dwaves`, under the kind the header states.
+TEST( WaterWaves, OneContentKindsRowHasTheExtension )
+{
+    const auto kinds = Common::Content::ContentKinds();
+    EXPECT_EQ(
+         std::ranges::count_if( kinds, []( const auto& k )
+                                { return k.Extension == Desert::Assets::Serialization::kWaterWavesExtension; } ),
+         1 );
+    EXPECT_EQ( Common::Content::KindSpec( Common::Content::ContentKind::WaterWaves ).Name, "WaterWaves" );
 }

@@ -104,6 +104,9 @@ namespace Desert::Assets
         // cluster hierarchy, damage thresholds and convex hulls (Engine/Destruction/FractureBake.hpp). See
         // Engine/Assets/FractureAsset.hpp.
         Fracture,
+        // A WATER WAVE SET (`.dwaves`): UE's UWaterWavesAsset — a seeded Gerstner generator whose waves every
+        // water body naming it shares. See Engine/Assets/WaterWavesAsset.hpp.
+        WaterWaves,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -197,6 +200,9 @@ namespace Desert::Assets
             // an `AssetHandle` (UE's UGeometryCollectionComponent::RestCollection), so it lives exactly as
             // long as a live entity holds it.
             case AssetTypeID::Fracture:
+            // A WAVE SET IS SCENE-SCOPED for the retarget's reason: the water body that names it holds its
+            // `AssetHandle`, and a wave set no live entity names displaces nothing.
+            case AssetTypeID::WaterWaves:
             case AssetTypeID::Count:
                 return false;
         }
@@ -267,6 +273,8 @@ namespace Desert::Assets
                 return "VFXSystem";
             case AssetTypeID::Fracture:
                 return "Fracture";
+            case AssetTypeID::WaterWaves:
+                return "WaterWaves";
             case AssetTypeID::Count:
                 return "Count";
         }

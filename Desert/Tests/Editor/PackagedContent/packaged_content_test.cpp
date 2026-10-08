@@ -1670,6 +1670,7 @@ namespace
              { "LEVEL_SEQUENCE_PATH", &P::LEVEL_SEQUENCE_PATH, RootVerdict::Packaged, "" },
              { "VFX_PATH", &P::VFX_PATH, RootVerdict::Packaged, "" },
              { "FRACTURE_PATH", &P::FRACTURE_PATH, RootVerdict::Packaged, "" },
+             { "WATER_WAVES_PATH", &P::WATER_WAVES_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
         };
         return roots;

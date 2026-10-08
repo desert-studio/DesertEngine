@@ -51,6 +51,7 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
+#include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -184,6 +185,9 @@ namespace
                &MetadataTypeOf<Desert::Assets::VFXSystemAsset>, &DeclaredTypeOf<Desert::Assets::VFXSystemAsset> },
              { AssetTypeID::Fracture, "FractureAsset", &HandleOf<Desert::Assets::FractureAsset>,
                &MetadataTypeOf<Desert::Assets::FractureAsset>, &DeclaredTypeOf<Desert::Assets::FractureAsset> },
+             { AssetTypeID::WaterWaves, "WaterWavesAsset", &HandleOf<Desert::Assets::WaterWavesAsset>,
+               &MetadataTypeOf<Desert::Assets::WaterWavesAsset>,
+               &DeclaredTypeOf<Desert::Assets::WaterWavesAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },

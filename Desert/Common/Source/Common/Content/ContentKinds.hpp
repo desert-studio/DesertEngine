@@ -79,6 +79,7 @@ namespace Common::Content
         LevelSequence,
         VFXSystem,
         Fracture,
+        WaterWaves,
         COUNT,
     };
 
@@ -168,6 +169,8 @@ namespace Common::Content
              // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope
              // (Destruction/FractureFormat.hpp).
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
+             // UE's UWaterWavesAsset: a seeded Gerstner generator (Engine/Assets/Serialization/WaterWaves.hpp).
+             /* WaterWaves           */ { "WaterWaves", ".dwaves", &P::WATER_WAVES_PATH },
         } };
     }
 
