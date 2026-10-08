@@ -1,0 +1,160 @@
+// One Gerstner wave — the ONE statement of it, compiled twice from this text:
+//   * as GLSL, by the water surface's vertex displacement and shading (W-7);
+//   * as C++, by Engine/Water/WaterWaves.cpp, which answers every CPU wave query (the water body's Query,
+//     buoyancy, swimming).
+// So the surface the GPU draws and the surface the CPU floats things on are one function, not two that agree
+// until the first edit on either side. The dialect is LandscapeHeight.glslh's: `f`-suffixed literals, no
+// swizzles, no `out`, no arrays, no `const` locals, functions before use. A body sums its waves by calling the
+// per-wave functions in a loop over its own storage (a C++ vector, a GPU buffer).
+//
+// Ported from UE 5.8 Engine/Plugins/Experimental/Water:
+//   Source/Runtime/Private/GerstnerWaterWaves.cpp:14-22 (FGerstnerWave::Recompute: k, speed, WKA, Q),
+//   Source/Runtime/Private/GerstnerWaveEvaluation.cpp:32-55 (one wave's offset), :73-135 (height at a point of
+//   the plane), :149-153 (depth attenuation),
+//   Shaders/Private/GerstnerWaveFunctions.ush:101-170 (the same wave on the GPU), :276-279 (normal finalize).
+// Adapted:
+//   * AXES. This project is Y-up: UE's (X, Y) plane is our (X, Z) and UE's Z (up) is our Y. `plane` below is
+//     (world X, world Z) relative to the body's WaveOrigin, in centimetres; every vec3 returned is in world
+//     order (X, Y = up, Z).
+//   * ONE NORMAL. UE's CPU wave drops the normal's vertical term (GerstnerWaveEvaluation.cpp:52, "0.f") while
+//     its GPU wave keeps a different one (GerstnerWaveFunctions.ush:158-160, scaled by SteepnessThreshold), so
+//     UE's floating objects and drawn surface disagree. Here both sides use the exact Gerstner tangent-frame
+//     term, wka * q * cos = Steepness * cos — the vectorised UE path's SOLVE_NORMAL_Z (:121-122). For one wave
+//     it is the cross product of the displaced surface's two tangents, not an approximation.
+//   * ZERO AMPLITUDE. UE's q = Steepness / WKA divides by zero when Amplitude is 0 (UE's generator clamps the
+//     amplitude to 1e-4 so it never meets it). Here a wave of zero amplitude has q = 0: it displaces nothing, in
+//     height or sideways, and contributes nothing to the normal. For every amplitude above 0 the numbers are UE's.
+//   * Large-world tiles (UE BlendWaveBetweenLWCTiles) are not ported: positions arrive relative to the body's
+//     WaveOrigin, small enough for float.
+
+#ifndef GERSTNER_WAVE_GLSLH
+#define GERSTNER_WAVE_GLSLH
+
+// UE's (GerstnerWaterWaves.cpp:16): 980 cm/s^2. The project's world unit is the centimetre, as UE's is.
+const float GERSTNER_GRAVITY = 980.0f;
+const float GERSTNER_PI      = 3.1415926535897932f;
+const float GERSTNER_TWO_PI  = 6.2831853071795865f;
+
+// k, the wave number (UE: Dispersion), radians per centimetre.
+float GerstnerDispersion( float wavelength )
+{
+    return 2.0f * GERSTNER_PI / wavelength;
+}
+
+// The phase speed's angular term, sqrt(k g) (deep-water dispersion), radians per second.
+float GerstnerSpeed( float dispersion )
+{
+    return sqrt( dispersion * GERSTNER_GRAVITY );
+}
+
+// The wave's phase at a point of the plane: dot(p, D k) - sqrt(k g) t.
+float GerstnerPhase( vec2 plane, vec2 direction, float wavelength, float time )
+{
+    float k = GerstnerDispersion( wavelength );
+    return dot( plane, direction * k ) - GerstnerSpeed( k ) * time;
+}
+
+// UE's GPU q (GerstnerWaveFunctions.ush:117): Steepness / (Amplitude k), dimensionless; 0 for a wave of no
+// amplitude (see ZERO AMPLITUDE above).
+float GerstnerQ( float wavelength, float amplitude, float steepness )
+{
+    float wka = amplitude * GerstnerDispersion( wavelength );
+    return wka > 0.0f ? steepness / wka : 0.0f;
+}
+
+// UE's CPU Q (GerstnerWaterWaves.cpp:21), the horizontal reach in centimetres: Amplitude * q.
+float GerstnerReach( float wavelength, float amplitude, float steepness )
+{
+    return amplitude * GerstnerQ( wavelength, amplitude, steepness );
+}
+
+// One wave's displacement of the plane point `plane` at `time` (UE GetWaveOffsetAtPosition):
+// sideways -Q sin(phase) along the direction, upward A cos(phase).
+vec3 GerstnerWaveOffset( vec2 plane, vec2 direction, float wavelength, float amplitude, float steepness,
+                         float time )
+{
+    float phase = GerstnerPhase( plane, direction, wavelength, time );
+    float along = -GerstnerReach( wavelength, amplitude, steepness ) * sin( phase );
+    return vec3( along * direction.x, cos( phase ) * amplitude, along * direction.y );
+}
+
+// One wave's term of the summed normal at the plane point: (sin wka Dx, cos wka q, sin wka Dz). The sum over
+// the waves becomes the normal through GerstnerFinalizeNormal.
+vec3 GerstnerWaveNormalTerm( vec2 plane, vec2 direction, float wavelength, float amplitude, float steepness,
+                             float time )
+{
+    float phase = GerstnerPhase( plane, direction, wavelength, time );
+    float wka   = amplitude * GerstnerDispersion( wavelength );
+    float s     = sin( phase ) * wka;
+    return vec3( s * direction.x, cos( phase ) * wka * GerstnerQ( wavelength, amplitude, steepness ),
+                 s * direction.y );
+}
+
+// The normal from the summed terms: (Sx, 1 - Sy, Sz), normalised (UE FinalizeNormal / GetSafeNormal).
+vec3 GerstnerFinalizeNormal( vec3 summed )
+{
+    vec3 n = vec3( summed.x, 1.0f - summed.y, summed.z );
+    float len = length( n );
+    return len > 0.0f ? n / len : vec3( 0.0f, 1.0f, 0.0f );
+}
+
+// The phase folded into [0, 2 pi) the way UE folds it (GerstnerWaveEvaluation.cpp:91): fmod for a positive
+// phase, 2 pi - |fmod| for a negative one. fmod is spelled with trunc so GLSL (whose mod floors) and C++ agree.
+float GerstnerFoldedPhase( float phase )
+{
+    float rem = phase - GERSTNER_TWO_PI * trunc( phase / GERSTNER_TWO_PI );
+    return phase >= 0.0f ? rem : GERSTNER_TWO_PI - abs( rem );
+}
+
+// One wave's surface height at a FIXED point of the plane, and its normal term there: (term.x, term.y,
+// term.z, height). The displaced surface moves sideways, so the height above `plane` is not A cos(phase) at
+// `plane`; UE samples a second point Q along (or against) the direction, keeping the first, and interpolates
+// the two heights at the parameter whose sideways offset lands on `plane` (GerstnerWaveEvaluation.cpp:82-125).
+vec4 GerstnerWaveHeightAt( vec2 plane, vec2 direction, float wavelength, float amplitude, float steepness,
+                           float time )
+{
+    float reach  = GerstnerReach( wavelength, amplitude, steepness );
+    vec3  first  = GerstnerWaveOffset( plane, direction, wavelength, amplitude, steepness, time );
+    vec3  firstN = GerstnerWaveNormalTerm( plane, direction, wavelength, amplitude, steepness, time );
+    if ( reach == 0.0f )
+        return vec4( firstN, first.y );
+
+    float phase = GerstnerPhase( plane, direction, wavelength, time );
+    bool  ahead = GerstnerFoldedPhase( phase ) < GERSTNER_PI;
+    float side  = ahead ? reach : -reach;
+    vec2  guess = plane + direction * side;
+
+    float firstAlong   = -reach * sin( phase );
+    float secondPhase  = GerstnerPhase( guess, direction, wavelength, time );
+    float secondAlong  = -reach * sin( secondPhase ) + side;
+    float secondHeight = cos( secondPhase ) * amplitude;
+    vec3  secondN      = GerstnerWaveNormalTerm( guess, direction, wavelength, amplitude, steepness, time );
+
+    // Order the pair so that the first lies behind `plane` and the second ahead (UE swaps when !ahead).
+    float lowAlong   = ahead ? firstAlong : secondAlong;
+    float highAlong  = ahead ? secondAlong : firstAlong;
+    float lowHeight  = ahead ? first.y : secondHeight;
+    float highHeight = ahead ? secondHeight : first.y;
+    vec3  lowN       = ahead ? firstN : secondN;
+    vec3  highN      = ahead ? secondN : firstN;
+
+    float denominator = highAlong - lowAlong;
+    float t           = ( 0.0f - lowAlong ) / ( denominator > 0.0f ? denominator : 1.0f );
+    return vec4( mix( lowN, highN, t ), mix( lowHeight, highHeight, t ) );
+}
+
+// One wave's height at the plane point without the sideways correction (UE GetSimpleWaveOffsetAtPosition).
+float GerstnerWaveSimpleHeight( vec2 plane, vec2 direction, float wavelength, float amplitude, float time )
+{
+    return cos( GerstnerPhase( plane, direction, wavelength, time ) ) * amplitude;
+}
+
+// How much of the waves survives over water `depth` cm deep (UE GetWaveAttenuationFactor): 1 - exp(-d / (m/2)),
+// 0 on the shore, approaching 1 past the target wave-mask depth m.
+float GerstnerDepthAttenuation( float depth, float targetWaveMaskDepth )
+{
+    float strength = exp( -max( depth, 0.0f ) / ( targetWaveMaskDepth / 2.0f ) );
+    return clamp( 1.0f - strength, 0.0f, 1.0f );
+}
+
+#endif // GERSTNER_WAVE_GLSLH

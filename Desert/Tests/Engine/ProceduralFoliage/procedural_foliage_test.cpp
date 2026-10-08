@@ -46,8 +46,8 @@ namespace
 
 TEST( ProceduralFoliage, TheRandomStreamDrawsFractionsInTheUnitInterval )
 {
-    RandomStream stream( 42 );
-    RandomStream again( 42 );
+    Common::Math::RandomStream stream( 42 );
+    Common::Math::RandomStream again( 42 );
     for ( int i = 0; i < 1000; ++i )
     {
         const float f = stream.FRand();
