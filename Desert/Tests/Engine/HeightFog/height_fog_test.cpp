@@ -434,7 +434,7 @@ TEST( FogPayload, PhysicalAtmosphereMovesTheAmbientOntoTheDistantSkyLight )
     // A non-null handle is the model switch; its target is never dereferenced on the CPU, which is why
     // a stand-in address is a legitimate test fixture here.
     // An empty-owner alias: non-null, owns nothing, so the stand-in address is never deleted.
-    int                                             standInToken = 0;
+    const int                                       standInToken = 0;
     const std::shared_ptr<Desert::Graphic::Image2D> distantSkyLight(
          std::shared_ptr<Desert::Graphic::Image2D>{}, std::bit_cast<Desert::Graphic::Image2D*>( &standInToken ) );
 
@@ -468,7 +468,7 @@ TEST( FogPayload, PhysicalAtmosphereLobeIsTheLightOnTheGroundNotTheSkysSun )
     data.DirectionalInscatteringLuminance = { 0.05f, 0.05f, 0.05f };
 
     // An empty-owner alias: non-null, owns nothing, so the stand-in address is never deleted.
-    int                                             standInToken = 0;
+    const int                                       standInToken = 0;
     const std::shared_ptr<Desert::Graphic::Image2D> distantSkyLight(
          std::shared_ptr<Desert::Graphic::Image2D>{}, std::bit_cast<Desert::Graphic::Image2D*>( &standInToken ) );
 

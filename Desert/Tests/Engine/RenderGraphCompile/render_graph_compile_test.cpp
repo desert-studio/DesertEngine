@@ -653,7 +653,7 @@ TEST( RenderGraphCompile, TheBuilderHandsBackTheDescriptionATextureWasCreatedOrR
 TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAndOrdered )
 {
     // Never dereferenced: the declaration only carries the image to the import (aliasing, non-owning).
-    int                                           lutToken = 0;
+    const int                                     lutToken = 0;
     const std::shared_ptr<Desert::Graphic::Image> lut( std::shared_ptr<void>(),
                                                        std::bit_cast<Desert::Graphic::Image*>( &lutToken ) );
 
@@ -706,7 +706,7 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
 // ("MalformedDeclarationsFaultTheirPassWithNames", "Both").
 TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndTwoLayoutsAreRefused )
 {
-    int                                           fallbackToken = 0;
+    const int                                     fallbackToken = 0;
     const std::shared_ptr<Desert::Graphic::Image> fallback(
          std::shared_ptr<void>(), std::bit_cast<Desert::Graphic::Image*>( &fallbackToken ) );
 
