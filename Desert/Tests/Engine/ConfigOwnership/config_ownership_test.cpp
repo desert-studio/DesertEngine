@@ -251,7 +251,11 @@ namespace
     // than Machine, the field is in the wrong file, not the row.
     // ------------------------------------------------------------------------------------------------
 
-    constexpr const char* kEditorLayer    = "Editor/Source/EditorLayer.cpp";
+    // The EditorLayer split (EDL-*) moved the readers: the per-scene view push and the camera speed live
+    // in the scene workspace, the autosave timer in session recovery, the project name in the window title.
+    constexpr const char* kSceneWorkspace  = "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp";
+    constexpr const char* kSessionRecovery = "Editor/Source/Editor/LevelEditor/SessionRecovery.cpp";
+    constexpr const char* kWindowTitles    = "Editor/Source/Editor/LevelEditor/WindowTitles.cpp";
     constexpr const char* kDockLayout     = "Editor/Source/Editor/LevelEditor/DockLayout.cpp";
     constexpr const char* kPrefsImpl      = "Editor/Source/Editor/Core/EditorPreferences.cpp";
     constexpr const char* kGizmoState     = "Editor/Source/Editor/Core/GizmoState.cpp";
@@ -262,7 +266,7 @@ namespace
 
     constexpr Row kEditorPrefsRows[] = {
          // Applied to the editor camera once a camera exists.
-         { "CameraSpeed", Owner::Machine, kEditorLayer },
+         { "CameraSpeed", Owner::Machine, kSceneWorkspace },
 
          // The four gizmo snap values and their modifier policy. These rows named EditorPreferences.cpp
          // until К6, because Save() pushed them into Core::GizmoState — which kept its OWN copy and was
@@ -274,7 +278,7 @@ namespace
          { "ScaleSnap", Owner::Machine, kGizmoState },
          { "PersistentSnap", Owner::Machine, kGizmoState },
 
-         { "AutosaveMinutes", Owner::Machine, kEditorLayer },
+         { "AutosaveMinutes", Owner::Machine, kSessionRecovery },
          { "ShowPerfHud", Owner::Machine, kViewportPanel },
 
          // Which generation of the default dock layout this user has been reset to. It looks like a
@@ -291,15 +295,15 @@ namespace
          // wrong, which is why the note mattered more than the assertion.
 
          // Selection outline: an editor-only viewport visualization (a runtime build has no selection).
-         { "OutlineColor", Owner::Machine, kEditorLayer },
-         { "OutlineWidth", Owner::Machine, kEditorLayer },
-         { "OutlineSmoothness", Owner::Machine, kEditorLayer },
-         { "EnableOutline", Owner::Machine, kEditorLayer },
-         { "ViewportRealtime", Owner::Machine, kEditorLayer },
+         { "OutlineColor", Owner::Machine, kSceneWorkspace },
+         { "OutlineWidth", Owner::Machine, kSceneWorkspace },
+         { "OutlineSmoothness", Owner::Machine, kSceneWorkspace },
+         { "EnableOutline", Owner::Machine, kSceneWorkspace },
+         { "ViewportRealtime", Owner::Machine, kSceneWorkspace },
 
          // The whole view state, pushed into every scene's renderer each frame. Its ten leaves are
          // censused separately below.
-         { "DebugView", Owner::Machine, kEditorLayer },
+         { "DebugView", Owner::Machine, kSceneWorkspace },
 
          // External photogrammetry tooling: the command lines and paths of THIS machine's installation of
          // somebody else's software. Nothing is more per-machine than a path to a binary.
@@ -436,7 +440,7 @@ namespace
          // The descriptor's own format generation, stamped by WriteProjectFile and by nothing else.
          { "FileVersion", Owner::FileMeta },
 
-         { "Name", Owner::Project, kEditorLayer },
+         { "Name", Owner::Project, kWindowTitles },
          // The load-bearing one: it remaps every content path into the project folder.
          { "AssetsRoot", Owner::Project, kProjectContext },
          { "DefaultScene", Owner::Project, kProjectContext },
@@ -1346,7 +1350,7 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     EXPECT_TRUE( CallsFunction( boot, "QualityState", "Initialize" ) );
 
     // And the game hands them on, or the file is read and thrown away. The editor's own push is covered
-    // by the consumer census above (EditorLayer is named for DebugView and reaches the same renderer).
+    // by the consumer census above (SceneWorkspace is named for DebugView and reaches the same renderer).
     const std::string layer = StripCommentsAndLiterals( ReadAll( root + "Runtime/Source/RuntimeLayer.cpp" ) );
     ASSERT_FALSE( layer.empty() );
     EXPECT_TRUE( CallsFunction( layer, {}, "SetQuality" ) )
