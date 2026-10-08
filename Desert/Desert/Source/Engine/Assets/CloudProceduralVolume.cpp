@@ -540,9 +540,8 @@ namespace Desert::Assets
 
         if ( a.RegionSizeKm != b.RegionSizeKm || a.LayerBottomKm != b.LayerBottomKm ||
              a.LayerThicknessKm != b.LayerThicknessKm || a.BlendRadiusKm != b.BlendRadiusKm ||
-             a.Coverage != b.Coverage ||
-             a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed || a.WindAxis != b.WindAxis ||
-             a.ResolvableChordKm != b.ResolvableChordKm )
+             a.Coverage != b.Coverage || a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed ||
+             a.WindAxis != b.WindAxis || a.ResolvableChordKm != b.ResolvableChordKm )
             return false;
 
         if ( a.PlacementDensity != b.PlacementDensity || a.PlacementScatter != b.PlacementScatter ||
@@ -1568,8 +1567,7 @@ namespace Desert::Assets
                 const float clusterJoined = CloudModellingJoinKm( nearest, sum, blendRadiusKm );
                 if ( clusterJoined >= 0.0f )
                     continue;
-                const float profile =
-                     std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f ) * density;
+                const float profile = std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f ) * density;
                 cut                 = std::max( cut, CloudProceduralCoverRemap( profile, candidates[k].Reach ) );
             }
             return cut;
@@ -1598,7 +1596,8 @@ namespace Desert::Assets
                  static_cast<uint32_t>( std::find( sites.begin(), sites.end(), lump.ClusterKm ) - sites.begin() );
             candidates.push_back( CloudClusterCandidate{
                  CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ), lump.Blob.Weight,
-                 cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ), invDepths[cluster] } );
+                 cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ),
+                 invDepths[cluster] } );
         }
 
         return CloudProceduralCutJoin( candidates,
@@ -1755,9 +1754,8 @@ namespace Desert::Assets
             {
                 const CloudModellingBlob& blob   = lump.Blob;
                 const float     reach  = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
-                const float     invDepth =
-                     invDepths[static_cast<size_t>( std::find( depthSites.begin(), depthSites.end(), lump.ClusterKm ) -
-                                                    depthSites.begin() )];
+                const float               invDepth = invDepths[static_cast<size_t>(
+                     std::find( depthSites.begin(), depthSites.end(), lump.ClusterKm ) - depthSites.begin() )];
                 const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
 
                 for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )

@@ -1225,7 +1225,8 @@ TEST( CloudProceduralField, TheProfileRampSpansAtLeastTwoVoxelsAtEveryReach )
     const float step = 1.0f / 256.0f;
     for ( const float reach : { 0.02f, 0.1f, 0.3f, 0.7f, 1.0f } )
         for ( float profile = 0.0f; profile + step <= 1.0f; profile += step )
-            EXPECT_LE( CloudProceduralCoverRemap( profile + step, reach ) - CloudProceduralCoverRemap( profile, reach ),
+            EXPECT_LE( CloudProceduralCoverRemap( profile + step, reach ) -
+                            CloudProceduralCoverRemap( profile, reach ),
                        step + 1e-6f )
                  << "the remap steepens the profile at reach " << reach << ", profile " << profile;
 

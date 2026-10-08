@@ -1307,9 +1307,9 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
     // the contract forbids, arrived at from the far side where the knob is wired and the CACHE is what eats
     // it.
     const auto& [regionSizeKm, volumeSideVoxels, layerBottomKm, layerThicknessKm, blendRadiusKm, coverage,
-                 coverageContrast, seed, placementDensity, placementScatter, placementSizeVariety,
-                 patchTileKm, patchStrength, windAxis, layoutPlacement, patternSource, maskSource,
-                 resolvableChordKm, species] = params;
+                 coverageContrast, seed, placementDensity, placementScatter, placementSizeVariety, patchTileKm,
+                 patchStrength, windAxis, layoutPlacement, patternSource, maskSource, resolvableChordKm, species] =
+         params;
 
     // Named so the decomposition is not optimised away as unused, and asserted on the three that the walk
     // above cannot reach through CloudProceduralParamsEqual at all — a defaulted set must be the shipped
