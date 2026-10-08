@@ -28,7 +28,7 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
-#include <Engine/Graphic/RenderGraphBuilder.hpp>
+#include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 
@@ -304,7 +304,6 @@ namespace Desert::Graphic::System
                        "would write matrices no shader ever reads." );
 
         virtual Common::BoolResultStr Initialize() override;
-        virtual void                  RegisterPasses( RenderGraphBuilder& builder ) override;
 
         // Silhouette mask of the currently outlined meshes (white on the framebuffer clear color).
         // Consumed by JumpFloodOutlineRenderer to build the outline.

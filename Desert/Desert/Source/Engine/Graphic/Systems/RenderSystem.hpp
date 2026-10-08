@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Framebuffer.hpp>
-#include <Engine/Graphic/RenderGraphBuilder.hpp>
+#include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/IRenderSystem.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -16,10 +16,8 @@ namespace Desert::Graphic::System
     class RenderSystem : public IRenderSystem
     {
     public:
-        explicit RenderSystem( SceneRenderer* sceneRenderer, const std::shared_ptr<Framebuffer>& targetFramebuffer,
-                               RenderGraphBuilder& renderGraphBuilder )
-             : m_SceneRenderer( sceneRenderer ), m_TargetFramebuffer( targetFramebuffer ),
-               m_RenderGraphBuilder( &renderGraphBuilder )
+        explicit RenderSystem( SceneRenderer* sceneRenderer, const std::shared_ptr<Framebuffer>& targetFramebuffer )
+             : m_SceneRenderer( sceneRenderer ), m_TargetFramebuffer( targetFramebuffer )
         {
         }
         virtual ~RenderSystem() = default;
@@ -34,7 +32,6 @@ namespace Desert::Graphic::System
     protected:
         SceneRenderer*             m_SceneRenderer;
         std::weak_ptr<Framebuffer> m_TargetFramebuffer;
-        RenderGraphBuilder*        m_RenderGraphBuilder;
 
         std::shared_ptr<Framebuffer> m_Framebuffer;
     };

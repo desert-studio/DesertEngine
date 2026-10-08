@@ -46,7 +46,6 @@ namespace Desert::Graphic::System
                                       // unique_ptr<MaterialParticleBillboard> sees the complete type
 
         Common::BoolResultStr Initialize() override;
-        void                  RegisterPasses( RenderGraphBuilder& builder ) override;
 
         // Drops every cached emitter — see IRenderSystem::OnSceneReplaced, kind 2. m_Emitters is keyed by
         // the raw entt entity value, and a fresh registry hands those out from zero again, so the next

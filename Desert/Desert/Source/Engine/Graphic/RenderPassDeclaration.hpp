@@ -21,7 +21,7 @@ namespace Desert::Graphic
     class Image;
 
     // WHAT ONE FRAME-GRAPH NODE TOUCHES, named as engine resources. The system that records the node fills it
-    // where it registers the node (RenderGraphBuilder::PassConfig::Declare for a phase pass, the node list of an
+    // where it registers the node (SystemRasterPass::Declare for a phase pass, the node list of an
     // atmosphere system for a compute dispatch, ExternalPassSpecification::Declare for an editor pass), and
     // SceneRenderer resolves every image to the frame graph's import of it (one registration per engine image, so
     // two nodes naming one image name one graph texture) and declares each entry on the node. The graph then

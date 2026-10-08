@@ -969,10 +969,7 @@ namespace Desert::Graphic::System
             if ( !m_CascadeFB[c] )
                 continue;
 
-            builder
-                 .AddPass(
-                      std::format( "MeshShadowCascade{}", c ), RenderPhase::DepthPrePass,
-                      [this, c]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+            SystemRasterPass pass{ .Name = std::format( "MeshShadowCascade{}", c ), .ExecuteFunc = [this, c]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
                       {
                           if ( !m_ShadowsEnabled )
                               return BOOLSUCCESS;
@@ -998,15 +995,13 @@ namespace Desert::Graphic::System
                               }
                           }
                           return BOOLSUCCESS;
-                      },
-                      m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
-                      // Clear the R32F depth target to 1.0 (far): background texels must read as "no occluder",
+                      }, .TargetFramebuffer = m_CascadeFB[c], .ClearColor = // Clear the R32F depth target to 1.0 (far): background texels must read as "no occluder",
                       // else the default 0.1 grey clear falsely shadows receivers whose light-space depth > 0.1.
-                      glm::vec4( 1.0f ),
-                      // And the DEPTH ATTACHMENT to 1.0 as well, overriding the engine's reversed-Z clear of
+                      glm::vec4( 1.0f ), .ClearDepth = // And the DEPTH ATTACHMENT to 1.0 as well, overriding the engine's reversed-Z clear of
                       // 0. This pass is standard-Z (SetupShadowPass says why); a 0 clear under its LessOrEqual
                       // test would reject every caster and hand back an empty shadow map, silently.
-                      1.0f )
+                      1.0f };
+ pass
                  .Declare = [this, c]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
                 // Depth-only casters sample no graph resource: one block per caster material with the material's

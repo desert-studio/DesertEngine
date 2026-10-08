@@ -54,9 +54,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
 
         // The pyramid of this frame: half the view, mip-capped so the coarsest level is ~1/32 of the screen.
         // nullopt while the view or the pipeline is missing (no node is added then and the glass reads nothing).

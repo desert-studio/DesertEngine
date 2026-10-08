@@ -5,7 +5,6 @@
 #include "ParticleGpuLayout.hpp"
 
 #include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
-#include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -401,9 +400,7 @@ namespace Desert::Graphic::System
         if ( !targetFb || !m_AddPipeline )
             return;
 
-        builder
-             .AddPass( "ParticlePass", RenderPhase::Transparency,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        SystemRasterPass pass{ .Name = "ParticlePass", .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
                        {
                            if ( m_FrameEmitters.empty() )
                                return BOOLSUCCESS;
@@ -431,9 +428,8 @@ namespace Desert::Graphic::System
                                    return drawn;
                            }
                            return BOOLSUCCESS;
-                       },
-                       m_AddPipeline->GetSpecification(), targetFb,
-                       { RenderPassDependency( RenderPhase::Geometry ) } )
+                       }, .TargetFramebuffer = targetFb };
+ pass
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             // The billboards read each emitter's integrated state in the vertex stage: StorageRead, so the graph

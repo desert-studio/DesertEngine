@@ -68,9 +68,6 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
-        {
-        }
 
         // Whether the flare is dispatched this frame, decided when the frame graph is built.
         // @p screenFade is SunScreen::Fade: 0 when the sun is behind the camera or far past the edge, in which

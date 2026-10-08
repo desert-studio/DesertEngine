@@ -277,9 +277,7 @@ namespace Desert::Graphic::System
             return;
 
         // Overlay debug lines (AABB wireframes) over the lit scene; runs after Geometry, depth-tested.
-        builder.AddPass(
-             "DebugLinesPass", RenderPhase::Debug,
-             [this]()
+        SystemRasterPass pass{ .Name = "DebugLinesPass", .ExecuteFunc = [this]()
              {
                  if ( !m_ShowBoundingBoxes )
                      return;
@@ -322,9 +320,8 @@ namespace Desert::Graphic::System
                  Renderer::GetInstance().SubmitLines(
                       m_DebugLinePipeline.get(), static_cast<uint32_t>( lines.size() ), m_BoundingBoxLineWidth,
                       m_DebugLineMaterial->GetMaterialExecutor() );
-             },
-             m_DebugLinePipeline->GetSpecification(), targetFb,
-             { RenderPassDependency( RenderPhase::Geometry ) } );
+             }, .TargetFramebuffer = targetFb };
+ pass;
     }
 #endif // DESERT_DEV_INSTRUMENTS
 
@@ -335,15 +332,12 @@ namespace Desert::Graphic::System
         if ( !m_SilhouetteMaskFramebuffer || !m_SilhouettePipeline )
             return;
 
-        builder
-             .AddPass( "MeshSilhouettePass", RenderPhase::Outline,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        SystemRasterPass pass{ .Name = "MeshSilhouettePass", .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
                        {
                            // The masks this node's Declare chose.
                            return m_SilhouetteDraws.Record( context );
-                       },
-                       m_SilhouettePipeline->GetSpecification(), m_SilhouetteMaskFramebuffer,
-                       { RenderPassDependency( RenderPhase::Geometry ) } )
+                       }, .TargetFramebuffer = m_SilhouetteMaskFramebuffer };
+ pass
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             // SETUP: every outlined mesh is chosen here, ONCE, into the node's draw list (the mask cameras and the

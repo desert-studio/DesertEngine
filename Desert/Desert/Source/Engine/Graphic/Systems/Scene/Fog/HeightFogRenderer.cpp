@@ -7,7 +7,6 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
 #include <Engine/Graphic/RenderGraphSort.hpp>
-#include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -244,15 +243,10 @@ namespace Desert::Graphic::System
         return nodes;
     }
 
-    void HeightFogRenderer::RegisterPasses( RenderGraphBuilder& )
-    {
-        // Nothing to register: the apply is not a phase pass. SceneRenderer::AddFrameTranslucency adds it
-        // (ApplyPass) as the first translucency node, by the position of that call.
-    }
 
-    RenderGraphBuilder::PassConfig HeightFogRenderer::ApplyPass()
+    SystemRasterPass HeightFogRenderer::ApplyPass()
     {
-        RenderGraphBuilder::PassConfig config;
+        SystemRasterPass config;
         const auto                     target = m_TargetFramebuffer.lock();
         if ( !target || !m_ApplyPipeline )
             return config;

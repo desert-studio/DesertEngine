@@ -3286,7 +3286,7 @@ TEST( RenderGraphCompile, NoExternalPassApiRemainsInEngineOrEditor )
 // THE PHASE PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). The AddGraphPhasePasses bridge
 // no longer opens the engine's render pass around a legacy wrapper: every registered pass is a Raster node whose
 // targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
-// names in RenderGraphBuilder::PassConfig::Declare, and whose render pass the graph opens and merges. Each system
+// names in SystemRasterPass::Declare, and whose render pass the graph opens and merges. Each system
 // declares its own reads where it registers the pass, the editor's external passes through
 // ExternalPassSpecification::Declare, and the in-graph DispatchCompute records no barrier of its own (the
 // particle draw declares its StorageRead).

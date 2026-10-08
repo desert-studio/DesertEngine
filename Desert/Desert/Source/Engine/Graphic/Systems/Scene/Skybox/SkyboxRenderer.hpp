@@ -121,7 +121,6 @@ namespace Desert::Graphic::System
             return m_Atmosphere;
         }
 
-        void RegisterPasses( RenderGraphBuilder& builder ) override;
 
     private:
         // The SkyboxPass's setup: picks the draw (procedural sky or the skybox material), feeds its material

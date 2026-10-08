@@ -444,9 +444,7 @@ namespace Desert::Graphic::System
 
         // Same Geometry phase + scene framebuffer as the meshes: merges into the open render pass
         // (depth shared, no clear) so terrain and meshes depth-resolve against each other.
-        builder
-             .AddPass( "TerrainPass", RenderPhase::Geometry,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
+        SystemRasterPass pass{ .Name = "TerrainPass", .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
                        {
                            // Forward path only. In Deferred the terrain is in the G-buffer (RenderGBufferManual)
                            // and lit by the composite; drawing it here too would light the ground twice, two
@@ -461,9 +459,8 @@ namespace Desert::Graphic::System
                            (void)refs;
                            return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
                                                m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
-                       },
-                       m_Pipeline->GetSpecification(), targetFb,
-                       { RenderPassDependency( RenderPhase::DepthPrePass ) } )
+                       }, .TargetFramebuffer = targetFb };
+ pass
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the

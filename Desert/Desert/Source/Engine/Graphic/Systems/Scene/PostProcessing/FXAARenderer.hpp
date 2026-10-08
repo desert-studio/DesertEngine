@@ -20,9 +20,6 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
-        {
-        }
 
         // The sampled input (the configured source framebuffer's colour 0) and the ColorTarget.
         [[nodiscard]] std::shared_ptr<Image2D> GetInputImage() const

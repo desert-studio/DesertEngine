@@ -362,17 +362,14 @@ namespace Desert::Graphic::System
             return;
         }
 
-        builder
-             .AddPass( "MeshGeometryPass", RenderPhase::Geometry,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
+        SystemRasterPass pass{ .Name = "MeshGeometryPass", .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
                        {
                            // The draw list this node's Declare built (empty in Deferred, where the meshes go
                            // to the G-buffer, or without a camera).
                            (void)refs;
                            return m_ForwardDraws.Record( context );
-                       },
-                       m_StaticPipeline->GetSpecification(), targetFb,
-                       { RenderPassDependency( RenderPhase::DepthPrePass ) } )
+                       }, .TargetFramebuffer = targetFb };
+ pass
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // The frame's forward draw list - built HERE, before any command is recorded - and one binding block

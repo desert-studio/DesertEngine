@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
-#include <Engine/Graphic/RenderGraphBuilder.hpp>
+#include <Engine/Graphic/SystemRasterPass.hpp>
 
 #include <functional>
 #include <string>

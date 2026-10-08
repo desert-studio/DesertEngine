@@ -22,9 +22,6 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
-        {
-        }
 
         // Each pass is a raster node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: SMAA*"), which
         // opens the render pass on the step's output. The edges and the blend weights are transients of that graph

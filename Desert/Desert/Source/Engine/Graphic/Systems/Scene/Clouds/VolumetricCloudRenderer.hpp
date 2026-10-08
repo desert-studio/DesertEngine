@@ -94,12 +94,11 @@ namespace Desert::Graphic::System
         ~VolumetricCloudRenderer() override;
 
         Common::BoolResultStr Initialize() override;
-        void                  RegisterPasses( RenderGraphBuilder& builder ) override;
 
         // The S3 composite as one raster pass on the scene target: its body, pipeline and declared reads. Not
         // registered with the builder: its place in the frame is the call that adds it
         // (SceneRenderer::AddFrameTranslucency). No target framebuffer when the system failed to initialize.
-        RenderGraphBuilder::PassConfig CompositePass();
+        SystemRasterPass CompositePass();
 
         // Drops the temporal reconstruction's history — see IRenderSystem::OnSceneReplaced, kind 1. Every
         // other cache in this system is content-keyed already (the modelling volume and the noise bakes

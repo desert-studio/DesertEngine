@@ -26,9 +26,6 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
-        {
-        }
 
         // The chain this frame needs, from this frame's scene colour size: half resolution, mips capped so the
         // smallest stays a sane size. Nullopt when there is nothing to record (no scene colour or pipelines).

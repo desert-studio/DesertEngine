@@ -18,7 +18,7 @@
 //
 //   * its REACH is one file. `SceneRenderer.cpp` was never opened by it, and neither is anything else;
 //   * its SUBJECT is a name. Even pointed at the whole tree it would have found nothing, because
-//     `RegisterExternalPass` calls no function called `EmitInput` — the consuming side effect there is
+//     `RegisterExternalPass` (since deleted) called no function called `EmitInput` — the consuming side effect there is
 //     spelled `std::move`, and the reading side effect is a plain member access.
 //
 // So the two censuses are complementary and both are kept. Г24's covers a side effect that has a NAME in
@@ -27,7 +27,8 @@
 // WHAT IS FLAGGED, EXACTLY. Inside one call's argument list, one top-level argument contains
 // `std::move( X … )` / `std::forward( X … )` and a DIFFERENT top-level argument of the SAME list mentions
 // `X`. The scan walks outward through every enclosing call, which is what catches the nesting that the
-// live defect had — the move sat two calls deep:
+// live defect had (the former SceneRenderer::RegisterExternalPass, deleted by ARCH1b-2) — the move sat
+// two calls deep:
 //
 //     TrackRenderSystem( ExternalSystemKey( spec.Name ),
 //                        std::make_shared<ExternalPassSystem>( this, std::move( spec ) ) );

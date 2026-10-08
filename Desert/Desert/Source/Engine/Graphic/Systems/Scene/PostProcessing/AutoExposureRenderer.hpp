@@ -24,9 +24,6 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
-        {
-        }
 
         // The histogram's bins: one uint per bin, 256 bins (AEHistogram*.shader `uint u_Bins[256]`).
         static constexpr uint32_t kBins           = 256;

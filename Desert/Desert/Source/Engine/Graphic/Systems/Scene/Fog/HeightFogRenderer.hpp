@@ -62,12 +62,11 @@ namespace Desert::Graphic::System
         ~HeightFogRenderer() override;
 
         Common::BoolResultStr Initialize() override;
-        void                  RegisterPasses( RenderGraphBuilder& builder ) override;
 
         // The S2 apply as one raster pass on the scene target: its body, pipeline and declared fog read. Not
         // registered with the builder: its place in the frame is the call that adds it
         // (SceneRenderer::AddFrameTranslucency). No target framebuffer when the system failed to initialize.
-        RenderGraphBuilder::PassConfig ApplyPass();
+        SystemRasterPass ApplyPass();
 
         /**
          * @brief This frame's fog settings, from ECS::HeightFogECSSystem.

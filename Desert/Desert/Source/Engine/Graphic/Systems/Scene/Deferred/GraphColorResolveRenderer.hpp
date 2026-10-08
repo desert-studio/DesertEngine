@@ -71,9 +71,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
 
         [[nodiscard]] bool IsReady() const
         {

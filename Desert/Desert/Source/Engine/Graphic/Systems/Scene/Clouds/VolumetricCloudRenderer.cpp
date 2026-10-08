@@ -12,7 +12,6 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
 #include <Engine/Graphic/RenderGraphSort.hpp>
-#include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -2158,15 +2157,10 @@ namespace Desert::Graphic::System
         return block;
     }
 
-    void VolumetricCloudRenderer::RegisterPasses( RenderGraphBuilder& )
-    {
-        // Nothing to register: the composite is not a phase pass. SceneRenderer::AddFrameTranslucency adds it
-        // (CompositePass) right after the fog apply, by the position of that call.
-    }
 
-    RenderGraphBuilder::PassConfig VolumetricCloudRenderer::CompositePass()
+    SystemRasterPass VolumetricCloudRenderer::CompositePass()
     {
-        RenderGraphBuilder::PassConfig config;
+        SystemRasterPass config;
         const auto                     target = m_TargetFramebuffer.lock();
         if ( !target || !m_CompositePipeline )
             return config;

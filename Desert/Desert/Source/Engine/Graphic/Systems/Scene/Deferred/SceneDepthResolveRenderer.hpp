@@ -83,9 +83,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
 
         // The scene target is multisampled and the resolve was built for it.
         [[nodiscard]] bool IsReady() const

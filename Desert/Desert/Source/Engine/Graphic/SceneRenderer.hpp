@@ -426,9 +426,6 @@ namespace Desert::Graphic
             return m_PipelineCache;
         }
 
-        void RegisterRenderPass( RenderPhaseID phase, const std::string& name, std::function<void()> executeFunc,
-                                 const GraphicsPipelineSpecification& pipeSpec = {} );
-
         // True while the scene runs in Play mode (refreshed each BeginScene). Extension passes use this
         // to hide authoring aids during gameplay.
         bool IsScenePlaying() const
@@ -436,7 +433,6 @@ namespace Desert::Graphic
             return m_ScenePlaying;
         }
 
-        std::shared_ptr<Framebuffer> GetFramebufferForPhase( RenderPhaseID phase );
         std::shared_ptr<Texture>     GetTexture( const std::string& name );
 
         void RegisterRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system );
@@ -586,14 +582,14 @@ namespace Desert::Graphic
                                   bool clearFirst, const OverlayTargets& overlay = {} );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
         // declared reads; @p color / @p depth are the loads of the node's targets.
-        void AddPassNode( RDG::Builder& graph, FrameTextures& textures, const RenderGraphBuilder::PassConfig& pass,
+        void AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
                           const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
                           const RDG::LoadOp& color, const RDG::LoadOp& depth, const OverlayTargets& overlay );
         // A system's raster pass that is not registered with the builder: one LOAD node on the pass's own target,
         // placed by the position of this call. Nothing when the pass has no target (the system did not
         // initialize).
         void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
-                              const RenderGraphBuilder::PassConfig& pass );
+                              const SystemRasterPass& pass );
         // The frame's translucency, in draw order by call order: the height fog apply, the cloud composite (far
         // field), the Transparency phase's registered passes (particles), then the AfterTranslucency extension
         // point.

@@ -892,12 +892,9 @@ namespace Desert::Graphic::System
         if ( !targetFb )
             return;
 
-        builder
-             .AddPass(
-                  "SkyboxPass", RenderPhase::Sky,
-                  [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-                  { return Render( context ); },
-                  m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb )
+        SystemRasterPass pass{ .Name = "SkyboxPass", .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+                  { return Render( context ); }, .TargetFramebuffer = targetFb };
+ pass
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         { DeclareSkyDraw( declared, refs ); };
     }

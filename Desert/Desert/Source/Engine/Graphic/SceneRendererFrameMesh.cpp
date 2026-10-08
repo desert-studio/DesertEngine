@@ -5,7 +5,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
-#include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -92,7 +91,7 @@ namespace Desert::Graphic
         // half-declared. NeverCull: a pass body (the editor's external passes too) may change state outside
         // the graph - per-frame material state, picking - which no declaration shows.
         std::shared_ptr<Framebuffer> previous;
-        for ( const RenderGraphBuilder::PassConfig& pass : m_RenderGraphBuilder.GetSortedPasses() )
+        for ( const SystemRasterPass& pass : m_RenderGraphBuilder.GetSortedPasses() )
         {
             if ( !pass.CachedRenderPass || !selects( pass.Phase ) )
                 continue;
@@ -112,7 +111,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
-                                         const RenderGraphBuilder::PassConfig& pass )
+                                         const SystemRasterPass& pass )
     {
         // A system whose pipeline failed to build hands back a pass with no target (it logged why at Initialize).
         if ( !pass.TargetFramebuffer || !pass.ExecuteFunc )
@@ -171,7 +170,7 @@ namespace Desert::Graphic
                  };
                  // The pass's functions are COPIED into the node: the scene may replace the registration while the
                  // graph built this frame still holds the node.
-                 RenderGraphBuilder::PassConfig node;
+                 SystemRasterPass node;
                  node.Name              = extension.Name;
                  node.TargetFramebuffer = m_TargetFramebuffer;
                  node.ExecuteFunc =
@@ -187,7 +186,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures,
-                                     const RenderGraphBuilder::PassConfig& pass,
+                                     const SystemRasterPass& pass,
                                      const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
                                      const RDG::LoadOp& color, const RDG::LoadOp& depth,
                                      const OverlayTargets& overlay )

@@ -45,9 +45,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
 
         // Records AO into the colour target the graph node opened (the SSAO transient). @p depth = the G-buffer
         // depth (world position reconstructed from it), @p normal = GBufferB, bound by shader name through
