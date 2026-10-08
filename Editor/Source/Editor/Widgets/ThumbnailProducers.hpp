@@ -68,6 +68,8 @@ namespace Desert::Editor::ThumbnailProducers
               "UE (UNiagaraSystem): the class icon until a capture exists; the preview render is VFX-12" },
          Row{ FileType::Fracture, Producer::TypeIcon,
               "the class icon until DST-02 photographs the pieces (UE renders the geometry collection)" },
+         Row{ FileType::PhysicsAsset, Producer::TypeIcon,
+              "the class icon until the physics asset editor (RAG1c) renders the bodies (UE renders them)" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

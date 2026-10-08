@@ -175,6 +175,7 @@ namespace Common::Constants
             LevelSequence,
             VFX,
             Fracture,
+            PhysicsAsset,
             Cooked,
             COUNT
         };
@@ -270,6 +271,8 @@ namespace Common::Constants
              /* VFX           */ { "VFX/", DirRoot::Assets },
              // Baked fractures (`.dfrac`, UE fractured Geometry Collections) beside the meshes they cut.
              /* Fracture      */ { "Fractures/", DirRoot::Assets },
+             // Physics assets (`.dephysasset`, UE UPhysicsAsset): the ragdoll bodies and joints of a skeleton.
+             /* PhysicsAsset  */ { "PhysicsAssets/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -606,6 +609,7 @@ namespace Common::Constants
         inline const std::filesystem::path& LEVEL_SEQUENCE_PATH = Detail::Slot( ContentDir::LevelSequence );
         inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
         inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
+        inline const std::filesystem::path& PHYSICS_ASSET_PATH  = Detail::Slot( ContentDir::PhysicsAsset );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
     } // namespace Path
 

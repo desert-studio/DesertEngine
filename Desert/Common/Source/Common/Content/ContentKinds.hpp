@@ -79,6 +79,7 @@ namespace Common::Content
         LevelSequence,
         VFXSystem,
         Fracture,
+        PhysicsAsset,
         COUNT,
     };
 
@@ -168,6 +169,8 @@ namespace Common::Content
              // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope
              // (Destruction/FractureFormat.hpp).
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
+             // UE's UPhysicsAsset: a DPHA payload in the asset envelope (Physics/PhysicsAssetFormat.hpp).
+             /* PhysicsAsset         */ { "PhysicsAsset", ".dephysasset", &P::PHYSICS_ASSET_PATH },
         } };
     }
 

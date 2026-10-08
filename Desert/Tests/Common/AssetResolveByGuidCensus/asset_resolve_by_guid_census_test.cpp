@@ -97,6 +97,8 @@ namespace
                       "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
          PathOnlyRow{ ContentKind::Fracture,
                       "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
+         PathOnlyRow{ ContentKind::PhysicsAsset,
+                      "no referrer yet: the ragdoll component (RAG1b) writes the .dephysasset GUID" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -250,6 +252,7 @@ namespace
             case ContentKind::WorldIndex:
             case ContentKind::Skybox:
             case ContentKind::Fracture:
+            case ContentKind::PhysicsAsset:
                 return SyntheticEnvelope( kind, guid );
             case ContentKind::Shader:
             {

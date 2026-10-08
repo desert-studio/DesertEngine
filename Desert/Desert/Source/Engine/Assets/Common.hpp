@@ -104,6 +104,10 @@ namespace Desert::Assets
         // cluster hierarchy, damage thresholds and convex hulls (Engine/Destruction/FractureBake.hpp). See
         // Engine/Assets/FractureAsset.hpp.
         Fracture,
+        // A PHYSICS ASSET (`.dephysasset`): UE's UPhysicsAsset — one sphere / box / capsule body per bone and the
+        // swing-twist joints between them, naming its skeleton by GUID (Engine/Physics/PhysicsAssetFormat.hpp).
+        // See Engine/Assets/PhysicsAsset.hpp.
+        PhysicsAsset,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -197,6 +201,10 @@ namespace Desert::Assets
             // an `AssetHandle` (UE's UGeometryCollectionComponent::RestCollection), so it lives exactly as
             // long as a live entity holds it.
             case AssetTypeID::Fracture:
+            // A PHYSICS ASSET IS SCENE-SCOPED for the retarget's reason: the ragdolled entity names it through an
+            // `AssetHandle` (UE's USkeletalMeshComponent::PhysicsAssetOverride), so it lives as long as that
+            // entity.
+            case AssetTypeID::PhysicsAsset:
             case AssetTypeID::Count:
                 return false;
         }
@@ -267,6 +275,8 @@ namespace Desert::Assets
                 return "VFXSystem";
             case AssetTypeID::Fracture:
                 return "Fracture";
+            case AssetTypeID::PhysicsAsset:
+                return "PhysicsAsset";
             case AssetTypeID::Count:
                 return "Count";
         }
