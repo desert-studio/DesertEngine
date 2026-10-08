@@ -491,6 +491,39 @@ TEST( SkyGroundTransmittance, AgreesWithTheTransmittanceLutItShares )
     }
 }
 
+// THE SUN BEHIND THE PLANET GIVES NO LIGHT, IN EITHER SKY MODEL (Graphic::SunLightFactorAtGround). The
+// artistic model once multiplied the sun by exactly 1 at any elevation, so a night scene was lit from
+// below at full strength; the invariant is checked for both models, with the light opted in and out of
+// the atmosphere coupling, so neither gate can reopen it.
+TEST( SkySunLightFactor, IsZeroBelowTheHorizonInBothModels )
+{
+    for ( const auto model :
+          { Desert::ECS::SkyModel::ArtisticGradient, Desert::ECS::SkyModel::PhysicalAtmosphere } )
+        for ( const bool affected : { true, false } )
+        {
+            Desert::Graphic::SkySettings sky{};
+            sky.Model = model;
+
+            for ( const float elevation : { -1.0f, -5.0f, -34.0f, -90.0f } )
+            {
+                const glm::vec3 f = Desert::Graphic::SunLightFactorAtGround(
+                     sky, SunDirectionAtElevation( elevation ), affected );
+                EXPECT_EQ( f, glm::vec3( 0.0f ) ) << "model " << static_cast<int>( model ) << " affected "
+                                                  << affected << " elevation " << elevation;
+            }
+
+            // Above the horizon the planet takes nothing: the artistic sun (and an opted-out one) is
+            // exactly as authored, the physical one is its transmittance.
+            const glm::vec3 noon =
+                 Desert::Graphic::SunLightFactorAtGround( sky, SunDirectionAtElevation( 30.0f ), affected );
+            const bool      couple = model == Desert::ECS::SkyModel::PhysicalAtmosphere && affected;
+            const glm::vec3 expected =
+                 couple ? Desert::Graphic::SunTransmittanceAtGround( sky, SunDirectionAtElevation( 30.0f ) )
+                        : glm::vec3( 1.0f );
+            EXPECT_EQ( noon, expected ) << "model " << static_cast<int>( model ) << " affected " << affected;
+        }
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Phase functions: normalized over the sphere, forward-peaked where g says so
 // ---------------------------------------------------------------------------------------------------

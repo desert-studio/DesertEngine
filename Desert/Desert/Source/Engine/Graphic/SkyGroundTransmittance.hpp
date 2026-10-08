@@ -30,4 +30,25 @@ namespace Desert::Graphic
      * cannot be edited apart.
      */
     glm::vec3 SunTransmittanceAtGround( const SkySettings& sky, const glm::vec3& towardSun );
+
+    /**
+     * THE factor the directional (atmosphere) sun's colour is multiplied by before it lights geometry —
+     * the one place that decides how much of the authored sun reaches the ground, in BOTH sky models.
+     *
+     * Two terms, and the order of the conditions is the point:
+     *   * the PLANET'S SHADOW, always. A sun below the horizon is behind the ground, and no sky model
+     *     can make it shine up through the floor. It is SkyScattering.glslh's SkyPlanetShadow evaluated
+     *     at the ground — the same terminator, with the same smooth band, that darkens the physical sky —
+     *     so the light fades across the horizon instead of switching, and fades exactly where the sky
+     *     says the sun has set. Without it SkyModel::ArtisticGradient lit a night scene from below at
+     *     full strength (the sun at -34 degrees in GI_Bistro_Night).
+     *   * the ATMOSPHERE'S TRANSMITTANCE (SunTransmittanceAtGround), only in SkyModel::PhysicalAtmosphere
+     *     and only while the light opts in (UE's bAffectedByAtmosphereTransmittance). ArtisticGradient
+     *     keeps the documented independence of sky radiance and surface illuminance ABOVE the horizon:
+     *     there the factor is exactly (1,1,1).
+     *
+     * @return per-channel factor in [0, 1]; exactly zero once the sun is past the terminator band.
+     */
+    glm::vec3 SunLightFactorAtGround( const SkySettings& sky, const glm::vec3& towardSun,
+                                      bool affectedByAtmosphereTransmittance );
 } // namespace Desert::Graphic

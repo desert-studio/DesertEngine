@@ -609,19 +609,16 @@ namespace Desert::Graphic::System
         {
             m_Atmosphere = EvaluateAtmosphere( m_Sky, m_SunDir );
 
-            // UE's PrepareSunLightProxy, scoped to the model by the teamlead's decision (research doc
-            // section 5, Q3): in PhysicalAtmosphere the sun light's colour is multiplied by the
-            // atmosphere's transmittance toward the sun at ground level; in ArtisticGradient the
-            // coupling does not exist, and the documented independence of sky radiance and surface
-            // illuminance stands. The per-light opt-out is the second gate.
+            // UE's PrepareSunLightProxy, plus the planet's shadow, decided in ONE place for both sky
+            // models (Graphic::SunLightFactorAtGround says which term applies when): a sun below the
+            // horizon gives no direct light in either model; above it, PhysicalAtmosphere dims and reddens
+            // it by the transmittance and ArtisticGradient leaves it exactly as authored.
             //
             // Evaluated HERE rather than by the consumer because this is where the sun and the medium
             // are both in hand, and because it must be one value per frame: two consumers each
             // marching it would be the same quantity computed twice.
-            const bool couple =
-                 m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere && fx.AffectedByAtmosphereTransmittance;
             m_Atmosphere.SunTransmittanceAtGround =
-                 couple ? SunTransmittanceAtGround( m_Sky, m_Atmosphere.SunDirection ) : glm::vec3( 1.0f );
+                 SunLightFactorAtGround( m_Sky, m_Atmosphere.SunDirection, fx.AffectedByAtmosphereTransmittance );
 
             // The same product SceneRenderer::OnUpdate forms for the light's own colour, published once
             // so the fog's directional lobe reads the sun on the ground instead of re-deriving it from a

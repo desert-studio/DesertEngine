@@ -25,16 +25,21 @@ namespace Desert::Graphic
         using vec4 = glm::vec4;
 
         using glm::abs;
+        using glm::acos;
         using glm::clamp;
         using glm::cos;
         using glm::exp;
         using glm::max;
         using glm::min;
+        using glm::pow;
         using glm::sin;
         using glm::sqrt;
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
 #include <Common/SkyMedium.glslh>
+// For SkyPlanetShadow — the sky's own terminator, reused for the sun light (SunLightFactorAtGround).
+// No SKY_SCATTERING_* macros are defined, so the integrator block is compiled out, as for the screen pass.
+#include <Common/SkyScattering.glslh>
              DESERT_GLSL_AS_CPP_END
 
     } // namespace
@@ -60,5 +65,24 @@ namespace Desert::Graphic
         // by more than the sun.
         const vec3 t = SkyTransmittanceAtGroundToSun( p, sunZenithCos );
         return glm::clamp( t, glm::vec3( 0.0f ), glm::vec3( 1.0f ) );
+    }
+
+    glm::vec3 SunLightFactorAtGround( const SkySettings& sky, const glm::vec3& towardSun,
+                                      bool affectedByAtmosphereTransmittance )
+    {
+        const SkyGpuPayload payload = PackSky( towardSun, sky );
+        const SkyAtmParams  p =
+             SkyMakeAtmParams( payload.MediumRayleigh, payload.MediumMie, payload.MediumMieAbsorption,
+                               payload.MediumOzone, payload.MediumGround, payload.MediumTentPlanet );
+
+        // The ground sample sits where the transmittance march starts, so the shadow's horizon and the
+        // physical model's horizon are the same circle.
+        const float sunZenithCos = glm::clamp( towardSun.y, -1.0f, 1.0f );
+        const float planetShadow =
+             SkyPlanetShadow( p.BottomRadiusKm + SKY_PLANET_RADIUS_OFFSET_KM, sunZenithCos, p.BottomRadiusKm );
+
+        const bool couple = sky.Model == ECS::SkyModel::PhysicalAtmosphere && affectedByAtmosphereTransmittance;
+        const glm::vec3 atmosphere = couple ? SunTransmittanceAtGround( sky, towardSun ) : glm::vec3( 1.0f );
+        return planetShadow * atmosphere;
     }
 } // namespace Desert::Graphic
