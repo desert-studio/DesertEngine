@@ -15,11 +15,14 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleEmitterRetire.hpp>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
+#include <unordered_map>
 #include <cstdio>
 #include <random>
 #include <vector>
@@ -308,4 +311,61 @@ TEST( EntityDestroy, CostPerDestroyDoesNotGrowWithTheWorld )
     // component pools do not fit, so every lookup is a miss. The bound sits between the two populations with
     // a factor of two either side.
     EXPECT_LT( large / smallOne, 15.0 ) << "destroy cost grows with the size of the world again";
+}
+
+// ---- Particle emitters -----------------------------------------------------------------------------------
+
+// PFX-REL1: an emitter's GPU state (ParticleRenderer::m_Emitters, keyed by the entity's integer value) is
+// given back when its entity is destroyed or loses the component, not only at a scene swap. The stand-in
+// value holds a shared_ptr the way EmitterGpu holds its StorageBuffers: dropping the entry is what hands the
+// buffers to their destructors, which queue them on the allocator's deletion ring (the census
+// RuntimeHandleCensus.ARetiredEmitterReleasesItsGpuStateThroughTheDeletionRing pins that chain).
+// Red if RetireDestroyedEmitters keeps a destroyed emitter, drops a live one, or matches a recycled id.
+TEST( EntityDestroy, DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing )
+{
+    struct FakeEmitterGpu
+    {
+        std::shared_ptr<int> Particles;
+    };
+
+    entt::registry                               reg;
+    Core::SceneEntityIndex                       index;
+    std::unordered_map<uint32_t, FakeEmitterGpu> emitters;
+
+    const auto addEmitter = [&]( bool enabled )
+    {
+        const entt::entity e                                         = Make( reg, index );
+        reg.emplace<ECS::ParticleEmitterComponent>( e ).Data.Enabled = enabled;
+        emitters[static_cast<uint32_t>( e )]                         = { std::make_shared<int>( 0 ) };
+        return e;
+    };
+
+    const entt::entity doomed   = addEmitter( true );
+    const entt::entity stripped = addEmitter( true );
+    const entt::entity disabled = addEmitter( false );
+    const entt::entity kept     = addEmitter( true );
+
+    const std::weak_ptr<int> doomedBuffer   = emitters.at( static_cast<uint32_t>( doomed ) ).Particles;
+    const std::weak_ptr<int> strippedBuffer = emitters.at( static_cast<uint32_t>( stripped ) ).Particles;
+
+    EXPECT_EQ( Graphic::System::RetireDestroyedEmitters( emitters, reg ), 0u ) << "a live emitter was dropped";
+    ASSERT_EQ( emitters.size(), 4u );
+
+    Core::DestroyEntityTree( reg, index, doomed );
+    reg.remove<ECS::ParticleEmitterComponent>( stripped );
+
+    // The destroyed entity's slot is recycled at once: the new entity must not inherit the old state.
+    const entt::entity recycled = Make( reg, index );
+    reg.emplace<ECS::ParticleEmitterComponent>( recycled );
+    EXPECT_NE( static_cast<uint32_t>( recycled ), static_cast<uint32_t>( doomed ) );
+
+    EXPECT_EQ( Graphic::System::RetireDestroyedEmitters( emitters, reg ), 2u );
+    EXPECT_FALSE( emitters.contains( static_cast<uint32_t>( doomed ) ) ) << "a destroyed emitter kept its state";
+    EXPECT_FALSE( emitters.contains( static_cast<uint32_t>( stripped ) ) )
+         << "an entity that lost its emitter kept the state";
+    EXPECT_TRUE( doomedBuffer.expired() ) << "the destroyed emitter's buffer was not handed to its destructor";
+    EXPECT_TRUE( strippedBuffer.expired() );
+    EXPECT_TRUE( emitters.contains( static_cast<uint32_t>( disabled ) ) )
+         << "a disabled emitter is still the scene's emitter and keeps its state";
+    EXPECT_TRUE( emitters.contains( static_cast<uint32_t>( kept ) ) );
 }
