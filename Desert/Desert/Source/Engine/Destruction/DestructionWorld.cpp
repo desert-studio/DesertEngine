@@ -298,7 +298,10 @@ namespace Desert::Destruction
         desc.LinearVelocity        = linear;
         desc.AngularVelocity       = angular;
         desc.ReportContactImpulses = true;
-        auto created               = m_Physics.CreateCompoundBody( desc );
+        // Build guarantees the register has every engine profile.
+        desc.Profile =
+             m_Physics.GetCollisionProfiles().Resolve( Physics::EngineProfiles::kDestructible ).GetValue();
+        auto created = m_Physics.CreateCompoundBody( desc );
         if ( !created.IsSuccess() )
             return Common::MakeError<uint32_t>( created.GetError() );
         body.Handle = created.GetValue();

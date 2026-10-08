@@ -7,6 +7,8 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
+#include <Engine/Physics/CollisionProfiles.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
@@ -73,12 +75,14 @@ namespace Desert::ECS
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_RefusedColliders.clear();
+                    m_RefusedCharacters.clear();
                     m_Landscape.reset();
                     m_Destructibles.reset();
                     m_Destruction.reset();
                     m_World->Shutdown();
                     m_World.reset();
                 }
+                m_ProfilesRefused = false; // the next Play reads the register again
                 return;
             }
 
@@ -86,9 +90,22 @@ namespace Desert::ECS
 
             if ( !m_World )
             {
+                if ( m_ProfilesRefused )
+                    return; // said once this Play; the register is read again on the next one
+                // The project's channels and profiles (UE DefaultEngine.ini [CollisionProfile]). No register,
+                // no simulation: there is no built-in answer to which bodies collide.
+                auto profiles =
+                     Physics::CollisionProfiles::Read( Common::Constants::Path::CurrentProjectRoot().ProjectDir /
+                                                       "Config" / Physics::kCollisionProfilesFileName );
+                if ( !profiles )
+                {
+                    m_ProfilesRefused = true;
+                    LOG_ERROR( "[Physics] the scene does not simulate: {}", profiles.GetError() );
+                    return;
+                }
                 m_World          = std::make_unique<Physics::PhysicsWorld>();
                 m_AppliedGravity = m_Scene ? m_Scene->GetSettings().Gravity : Core::SceneSettings{}.Gravity;
-                m_World->Init( m_AppliedGravity );
+                m_World->Init( m_AppliedGravity, profiles.ExtractValue() );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
@@ -134,6 +151,13 @@ namespace Desert::ECS
                 desc.Mass        = rb.Data.Mass;
                 desc.Friction    = rb.Data.Friction;
                 desc.Restitution = rb.Data.Restitution;
+                auto profile     = m_World->GetCollisionProfiles().Resolve( rb.Data.CollisionProfile );
+                if ( !profile )
+                {
+                    RefuseCollider( entity, profile.GetError() );
+                    continue;
+                }
+                desc.Profile = profile.GetValue();
 
                 // Use the WORLD pose (walk parents) so a collider on a CHILD entity (e.g. a wall inside a
                 // "House" prefab root) is created where it actually is, not at its local offset.
@@ -190,7 +214,7 @@ namespace Desert::ECS
             for ( auto entity : characters )
             {
                 auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter )
+                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter || m_RefusedCharacters.contains( entity ) )
                     continue;
                 const auto& transform = characters.get<TransformComponent>( entity );
 
@@ -199,7 +223,19 @@ namespace Desert::ECS
                 desc.HalfHeight     = glm::max( ( cc.Data.Height - 2.0f * cc.Data.Radius ) * 0.5f, 0.01f );
                 desc.Position       = transform.Translation; // capsule center
                 desc.MaxSlopeDeg    = cc.Data.MaxSlopeDeg;
-                cc.RuntimeCharacter = m_World->CreateCharacter( desc );
+                auto profile        = m_World->GetCollisionProfiles().Resolve( cc.Data.CollisionProfile );
+                if ( profile )
+                    desc.Profile = profile.GetValue();
+                auto created = profile ? m_World->CreateCharacter( desc )
+                                       : Common::MakeError<Physics::CharacterHandle>( profile.GetError() );
+                if ( !created )
+                {
+                    m_RefusedCharacters.insert( entity );
+                    LOG_ERROR( "[Physics] entity {} has no character: {}", static_cast<uint32_t>( entity ),
+                               created.GetError() );
+                    continue;
+                }
+                cc.RuntimeCharacter = created.GetValue();
                 cc.VerticalVelocity = 0.0f;
             }
 
@@ -392,5 +428,7 @@ namespace Desert::ECS
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.
         std::unordered_set<entt::entity> m_RefusedColliders;
+        std::unordered_set<entt::entity> m_RefusedCharacters;
+        bool                             m_ProfilesRefused = false;
     };
 } // namespace Desert::ECS
