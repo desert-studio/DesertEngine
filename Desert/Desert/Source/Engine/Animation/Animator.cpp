@@ -211,6 +211,16 @@ namespace Desert::Animation
         PublishPose();
     }
 
+    Common::BoolResultStr Animator::ApplyPhysicsPose( const std::vector<BoneOverride>& componentOverrides )
+    {
+        auto applied = ApplyBoneOverrides( m_Skeleton, m_EvaluatedPose, m_Component, componentOverrides, 1.0f,
+                                           m_PhysicsScratch );
+        if ( !applied.IsSuccess() )
+            return applied;
+        PublishPose();
+        return Common::MakeSuccess( true );
+    }
+
     // ============================================================
     // Play / CrossFade
     // ============================================================

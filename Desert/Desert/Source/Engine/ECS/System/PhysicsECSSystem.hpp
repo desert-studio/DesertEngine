@@ -3,6 +3,7 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
+#include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -16,6 +17,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 
@@ -72,6 +74,7 @@ namespace Desert::ECS
                 if ( m_World )
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
+                    m_Ragdolls.reset();
                     m_RefusedColliders.clear();
                     m_Landscape.reset();
                     m_Destructibles.reset();
@@ -93,6 +96,7 @@ namespace Desert::ECS
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
+                m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -108,6 +112,7 @@ namespace Desert::ECS
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
             m_Destructibles->Attach( registry );
+            m_Ragdolls->Attach( registry );
             m_Destructibles->Sync( registry, []( const Assets::AssetHandle& fracture )
                                    { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
@@ -208,7 +213,21 @@ namespace Desert::ECS
 
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
+
+            // Ragdolls around the step (UE: the physics asset's bodies in the physics scene, BlendInPhysics
+            // after it). Animation ran BEFORE this system (RuntimeLayer / SceneWorkspace order), so the
+            // animator's pose is this frame's animated pose: kinematic ragdolls are driven to it by this step,
+            // and simulated ones are written back over it after the step, before skinning.
+            m_Ragdolls->DriveBeforeStep(
+                 registry,
+                 []( const Assets::AssetHandle& asset, const Common::Content::AssetGuid& meshSkeleton,
+                     std::string_view meshSkeletonName ) {
+                     return Runtime::ResourceRegistry::GetPhysicsAssetService()->Get( asset, meshSkeleton,
+                                                                                      meshSkeletonName );
+                 },
+                 &MeshSkeletonOf );
             m_World->Step( ts.GetSeconds() );
+            m_Ragdolls->WriteBackAfterStep( registry );
 
             // Write the simulated pose back into the transform for moving bodies.
             for ( auto entity : bodies )
@@ -371,6 +390,26 @@ namespace Desert::ECS
         }
 
     private:
+        // The skeleton the entity's skinned mesh names (UE USkeletalMesh::Skeleton) — what a physics asset
+        // must be authored on. Only asked once the entity's Animator exists, so the mesh is resident.
+        static Common::ResultStr<Common::Content::AssetGuid> MeshSkeletonOf( const entt::registry& registry,
+                                                                             entt::entity          entity )
+        {
+            using Guid = Common::Content::AssetGuid;
+            if ( !registry.has<SkinnedMeshComponent>( entity ) )
+                return Common::MakeError<Guid>( "it has no Skinned Mesh: a ragdoll's bodies follow a skinned "
+                                                "mesh's bones" );
+            const auto& mesh = registry.get<SkinnedMeshComponent>( entity );
+            if ( mesh.RuntimeMesh )
+                return Common::MakeError<Guid>( "its mesh is an in-editor rig (Convert to Skinned) with no "
+                                                "skeleton asset, and a physics asset names its skeleton by GUID" );
+            const auto* asset = dynamic_cast<const Assets::SkinnedMeshAsset*>(
+                 Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh.MeshHandle ) );
+            if ( asset == nullptr )
+                return Common::MakeError<Guid>( "its mesh is not a parsed skinned mesh" );
+            return Common::MakeSuccess( asset->GetSkeleton() );
+        }
+
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {
@@ -388,6 +427,8 @@ namespace Desert::ECS
         std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
         // Same rule, one level down: the destructible entities' objects live in m_Destruction.
         std::unique_ptr<DestructibleLifetime> m_Destructibles;
+        // Same rule: the ragdolls' bodies live in m_World.
+        std::unique_ptr<RagdollLifetime> m_Ragdolls;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.

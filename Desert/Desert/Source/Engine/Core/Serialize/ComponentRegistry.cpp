@@ -39,6 +39,7 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
+#include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
@@ -897,6 +898,20 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::FractureAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::FractureAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "PhysicsAsset" )
+            {
+                // A ragdoll's physics asset (RagdollData::PhysicsAsset). Announced, not read, as the fracture
+                // above: PhysicsAssetService reads the `.dephysasset` when Play asks for it, and the asset's
+                // constructor adopts the handle its envelope GUID names.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::PhysicsAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::PhysicsAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PrefabAsset" )

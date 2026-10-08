@@ -61,6 +61,7 @@ namespace Desert::Scripting
              MakeEntry<ECS::ColliderComponent>( "Collider", "ColliderData" ),
              MakeEntry<ECS::RigidBodyComponent>( "RigidBody", "RigidBodyData" ),
              MakeEntry<ECS::DestructibleComponent>( "Destructible", "DestructibleData" ),
+             MakeEntry<ECS::RagdollComponent>( "Ragdoll", "RagdollData" ),
              MakeEntry<ECS::RadialImpulseFieldComponent>( "RadialImpulseField", "RadialImpulseFieldData" ),
              MakeEntry<ECS::StrainFieldComponent>( "StrainField", "StrainFieldData" ),
              MakeEntry<ECS::KillFieldComponent>( "KillField", "KillFieldData" ),

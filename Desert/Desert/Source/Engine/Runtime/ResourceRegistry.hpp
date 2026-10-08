@@ -21,6 +21,7 @@
 #include "Services/Landscape/LandscapeLayerInfoService.hpp"
 #include "Services/Foliage/FoliageTypeService.hpp"
 #include "Services/Destruction/FractureService.hpp"
+#include "Services/Physics/PhysicsAssetService.hpp"
 
 namespace Desert::Runtime
 {
@@ -65,6 +66,10 @@ namespace Desert::Runtime
 
         // The `.dfrac` fractures destructible entities name (DST-03b): read on demand, held as the assets.
         static FractureService* GetFractureService();
+
+        // The `.dephysasset` physics assets ragdolls name (RAG1b): read on demand, held as the assets, matched
+        // against the mesh's skeleton by GUID.
+        static PhysicsAssetService* GetPhysicsAssetService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,

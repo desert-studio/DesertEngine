@@ -816,6 +816,13 @@ namespace
          { "SlowMovingAsSleeping", kDestructibleSync },
          { "SlowMovingVelocityThreshold", kDestructibleSync },
     };
+
+    // A ragdoll (RAG1b): the asset and the mode are read by ECS::RagdollLifetime (create / drive / write back).
+    constexpr const char* kRagdollSync   = "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp";
+    constexpr Row         kRagdollRows[] = {
+         { "PhysicsAsset", kRagdollSync },
+         { "Mode", kRagdollSync },
+    };
     // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
     // FieldCommand it hands DestructionWorld::ApplyField.
     constexpr const char* kFieldFire = "Desert/Desert/Source/Engine/ECS/System/DestructionFields.cpp";
@@ -1057,6 +1064,7 @@ namespace
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
+         { "RagdollData", "RagdollComponent", nullptr, CENSUS_ROWS( kRagdollRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
@@ -1272,7 +1280,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // DestructibleLifetime.cpp's Sync into the DestructionWorld description).
     // -> 57 with DST-04b's four field components (RadialImpulseField, StrainField, KillField, AnchorField:
     // every field read by ECS::FireDestructionField in DestructionFields.cpp).
-    EXPECT_EQ( all.size(), 57u );
+    // -> 58 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
+    EXPECT_EQ( all.size(), 58u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
