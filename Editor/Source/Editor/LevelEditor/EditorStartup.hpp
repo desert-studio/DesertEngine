@@ -107,6 +107,11 @@ namespace Desert::Editor
         /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
         /// @p finishedBefore is `AsyncAssetLoader::Progress().Finished` taken before the load asked for anything.
         void BeginContentSettle( uint64_t finishedBefore );
+        /// What a scene load that BLOCKS reports while it waits for its reads (LOAD-SHOW-b, UE's
+        /// FScopedSlowTask shape): installed around the load with Assets::ScopedWaitFeedback, it turns each read
+        /// landing inside AsyncAssetLoader::AwaitOne into the settle's line, counted since @p finishedBefore —
+        /// the splash draws it on its own thread while the main thread is held.
+        [[nodiscard]] Assets::AsyncAssetLoader::WaitFeedback SceneLoadFeedback( uint64_t finishedBefore );
         /// What the settle is reading now and how far it is (Engine/Assets/ContentWork.hpp), for the overlay
         /// the editor draws while a scene opened after the reveal loads.
         [[nodiscard]] const Assets::ContentProgressLine& ContentProgress() const
@@ -149,6 +154,8 @@ namespace Desert::Editor
         void MakeSplashPlan();
         void BeginSplashStage( std::size_t stage, std::optional<std::size_t> items = std::nullopt );
         void PushSplash();
+        // The settle's line (m_ContentProgress) as the splash's item; pushed when it differs from what was shown.
+        void ShowContentLine( const Assets::ContentProgressLine& line );
         // Every condition the splash hand-over depends on, for Splash::MayReveal.
         [[nodiscard]] Splash::RevealState CurrentRevealState() const;
         // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish

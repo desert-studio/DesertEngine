@@ -259,6 +259,28 @@ namespace Desert::Editor
             ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::SceneWarmOnly );
     }
 
+    void EditorStartup::ShowContentLine( const Assets::ContentProgressLine& line )
+    {
+        const bool changed = line.Done != m_ContentProgress.Done || line.Total != m_ContentProgress.Total ||
+                             line.Item != m_ContentProgress.Item;
+        m_ContentProgress = line;
+        if ( changed && !m_Revealed )
+        {
+            m_Progress.Step( line.Item.empty() ? std::string( "Scene assets" ) : line.Item, line.Done,
+                             std::max<std::size_t>( line.Total, 1 ) );
+            PushSplash();
+        }
+    }
+
+    Assets::AsyncAssetLoader::WaitFeedback EditorStartup::SceneLoadFeedback( const uint64_t finishedBefore )
+    {
+        return [this, finishedBefore]( const Assets::LoadProgress& now )
+        {
+            ShowContentLine( Assets::ContentProgressSince(
+                 now, finishedBefore, Graphic::PipelineBuilds::Get().Pending( Graphic::PipelineRole::Engine ) ) );
+        };
+    }
+
     void EditorStartup::BeginContentSettle( const uint64_t finishedBefore )
     {
         m_SettleBase      = finishedBefore;
@@ -428,7 +450,11 @@ namespace Desert::Editor
                  "[Thumbnails] {} {} file(s) get no picture on the splash: the kind has no thumbnail producer "
                  "yet ({})",
                  gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
-        m_SplashWarmTotal = m_FileExplorer->WarmProjectThumbnails( scene, project );
+        // The pass judges every picture on this thread while the splash waits; it names each one (SplashItems),
+        // and the settle's own line goes back up when it is done.
+        m_SplashWarmTotal = m_FileExplorer->WarmProjectThumbnails( scene, project, SplashItems() );
+        m_ContentProgress = {};
+        ShowContentLine( Assets::ContentProgressNow( m_SettleBase ) );
         LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
                   "picture(s) to capture before the hand-over, the rest decode from the disk cache",
                   scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );
@@ -446,18 +472,7 @@ namespace Desert::Editor
             // between a load and a hang. The splash is pushed when the line changes; after the reveal the
             // editor's own overlay draws the same line (EditorLayer::OnUIRender).
             if ( ContentSettling() )
-            {
-                const Assets::ContentProgressLine line    = Assets::ContentProgressNow( m_SettleBase );
-                const bool                        changed = line.Done != m_ContentProgress.Done ||
-                                     line.Total != m_ContentProgress.Total || line.Item != m_ContentProgress.Item;
-                m_ContentProgress = line;
-                if ( changed && !m_Revealed )
-                {
-                    m_Progress.Step( line.Item.empty() ? std::string( "Scene assets" ) : line.Item, line.Done,
-                                     std::max<std::size_t>( line.Total, 1 ) );
-                    PushSplash();
-                }
-            }
+                ShowContentLine( Assets::ContentProgressNow( m_SettleBase ) );
             return;
         }
 

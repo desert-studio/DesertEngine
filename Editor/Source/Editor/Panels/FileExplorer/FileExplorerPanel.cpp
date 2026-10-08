@@ -499,7 +499,8 @@ namespace Desert::Editor
     }
 
     std::size_t FileExplorerPanel::WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
-                                                          const std::vector<ThumbnailWarmup::WarmItem>& project )
+                                                          const std::vector<ThumbnailWarmup::WarmItem>& project,
+                                                          const Assets::ItemProgress& progress )
     {
         using ThumbnailWarmup::WarmItem;
         using ThumbnailWarmup::WarmKind;
@@ -539,18 +540,38 @@ namespace Desert::Editor
             return ThumbnailFreshness::Judge(
                  ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
-        const auto needsCapture = [&]( const WarmItem& item ) {
-            return !m_FailedThumbs.contains( item.Path ) &&
-                   verdictOf( item ) == ThumbnailFreshness::Verdict::Capture;
+        // EACH PICTURE IS JUDGED ONCE. A verdict hashes the picture's source (JudgeMeshPicture), and the splash
+        // list, the capture loop below and the prefetch pass all ask it; judged here, in the counted pass, the
+        // later questions are lookups.
+        std::unordered_map<std::string, bool> judged;
+        const auto needsCapture = [&]( const WarmItem& item )
+        {
+            if ( const auto known = judged.find( item.Path ); known != judged.end() )
+                return known->second;
+            const bool capture = !m_FailedThumbs.contains( item.Path ) &&
+                                 verdictOf( item ) == ThumbnailFreshness::Verdict::Capture;
+            judged.emplace( item.Path, capture );
+            return capture;
         };
 
         // EVERY PICTURE OF THE PROJECT IS ASKED FOR — the one the disk has goes to a worker decode now, the one
         // a capture below writes is asked for again when the captures have landed (RequestProjectPictures).
+        // THE PASS SAYS WHICH PICTURE IT IS ON (LOAD-SHOW-b): it runs on the main thread while the splash waits
+        // (2.2 s on Desert_Sandbox), so the splash, on its own thread, gets "Thumbnail X (n / N)" per picture
+        // instead of a line frozen for the whole pass.
         m_ProjectPrefetchItems.clear();
+        const std::size_t judgedTotal = scene.size() + project.size();
+        std::size_t       judgedDone  = 0;
         for ( const std::vector<WarmItem>* list : { &scene, &project } )
         {
             for ( const WarmItem& item : *list )
             {
+                Assets::ReportItem( progress,
+                                    std::format( "Thumbnail {}",
+                                                 std::filesystem::path( item.Path ).filename().generic_string() ),
+                                    judgedDone++, judgedTotal );
+                if ( item.Kind != WarmKind::Decoded )
+                    (void)needsCapture( item );
                 if ( item.Kind == WarmKind::Decoded )
                     m_ProjectPrefetchItems.push_back( { item.Path, {} } );
                 else if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )

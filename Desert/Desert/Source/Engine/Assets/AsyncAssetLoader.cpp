@@ -10,6 +10,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace Desert::Assets
@@ -425,18 +426,38 @@ namespace Desert::Assets
 
     bool AsyncAssetLoader::AwaitOne( const AssetHandle& handle )
     {
-        State& state = *m_State;
+        State&   state            = *m_State;
+        uint64_t reportedStarted  = 0;
+        uint64_t reportedFinished = 0;
+        bool     reported         = false;
         for ( ;; )
         {
+            LoadProgress now;
             {
                 const std::lock_guard<std::mutex> guard( state.Lock );
                 if ( state.Waiting.find( handle ) == state.Waiting.end() )
                     break;
+                if ( m_WaitFeedback )
+                    now = { state.Started.load( std::memory_order_relaxed ), state.Finished, state.CurrentPath,
+                            state.CurrentType };
+            }
+            // EACH READ THAT LANDS OR STARTS WHILE THIS THREAD WAITS IS REPORTED (LOAD-SHOW-b), outside the lock:
+            // the feedback pushes to a loading screen that draws on its own thread.
+            if ( m_WaitFeedback &&
+                 ( !reported || now.Started != reportedStarted || now.Finished != reportedFinished ) )
+            {
+                reported         = true;
+                reportedStarted  = now.Started;
+                reportedFinished = now.Finished;
+                m_WaitFeedback( now );
             }
             // The queued job is a worker's to run; this thread only waits for it to settle.
             std::this_thread::yield();
         }
-        return DeliverCompleted( handle );
+        const bool delivered = DeliverCompleted( handle );
+        if ( m_WaitFeedback && reported )
+            m_WaitFeedback( Progress() ); // the last read of this wait has landed: the count says so
+        return delivered;
     }
 
     bool AsyncAssetLoader::DeliverCompleted( const AssetHandle& handle )
@@ -505,6 +526,11 @@ namespace Desert::Assets
         const std::lock_guard<std::mutex> guard( state.Lock );
         return { state.Started.load( std::memory_order_relaxed ), state.Finished, state.CurrentPath,
                  state.CurrentType };
+    }
+
+    AsyncAssetLoader::WaitFeedback AsyncAssetLoader::SetWaitFeedback( WaitFeedback feedback )
+    {
+        return std::exchange( m_WaitFeedback, std::move( feedback ) );
     }
 
     uint64_t AsyncAssetLoader::CancelledCount() const

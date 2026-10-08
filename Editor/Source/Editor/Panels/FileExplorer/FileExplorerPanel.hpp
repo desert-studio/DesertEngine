@@ -9,6 +9,7 @@
 #include <Editor/Widgets/ThumbnailProducers.hpp>
 #include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/ItemProgress.hpp>
 #include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
@@ -109,9 +110,11 @@ namespace Desert::Editor
         /// (and uploaded by UploadPrefetchedThumbnails); every one missing or stale is resolved (a mesh on a
         /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh / WarmPose / WarmPainted, scene
         /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
-        /// captures it queued or is still resolving.
+        /// captures it queued or is still resolving. Each picture is judged once, and @p progress hears which one
+        /// (LOAD-SHOW-b: the pass blocks the main thread while the splash waits).
         std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
-                                           const std::vector<ThumbnailWarmup::WarmItem>& project );
+                                           const std::vector<ThumbnailWarmup::WarmItem>& project,
+                                           const Assets::ItemProgress&                   progress );
 
         /// The splash's captures have landed: hand the project's pictures that are not resident yet — the PNGs
         /// those captures just wrote — to the workers again, so they are uploaded before the hand-over too.

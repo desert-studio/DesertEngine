@@ -749,6 +749,9 @@ namespace Desert::Editor
         {
             // The read count of this load starts here: whatever the load asks for is counted from now.
             const uint64_t readsFinishedBefore = Assets::AsyncAssetLoader::Get().Progress().Finished;
+            // The load blocks in AwaitOne until the scene's closure is resident; every read that lands there
+            // moves the splash's line (LOAD-SHOW-b), which draws on its own thread.
+            const Assets::ScopedWaitFeedback loadFeedback( m_Startup.SceneLoadFeedback( readsFinishedBefore ) );
             if ( m_SceneFiles.ServiceLoadRequest() )
             {
                 m_Startup.BeginContentSettle( readsFinishedBefore );

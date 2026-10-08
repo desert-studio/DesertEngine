@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace Desert::Assets
 {
@@ -215,6 +216,16 @@ namespace Desert::Assets
         /// The read counters and the read a worker began last, taken together under the loader's lock.
         [[nodiscard]] LoadProgress Progress() const;
 
+        /// WHO HEARS A BLOCKING WAIT MOVE (LOAD-SHOW-b) — the shape of UE's `FScopedSlowTask::EnterProgressFrame`:
+        /// the code that waits reports, because the thread that would otherwise draw the progress is the one
+        /// waiting. `AwaitOne` calls it with `Progress()` each time a read lands or starts while it blocks, so a
+        /// loading screen with its own thread (the editor's splash) moves while the main thread is held.
+        /// Installed by a host for the length of a load with `ScopedWaitFeedback`; main thread only, as
+        /// `AwaitOne` is.
+        using WaitFeedback = std::function<void( const LoadProgress& )>;
+        /// Installs @p feedback and returns the one it replaces (nested scopes restore it).
+        WaitFeedback SetWaitFeedback( WaitFeedback feedback );
+
         /// How many requests ended in the cancel delegate rather than the completion one.
         [[nodiscard]] uint64_t CancelledCount() const;
 
@@ -269,5 +280,28 @@ namespace Desert::Assets
         /// -- which is why it was a free static in the first place -- without making the object a
         /// decoration.
         std::unique_ptr<State> m_State;
+        WaitFeedback           m_WaitFeedback; // main thread only (SetWaitFeedback)
+    };
+
+    /// `AsyncAssetLoader::SetWaitFeedback` for one scope: installs on construction, puts the previous back on
+    /// destruction — the lifetime of a `FScopedSlowTask`.
+    class ScopedWaitFeedback
+    {
+    public:
+        explicit ScopedWaitFeedback( AsyncAssetLoader::WaitFeedback feedback )
+             : m_Previous( AsyncAssetLoader::Get().SetWaitFeedback( std::move( feedback ) ) )
+        {
+        }
+        ~ScopedWaitFeedback()
+        {
+            (void)AsyncAssetLoader::Get().SetWaitFeedback( std::move( m_Previous ) );
+        }
+        ScopedWaitFeedback( const ScopedWaitFeedback& )            = delete;
+        ScopedWaitFeedback& operator=( const ScopedWaitFeedback& ) = delete;
+        ScopedWaitFeedback( ScopedWaitFeedback&& )                 = delete;
+        ScopedWaitFeedback& operator=( ScopedWaitFeedback&& )      = delete;
+
+    private:
+        AsyncAssetLoader::WaitFeedback m_Previous;
     };
 } // namespace Desert::Assets
