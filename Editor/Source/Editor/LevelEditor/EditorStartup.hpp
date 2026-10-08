@@ -158,12 +158,8 @@ namespace Desert::Editor
         void ShowContentLine( const Assets::ContentProgressLine& line );
         // Every condition the splash hand-over depends on, for Splash::MayReveal.
         [[nodiscard]] Splash::RevealState CurrentRevealState() const;
-        // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
-        // them, and hold the hand-over until they are all up (no time bound, THM1n).
-        void UploadSplashThumbnails();
-        // THUMB3: the open scene's materials — their cached pictures decoded, the missing ones captured on the
-        // splash (Splash::SceneThumbnailCaptureAllowed) within Splash::kSceneCaptureBudgetMs.
-        void WarmSplashScene();
+        // THM-FIXB: the kinds of the project that get no picture, said once when the window is shown.
+        static void ReportUnproducedThumbnailKinds();
 
         Engine::Application*                          m_Application;
         std::shared_ptr<Assets::AssetManager>&        m_AssetManager;
@@ -185,13 +181,6 @@ namespace Desert::Editor
         // Reads the loader had finished when the scene load began: the settle counts only the rest.
         uint64_t                    m_SettleBase = 0;
         Assets::ContentProgressLine m_ContentProgress; // the line the settle shows now
-        bool        m_ThumbnailsHoldReveal = false;
-        bool        m_SplashWarmStarted    = false;
-        std::size_t m_SplashWarmTotal      = 0;     // captures queued when the warm-up started
-        std::size_t m_SplashWarmShown      = 0;     // what the splash line last said was left
-        bool m_SplashPicturesReasked       = false; // the captures landed and their PNGs were asked for (THM1n-13)
-        // When every other reveal condition first held: the start of the thumbnails' budget.
-        std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
         // KEPT after it is closed, until the layer goes: Close() only starts the crossfade, and the
         // object's destructor is what waits for its window and thread — at teardown, not on the frame
         // the editor has just appeared on.

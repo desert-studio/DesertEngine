@@ -7,9 +7,7 @@
 #include <Editor/Panels/FileExplorer/FileType.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
-#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/Assets/ItemProgress.hpp>
 #include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
@@ -97,36 +95,8 @@ namespace Desert::Editor
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
         bool OnWindowFileDropped( Common::EventWindowFileDrop& drop );
 
-        /// THE SPLASH'S UPLOAD PASS (THUMB2, THM1n-13). Every picture this panel asked a worker for — the
-        /// opening folder's and the whole project's (WarmProjectThumbnails) — that a worker has finished goes
-        /// through ThumbnailCache::Get now, the same call the tile makes, so after the hand-over every tile of
-        /// every folder finds its picture resident. Nothing is captured or rendered. Returns how many of those
-        /// pictures are still waiting for or on a worker.
-        std::size_t UploadPrefetchedThumbnails();
-
-        /// WHAT THE SPLASH MAKES RESIDENT (THUMB3, THM1m, THM1n-13). @p scene = ThumbnailWarmup::SceneWarmList,
-        /// the open scene's materials and meshes; @p project = ThumbnailWarmup::ProjectWarmList, every picture
-        /// of the project from the content registry. Every picture on disk is handed to the prefetch workers
-        /// (and uploaded by UploadPrefetchedThumbnails); every one missing or stale is resolved (a mesh on a
-        /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh / WarmPose / WarmPainted, scene
-        /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
-        /// captures it queued or is still resolving. Each picture is judged once, and @p progress hears which one
-        /// (LOAD-SHOW-b: the pass blocks the main thread while the splash waits).
-        std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
-                                           const std::vector<ThumbnailWarmup::WarmItem>& project,
-                                           const Assets::ItemProgress&                   progress );
-
-        /// The splash's captures have landed: hand the project's pictures that are not resident yet — the PNGs
-        /// those captures just wrote — to the workers again, so they are uploaded before the hand-over too.
-        void RequestProjectPictures();
-
         /// How many pictures the browser holds on the GPU (ThumbnailCache::ResidentCount).
         [[nodiscard]] std::size_t ResidentThumbnails() const;
-
-        /// Meshes WarmProjectThumbnails found cold (read in flight on a worker): asked again each frame until
-        /// each is resident and queued, or refused. Returns how many are still being read — they hold the
-        /// hand-over like a queued capture does, within the same budget.
-        std::size_t TickWarmMeshes();
 
         bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
@@ -400,13 +370,6 @@ namespace Desert::Editor
         const SubjectEditorRegistry*             m_SubjectEditors = nullptr;
         std::unique_ptr<UI::UIHelper>   m_UIHelper;
         std::unique_ptr<ThumbnailCache>          m_Thumbnails;
-        // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
-        // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
-        std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
-        std::vector<ThumbnailPrefetch::Item>
-             m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
-        std::vector<ThumbnailWarmup::WarmItem>
-             m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
 
         // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
         // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the

@@ -310,90 +310,55 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
     const std::string layer =
          ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
-    EXPECT_NE(
-         layer.find(
-              "if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )\n"
-              "            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );" ),
-         std::string::npos )
+    EXPECT_NE( layer.find( "if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )\n"
+                           "            ThumbnailService::Get().TickCapture();" ),
+               std::string::npos )
          << "the capture half of the thumbnail pump is not behind the capture gate";
-    // THUMB3: the only capture before the hand-over is the scene's, behind its own gate and scope.
-    EXPECT_NE(
-         layer.find(
-              "else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&\n"
-              "                  ThumbnailService::Get().SceneWarmPending() > 0 )\n"
-              "            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::SceneWarmOnly );" ),
-         std::string::npos )
-         << "a capture on the splash is not limited to the scene's warm list";
 }
 
-// THUMB2. The splash uploads the opening folder's pictures before the hand-over, and it reads where they stand
-// through SurveyOf: a picture still with a worker holds the hand-over (within its budget), a finished one is
-// uploaded, and a MISSING one is neither — it is a capture, and a capture waits for the window.
-TEST( ThumbnailPrefetch, TheSplashSurveySeesWhatIsReadyAndNeverWaitsForACapture )
-{
-    const Fixture f;
-    f.WriteFreshPng();
-    const fs::path missingSource = f.Dir / "M_NoPicture.demat";
-    const fs::path missingPng    = f.Dir / "M_NoPicture.png";
-    std::ofstream( missingSource ) << R"({ "material": 2 })";
-
-    const std::vector<ThumbnailPrefetch::Item> folder = { { f.Png.string(), f.Source.string() },
-                                                          { missingPng.string(), missingSource.string() } };
-    ThumbnailPrefetch::Get().Request( folder );
-
-    const ThumbnailPrefetch::Survey before = ThumbnailPrefetch::Get().SurveyOf( folder );
-    EXPECT_TRUE( before.Ready.empty() );
-    EXPECT_EQ( before.Pending, 2u ) << "the requested pictures must hold the hand-over while a worker has them";
-
-    ThumbnailPrefetch::Get().Drain();
-    const ThumbnailPrefetch::Survey after = ThumbnailPrefetch::Get().SurveyOf( folder );
-    ASSERT_EQ( after.Ready.size(), 1u ) << "the decoded cached picture is not offered to the splash upload";
-    EXPECT_EQ( after.Ready.front(), f.Png.string() );
-    EXPECT_EQ( after.Pending, 0u ) << "a picture with no PNG on disk held the splash: that is a capture's wait";
-    EXPECT_FALSE( fs::exists( missingPng ) )
-         << "the splash pass produced a thumbnail: captures wait for the window";
-
-    // Uploaded (the cache took it): it neither holds the hand-over nor is offered again.
-    ASSERT_TRUE( ThumbnailPrefetch::Get().Take( f.Png.string(), fs::last_write_time( f.Png ) ).has_value() );
-    const ThumbnailPrefetch::Survey uploaded = ThumbnailPrefetch::Get().SurveyOf( folder );
-    EXPECT_TRUE( uploaded.Ready.empty() );
-    EXPECT_EQ( uploaded.Pending, 0u ) << "an uploaded picture kept holding the hand-over to its budget";
-}
-
-// The wiring the suite cannot link (EditorLayer, the panel): the panel's constructor prefetches the folder it
-// opens on, the splash pass uploads exactly that list, the stages tick the decode, and the capture stays gated.
-TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
+// THUMB-LAZY (GI-BISTRO3: a --shot sat > 8 min in "Loading scene content" while the splash photographed 1297
+// meshes). Neither the start-up nor a scene load asks for a single picture: no warm list, no upload pass,
+// no request from the start-up or the scene-file code. A picture is asked for by the shower that draws it.
+TEST( ThumbnailPrefetch, LoadingASceneAsksForNoThumbnail )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
+    EXPECT_FALSE( fs::exists( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailWarmup.hpp", root ) ) )
+         << "the splash warm-up list is back";
+    for ( const char* file : { "Editor/Source/Editor/LevelEditor/EditorStartup.cpp",
+                               "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" } )
+    {
+        const std::string text = ReadFile( std::format( "{}{}", root, file ) );
+        ASSERT_FALSE( text.empty() ) << file;
+        for ( const char* asks :
+              { "ThumbnailService::Get().Request", "ThumbnailService::Get().Warm", "WarmProjectThumbnails",
+                "UploadPrefetchedThumbnails", "ThumbnailPrefetch::Get()" } )
+            EXPECT_EQ( text.find( asks ), std::string::npos ) << file << " asks for a picture: " << asks;
+    }
+    const std::string gate = ReadFile( std::format( "{}Editor/Source/Editor/Splash/RevealGate.hpp", root ) );
+    ASSERT_FALSE( gate.empty() );
+    EXPECT_EQ( gate.find( "Thumbnail" ), gate.find( "ThumbnailDiskDecodeAllowed" ) )
+         << "a thumbnail condition is part of the hand-over again";
+}
 
+// The wiring the suite cannot link (EditorStartup, the panel): the panel prefetches the folder it shows, the
+// stages tick the decode, and nothing uploads or waits ahead of the tiles (THUMB-LAZY).
+TEST( ThumbnailPrefetch, TheBrowserDecodesTheFolderItShowsAndNothingWaitsForIt )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
     const std::string panel =
          ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
     ASSERT_FALSE( panel.empty() );
-    EXPECT_NE( panel.find( "m_PrefetchItems = items;\n" ), std::string::npos )
-         << "the splash upload no longer reads the list the browser prefetched";
-    // THM1n-13: the folder's list AND the project's — every picture of the project is uploaded on the splash.
-    EXPECT_NE(
-         panel.find(
-              "items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );\n"
-              "        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( items );" ),
-         std::string::npos )
-         << "the splash upload no longer reads the project's pictures with the folder's";
-    EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
-         << "the splash upload does not go through the cache the tiles draw from";
-
+    EXPECT_NE( panel.find( "void FileExplorerPanel::PrefetchCurrentFolderThumbnails()" ), std::string::npos );
+    EXPECT_EQ( panel.find( "m_ProjectPrefetchItems" ), std::string::npos ) << "the project is prefetched again";
     const std::string layer =
          ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
-    EXPECT_NE(
-         layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
-         std::string::npos )
-         << "the per-frame thumbnail pump no longer runs the splash upload pass";
-    EXPECT_NE( layer.find( "m_FileExplorer->UploadPrefetchedThumbnails()" ), std::string::npos );
     EXPECT_NE( layer.find( "            ThumbnailService::TickDiskAndDecode();\n        return true;\n" ),
                std::string::npos )
          << "the startup stages no longer tick the worker decode";
-    EXPECT_NE( layer.find( "state.ThumbnailsUploading = m_ThumbnailsHoldReveal;" ), std::string::npos );
+    EXPECT_EQ( layer.find( "ThumbnailsUploading" ), std::string::npos ) << "thumbnails hold the hand-over again";
 }
 
 // The byte budget is asked as Background work: a UserSurface entitlement would let a queue of thumbnails

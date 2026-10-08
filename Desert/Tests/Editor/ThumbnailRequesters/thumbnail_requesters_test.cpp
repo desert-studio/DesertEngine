@@ -147,14 +147,6 @@ namespace
            "so that EVERY image previews, not only the already-cooked ones" },
 
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::UploadPrefetchedThumbnails", Role::Rereads, "",
-           "the splash's upload pass (THUMB2). It uploads only pictures a worker already decoded from the "
-           "disk cache for the tiles of the folder the browser opens on, before the window is shown; it "
-           "never asks for a capture because none may run before the hand-over, and the tiles' own draws "
-           "(DrawRenderedMaterialThumbnail / DrawRenderedMeshThumbnail, this file) queue any picture that "
-           "is missing on the first frame after it" },
-
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::EmitAssetDragSource", Role::Rereads, "",
            "the drag ghost. It shows the picture of the tile being dragged, and a tile cannot be dragged "
            "without having been drawn — DrawRenderedMaterialThumbnail / DrawRenderedMeshThumbnail queued "
@@ -595,12 +587,10 @@ TEST( ThumbnailRequesters, TheOnlyExceptionIsBackedByTheSiteThatQueuesForIt )
              << site.Why;
     }
 
-    // The exceptions are a NAMED register, not a count: the drag ghost and the splash's upload pass (THUMB2 —
-    // no capture may be asked for before the window exists, Splash::ThumbnailCaptureAllowed) and Edit
+    // The exceptions are a NAMED register, not a count: the drag ghost and Edit
     // Thumbnail's live preview (DEV-CIFIX, 09-30 — it re-reads what its own function just requested).
     // A new Rereads row fails here until its name is added deliberately.
     const std::set<std::string> kDecidedExceptions = { "FileExplorerPanel::EmitAssetDragSource",
-                                                       "FileExplorerPanel::UploadPrefetchedThumbnails",
                                                        "FileExplorerPanel::DrawThumbnailEdit" };
     std::set<std::string>       excused;
     for ( const Site& site : kSites )
@@ -786,8 +776,6 @@ TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
            "FileExplorerPanel::DrawRenderedPoseThumbnail", false },
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "bool FileExplorerPanel::DrawRenderedMeshThumbnail", false },
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::WarmProjectThumbnails", true },
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard", false },
          { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "const void* ThumbnailOf(", false } };
     for ( const auto& [file, function, otherPictures] : showers )
