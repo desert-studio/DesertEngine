@@ -9,10 +9,8 @@
 #include <Engine/UI/UICanvasResources.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/ECS/Components.hpp>
+#include <Engine/UI/UITree.hpp>
 #include <Engine/Assets/Common.hpp>
-
-#include <entt/entt.hpp>
 
 #include <string>
 #include <unordered_map>
@@ -40,10 +38,10 @@ namespace Desert::UI::Walk
         // recursion into it draws instead of retaining again); MaskCapture = the mask element being
         // captured (drawn even when hidden). MaskOf / MaskTargets are resolved once per walk.
         Graphic::Render2D::DrawList2D*                 Root        = nullptr;
-        entt::entity                                   Retaining   = entt::null;
-        entt::entity                                   MaskCapture = entt::null;
-        std::unordered_map<entt::entity, entt::entity> MaskOf{};
-        std::unordered_set<entt::entity>               MaskTargets{};
+        NodeId                                   Retaining   = NodeId::Null;
+        NodeId                                   MaskCapture = NodeId::Null;
+        std::unordered_map<NodeId, NodeId> MaskOf{};
+        std::unordered_set<NodeId>               MaskTargets{};
     };
 
     // What a tween contributes this frame. Identity when the element has none.
@@ -87,7 +85,7 @@ namespace Desert::UI::Walk
     // An open dropdown whose option list is drawn AFTER the whole tree, so it overlays everything.
     struct PopupInfo
     {
-        entt::entity Entity;
+        NodeId Entity;
         Rect         Box;   // the dropdown's box rect (screen px)
         float        Scale; // canvas scale for its text
         // The style the BOX was drawn with, carried here rather than re-resolved after the walk. The
@@ -113,15 +111,15 @@ namespace Desert::UI::Walk
     struct ElementFrame
     {
         WalkCtx&                               Ctx;
-        entt::registry&                        Reg;
-        entt::entity                           E;
+        IUITree&                        Tree;
+        NodeId                           E;
         float                                  Scale;
         Graphic::Render2D::DrawList2D&         Dl;
         const UIInput*                         Input;
         std::string*                           OutClicked;
-        entt::entity*                          Focused;
+        NodeId*                          Focused;
         std::vector<PopupInfo>*                Popups;
-        std::vector<entt::entity>*             Focusables;
+        std::vector<NodeId>*             Focusables;
         const Graphic::Render2D::ClipRegion2D& ClipRegion;
         const HitScope                         ChildScope;
         const ElementStyle&                    St;
@@ -141,25 +139,25 @@ namespace Desert::UI::Walk
 
     // Helpers of the walk (UIWalkCtx.cpp; each one's contract is stated at its definition).
     bool                     HandleSet( const Assets::AssetHandle& h );
-    void                     ResolveRetainerMasks( WalkCtx& ctx, entt::registry& reg );
-    ElementStyle             StyleFor( WalkCtx& ctx, const entt::registry& reg, entt::entity e );
+    void                     ResolveRetainerMasks( WalkCtx& ctx, IUITree& tree );
+    ElementStyle             StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e );
     UITextData               Themed( const ElementStyle& st, UITextData t );
-    float                    HoverEase( WalkCtx& ctx, entt::entity e, bool hovered );
+    float                    HoverEase( WalkCtx& ctx, NodeId e, bool hovered );
     void                     RequestScreen( WalkCtx& ctx, const std::string& name, bool back );
     float                    Ease( UIEasing e, float t );
-    TweenSample              SampleTween( WalkCtx& ctx, entt::registry& reg, entt::entity e );
-    void                     ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out );
-    BindingSample            SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw,
+    TweenSample              SampleTween( WalkCtx& ctx, IUITree& tree, NodeId e );
+    void                     ApplyAnimClip( WalkCtx& ctx, NodeId e, TweenSample& out );
+    BindingSample            SampleBinding( IUITree& tree, NodeId e, TweenSample& tw,
                                             const UICanvasContext& cell );
     std::string ResolveLabel( IUITextSource& text, const std::string& authored, const BindingSample& binding );
     glm::vec4                Tinted( const WalkCtx& ctx, const glm::vec4& c );
     bool                     PointIn( const Rect& r, const glm::vec2& p );
     bool                     Accepts( const UIDropTargetData& t, const std::string& payload );
     std::vector<std::string> SplitOptions( IUITextSource& text, const std::string& s );
-    bool                     IsFocusable( entt::registry& reg, entt::entity e );
+    bool                     IsFocusable( IUITree& tree, NodeId e );
     TextureRef               ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle );
-    const void*              ResolveUIMaterial( WalkCtx& ctx, entt::entity e, const Assets::AssetHandle& handle );
-    const void*              ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const UIRenderTextureData& data,
+    const void*              ResolveUIMaterial( WalkCtx& ctx, NodeId e, const Assets::AssetHandle& handle );
+    const void*              ResolveRenderTexture( WalkCtx& ctx, NodeId e, const UIRenderTextureData& data,
                                                    const Rect& rect );
     TextureRef        ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle );
     void              DrawBox( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn,
@@ -170,13 +168,13 @@ namespace Desert::UI::Walk
     void              DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const UIIconData& ic,
                                 const Rect& rect, const glm::vec4& tint );
     LayoutGroupParams GroupParams( const UILayoutGroupData& g, const ElementStyle& st, float scale );
-    glm::vec2         GroupContentPx( entt::registry& reg, entt::entity e, const ElementStyle& st, float scale );
+    glm::vec2         GroupContentPx( IUITree& tree, NodeId e, const ElementStyle& st, float scale );
 
     // Draw @p e and its sub-tree (UICanvasRenderer2D.cpp): resolves the element, dispatches it to its widget,
     // recurses into the children.
-    void DrawElement( WalkCtx& ctx, entt::registry& reg, entt::entity e, const Rect& parent, float scale,
+    void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                       Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
-                      entt::entity* focused, std::vector<PopupInfo>* popups, std::vector<entt::entity>* focusables,
+                      NodeId* focused, std::vector<PopupInfo>* popups, std::vector<NodeId>* focusables,
                       const Graphic::Render2D::ClipRegion2D& clipRegion, HitScope scope,
                       const Rect* forcedRect = nullptr );
 } // namespace Desert::UI::Walk

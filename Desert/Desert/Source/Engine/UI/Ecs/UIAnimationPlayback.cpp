@@ -90,8 +90,24 @@ namespace Desert::UI
         }
     } // namespace
 
-    void TimelineUIAnimationSource::Evaluate( entt::registry& reg, const UIAnimationStep& uiStep )
+    void TimelineUIAnimationSource::Evaluate( const IUITree& scene, const UIAnimationStep& uiStep )
     {
+        // The clips live on the ECS (UIAnimComponent), which the tree does not carry: this source is the
+        // engine half of the seam and is only ever handed the engine's own tree. Anything else is a host bug,
+        // said once and drawn unanimated rather than guessed at.
+        const auto* ecs = dynamic_cast<const EcsUITree*>( &scene );
+        if ( ecs == nullptr )
+        {
+            Samples.clear();
+            if ( !WarnedForeignTree )
+            {
+                WarnedForeignTree = true;
+                LOG_ERROR( "[UI] the timeline animation source was handed a tree that is not the ECS scene; "
+                           "UI clips do not play" );
+            }
+            return;
+        }
+        entt::registry& reg = ecs->Registry();
         const float dtSeconds = uiStep.DtSeconds;
         const bool  advance   = uiStep.Advance;
         const bool  gameWorld = uiStep.GameWorld;

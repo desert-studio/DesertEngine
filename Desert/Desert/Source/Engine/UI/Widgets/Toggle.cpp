@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawToggleWidget( ElementFrame& frame )
     {
         auto& ctx         = frame.Ctx;
-        auto& reg         = frame.Reg;
+        auto& tree         = frame.Tree;
         auto& e           = frame.E;
         auto& scale       = frame.Scale;
         auto& dl          = frame.Dl;
@@ -43,7 +42,7 @@ namespace Desert::UI::Walk
         auto& mx          = frame.Mx;
         auto& hot         = frame.Hot;
 
-        auto&       tg    = reg.get<ECS::UIToggleComponent>( e ).Data;
+        auto&       tg    = *tree.GetState<UIToggleData>( e );
         const bool  hover = input && hot;
         const float r     = st.Metric( StyleSlot::ToggleCornerRadius, tg.CornerRadius ) * scale;
         dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( st.Color( StyleSlot::ToggleBox, tg.BoxColor ), 1.0f ) ),

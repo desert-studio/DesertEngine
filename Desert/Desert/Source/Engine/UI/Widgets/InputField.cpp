@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawInputFieldWidget( ElementFrame& frame )
     {
         auto& ctx         = frame.Ctx;
-        auto& reg         = frame.Reg;
+        auto& tree         = frame.Tree;
         auto& e           = frame.E;
         auto& scale       = frame.Scale;
         auto& dl          = frame.Dl;
@@ -43,7 +42,7 @@ namespace Desert::UI::Walk
         auto& mx          = frame.Mx;
         auto& hot         = frame.Hot;
 
-        auto&      f         = reg.get<ECS::UIInputFieldComponent>( e ).Data;
+        auto&      f         = *tree.GetState<UIInputFieldData>( e );
         const bool isFocused = interactive && focused && *focused == e;
         const bool hover     = input && hot;
 

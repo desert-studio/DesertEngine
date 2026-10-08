@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawButtonWidget( ElementFrame& frame )
     {
         auto& ctx         = frame.Ctx;
-        auto& reg         = frame.Reg;
+        auto& tree         = frame.Tree;
         auto& e           = frame.E;
         auto& scale       = frame.Scale;
         auto& dl          = frame.Dl;
@@ -43,7 +42,7 @@ namespace Desert::UI::Walk
         auto& mx          = frame.Mx;
         auto& hot         = frame.Hot;
 
-        const auto& b = reg.get<ECS::UIButtonComponent>( e ).Data;
+        const auto& b = *tree.Get<UIButtonData>( e );
         // Disabled swallows all pointer/keyboard interaction and rests on the dim colour.
         const bool hover = !b.Disabled && input && hot;
         const bool down  = hover && input->MouseDown;

@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawChildren( ElementFrame& frame )
     {
         auto& ctx         = frame.Ctx;
-        auto& reg         = frame.Reg;
+        auto& tree         = frame.Tree;
         auto& e           = frame.E;
         auto& scale       = frame.Scale;
         auto& dl          = frame.Dl;
@@ -47,7 +46,7 @@ namespace Desert::UI::Walk
 
         Rect childParent = rect;
         // Clip Contents (RectMask2D) OR a scroll view both scissor children to this element's rect.
-        bool clip = reg.has<ECS::UILayoutComponent>( e ) && reg.get<ECS::UILayoutComponent>( e ).Data.ClipContents;
+        bool clip = tree.Has<UILayoutData>( e ) && tree.Get<UILayoutData>( e )->ClipContents;
 
         // The scrolling containers' shared state, stated once so the scrollbar below is written
         // once. >0 in ScrollMaxPx is also "the content overflows", i.e. "draw a scrollbar".
@@ -57,9 +56,9 @@ namespace Desert::UI::Walk
         bool       showScrollbar = false;
         glm::vec3  scrollbarColor( 0.0f );
         const bool wheelOver = input != nullptr && interactive && e == ctx.View.Hot;
-        if ( reg.has<ECS::UIScrollViewComponent>( e ) )
+        if ( tree.Has<UIScrollViewData>( e ) )
         {
-            auto& sv = reg.get<ECS::UIScrollViewComponent>( e ).Data;
+            auto& sv = *tree.GetState<UIScrollViewData>( e );
             dl.AddRectFilled( { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
                               glm::vec4( st.Color( StyleSlot::ScrollViewBackground, sv.Background ), 1.0f ) );
 
@@ -84,17 +83,17 @@ namespace Desert::UI::Walk
         // in the child loop: this one walks a WINDOW of its children and the scroll view walks all
         // of them. It reads the same ROW GEOMETRY the enumeration reads, out of one function, so
         // the row that draws here and the row that is picked in the editor cannot be two rows.
-        const bool          isList = reg.has<ECS::UIListViewComponent>( e );
+        const bool          isList = tree.Has<UIListViewData>( e );
         ListWindow          window;
         const UICollection* boundRows = nullptr;
         if ( isList )
         {
-            auto& lv = reg.get<ECS::UIListViewComponent>( e ).Data;
+            auto& lv = *tree.GetState<UIListViewData>( e );
             // Bound (UIL1): the row count is the collection's, and a list whose collection has not
             // been written yet is an empty list — the same answer a binding to an unwritten key
             // gives, the authored state until gameplay says otherwise.
             boundRows = lv.Collection.empty() ? nullptr : UIDataStore::Get().FindCollection( lv.Collection );
-            std::size_t rowCount = reg.get<ECS::RelationshipComponent>( e ).Children.size();
+            std::size_t rowCount = tree.ChildCount( e );
             if ( !lv.Collection.empty() )
                 rowCount = boundRows != nullptr ? static_cast<std::size_t>( boundRows->Size() ) : 0;
             if ( boundRows != nullptr )
@@ -153,19 +152,19 @@ namespace Desert::UI::Walk
             (void)Graphic::Render2D::IntersectClipRegion( childClip, dl.GetTransform(), { rect.X, rect.Y },
                                                           { rect.X + rect.W, rect.Y + rect.H } );
 
-        const auto& children = reg.get<ECS::RelationshipComponent>( e ).Children;
+        const ChildRange children = ChildrenOf( tree, e );
         if ( isList )
         {
             // THE WHOLE POINT, AND IT IS FOUR LINES. Everything outside [First, Last] is never
             // reached, so it costs no rect, no style, no tween, no hit test and no vertex — and,
             // because asking is also the demand, a UIRenderTexture row that left the window has
             // its capture destroyed and its renderer slot returned with no code at this site.
-            const bool bound = !reg.get<ECS::UIListViewComponent>( e ).Data.Collection.empty();
+            const bool bound = !tree.Get<UIListViewData>( e )->Collection.empty();
             if ( bound && children.size() != 1 && ctx.Canvas.WarnedListTemplates.insert( e ).second )
             {
                 LOG_WARN( "[UI] list {} is bound to collection '{}' and has {} children; a bound list "
                           "draws its ONE child as the entry template, so it draws no rows",
-                          static_cast<std::uint32_t>( e ), reg.get<ECS::UIListViewComponent>( e ).Data.Collection,
+                          static_cast<std::uint32_t>( e ), tree.Get<UIListViewData>( e )->Collection,
                           children.size() );
             }
             if ( bound )
@@ -174,15 +173,15 @@ namespace Desert::UI::Walk
                 // that record answering its bindings, so a record costs a row only while it is on
                 // screen. The previous record is restored rather than cleared, for a bound list
                 // nested inside another one's row.
-                const entt::entity entry = children.size() == 1 ? children.front() : entt::entity( entt::null );
-                if ( boundRows != nullptr && reg.valid( entry ) )
+                const NodeId entry = children.size() == 1 ? children.front() : NodeId::Null;
+                if ( boundRows != nullptr && tree.Valid( entry ) )
                 {
                     const UIDataStore* outer = ctx.Canvas.RowRecord;
                     for ( int i = window.First; i <= window.Last; ++i )
                     {
                         ctx.Canvas.RowRecord = &boundRows->Record( i );
                         const Rect rowRect   = ListRowRect( rect, window, i );
-                        DrawElement( ctx, reg, entry, rect, scale, dl, input, outClicked, focused, popups,
+                        DrawElement( ctx, tree, entry, rect, scale, dl, input, outClicked, focused, popups,
                                      focusables, childClip, childScope, &rowRect );
                     }
                     ctx.Canvas.RowRecord = outer;
@@ -190,22 +189,22 @@ namespace Desert::UI::Walk
             }
             for ( int i = window.First; !bound && i <= window.Last; ++i )
             {
-                const entt::entity c = children[static_cast<std::size_t>( i )];
-                if ( !reg.valid( c ) )
+                const NodeId c = children[static_cast<std::size_t>( i )];
+                if ( !tree.Valid( c ) )
                 {
                     continue;
                 }
                 const Rect rowRect = ListRowRect( rect, window, i );
-                DrawElement( ctx, reg, c, rect, scale, dl, input, outClicked, focused, popups, focusables,
+                DrawElement( ctx, tree, c, rect, scale, dl, input, outClicked, focused, popups, focusables,
                              childClip, childScope, &rowRect );
             }
         }
-        else if ( reg.has<ECS::UILayoutGroupComponent>( e ) )
+        else if ( tree.Has<UILayoutGroupData>( e ) )
         {
             // Auto-layout: the group positions + sizes its children (overriding their anchors). Each
             // child's preferred size = CustomMinimumSize, else its authored offset size (design px).
-            const auto&               g = reg.get<ECS::UILayoutGroupComponent>( e ).Data;
-            std::vector<entt::entity> kids;
+            const auto&               g = *tree.Get<UILayoutGroupData>( e );
+            std::vector<NodeId> kids;
             std::vector<glm::vec2>    sizes;
             std::vector<float>        flex;
             for ( auto c : children )
@@ -214,13 +213,13 @@ namespace Desert::UI::Walk
                 // given a slot, so every sibling after it moves up by that slot's size plus the
                 // spacing. A Hidden one is kept here and stopped at the top of DrawElement, which
                 // is what leaves its hole open.
-                if ( !reg.valid( c ) || !TakesLayoutSpace( reg, c ) )
+                if ( !tree.Valid( c ) || !TakesLayoutSpace( tree, c ) )
                     continue;
                 glm::vec2 pref( 0.0f );
                 float     fg = 0.0f;
-                if ( reg.has<ECS::UILayoutComponent>( c ) )
+                if ( tree.Has<UILayoutData>( c ) )
                 {
-                    const auto& L = reg.get<ECS::UILayoutComponent>( c ).Data;
+                    const auto& L = *tree.Get<UILayoutData>( c );
                     pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
                     fg            = L.FlexGrow;
                 }
@@ -236,14 +235,14 @@ namespace Desert::UI::Walk
 
             const auto rects = SolveLayoutGroup( childParent, params, sizes, flex );
             for ( std::size_t i = 0; i < kids.size(); ++i )
-                DrawElement( ctx, reg, kids[i], childParent, scale, dl, input, outClicked, focused, popups,
+                DrawElement( ctx, tree, kids[i], childParent, scale, dl, input, outClicked, focused, popups,
                              focusables, childClip, childScope, &rects[i] );
         }
         else
         {
             for ( auto c : children )
-                if ( reg.valid( c ) )
-                    DrawElement( ctx, reg, c, childParent, scale, dl, input, outClicked, focused, popups,
+                if ( tree.Valid( c ) )
+                    DrawElement( ctx, tree, c, childParent, scale, dl, input, outClicked, focused, popups,
                                  focusables, childClip, childScope );
         }
         if ( clip )

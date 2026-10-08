@@ -203,4 +203,14 @@ namespace Desert::UI
         for ( const auto e : found )
             out.push_back( ToNode( e ) );
     }
+
+    // The canvas entity's own TransformComponent translation — what the world-space billboard has always
+    // projected (the local transform: a world-space canvas is authored at the root).
+    std::optional<glm::vec3> EcsUITree::WorldOrigin( NodeId n ) const
+    {
+        const auto* t = Valid( n ) ? m_Reg->try_get<ECS::TransformComponent>( ToEntity( n ) ) : nullptr;
+        if ( t == nullptr )
+            return std::nullopt;
+        return glm::vec3( t->GetTransform()[3] );
+    }
 } // namespace Desert::UI

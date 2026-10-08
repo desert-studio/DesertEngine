@@ -50,6 +50,11 @@ namespace Desert::UI
         [[nodiscard]] const void*      Find( NodeId n, ArgKind kind ) const override;
         [[nodiscard]] void*            FindState( NodeId n, ArgKind kind ) override;
         void                           Roots( ArgKind kind, std::vector<NodeId>& out ) const override;
+        [[nodiscard]] const void*      Storage() const override
+        {
+            return m_Reg;
+        }
+        [[nodiscard]] std::optional<glm::vec3> WorldOrigin( NodeId n ) const override;
 
         [[nodiscard]] entt::registry& Registry() const
         {

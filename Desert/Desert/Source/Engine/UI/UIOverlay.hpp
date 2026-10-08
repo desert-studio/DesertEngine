@@ -6,7 +6,7 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
-#include <entt/entt.hpp>
+#include <Engine/UI/UITree.hpp>
 
 #include <string>
 #include <vector>
@@ -38,13 +38,13 @@ namespace Desert::UI
 {
     // The overlay policy of @p canvas, or nullptr when it is not an overlay. Reads the component; every
     // caller in the engine goes through this so "is this an overlay" is one question with one answer.
-    [[nodiscard]] const UIOverlayData* OverlayDataOf( entt::registry& reg, entt::entity canvas );
+    [[nodiscard]] const UIOverlayData* OverlayDataOf( IUITree& tree, NodeId canvas );
 
     // The overlay canvas named @p name. REFUSES when there is none and when there is more than one, with
     // the count in the message — the same rule as UI::SoleCanvas, for the same reason: picking one of two
     // identically named overlays is a silent wrong answer, and the author's typo would surface as "the
     // wrong menu opens" months later.
-    [[nodiscard]] Common::ResultStr<entt::entity> OverlayByName( entt::registry& reg, const std::string& name );
+    [[nodiscard]] Common::ResultStr<NodeId> OverlayByName( IUITree& tree, const std::string& name );
 
     // A notification raised from OUTSIDE the UI — gameplay, a Lua script, a tool. Kept here rather than
     // pushed straight into a view because the raiser has no view: it knows the overlay's authored name and
@@ -90,8 +90,16 @@ namespace Desert::UI
     //
     // @p input is never null here — a walk with no input is an authoring walk, and an authoring walk draws
     // every overlay as authored instead of running a state machine over a pointer it does not have.
-    void UpdateOverlays( UIViewContext& view, entt::registry& reg, const UIInput& input );
+    void UpdateOverlays( UIViewContext& view, IUITree& tree, const UIInput& input );
 
     // Close every open overlay of @p view, e.g. because the scene is being torn down or play stopped.
-    void CloseAllOverlays( UIViewContext& view, entt::registry& reg );
+    void CloseAllOverlays( UIViewContext& view, IUITree& tree );
+} // namespace Desert::UI
+
+// ECS overload for engine callers (Engine/UI/Ecs/UICanvasRendererEcs.cpp).
+#include <Engine/UI/Ecs/EcsUITree.hpp>
+
+namespace Desert::UI
+{
+    [[nodiscard]] Common::ResultStr<entt::entity> OverlayByName( entt::registry& reg, const std::string& name );
 } // namespace Desert::UI

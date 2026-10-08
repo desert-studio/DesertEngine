@@ -13,7 +13,7 @@
 // owns its source and a copy Clone()s it. The host's resources (UICanvasResources.hpp) create it, because the
 // resources are what knows which backend the view draws.
 
-#include <entt/entt.hpp>
+#include <Engine/UI/UITree.hpp>
 #include <glm/glm.hpp>
 
 #include <memory>
@@ -56,13 +56,13 @@ namespace Desert::UI
 
         /// Step (when @p step.Advance) and evaluate every clip of @p scene, replacing the previous frame's
         /// results. Once per view frame, before any canvas is walked.
-        virtual void Evaluate( entt::registry& scene, const UIAnimationStep& step ) = 0;
+        virtual void Evaluate( const IUITree& scene, const UIAnimationStep& step ) = 0;
 
         /// Forget everything — the view was pointed at another scene, whose entity ids mean something else.
         virtual void Reset() = 0;
 
         /// What the clips add to @p element this frame; nullptr when no clip drives it.
-        [[nodiscard]] virtual const UIClipSample* Sample( entt::entity element ) const = 0;
+        [[nodiscard]] virtual const UIClipSample* Sample( NodeId element ) const = 0;
     };
 
     /// The view's owned source with VALUE semantics: copying the view clones it, so a copy evaluates into

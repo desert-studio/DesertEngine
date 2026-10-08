@@ -23,7 +23,7 @@ namespace Desert::UI
         std::vector<UICanvasWalk> walks;
         walks.reserve( canvases.size() );
         for ( const entt::entity canvas : canvases )
-            walks.push_back( UICanvasWalk{ ToNode( canvas ), view.FindCanvasState( canvas ) } );
+            walks.push_back( UICanvasWalk{ ToNode( canvas ), view.FindCanvasState( ToNode( canvas ) ) } );
         return CaptureFrame( EcsUITree( reg ), walks, dl, viewportPx, out );
     }
 

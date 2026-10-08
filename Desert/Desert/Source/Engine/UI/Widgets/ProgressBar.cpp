@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawProgressBarWidget( ElementFrame& frame )
     {
         auto& ctx     = frame.Ctx;
-        auto& reg     = frame.Reg;
+        auto& tree     = frame.Tree;
         auto& e       = frame.E;
         auto& scale   = frame.Scale;
         auto& dl      = frame.Dl;
@@ -40,7 +39,7 @@ namespace Desert::UI::Walk
         auto& mn      = frame.Mn;
         auto& mx      = frame.Mx;
 
-        UIProgressBarData pb = reg.get<ECS::UIProgressBarComponent>( e ).Data;
+        UIProgressBarData pb = *tree.Get<UIProgressBarData>( e );
         if ( binding.Value )
             pb.Value = *binding.Value; // bound: the store drives the fill
         const float r = st.Metric( StyleSlot::ProgressCornerRadius, pb.CornerRadius ) * scale;

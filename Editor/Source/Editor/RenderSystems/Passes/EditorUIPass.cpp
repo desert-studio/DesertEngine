@@ -97,7 +97,7 @@ namespace Desert::Editor::Render
                 // context menu never opened: measured, and it looks exactly like "the flag does nothing".
                 // `Hot` is the PREVIOUS frame's winner, so a non-null one means the UI is up and the
                 // element under the pointer this frame is the same one.
-                const bool ready     = m_UIView.Hot != entt::null;
+                const bool ready     = m_UIView.Hot != UI::NodeId::Null;
                 input.MouseDown      = ready && shot.UIPress == ShotOptions::UIButtonHeld::Left;
                 input.MouseRightDown = ready && shot.UIPress == ShotOptions::UIButtonHeld::Right;
             }

@@ -8,7 +8,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/KeyCodes.hpp>
 
-#include <entt/entt.hpp>
+#include <Engine/UI/UITree.hpp>
 
 #include <cstdint>
 #include <string>
@@ -114,15 +114,15 @@ namespace Desert::UI
     // draws, for the whole frame — see above. @p frameDtSeconds is the frame's timestep as the HOST steps
     // it (the editor's frame Timestep, fixed under --play): the view's eases, tweens, transitions and UI
     // clips advance by exactly that, so frame N of a fixed-step run is tick N. Clamped to 0.1 s.
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx, float frameDtSeconds );
+    void BeginUIFrame( UIViewContext& view, IUITree& tree, const Rect& viewportPx, float frameDtSeconds );
 
     // Close it: hand this frame's hot election to the next frame, route the pointer events that election
     // implies (enter/exit, down/up, drop) across EVERY canvas the frame drew, advance keyboard focus on
     // Tab, run the overlay state machine on the election just made (UIOverlay.hpp), and draw the drag ghost
     // on top of all of them. @p outMessages collects every message fired;
     // without it they fall back to @p outClicked while it is still empty.
-    void EndUIFrame( UIViewContext& view, entt::registry& reg, Graphic::Render2D::DrawList2D& dl,
-                     const UIInput* input, entt::entity* focused = nullptr, std::string* outClicked = nullptr,
+    void EndUIFrame( UIViewContext& view, IUITree& tree, Graphic::Render2D::DrawList2D& dl,
+                     const UIInput* input, NodeId* focused = nullptr, std::string* outClicked = nullptr,
                      std::vector<std::string>* outMessages = nullptr );
 
     // Emit @p canvas into @p dl in pixel coordinates within the frame's viewport (UIViewContext::ViewportPx,
@@ -145,6 +145,24 @@ namespace Desert::UI
     // by (@p canvas x @p view) — looked up here rather than passed in, so no caller can hand one canvas's
     // screen stack to another canvas's walk. See UICanvasContext.hpp for why neither coordinate alone was
     // enough.
+    NO_DISCARD Common::BoolResultStr RenderCanvas2D( UIViewContext& view, IUITree& tree, NodeId canvas,
+                                                     Graphic::Render2D::DrawList2D& dl,
+                                                     const glm::mat4*               worldViewProj = nullptr,
+                                                     const UIInput*                 input         = nullptr,
+                                                     std::string*                   outClicked    = nullptr,
+                                                     NodeId*                        focused       = nullptr );
+} // namespace Desert::UI
+
+// The `entt::registry&` overloads keep every existing caller's signature; they wrap the registry in an
+// EcsUITree and are defined in Engine/UI/Ecs/UICanvasRendererEcs.cpp.
+#include <Engine/UI/Ecs/EcsUITree.hpp>
+
+namespace Desert::UI
+{
+    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx, float frameDtSeconds );
+    void EndUIFrame( UIViewContext& view, entt::registry& reg, Graphic::Render2D::DrawList2D& dl,
+                     const UIInput* input, entt::entity* focused = nullptr, std::string* outClicked = nullptr,
+                     std::vector<std::string>* outMessages = nullptr );
     NO_DISCARD Common::BoolResultStr RenderCanvas2D( UIViewContext& view, entt::registry& reg, entt::entity canvas,
                                                      Graphic::Render2D::DrawList2D& dl,
                                                      const glm::mat4*               worldViewProj = nullptr,

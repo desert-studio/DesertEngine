@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawSliderWidget( ElementFrame& frame )
     {
         auto& ctx       = frame.Ctx;
-        auto& reg       = frame.Reg;
+        auto& tree       = frame.Tree;
         auto& e         = frame.E;
         auto& dl        = frame.Dl;
         auto& input     = frame.Input;
@@ -41,7 +40,7 @@ namespace Desert::UI::Walk
         auto& mx        = frame.Mx;
         auto& hot       = frame.Hot;
 
-        auto&       sl    = reg.get<ECS::UISliderComponent>( e ).Data;
+        auto&       sl    = *tree.GetState<UISliderData>( e );
         const float range = std::max( 0.0001f, sl.MaxValue - sl.MinValue );
         const float t     = std::clamp( ( sl.Value - sl.MinValue ) / range, 0.0f, 1.0f );
         const float pill  = rect.H * 0.5f; // fully-rounded track ends

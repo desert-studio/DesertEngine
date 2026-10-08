@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawPanelWidget( ElementFrame& frame )
     {
         auto& ctx   = frame.Ctx;
-        auto& reg   = frame.Reg;
+        auto& tree   = frame.Tree;
         auto& e     = frame.E;
         auto& scale = frame.Scale;
         auto& dl    = frame.Dl;
@@ -39,7 +38,7 @@ namespace Desert::UI::Walk
         auto& mn    = frame.Mn;
         auto& mx    = frame.Mx;
 
-        const auto& p = reg.get<ECS::UIPanelComponent>( e ).Data;
+        const auto& p = *tree.Get<UIPanelData>( e );
 
         // Pulse breathes the whole panel's opacity between PulseMin and full (live dot / CTA glow).
         const float op =

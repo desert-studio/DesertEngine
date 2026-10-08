@@ -4,8 +4,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <vector>
+
+#include <glm/glm.hpp>
 
 // THE TREE THE UI FRAMEWORK READS, AND THE ONLY THING IT KNOWS ABOUT WHO STORES IT.
 //
@@ -60,6 +63,16 @@ namespace Desert::UI
         // created them, which is the tie-break every "which comes first" rule above the tree relies on.
         virtual void Roots( ArgKind kind, std::vector<NodeId>& out ) const = 0;
 
+        // WHICH STORAGE the ids belong to. Ids are unique only inside one store (entt recycles them per
+        // registry), so a view that remembers per-node state must notice when it is handed another scene;
+        // two trees over the same store answer the same address. Never dereferenced by the framework.
+        [[nodiscard]] virtual const void* Storage() const = 0;
+
+        // Where the HOST places @p n in its world — the origin a WorldSpace canvas is billboarded from (UE's
+        // WidgetComponent is a scene component; the widget tree itself has no world). nullopt when the host
+        // gives the node no placement.
+        [[nodiscard]] virtual std::optional<glm::vec3> WorldOrigin( NodeId n ) const = 0;
+
         template <class T>
         [[nodiscard]] const T* Get( NodeId n ) const
         {
@@ -85,4 +98,83 @@ namespace Desert::UI
         IUITree( IUITree&& )                 = default;
         IUITree& operator=( IUITree&& )      = default;
     };
+
+    // The children of @p n as a range, IN DRAW ORDER (IUITree::ChildCount / ChildAt). The count is read once,
+    // when the range is made: a walk that edits the hierarchy while iterating was undefined before too.
+    class ChildRange
+    {
+    public:
+        class Iterator
+        {
+        public:
+            Iterator( const IUITree* tree, NodeId parent, std::size_t i ) : m_Tree( tree ), m_Parent( parent ), m_I( i )
+            {
+            }
+            NodeId operator*() const
+            {
+                return m_Tree->ChildAt( m_Parent, m_I );
+            }
+            Iterator& operator++()
+            {
+                ++m_I;
+                return *this;
+            }
+            bool operator==( const Iterator& o ) const
+            {
+                return m_I == o.m_I;
+            }
+
+        private:
+            const IUITree* m_Tree;
+            NodeId         m_Parent;
+            std::size_t    m_I;
+        };
+
+        ChildRange( const IUITree& tree, NodeId parent )
+             : m_Tree( &tree ), m_Parent( parent ), m_Count( tree.ChildCount( parent ) )
+        {
+        }
+        [[nodiscard]] Iterator begin() const
+        {
+            return { m_Tree, m_Parent, 0 };
+        }
+        [[nodiscard]] Iterator end() const
+        {
+            return { m_Tree, m_Parent, m_Count };
+        }
+        [[nodiscard]] std::size_t size() const
+        {
+            return m_Count;
+        }
+        [[nodiscard]] bool empty() const
+        {
+            return m_Count == 0;
+        }
+        [[nodiscard]] NodeId operator[]( std::size_t i ) const
+        {
+            return m_Tree->ChildAt( m_Parent, i );
+        }
+        [[nodiscard]] NodeId front() const
+        {
+            return m_Tree->ChildAt( m_Parent, 0 );
+        }
+
+    private:
+        const IUITree* m_Tree;
+        NodeId         m_Parent;
+        std::size_t    m_Count;
+    };
+
+    [[nodiscard]] inline ChildRange ChildrenOf( const IUITree& tree, NodeId n )
+    {
+        return { tree, n };
+    }
+
+    // IUITree::Roots as a value, for a range-for.
+    [[nodiscard]] inline std::vector<NodeId> RootsOf( const IUITree& tree, ArgKind kind )
+    {
+        std::vector<NodeId> out;
+        tree.Roots( kind, out );
+        return out;
+    }
 } // namespace Desert::UI

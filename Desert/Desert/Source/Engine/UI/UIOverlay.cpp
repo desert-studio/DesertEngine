@@ -15,17 +15,16 @@ namespace Desert::UI
         // Is @p maybeAncestor @p e itself, or one of its ancestors? The relationship stores only the parent
         // link, so this is the one direction a tree can be walked, and the loop is bounded by the number of
         // entities so a corrupted parent cycle cannot hang the frame.
-        bool IsSelfOrAncestor( entt::registry& reg, entt::entity maybeAncestor, entt::entity e )
+        bool IsSelfOrAncestor( IUITree& tree, NodeId maybeAncestor, NodeId e )
         {
-            if ( maybeAncestor == entt::null )
+            if ( maybeAncestor == NodeId::Null )
                 return false;
             std::size_t guard = 0;
-            for ( entt::entity t = e; t != entt::null && reg.valid( t ) && guard++ <= reg.size(); )
+            for ( NodeId t = e; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound(); )
             {
                 if ( t == maybeAncestor )
                     return true;
-                t = reg.has<ECS::RelationshipComponent>( t ) ? reg.get<ECS::RelationshipComponent>( t ).Parent
-                                                             : entt::null;
+                t = tree.Parent( t );
             }
             return false;
         }
@@ -33,29 +32,28 @@ namespace Desert::UI
         // The nearest trigger at or above @p e that answers to @p on. Filtered by the EVENT and not merely
         // by the component, because a button may carry a right-click trigger while the panel above it
         // carries a hover one, and the two are different questions asked of the same chain.
-        entt::entity TriggerAtOrAbove( entt::registry& reg, entt::entity e, UIOverlayTriggerEvent on )
+        NodeId TriggerAtOrAbove( IUITree& tree, NodeId e, UIOverlayTriggerEvent on )
         {
             std::size_t guard = 0;
-            for ( entt::entity t = e; t != entt::null && reg.valid( t ) && guard++ <= reg.size(); )
+            for ( NodeId t = e; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound(); )
             {
-                if ( reg.has<ECS::UIOverlayTriggerComponent>( t ) &&
-                     reg.get<ECS::UIOverlayTriggerComponent>( t ).Data.On == on &&
-                     !reg.get<ECS::UIOverlayTriggerComponent>( t ).Data.Overlay.empty() )
+                if ( tree.Has<UIOverlayTriggerData>( t ) &&
+                     tree.Get<UIOverlayTriggerData>( t )->On == on &&
+                     !tree.Get<UIOverlayTriggerData>( t )->Overlay.empty() )
                     return t;
-                t = reg.has<ECS::RelationshipComponent>( t ) ? reg.get<ECS::RelationshipComponent>( t ).Parent
-                                                             : entt::null;
+                t = tree.Parent( t );
             }
-            return entt::null;
+            return NodeId::Null;
         }
 
         // What opened this overlay, as an event. entt::null (opened by name, not by a trigger) answers
         // LeftClick, which is the conservative reading: it is not a hover overlay, so it does not close
         // itself when the pointer wanders off.
-        UIOverlayTriggerEvent OpenerEvent( entt::registry& reg, entt::entity opener )
+        UIOverlayTriggerEvent OpenerEvent( IUITree& tree, NodeId opener )
         {
-            return ( opener != entt::null && reg.valid( opener ) &&
-                     reg.has<ECS::UIOverlayTriggerComponent>( opener ) )
-                        ? reg.get<ECS::UIOverlayTriggerComponent>( opener ).Data.On
+            return ( opener != NodeId::Null && tree.Valid( opener ) &&
+                     tree.Has<UIOverlayTriggerData>( opener ) )
+                        ? tree.Get<UIOverlayTriggerData>( opener )->On
                         : UIOverlayTriggerEvent::LeftClick;
         }
 
@@ -63,18 +61,18 @@ namespace Desert::UI
         // with this view's own context — so an item of an already-placed submenu reports where it really
         // is and not where it was authored. Returns false when the element is not drawn at all, which is a
         // meaningful answer: there is nothing to place a submenu beside.
-        bool ElementScreenBox( entt::registry& reg, UIViewContext& view, entt::entity e, Rect& out )
+        bool ElementScreenBox( IUITree& tree, UIViewContext& view, NodeId e, Rect& out )
         {
-            const entt::entity canvas = CanvasOf( reg, e );
-            if ( canvas == entt::null )
+            const NodeId canvas = CanvasOf( tree, e );
+            if ( canvas == NodeId::Null )
                 return false;
             std::vector<UIElementNode> nodes;
             if ( const auto walked =
-                      EnumerateCanvas( reg, canvas, view.ViewportPx, nodes, &view.CanvasState( canvas ) );
+                      EnumerateCanvas( tree, canvas, view.ViewportPx, nodes, &view.CanvasState( canvas ) );
                  !walked )
                 return false;
             for ( const UIElementNode& n : nodes )
-                if ( ToEntity( n.Entity ) == e && n.Drawn && n.OwnRect )
+                if ( n.Entity == e && n.Drawn && n.OwnRect )
                 {
                     out = n.ScreenPx;
                     return true;
@@ -89,14 +87,14 @@ namespace Desert::UI
         // It is measured on a COPY of the cell with the placement removed and the overlay forced open:
         // measuring through the live cell would fold last frame's shift into this frame's, and measuring a
         // closed overlay would return nothing on the very frame it opens, which is the frame that needs it.
-        bool OverlayContentBox( entt::registry& reg, UIViewContext& view, entt::entity canvas, Rect& out )
+        bool OverlayContentBox( IUITree& tree, UIViewContext& view, NodeId canvas, Rect& out )
         {
             UICanvasContext probe = view.CanvasState( canvas );
             probe.OverlayOpen     = true;
             probe.OverlayShift    = glm::vec2( 0.0f );
 
             std::vector<UIElementNode> nodes;
-            if ( const auto walked = EnumerateCanvas( reg, canvas, view.ViewportPx, nodes, &probe ); !walked )
+            if ( const auto walked = EnumerateCanvas( tree, canvas, view.ViewportPx, nodes, &probe ); !walked )
                 return false;
 
             bool  any  = false;
@@ -127,11 +125,11 @@ namespace Desert::UI
         // Where this overlay's canvas root has to move so its content lands beside what opened it, without
         // leaving the view. Modal and Toast have no origin and are placed by their own anchors — see
         // UILayout.hpp for why fabricating one for them would be a mechanism that moves nothing.
-        void PlaceOverlayCanvas( entt::registry& reg, UIViewContext& view, entt::entity canvas,
+        void PlaceOverlayCanvas( IUITree& tree, UIViewContext& view, NodeId canvas,
                                  const UIInput& input )
         {
             UICanvasContext&          cell = view.CanvasState( canvas );
-            const UIOverlayData*      d    = OverlayDataOf( reg, canvas );
+            const UIOverlayData*      d    = OverlayDataOf( tree, canvas );
             if ( d == nullptr || d->Kind == UIOverlayKind::Modal || d->Kind == UIOverlayKind::Toast )
             {
                 cell.OverlayShift = glm::vec2( 0.0f );
@@ -139,7 +137,7 @@ namespace Desert::UI
             }
 
             Rect content;
-            if ( !OverlayContentBox( reg, view, canvas, content ) )
+            if ( !OverlayContentBox( tree, view, canvas, content ) )
             {
                 cell.OverlayShift = glm::vec2( 0.0f );
                 return;
@@ -147,7 +145,7 @@ namespace Desert::UI
 
             // A pointer origin is a zero-size rect at the cursor; an element origin is the element's own
             // box. One parameter, because "flip about the thing I am attached to" is one sentence.
-            const bool byHover      = OpenerEvent( reg, cell.OverlayOpenedBy ) == UIOverlayTriggerEvent::Hover;
+            const bool byHover      = OpenerEvent( tree, cell.OverlayOpenedBy ) == UIOverlayTriggerEvent::Hover;
             const bool pinToElement = ( d->Kind == UIOverlayKind::Tooltip ) ? !d->FollowPointer : byHover;
 
             Rect        origin{ input.MousePx.x, input.MousePx.y, 0.0f, 0.0f };
@@ -155,7 +153,7 @@ namespace Desert::UI
             if ( pinToElement )
             {
                 Rect box;
-                if ( ElementScreenBox( reg, view, cell.OverlayOpenedBy, box ) )
+                if ( ElementScreenBox( tree, view, cell.OverlayOpenedBy, box ) )
                 {
                     origin = box;
                     // A submenu gets clear of its parent item SIDEWAYS; a pinned tooltip still drops below
@@ -166,7 +164,7 @@ namespace Desert::UI
                 }
             }
 
-            const auto  scale = CanvasScale( reg, canvas, view.ViewportPx );
+            const auto  scale = CanvasScale( tree, canvas, view.ViewportPx );
             const float k     = scale ? scale.GetValue() : 1.0f;
             const Rect  placed =
                  PlaceOverlay( { content.W, content.H }, origin, d->Gap * k, view.ViewportPx, axis );
@@ -179,40 +177,40 @@ namespace Desert::UI
         // pointer simply wandering off. The difference matters for a hover-opened submenu: dismissing one
         // while the pointer is still on the item that opens it has to stick, or the hover clock reopens it
         // on the next frame and Escape appears to do nothing.
-        void CloseStackDownTo( UIViewContext& view, entt::registry& reg, std::size_t index,
+        void CloseStackDownTo( UIViewContext& view, IUITree& tree, std::size_t index,
                                bool dismissed = false )
         {
             while ( view.OverlayStack.size() > index )
             {
-                const entt::entity c = view.OverlayStack.back();
+                const NodeId c = view.OverlayStack.back();
                 view.OverlayStack.pop_back();
-                if ( reg.valid( c ) )
+                if ( tree.Valid( c ) )
                 {
-                    if ( dismissed && OpenerEvent( reg, view.CanvasState( c ).OverlayOpenedBy ) ==
+                    if ( dismissed && OpenerEvent( tree, view.CanvasState( c ).OverlayOpenedBy ) ==
                                            UIOverlayTriggerEvent::Hover )
                         view.OverlayHoverSuppressed = view.CanvasState( c ).OverlayOpenedBy;
                     UICanvasContext& cell = view.CanvasState( c );
                     cell.OverlayOpen      = false;
-                    cell.OverlayOpenedBy  = entt::null;
+                    cell.OverlayOpenedBy  = NodeId::Null;
                     cell.OverlayShift     = glm::vec2( 0.0f );
                     cell.Locals.Erase( kOverlayTextKey );
                 }
             }
         }
 
-        void CloseTooltip( UIViewContext& view, entt::registry& reg )
+        void CloseTooltip( UIViewContext& view, IUITree& tree )
         {
-            if ( view.OverlayTooltip == entt::null )
+            if ( view.OverlayTooltip == NodeId::Null )
                 return;
-            if ( reg.valid( view.OverlayTooltip ) )
+            if ( tree.Valid( view.OverlayTooltip ) )
             {
                 UICanvasContext& cell = view.CanvasState( view.OverlayTooltip );
                 cell.OverlayOpen      = false;
-                cell.OverlayOpenedBy  = entt::null;
+                cell.OverlayOpenedBy  = NodeId::Null;
                 cell.OverlayShift     = glm::vec2( 0.0f );
                 cell.Locals.Erase( kOverlayTextKey );
             }
-            view.OverlayTooltip = entt::null;
+            view.OverlayTooltip = NodeId::Null;
         }
 
         // Index of the open stack entry whose OWN CONTENT the pointer is on, or -1.
@@ -220,11 +218,11 @@ namespace Desert::UI
         // `hot == stack[i]` is the modal's scrim — the canvas entity elects itself for every point its
         // dialog does not cover — and that is OUTSIDE, not inside. Reading it as inside is what would turn
         // "click the dim to dismiss" into "the dim can never be clicked".
-        int StackEntryUnderPointer( entt::registry& reg, const UIViewContext& view, entt::entity hot )
+        int StackEntryUnderPointer( IUITree& tree, const UIViewContext& view, NodeId hot )
         {
-            if ( hot == entt::null || !reg.valid( hot ) )
+            if ( hot == NodeId::Null || !tree.Valid( hot ) )
                 return -1;
-            const entt::entity hotCanvas = CanvasOf( reg, hot );
+            const NodeId hotCanvas = CanvasOf( tree, hot );
             int                found     = -1;
             for ( std::size_t i = 0; i < view.OverlayStack.size(); ++i )
                 if ( hotCanvas == view.OverlayStack[i] && hot != view.OverlayStack[i] )
@@ -232,10 +230,10 @@ namespace Desert::UI
             return found;
         }
 
-        void OpenOverlay( entt::registry& reg, UIViewContext& view, entt::entity canvas, entt::entity trigger,
+        void OpenOverlay( IUITree& tree, UIViewContext& view, NodeId canvas, NodeId trigger,
                           const std::string& text, const UIInput& input )
         {
-            const UIOverlayData* d = OverlayDataOf( reg, canvas );
+            const UIOverlayData* d = OverlayDataOf( tree, canvas );
             if ( d == nullptr )
                 return;
 
@@ -250,7 +248,7 @@ namespace Desert::UI
             if ( d->Kind == UIOverlayKind::Tooltip )
             {
                 if ( view.OverlayTooltip != canvas )
-                    CloseTooltip( view, reg );
+                    CloseTooltip( view, tree );
                 view.OverlayTooltip = canvas;
             }
             else
@@ -258,7 +256,7 @@ namespace Desert::UI
                 // A menu opened from inside another menu STACKS on it; one opened from anywhere else
                 // replaces whatever was open. That single rule is all nesting needs: a submenu is a
                 // ContextMenu overlay whose trigger happens to live in the menu below it.
-                const entt::entity triggerCanvas = trigger != entt::null ? CanvasOf( reg, trigger ) : entt::null;
+                const NodeId triggerCanvas = trigger != NodeId::Null ? CanvasOf( tree, trigger ) : NodeId::Null;
                 int                owner         = -1;
                 for ( std::size_t i = 0; i < view.OverlayStack.size(); ++i )
                     if ( view.OverlayStack[i] == triggerCanvas )
@@ -267,7 +265,7 @@ namespace Desert::UI
                 // it. Spelled out rather than as owner+1 on an int, because the -1 then reaches an unsigned
                 // conversion and only arrives at 0 by wrapping.
                 const std::size_t keepBelow = owner < 0 ? 0U : static_cast<std::size_t>( owner ) + 1U;
-                CloseStackDownTo( view, reg, keepBelow );
+                CloseStackDownTo( view, tree, keepBelow );
 
                 cell.OverlayOpen     = true; // CloseStackDownTo may have cleared it if it was already up
                 cell.OverlayOpenedBy = trigger;
@@ -276,12 +274,12 @@ namespace Desert::UI
                 view.OverlayStack.push_back( canvas );
             }
 
-            PlaceOverlayCanvas( reg, view, canvas, input );
+            PlaceOverlayCanvas( tree, view, canvas, input );
         }
 
-        void RaiseToastOn( entt::registry& reg, UIViewContext& view, entt::entity canvas, std::string text )
+        void RaiseToastOn( IUITree& tree, UIViewContext& view, NodeId canvas, std::string text )
         {
-            const UIOverlayData* d = OverlayDataOf( reg, canvas );
+            const UIOverlayData* d = OverlayDataOf( tree, canvas );
             if ( d == nullptr )
                 return;
             UICanvasContext& cell  = view.CanvasState( canvas );
@@ -309,7 +307,7 @@ namespace Desert::UI
             cell.OverlayToastPending.push_back( std::move( text ) );
         }
 
-        void UpdateToasts( entt::registry& reg, UIViewContext& view )
+        void UpdateToasts( IUITree& tree, UIViewContext& view )
         {
             // Notifications raised from outside the UI reach exactly one view — the one that owns the
             // scene's shared clocks. See UIOverlay.hpp.
@@ -317,14 +315,14 @@ namespace Desert::UI
             {
                 for ( UIOverlayRequests::Request& r : UIOverlayRequests::Get().Drain() )
                 {
-                    const auto canvas = OverlayByName( reg, r.Overlay );
+                    const auto canvas = OverlayByName( tree, r.Overlay );
                     if ( !canvas )
                     {
                         LOG_ERROR( "[UI] a notification was raised for overlay '{}': {}", r.Overlay,
                                    canvas.GetError() );
                         continue;
                     }
-                    const UIOverlayData* d = OverlayDataOf( reg, canvas.GetValue() );
+                    const UIOverlayData* d = OverlayDataOf( tree, canvas.GetValue() );
                     if ( d == nullptr || d->Kind != UIOverlayKind::Toast )
                     {
                         LOG_ERROR( "[UI] a notification was raised for overlay '{}', which is not a Toast; "
@@ -332,13 +330,13 @@ namespace Desert::UI
                                    r.Overlay );
                         continue;
                     }
-                    RaiseToastOn( reg, view, canvas.GetValue(), std::move( r.Text ) );
+                    RaiseToastOn( tree, view, canvas.GetValue(), std::move( r.Text ) );
                 }
             }
 
-            for ( const entt::entity canvas : reg.view<ECS::UIOverlayComponent>() )
+            for ( const NodeId canvas : RootsOf( tree, ArgKind::Overlay ) )
             {
-                const auto& d = reg.get<ECS::UIOverlayComponent>( canvas ).Data;
+                const auto& d = *tree.Get<UIOverlayData>( canvas );
                 if ( d.Kind != UIOverlayKind::Toast )
                     continue;
                 UICanvasContext& cell  = view.CanvasState( canvas );
@@ -380,46 +378,46 @@ namespace Desert::UI
         // existing). The cells themselves are retired by UIViewContext::RetireDeadCanvases; this is the
         // view-level index into them, and an index that outlives what it points at is the same defect one
         // level up.
-        void PruneOverlays( entt::registry& reg, UIViewContext& view )
+        void PruneOverlays( IUITree& tree, UIViewContext& view )
         {
-            const auto gone = [&]( entt::entity c )
-            { return !reg.valid( c ) || !reg.has<ECS::UIOverlayComponent>( c ); };
+            const auto gone = [&]( NodeId c )
+            { return !tree.Valid( c ) || !tree.Has<UIOverlayData>( c ); };
             view.OverlayStack.erase( std::remove_if( view.OverlayStack.begin(), view.OverlayStack.end(), gone ),
                                      view.OverlayStack.end() );
-            if ( view.OverlayTooltip != entt::null && gone( view.OverlayTooltip ) )
-                view.OverlayTooltip = entt::null;
-            if ( view.OverlayHoverTrigger != entt::null && !reg.valid( view.OverlayHoverTrigger ) )
+            if ( view.OverlayTooltip != NodeId::Null && gone( view.OverlayTooltip ) )
+                view.OverlayTooltip = NodeId::Null;
+            if ( view.OverlayHoverTrigger != NodeId::Null && !tree.Valid( view.OverlayHoverTrigger ) )
             {
-                view.OverlayHoverTrigger = entt::null;
+                view.OverlayHoverTrigger = NodeId::Null;
                 view.OverlayHoverHeld    = 0.0f;
             }
-            if ( view.OverlayHoverSuppressed != entt::null && !reg.valid( view.OverlayHoverSuppressed ) )
-                view.OverlayHoverSuppressed = entt::null;
+            if ( view.OverlayHoverSuppressed != NodeId::Null && !tree.Valid( view.OverlayHoverSuppressed ) )
+                view.OverlayHoverSuppressed = NodeId::Null;
         }
     } // namespace
 
-    const UIOverlayData* OverlayDataOf( entt::registry& reg, entt::entity canvas )
+    const UIOverlayData* OverlayDataOf( IUITree& tree, NodeId canvas )
     {
-        if ( canvas == entt::null || !reg.valid( canvas ) || !reg.has<ECS::UIOverlayComponent>( canvas ) )
+        if ( canvas == NodeId::Null || !tree.Valid( canvas ) || !tree.Has<UIOverlayData>( canvas ) )
             return nullptr;
-        return &reg.get<ECS::UIOverlayComponent>( canvas ).Data;
+        return tree.Get<UIOverlayData>( canvas );
     }
 
-    Common::ResultStr<entt::entity> OverlayByName( entt::registry& reg, const std::string& name )
+    Common::ResultStr<NodeId> OverlayByName( IUITree& tree, const std::string& name )
     {
         if ( name.empty() )
-            return Common::MakeError<entt::entity>( "[UI] an overlay was asked for by an empty name" );
+            return Common::MakeError<NodeId>( "[UI] an overlay was asked for by an empty name" );
 
-        std::vector<entt::entity> matches;
-        for ( const entt::entity e : reg.view<ECS::UIOverlayComponent>() )
-            if ( reg.get<ECS::UIOverlayComponent>( e ).Data.Name == name )
+        std::vector<NodeId> matches;
+        for ( const NodeId e : RootsOf( tree, ArgKind::Overlay ) )
+            if ( tree.Get<UIOverlayData>( e )->Name == name )
                 matches.push_back( e );
 
         if ( matches.empty() )
-            return Common::MakeFormattedError<entt::entity>( "[UI] no overlay canvas is named '{}' in this scene",
+            return Common::MakeFormattedError<NodeId>( "[UI] no overlay canvas is named '{}' in this scene",
                                                              name );
         if ( matches.size() > 1 )
-            return Common::MakeFormattedError<entt::entity>(
+            return Common::MakeFormattedError<NodeId>(
                  "[UI] {} overlay canvases are named '{}'; a name must identify one overlay, so none is "
                  "opened rather than one of them being guessed",
                  matches.size(), name );
@@ -465,21 +463,21 @@ namespace Desert::UI
         return "overlay.toast." + std::to_string( slot ) + ".visible";
     }
 
-    void CloseAllOverlays( UIViewContext& view, entt::registry& reg )
+    void CloseAllOverlays( UIViewContext& view, IUITree& tree )
     {
-        CloseStackDownTo( view, reg, 0 );
-        CloseTooltip( view, reg );
-        view.OverlayHoverTrigger    = entt::null;
+        CloseStackDownTo( view, tree, 0 );
+        CloseTooltip( view, tree );
+        view.OverlayHoverTrigger    = NodeId::Null;
         view.OverlayHoverHeld       = 0.0f;
-        view.OverlayHoverSuppressed = entt::null;
+        view.OverlayHoverSuppressed = NodeId::Null;
     }
 
-    void UpdateOverlays( UIViewContext& view, entt::registry& reg, const UIInput& input )
+    void UpdateOverlays( UIViewContext& view, IUITree& tree, const UIInput& input )
     {
-        PruneOverlays( reg, view );
-        UpdateToasts( reg, view );
+        PruneOverlays( tree, view );
+        UpdateToasts( tree, view );
 
-        const entt::entity hot          = view.HotNext; // THIS frame's election, before the hand-over
+        const NodeId hot          = view.HotNext; // THIS frame's election, before the hand-over
         const bool         pressedLeft  = input.MouseDown && !view.PrevDown;
         const bool         pressedRight = input.MouseRightDown && !view.PrevRightDown;
         view.PrevRightDown              = input.MouseRightDown;
@@ -488,43 +486,43 @@ namespace Desert::UI
         if ( input.Pressed( Common::KeyCode::Escape ) && !view.OverlayStack.empty() )
         {
             const std::size_t         top = view.OverlayStack.size() - 1;
-            const UIOverlayData*      d   = OverlayDataOf( reg, view.OverlayStack[top] );
+            const UIOverlayData*      d   = OverlayDataOf( tree, view.OverlayStack[top] );
             if ( d != nullptr && d->CloseOnEscape )
-                CloseStackDownTo( view, reg, top, /*dismissed=*/true );
+                CloseStackDownTo( view, tree, top, /*dismissed=*/true );
         }
 
         // --- A press the open stack did not take closes back to whoever owns it ------------------------
         if ( pressedLeft || pressedRight )
         {
-            const int         owner     = StackEntryUnderPointer( reg, view, hot );
+            const int         owner     = StackEntryUnderPointer( tree, view, hot );
             const std::size_t keepBelow = owner < 0 ? 0U : static_cast<std::size_t>( owner ) + 1U;
             for ( std::size_t i = view.OverlayStack.size(); i-- > keepBelow; )
             {
-                const UIOverlayData* d = OverlayDataOf( reg, view.OverlayStack[i] );
+                const UIOverlayData* d = OverlayDataOf( tree, view.OverlayStack[i] );
                 if ( d == nullptr || !d->CloseOnClickOutside )
                     break;
-                CloseStackDownTo( view, reg, i, /*dismissed=*/true );
+                CloseStackDownTo( view, tree, i, /*dismissed=*/true );
             }
         }
 
         // --- A hover-opened menu closes when the pointer is neither on it nor on what opened it --------
         {
-            const int under = StackEntryUnderPointer( reg, view, hot );
+            const int under = StackEntryUnderPointer( tree, view, hot );
             for ( std::size_t i = view.OverlayStack.size(); i-- > 0; )
             {
-                const entt::entity     canvas = view.OverlayStack[i];
+                const NodeId     canvas = view.OverlayStack[i];
                 const UICanvasContext& cell   = view.CanvasState( canvas );
-                if ( OpenerEvent( reg, cell.OverlayOpenedBy ) != UIOverlayTriggerEvent::Hover )
+                if ( OpenerEvent( tree, cell.OverlayOpenedBy ) != UIOverlayTriggerEvent::Hover )
                     continue;
-                const bool onOpener = IsSelfOrAncestor( reg, cell.OverlayOpenedBy, hot );
+                const bool onOpener = IsSelfOrAncestor( tree, cell.OverlayOpenedBy, hot );
                 const bool inside   = under >= static_cast<int>( i );
                 if ( !onOpener && !inside )
-                    CloseStackDownTo( view, reg, i );
+                    CloseStackDownTo( view, tree, i );
             }
         }
 
         // --- The hover clock, and what it opens --------------------------------------------------------
-        const entt::entity hoverTrigger = TriggerAtOrAbove( reg, hot, UIOverlayTriggerEvent::Hover );
+        const NodeId hoverTrigger = TriggerAtOrAbove( tree, hot, UIOverlayTriggerEvent::Hover );
         if ( hoverTrigger != view.OverlayHoverTrigger )
         {
             // A different trigger (or none): the delay is a delay, not an accumulator over everything the
@@ -532,7 +530,7 @@ namespace Desert::UI
             view.OverlayHoverTrigger = hoverTrigger;
             view.OverlayHoverHeld    = 0.0f;
         }
-        else if ( hoverTrigger != entt::null )
+        else if ( hoverTrigger != NodeId::Null )
         {
             view.OverlayHoverHeld += view.FrameDt;
         }
@@ -542,19 +540,19 @@ namespace Desert::UI
         // `else` onto this condition and the hover clock never advanced again — the tooltip delay could
         // then never elapse. The suite caught it; nothing about the code reads wrong.
         if ( hoverTrigger != view.OverlayHoverSuppressed )
-            view.OverlayHoverSuppressed = entt::null;
+            view.OverlayHoverSuppressed = NodeId::Null;
 
         // A tooltip belongs to the trigger it was opened from and to no other. The pointer moving to a
         // different trigger — or off every trigger — retires it rather than leaving it hanging over
         // something it no longer describes.
-        if ( view.OverlayTooltip != entt::null &&
+        if ( view.OverlayTooltip != NodeId::Null &&
              view.CanvasState( view.OverlayTooltip ).OverlayOpenedBy != hoverTrigger )
-            CloseTooltip( view, reg );
+            CloseTooltip( view, tree );
 
-        if ( hoverTrigger != entt::null )
+        if ( hoverTrigger != NodeId::Null )
         {
-            const auto& t      = reg.get<ECS::UIOverlayTriggerComponent>( hoverTrigger ).Data;
-            const auto  canvas = OverlayByName( reg, t.Overlay );
+            const auto& t      = *tree.Get<UIOverlayTriggerData>( hoverTrigger );
+            const auto  canvas = OverlayByName( tree, t.Overlay );
             if ( !canvas )
             {
                 // Once per trigger per frame would be a flood; the refusal is the author's typo and it
@@ -565,37 +563,37 @@ namespace Desert::UI
             }
             else
             {
-                const UIOverlayData*      d    = OverlayDataOf( reg, canvas.GetValue() );
+                const UIOverlayData*      d    = OverlayDataOf( tree, canvas.GetValue() );
                 const bool                open = view.CanvasState( canvas.GetValue() ).OverlayOpen;
                 if ( d != nullptr && !open && view.OverlayHoverSuppressed != hoverTrigger &&
                      view.OverlayHoverHeld >= std::max( 0.0f, d->OpenDelay ) )
-                    OpenOverlay( reg, view, canvas.GetValue(), hoverTrigger, t.Text, input );
+                    OpenOverlay( tree, view, canvas.GetValue(), hoverTrigger, t.Text, input );
             }
         }
 
         // --- The click triggers ------------------------------------------------------------------------
         const auto fireClick = [&]( UIOverlayTriggerEvent on )
         {
-            const entt::entity trigger = TriggerAtOrAbove( reg, hot, on );
-            if ( trigger == entt::null )
+            const NodeId trigger = TriggerAtOrAbove( tree, hot, on );
+            if ( trigger == NodeId::Null )
                 return;
-            const auto& t      = reg.get<ECS::UIOverlayTriggerComponent>( trigger ).Data;
-            const auto  canvas = OverlayByName( reg, t.Overlay );
+            const auto& t      = *tree.Get<UIOverlayTriggerData>( trigger );
+            const auto  canvas = OverlayByName( tree, t.Overlay );
             if ( !canvas )
             {
                 LOG_ERROR( "[UI] click trigger on entity {}: {}", static_cast<std::uint32_t>( trigger ),
                            canvas.GetError() );
                 return;
             }
-            const UIOverlayData* d = OverlayDataOf( reg, canvas.GetValue() );
+            const UIOverlayData* d = OverlayDataOf( tree, canvas.GetValue() );
             if ( d == nullptr )
                 return;
             // A trigger aimed at a Toast RAISES one. It does not "open" it: a toast canvas is open exactly
             // while it has something to show, and that is decided by the queue and the clock.
             if ( d->Kind == UIOverlayKind::Toast )
-                RaiseToastOn( reg, view, canvas.GetValue(), t.Text );
+                RaiseToastOn( tree, view, canvas.GetValue(), t.Text );
             else
-                OpenOverlay( reg, view, canvas.GetValue(), trigger, t.Text, input );
+                OpenOverlay( tree, view, canvas.GetValue(), trigger, t.Text, input );
         };
         if ( pressedLeft )
             fireClick( UIOverlayTriggerEvent::LeftClick );
@@ -603,11 +601,11 @@ namespace Desert::UI
             fireClick( UIOverlayTriggerEvent::RightClick );
 
         // --- A following tooltip is re-placed every frame ----------------------------------------------
-        if ( view.OverlayTooltip != entt::null )
+        if ( view.OverlayTooltip != NodeId::Null )
         {
-            const UIOverlayData* d = OverlayDataOf( reg, view.OverlayTooltip );
+            const UIOverlayData* d = OverlayDataOf( tree, view.OverlayTooltip );
             if ( d != nullptr && d->FollowPointer )
-                PlaceOverlayCanvas( reg, view, view.OverlayTooltip, input );
+                PlaceOverlayCanvas( tree, view, view.OverlayTooltip, input );
         }
     }
 } // namespace Desert::UI

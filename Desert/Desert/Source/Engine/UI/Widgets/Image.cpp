@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawImageWidget( ElementFrame& frame )
     {
         auto& ctx   = frame.Ctx;
-        auto& reg   = frame.Reg;
+        auto& tree   = frame.Tree;
         auto& e     = frame.E;
         auto& scale = frame.Scale;
         auto& dl    = frame.Dl;
@@ -40,7 +39,7 @@ namespace Desert::UI::Walk
 
         // A sprite block — reuses DrawBox so it gets GIF playback, 9-slice and the static path.
         // With no sprite bound it draws nothing (an empty Image is invisible, not a solid box).
-        const auto& im = reg.get<ECS::UIImageComponent>( e ).Data;
+        const auto& im = *tree.Get<UIImageData>( e );
         if ( HandleSet( im.Sprite ) )
             DrawBox( ctx.View.Resources(), dl, mn, mx,
                      Tinted( ctx, glm::vec4( st.Color( StyleSlot::ImageTint, im.Tint ), im.Opacity ) ), im.Sprite,
@@ -50,7 +49,7 @@ namespace Desert::UI::Walk
     void DrawRenderTextureWidget( ElementFrame& frame )
     {
         auto& ctx  = frame.Ctx;
-        auto& reg  = frame.Reg;
+        auto& tree  = frame.Tree;
         auto& e    = frame.E;
         auto& dl   = frame.Dl;
         auto& rect = frame.ElementRect;
@@ -67,7 +66,7 @@ namespace Desert::UI::Walk
         // destroys its capture and gives the renderer slot back. That is the whole answer to
         // "what happens on the seventh one", and it is an answer no flag could have given:
         // a slot comes back by DESTRUCTION and by nothing else.
-        const auto& rt = reg.get<ECS::UIRenderTextureComponent>( e ).Data;
+        const auto& rt = *tree.Get<UIRenderTextureData>( e );
 
         // NOT THEMED, and that is a decision. Every other element here resolves its colour
         // through a StyleSlot, but a theme's Image.Tint belongs to UIImageComponent — the

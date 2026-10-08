@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -44,17 +43,18 @@ namespace Desert::UI::Walk
     // Resolve every retainer's Mask Element NAME to an element, once per walk. A name that matches no
     // UI element, or more than one, is refused with the reason — the retainer then draws unmasked and
     // says so, rather than guessing which of two "Dune"s was meant.
-    void ResolveRetainerMasks( WalkCtx& ctx, entt::registry& reg )
+    void ResolveRetainerMasks( WalkCtx& ctx, IUITree& tree )
     {
-        for ( const entt::entity r : reg.view<ECS::UIRetainerComponent>() )
+        const std::vector<NodeId> elements = RootsOf( tree, ArgKind::Layout );
+        for ( const NodeId r : RootsOf( tree, ArgKind::Retainer ) )
         {
-            const auto& ret = reg.get<ECS::UIRetainerComponent>( r );
-            if ( !ret.Data.Mask || ret.Data.MaskElement.empty() )
+            const auto& ret = *tree.Get<UIRetainerData>( r );
+            if ( !ret.Mask || ret.MaskElement.empty() )
                 continue;
-            entt::entity found = entt::null;
+            NodeId found = NodeId::Null;
             int          hits  = 0;
-            for ( const auto m : reg.view<ECS::TagComponent, ECS::UILayoutComponent>() )
-                if ( m != r && reg.get<ECS::TagComponent>( m ).Tag == ret.Data.MaskElement )
+            for ( const NodeId m : elements )
+                if ( m != r && tree.Name( m ) == ret.MaskElement )
                 {
                     found = m;
                     ++hits;
@@ -64,7 +64,7 @@ namespace Desert::UI::Walk
                 if ( ctx.Canvas.RetainerMaskRefused.insert( r ).second )
                     LOG_ERROR( "[UI] retainer mask '{}': {} UI elements carry that name (exactly one must); "
                                "the layer draws unmasked",
-                               ret.Data.MaskElement, hits );
+                               ret.MaskElement, hits );
                 continue;
             }
             ctx.MaskOf.emplace( r, found );
@@ -83,10 +83,10 @@ namespace Desert::UI::Walk
     // element's tag: a typo there draws the element's own colours, which is indistinguishable by eye
     // from a theme that simply does not cover this element. The fallback is the element's authored
     // values — what its author actually typed — rather than an invented default or nothing drawn.
-    ElementStyle StyleFor( WalkCtx& ctx, const entt::registry& reg, entt::entity e )
+    ElementStyle StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e )
     {
         const UIStyleData* authored =
-             reg.has<ECS::UIStyleComponent>( e ) ? &reg.get<ECS::UIStyleComponent>( e ).Data : nullptr;
+             tree.Has<UIStyleData>( e ) ? tree.Get<UIStyleData>( e ) : nullptr;
 
         if ( authored != nullptr && authored->Source == UIStyleSource::Local )
             return ElementStyle( nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() );
@@ -102,8 +102,7 @@ namespace Desert::UI::Walk
         {
             LOG_ERROR( "[UI] Element '{}' asks for the style '{}', which the theme '{}' does not "
                        "declare — it draws its own authored colours instead.",
-                       reg.has<ECS::TagComponent>( e ) ? reg.get<ECS::TagComponent>( e ).Tag
-                                                       : std::string( "<untagged>" ),
+                       tree.Name( e ).empty() ? std::string_view( "<untagged>" ) : tree.Name( e ),
                        name, ctx.Style.Theme()->Name );
         }
         return style;
@@ -131,7 +130,7 @@ namespace Desert::UI::Walk
     // colours cross-fade instead of snapping. The clock is keyed by entity INSIDE the view's context —
     // entt::entity is unique only within a registry, so a map shared between views answered to entity 7
     // of every scene at once.
-    float HoverEase( WalkCtx& ctx, entt::entity e, bool hovered )
+    float HoverEase( WalkCtx& ctx, NodeId e, bool hovered )
     {
         float&      t = ctx.Canvas.HoverT[e];
         const float k = std::clamp( ctx.View.FrameDt * 12.0f, 0.0f, 1.0f ); // exponential approach
@@ -206,12 +205,12 @@ namespace Desert::UI::Walk
     // into the authored component — so a tween is safe to run in the editor, previews live in Design
     // mode, and stopping it simply restores the authored look. Its playhead therefore lives in the
     // view's context, which is what lets two views animate the same element independently.
-    TweenSample SampleTween( WalkCtx& ctx, entt::registry& reg, entt::entity e )
+    TweenSample SampleTween( WalkCtx& ctx, IUITree& tree, NodeId e )
     {
         TweenSample out;
-        if ( !reg.has<ECS::UITweenComponent>( e ) )
+        if ( !tree.Has<UITweenData>( e ) )
             return out;
-        const auto& tw = reg.get<ECS::UITweenComponent>( e ).Data;
+        const auto& tw = *tree.Get<UITweenData>( e );
 
         float&    clock    = ctx.Canvas.TweenT[e];
         uint64_t& lastSeen = ctx.Canvas.TweenSeen[e];
@@ -270,7 +269,7 @@ namespace Desert::UI::Walk
     // A keyed CLIP (UIAnim) on top of the one-shot tween. The clips were stepped and evaluated once for the
     // whole frame (BeginUIFrame → IUIAnimationSource::Evaluate), because a clip may drive an element other than
     // its own; here the element only folds in what the frame computed for it.
-    void ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out )
+    void ApplyAnimClip( WalkCtx& ctx, NodeId e, TweenSample& out )
     {
         const UIClipSample* clip = ctx.View.Animation().Sample( e );
         if ( clip == nullptr )
@@ -280,13 +279,13 @@ namespace Desert::UI::Walk
         out.Tint *= clip->Tint;
     }
 
-    BindingSample SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw,
+    BindingSample SampleBinding( IUITree& tree, NodeId e, TweenSample& tw,
                                  const UICanvasContext& cell )
     {
         BindingSample out;
-        if ( !reg.has<ECS::UIBindingComponent>( e ) )
+        if ( !tree.Has<UIBindingData>( e ) )
             return out;
-        const auto& b = reg.get<ECS::UIBindingComponent>( e ).Data;
+        const auto& b = *tree.Get<UIBindingData>( e );
         if ( b.Key.empty() )
             return out;
 
@@ -419,11 +418,11 @@ namespace Desert::UI::Walk
     }
 
     // Keyboard-focusable controls (Tab cycles between them; Enter activates the focused one).
-    bool IsFocusable( entt::registry& reg, entt::entity e )
+    bool IsFocusable( IUITree& tree, NodeId e )
     {
-        return reg.has<ECS::UIButtonComponent>( e ) || reg.has<ECS::UIInputFieldComponent>( e ) ||
-               reg.has<ECS::UIToggleComponent>( e ) || reg.has<ECS::UISliderComponent>( e ) ||
-               reg.has<ECS::UIDropdownComponent>( e );
+        return tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) ||
+               tree.Has<UIToggleData>( e ) || tree.Has<UISliderData>( e ) ||
+               tree.Has<UIDropdownData>( e );
     }
 
     // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and
@@ -443,7 +442,7 @@ namespace Desert::UI::Walk
     // draws its ordinary fill, which is a FALLBACK, so it is named. Reported once per view because a
     // per-frame line buries the log and gets the whole message ignored; the picture is what keeps
     // saying it, every frame.
-    const void* ResolveUIMaterial( WalkCtx& ctx, entt::entity e, const Assets::AssetHandle& handle )
+    const void* ResolveUIMaterial( WalkCtx& ctx, NodeId e, const Assets::AssetHandle& handle )
     {
         if ( !HandleSet( handle ) )
             return nullptr;
@@ -475,7 +474,7 @@ namespace Desert::UI::Walk
     // (`ctx.View.RenderTextures == nullptr`) — a unit test, or a host that never wired one. Reported
     // once per view, because a per-frame line buries the log and gets the whole message ignored; the
     // magenta is what keeps saying it, every frame.
-    const void* ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const UIRenderTextureData& data,
+    const void* ResolveRenderTexture( WalkCtx& ctx, NodeId e, const UIRenderTextureData& data,
                                       const Rect& rect )
     {
         if ( ctx.View.RenderTextures == nullptr )
@@ -655,20 +654,20 @@ namespace Desert::UI::Walk
     }
 
     // Content size (px) a layout-group container needs to hug its children — for the Content Size Fitter.
-    glm::vec2 GroupContentPx( entt::registry& reg, entt::entity e, const ElementStyle& st, float scale )
+    glm::vec2 GroupContentPx( IUITree& tree, NodeId e, const ElementStyle& st, float scale )
     {
-        if ( !reg.has<ECS::UILayoutGroupComponent>( e ) || !reg.has<ECS::RelationshipComponent>( e ) )
+        if ( !tree.Has<UILayoutGroupData>( e ) )
             return { 0.0f, 0.0f };
-        const auto&            g = reg.get<ECS::UILayoutGroupComponent>( e ).Data;
+        const auto&            g = *tree.Get<UILayoutGroupData>( e );
         std::vector<glm::vec2> sizes;
-        for ( auto c : reg.get<ECS::RelationshipComponent>( e ).Children )
+        for ( const NodeId c : ChildrenOf( tree, e ) )
         {
-            if ( !reg.valid( c ) || !TakesLayoutSpace( reg, c ) )
+            if ( !tree.Valid( c ) || !TakesLayoutSpace( tree, c ) )
                 continue; // a Collapsed child has no slot, so it is not part of the content either
             glm::vec2 pref( 0.0f );
-            if ( reg.has<ECS::UILayoutComponent>( c ) )
+            if ( tree.Has<UILayoutData>( c ) )
             {
-                const auto& L = reg.get<ECS::UILayoutComponent>( c ).Data;
+                const auto& L = *tree.Get<UILayoutData>( c );
                 pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
             }
             sizes.push_back( pref * scale );

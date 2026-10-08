@@ -19,6 +19,7 @@
 #include <Engine/UI/UIAnimationSource.hpp>
 #include <Engine/Animation/Timeline/Evaluator.hpp>
 
+#include <Engine/UI/Ecs/EcsUITree.hpp>
 #include <entt/entt.hpp>
 
 #include <string>
@@ -44,7 +45,7 @@ namespace Desert::UI
             return std::make_unique<TimelineUIAnimationSource>( *this );
         }
 
-        void Evaluate( entt::registry& scene, const UIAnimationStep& step ) override;
+        void Evaluate( const IUITree& scene, const UIAnimationStep& step ) override;
 
         void Reset() override
         {
@@ -52,9 +53,9 @@ namespace Desert::UI
             Warned.clear();
         }
 
-        [[nodiscard]] const UIClipSample* Sample( entt::entity element ) const override
+        [[nodiscard]] const UIClipSample* Sample( NodeId element ) const override
         {
-            const auto it = Samples.find( element );
+            const auto it = Samples.find( ToEntity( element ) );
             return it != Samples.end() ? &it->second : nullptr;
         }
 
@@ -63,6 +64,7 @@ namespace Desert::UI
 
         /// Labels / properties already reported, so a clip bound to a deleted element warns once, not per frame.
         std::unordered_set<std::string> Warned;
+        bool                            WarnedForeignTree = false;
 
         /// Reused between frames (the evaluator clears it and keeps its capacity).
         Animation::Timeline::EvaluatedFrame Scratch;

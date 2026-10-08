@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIOverlay.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -30,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawDropdownWidget( ElementFrame& frame )
     {
         auto&      ctx          = frame.Ctx;
-        auto&      reg          = frame.Reg;
+        auto&      tree          = frame.Tree;
         auto&      e            = frame.E;
         auto&      scale        = frame.Scale;
         auto&      dl           = frame.Dl;
@@ -45,7 +44,7 @@ namespace Desert::UI::Walk
         auto&      hot          = frame.Hot;
         const auto ScreenBounds = [&dl]( const Rect& r ) { return ScreenBoundsOf( dl, r ); };
 
-        auto&      d       = reg.get<ECS::UIDropdownComponent>( e ).Data;
+        auto&      d       = *tree.GetState<UIDropdownData>( e );
         const auto options = SplitOptions( ctx.View.Resources().Text(), d.Options );
 
         // Resolved once: the arrow is the same ink as the label, and two lookups would be two

@@ -2,7 +2,6 @@
 
 #include <Engine/UI/UIOverlay.hpp>
 
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -39,19 +38,18 @@ namespace Desert::UI
         // canvas; now that the canvas is named, a second canvas's screens would seed and re-seed this one's
         // context, and a menu canvas could silently drive a HUD canvas's screen machine.
         template <typename F>
-        void ForEachScreenName( entt::registry& reg, entt::entity e, F&& fn )
+        void ForEachScreenName( IUITree& tree, NodeId e, F&& fn )
         {
-            if ( !reg.valid( e ) )
+            if ( !tree.Valid( e ) )
                 return;
-            if ( reg.has<ECS::UIScreenComponent>( e ) )
+            if ( tree.Has<UIScreenData>( e ) )
             {
-                const std::string& n = reg.get<ECS::UIScreenComponent>( e ).Data.Name;
+                const std::string& n = tree.Get<UIScreenData>( e )->Name;
                 if ( !n.empty() )
                     fn( n );
             }
-            if ( reg.has<ECS::RelationshipComponent>( e ) )
-                for ( auto c : reg.get<ECS::RelationshipComponent>( e ).Children )
-                    ForEachScreenName( reg, c, fn );
+            for ( NodeId c : ChildrenOf( tree, e ) )
+                    ForEachScreenName( tree, c, fn );
         }
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
@@ -61,10 +59,10 @@ namespace Desert::UI
         // container below recurses over a Relationship child list or over a window of one, so nothing
         // here can revisit an element it has already drawn.
         // NOLINTNEXTLINE(misc-no-recursion)
-        void DrawElement( WalkCtx& ctx, entt::registry& reg, entt::entity e, const Rect& parent, float scale,
+        void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
-                          entt::entity* focused, std::vector<PopupInfo>* popups,
-                          std::vector<entt::entity>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
+                          NodeId* focused, std::vector<PopupInfo>* popups,
+                          std::vector<NodeId>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
                           HitScope scope, const Rect* forcedRect )
         {
             // The visibility axis, before anything else is computed. Hidden and Collapsed both stop here
@@ -81,39 +79,39 @@ namespace Desert::UI
             // texture as an element. Input is not routed through the capture.
             if ( ctx.Root != nullptr && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
             {
-                auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( entt::to_integral( e ) ) );
+                auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( static_cast<std::uint32_t>( e ) ) );
                 if ( mask.Empty() )
                 {
                     if ( dl.HasTransform() )
                         mask.PushTransform( dl.GetTransform() );
                     std::vector<PopupInfo>    noPopups;
-                    std::vector<entt::entity> noFocus;
+                    std::vector<NodeId> noFocus;
                     std::string               noClick;
-                    entt::entity              noFocused = entt::null;
-                    const entt::entity        outer     = ctx.MaskCapture;
+                    NodeId              noFocused = NodeId::Null;
+                    const NodeId        outer     = ctx.MaskCapture;
                     ctx.MaskCapture                     = e;
-                    DrawElement( ctx, reg, e, parent, scale, mask, nullptr, &noClick, &noFocused, &noPopups,
+                    DrawElement( ctx, tree, e, parent, scale, mask, nullptr, &noClick, &noFocused, &noPopups,
                                  &noFocus, clipRegion, scope, forcedRect );
                     ctx.MaskCapture = outer;
                 }
             }
 
-            if ( !IsElementVisible( reg, e ) && ctx.MaskCapture != e )
+            if ( !IsElementVisible( tree, e ) && ctx.MaskCapture != e )
                 return;
 
             // UE Retainer Box: the element and its subtree are recorded into their own layer and shown
             // through one composite with the element's effect. Render2D::AddRetainedPasses renders the layer as a
             // graph pass.
-            if ( ctx.Retaining != e && reg.has<ECS::UIRetainerComponent>( e ) )
+            if ( ctx.Retaining != e && tree.Has<UIRetainerData>( e ) )
             {
-                const UIRetainerData&      rd    = reg.get<ECS::UIRetainerComponent>( e ).Data;
+                const UIRetainerData&      rd    = *tree.Get<UIRetainerData>( e );
                 uint32_t                   index = 0;
                 auto&                      layer = dl.BeginRetainedLayer( &index );
                 if ( dl.HasTransform() )
                     layer.PushTransform( dl.GetTransform() );
-                const entt::entity outer = ctx.Retaining;
+                const NodeId outer = ctx.Retaining;
                 ctx.Retaining            = e;
-                DrawElement( ctx, reg, e, parent, scale, layer, input, outClicked, focused, popups, focusables,
+                DrawElement( ctx, tree, e, parent, scale, layer, input, outClicked, focused, popups, focusables,
                              clipRegion, scope, forcedRect );
                 ctx.Retaining = outer;
 
@@ -137,7 +135,7 @@ namespace Desert::UI
                     {
                         fx.Mask       = true;
                         fx.InvertMask = rd.InvertMask;
-                        maskKey       = static_cast<int64_t>( entt::to_integral( m->second ) );
+                        maskKey       = static_cast<int64_t>( static_cast<std::uint32_t>( m->second ) );
                     }
                 dl.AddRetainedComposite( index, maskKey, fx, glm::vec4( 1.0f ) );
                 return;
@@ -145,25 +143,25 @@ namespace Desert::UI
 
             // THIS ELEMENT'S STYLE, resolved once, before the rect: a themed padding changes what the
             // Content Size Fitter measures, so the style has to exist before the geometry does.
-            const ElementStyle st = StyleFor( ctx, reg, e );
+            const ElementStyle st = StyleFor( ctx, tree, e );
 
             Rect       rect      = parent;
-            const bool hasLayout = reg.has<ECS::UILayoutComponent>( e );
+            const bool hasLayout = tree.Has<UILayoutData>( e );
             if ( forcedRect )
                 rect = *forcedRect; // positioned + sized by the parent's layout group
             else if ( hasLayout )
             {
-                const auto& L = reg.get<ECS::UILayoutComponent>( e ).Data;
+                const auto& L = *tree.Get<UILayoutData>( e );
                 rect          = ResolveRect( L.AnchorMin, L.AnchorMax, L.OffsetMin * scale, L.OffsetMax * scale,
                                              L.CustomMinimumSize * scale, parent );
             }
             if ( hasLayout ) // fitters reshape the resolved rect (also applied inside a layout group)
             {
-                const auto& L = reg.get<ECS::UILayoutComponent>( e ).Data;
+                const auto& L = *tree.Get<UILayoutData>( e );
                 rect          = ApplyAspectFit( rect, L.AspectRatio, static_cast<int>( L.AspectMode ) );
-                if ( ( L.FitWidth || L.FitHeight ) && reg.has<ECS::UILayoutGroupComponent>( e ) )
+                if ( ( L.FitWidth || L.FitHeight ) && tree.Has<UILayoutGroupData>( e ) )
                 {
-                    const glm::vec2 content = GroupContentPx( reg, e, st, scale );
+                    const glm::vec2 content = GroupContentPx( tree, e, st, scale );
                     if ( L.FitWidth )
                         rect.W = content.x;
                     if ( L.FitHeight )
@@ -176,9 +174,9 @@ namespace Desert::UI
             // the outgoing doing the reverse — which is the whole transition.
             float     screenFade = 1.0f;
             glm::vec2 screenSlide( 0.0f );
-            if ( reg.has<ECS::UIScreenComponent>( e ) )
+            if ( tree.Has<UIScreenData>( e ) )
             {
-                const std::string& name      = reg.get<ECS::UIScreenComponent>( e ).Data.Name;
+                const std::string& name      = tree.Get<UIScreenData>( e )->Name;
                 const bool         isCurrent = ( name == ctx.Canvas.Screen );
                 const bool         isLeaving = ( name == ctx.Canvas.ScreenFrom && ctx.Canvas.ScreenT < 1.0f );
                 if ( !isCurrent && !isLeaving )
@@ -203,11 +201,11 @@ namespace Desert::UI
 
             // Tween: shift/resize the resolved rect and stage the colour multiplier its draws will use.
             // Applied on the way out, never written back — see SampleTween.
-            TweenSample tween = SampleTween( ctx, reg, e );
+            TweenSample tween = SampleTween( ctx, tree, e );
             ApplyAnimClip( ctx, e, tween ); // a clip layers on top of the one-shot tween
 
             // A binding can hide the element outright — skip the sub-tree, input included.
-            const BindingSample binding = SampleBinding( reg, e, tween, ctx.Canvas );
+            const BindingSample binding = SampleBinding( tree, e, tween, ctx.Canvas );
             if ( binding.Hide )
                 return;
             rect.X += ( tween.Offset.x + screenSlide.x ) * scale;
@@ -237,7 +235,7 @@ namespace Desert::UI
 
             if ( hasLayout )
             {
-                const auto& L = reg.get<ECS::UILayoutComponent>( e ).Data;
+                const auto& L = *tree.Get<UILayoutData>( e );
                 if ( L.Rotation != 0.0f || L.Scale != glm::vec2( 1.0f, 1.0f ) )
                 {
                     // Pivot is a FRACTION of this element's own rect, so it keeps meaning across a
@@ -284,7 +282,7 @@ namespace Desert::UI
             // may I be elected, may I react, and what may my children do — and each is narrowed by what
             // an ancestor already allowed, so permissions only ever shrink going down.
             const UIHitTest hitTest =
-                 hasLayout ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest : UIHitTest::All;
+                 hasLayout ? tree.Get<UILayoutData>( e )->HitTest : UIHitTest::All;
 
             // Blocking elects itself precisely so the pointer STOPS here: it is the greyed-out form and the
             // modal dialog, which must swallow the click rather than let it reach what is behind them.
@@ -317,7 +315,7 @@ namespace Desert::UI
                                        ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly ) };
 
             // What the widget below draws from — every value it reads was resolved above, once.
-            ElementFrame frame{ ctx,        reg,     e,      scale,      dl,         input,
+            ElementFrame frame{ ctx,        tree,     e,      scale,      dl,         input,
                                 outClicked, focused, popups, focusables, clipRegion, childScope,
                                 st,         rect,    tween,  binding,    pointerPx,  interactive };
 
@@ -350,9 +348,9 @@ namespace Desert::UI
                 frame.Hot      = hot;
 
                 // A drop target outlines itself while a drag it would accept is in flight.
-                if ( ctx.View.Drag.Active && reg.has<ECS::UIDropTargetComponent>( e ) )
+                if ( ctx.View.Drag.Active && tree.Has<UIDropTargetData>( e ) )
                 {
-                    const auto& dt = reg.get<ECS::UIDropTargetComponent>( e ).Data;
+                    const auto& dt = *tree.Get<UIDropTargetData>( e );
                     if ( Accepts( dt, ctx.View.Drag.Payload ) )
                         dl.AddRect( mn, mx,
                                     glm::vec4( st.Color( StyleSlot::DropTargetHighlight, dt.HighlightColor ),
@@ -363,33 +361,33 @@ namespace Desert::UI
                 // Panels and buttons render their sprite (single or 9-slice) tinted by the colour, or a flat
                 // box when no sprite is bound. Button hover/press state needs input plumbing (a later slice),
                 // so the normal state is drawn for now. Rounding / gradient / effects also come later.
-                if ( reg.has<ECS::UIButtonComponent>( e ) )
+                if ( tree.Has<UIButtonData>( e ) )
                     DrawButtonWidget( frame );
-                else if ( reg.has<ECS::UIPanelComponent>( e ) )
+                else if ( tree.Has<UIPanelData>( e ) )
                     DrawPanelWidget( frame );
-                else if ( reg.has<ECS::UIProgressBarComponent>( e ) )
+                else if ( tree.Has<UIProgressBarData>( e ) )
                     DrawProgressBarWidget( frame );
-                else if ( reg.has<ECS::UIPathComponent>( e ) )
+                else if ( tree.Has<UIPathData>( e ) )
                     DrawPathWidget( frame );
-                else if ( reg.has<ECS::UIToggleComponent>( e ) )
+                else if ( tree.Has<UIToggleData>( e ) )
                     DrawToggleWidget( frame );
-                else if ( reg.has<ECS::UISliderComponent>( e ) )
+                else if ( tree.Has<UISliderData>( e ) )
                     DrawSliderWidget( frame );
-                else if ( reg.has<ECS::UIInputFieldComponent>( e ) )
+                else if ( tree.Has<UIInputFieldData>( e ) )
                     DrawInputFieldWidget( frame );
-                else if ( reg.has<ECS::UIDropdownComponent>( e ) )
+                else if ( tree.Has<UIDropdownData>( e ) )
                     DrawDropdownWidget( frame );
 
-                if ( reg.has<ECS::UITextComponent2D>( e ) )
+                if ( tree.Has<UITextData>( e ) )
                     DrawTextWidget( frame );
 
-                if ( reg.has<ECS::UIIconComponent>( e ) )
+                if ( tree.Has<UIIconData>( e ) )
                     DrawIconWidget( frame );
 
-                if ( reg.has<ECS::UIImageComponent>( e ) )
+                if ( tree.Has<UIImageData>( e ) )
                     DrawImageWidget( frame );
 
-                if ( reg.has<ECS::UIRenderTextureComponent>( e ) )
+                if ( tree.Has<UIRenderTextureData>( e ) )
                     DrawRenderTextureWidget( frame );
 
                 // Keyboard focus: record this control for Tab-cycling, and draw a focus ring when it holds
@@ -398,11 +396,11 @@ namespace Desert::UI
                 // GATED BY THE SAME PREDICATE THE POINTER USES. An ungated list is what let Tab walk into a
                 // Blocking panel and hand Enter a target the mouse could never have reached; it is also why
                 // Tab now steps OVER such a control rather than sticking on it.
-                if ( interactive && IsFocusable( reg, e ) )
+                if ( interactive && IsFocusable( tree, e ) )
                 {
                     if ( focusables )
                         focusables->push_back( e );
-                    if ( focused && *focused == e && !reg.has<ECS::UIInputFieldComponent>( e ) )
+                    if ( focused && *focused == e && !tree.Has<UIInputFieldData>( e ) )
                         dl.AddRect(
                              mn, mx,
                              glm::vec4( st.Color( StyleSlot::FocusRing, glm::vec3( 0.30f, 0.62f, 0.98f ) ), 1.0f ),
@@ -410,7 +408,7 @@ namespace Desert::UI
                 }
             }
 
-            if ( reg.has<ECS::RelationshipComponent>( e ) )
+            if ( tree.ChildCount( e ) != 0 )
                 DrawChildren( frame );
         }
 
@@ -433,22 +431,22 @@ namespace Desert::UI
 
     using namespace Walk;
 
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx, float frameDtSeconds )
+    void BeginUIFrame( UIViewContext& view, IUITree& tree, const Rect& viewportPx, float frameDtSeconds )
     {
         // This view is now looking at another scene. Entity ids are unique only inside a registry, so every
         // per-entity clock and every (canvas x view) cell the view holds would answer to ids that mean
         // something else here — drop them.
-        if ( view.Registry != &reg )
+        if ( view.Scene != tree.Storage() )
         {
             view.Reset();
-            view.Registry = &reg;
+            view.Scene = tree.Storage();
         }
 
         // A canvas destroyed since the last frame takes its cell with it, THIS frame. entt recycles entity
         // ids, so a cell left behind is not dead weight: the next canvas created can be handed that id and
         // would open on a stranger's screen with a stranger's hover clocks. Same shape as the preview that
         // held its renderer slot until something destroyed it (Docs/RENDERER_FRAME_STATE.md).
-        view.RetireDeadCanvases( reg );
+        view.RetireDeadCanvases( tree );
 
         // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas — and handed in by the
         // host, which owns the frame's timestep (as FSlateApplication::Tick takes the engine's DeltaTime).
@@ -460,17 +458,17 @@ namespace Desert::UI
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
         // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
-        view.Animation().Evaluate( reg, UIAnimationStep{ .DtSeconds = view.FrameDt,
+        view.Animation().Evaluate( tree, UIAnimationStep{ .DtSeconds = view.FrameDt,
                                                          .Advance   = view.DrivesSceneAnimation,
                                                          .GameWorld = view.GameWorld } );
 
         // A scene swap leaves the elected entity dangling — drop it rather than matching a recycled id.
-        if ( view.Hot != entt::null && !reg.valid( view.Hot ) )
-            view.Hot = entt::null;
+        if ( view.Hot != NodeId::Null && !tree.Valid( view.Hot ) )
+            view.Hot = NodeId::Null;
 
         // The election is over the whole frame: every canvas of this view writes into it in draw order and
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
-        view.HotNext = entt::null;
+        view.HotNext = NodeId::Null;
         view.Focusables.clear();
 
         // Where this view draws, for the whole frame. Stated once here rather than handed to each canvas,
@@ -481,7 +479,7 @@ namespace Desert::UI
         // UIViewContext::AuthoringLastFrame.
         if ( view.AuthoringPreview != view.AuthoringLastFrame )
         {
-            CloseAllOverlays( view, reg );
+            CloseAllOverlays( view, tree );
             view.AuthoringLastFrame = view.AuthoringPreview;
         }
 
@@ -490,7 +488,7 @@ namespace Desert::UI
         // walk and the layout walk read — see UIViewContext::AuthoringPreview.
         if ( view.AuthoringPreview )
         {
-            for ( const entt::entity c : reg.view<ECS::UIOverlayComponent>() )
+            for ( const NodeId c : RootsOf( tree, ArgKind::Overlay ) )
             {
                 UICanvasContext& cell = view.CanvasState( c );
                 cell.OverlayOpen      = true;
@@ -500,9 +498,9 @@ namespace Desert::UI
         view.FrameOpen = true;
     }
 
-    Common::BoolResultStr RenderCanvas2D( UIViewContext& view, entt::registry& reg, entt::entity canvasEntity,
+    Common::BoolResultStr RenderCanvas2D( UIViewContext& view, IUITree& tree, NodeId canvasEntity,
                                           Graphic::Render2D::DrawList2D& dl, const glm::mat4* worldViewProj,
-                                          const UIInput* input, std::string* outClicked, entt::entity* focused )
+                                          const UIInput* input, std::string* outClicked, NodeId* focused )
     {
         // The frame's viewport, not this call's: one view is one framebuffer, and BeginUIFrame is where that
         // is said. The FrameOpen check below is what guarantees it has been said before this is read.
@@ -510,10 +508,10 @@ namespace Desert::UI
         // The canvas is the caller's answer, checked before anything else touches the context. Electing one
         // here — which is what this function did, `*reg.view<UICanvasComponent>().begin()` — meant a scene's
         // second canvas was drawn by nothing and reported by nothing.
-        if ( canvasEntity == entt::null || !reg.valid( canvasEntity ) )
+        if ( canvasEntity == NodeId::Null || !tree.Valid( canvasEntity ) )
             return Common::MakeFormattedError( "[UI] RenderCanvas2D was given no canvas to draw (entity {})",
                                                static_cast<std::uint32_t>( canvasEntity ) );
-        if ( !reg.has<ECS::UICanvasComponent>( canvasEntity ) )
+        if ( !tree.Has<UICanvasData>( canvasEntity ) )
             return Common::MakeFormattedError(
                  "[UI] RenderCanvas2D was given entity {} as a canvas, but it carries no UICanvasComponent",
                  static_cast<std::uint32_t>( canvasEntity ) );
@@ -526,17 +524,17 @@ namespace Desert::UI
                  "[UI] RenderCanvas2D was called for canvas {} outside a frame of its view; call "
                  "BeginUIFrame / EndUIFrame around the frame's canvases",
                  static_cast<std::uint32_t>( canvasEntity ) );
-        if ( view.Registry != &reg )
+        if ( view.Scene != tree.Storage() )
             return Common::MakeFormattedError(
-                 "[UI] RenderCanvas2D was given a registry the open frame does not belong to (canvas {})",
+                 "[UI] RenderCanvas2D was given a tree the open frame does not belong to (canvas {})",
                  static_cast<std::uint32_t>( canvasEntity ) );
 
         // THE PAIR, BOUND HERE AND NOWHERE ELSE: this view's own cell for this canvas.
         WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };
         ctx.Root = &dl;
-        ResolveRetainerMasks( ctx, reg );
+        ResolveRetainerMasks( ctx, tree );
 
-        const auto& canvasData = reg.get<ECS::UICanvasComponent>( canvasEntity ).Data;
+        const auto& canvasData = *tree.Get<UICanvasData>( canvasEntity );
         if ( !canvasData.Visible )
             return Common::MakeSuccess( false ); // a canvas that asked not to be drawn, not a failure
 
@@ -545,7 +543,7 @@ namespace Desert::UI
         // UICanvasData::Visible being false — that one is the author saying never. Success(false), because
         // the canvas was named correctly and simply has no pixels this frame, exactly like a WorldSpace
         // canvas behind the camera.
-        const UIOverlayData* overlay = OverlayDataOf( reg, canvasEntity );
+        const UIOverlayData* overlay = OverlayDataOf( tree, canvasEntity );
         if ( overlay != nullptr && !ctx.Canvas.OverlayOpen )
             return Common::MakeSuccess( false );
         // THE CANVAS'S THEME, RESOLVED ONCE PER WALK (Ю13). Asked of the service by handle every frame
@@ -570,11 +568,11 @@ namespace Desert::UI
         Rect  canvasRect;
         float scale;
         if ( canvasData.RenderMode == UICanvasRenderMode::WorldSpace && worldViewProj &&
-             reg.has<ECS::TransformComponent>( canvasEntity ) )
+             tree.WorldOrigin( canvasEntity ).has_value() )
         {
             // Billboard: project the canvas entity's world position to the screen, centre + distance-scale it
             // (mirrors the ImGui renderer so world-space UI matches).
-            const glm::vec3 wpos = glm::vec3( reg.get<ECS::TransformComponent>( canvasEntity ).GetTransform()[3] );
+            const glm::vec3 wpos = *tree.WorldOrigin( canvasEntity );
             const glm::vec4 clip = ( *worldViewProj ) * glm::vec4( wpos, 1.0f );
             if ( clip.w <= 0.0001f )
                 // Behind the camera: the canvas is real and was asked for correctly, it simply has no pixels
@@ -672,9 +670,9 @@ namespace Desert::UI
 
         // --- Screen machine: seed on first use, then advance the running transition ---
         {
-            if ( reg.has<ECS::UIScreenStackComponent>( canvasEntity ) )
+            if ( tree.Has<UIScreenStackData>( canvasEntity ) )
             {
-                const auto& st  = reg.get<ECS::UIScreenStackComponent>( canvasEntity ).Data;
+                const auto& st  = *tree.Get<UIScreenStackData>( canvasEntity );
                 ctx.Canvas.ScreenTime    = st.TransitionTime;
                 ctx.Canvas.ScreenSlidePx = st.SlidePx;
                 ctx.Canvas.ScreenEasing  = st.Easing;
@@ -702,29 +700,27 @@ namespace Desert::UI
             // ancestor of this screen", not "is it the screen's NEAREST canvas". The two differ for a
             // canvas nested under another canvas, which nothing authors today; using CanvasOf here would
             // have been a second, unrelated behaviour change smuggled into a cost fix.
-            const auto underCanvas = [&reg, canvasEntity]( entt::entity e )
+            const auto underCanvas = [&tree, canvasEntity]( NodeId e )
             {
                 // Bounded rather than trusting the tree to be acyclic, for the reason CanvasOf states.
-                const std::size_t limit = reg.size() + 1;
+                const std::size_t limit = tree.NodeBound() + 1;
                 std::size_t       steps = 0;
-                for ( entt::entity cur = e; cur != entt::null && reg.valid( cur ) && steps < limit; ++steps )
+                for ( NodeId cur = e; cur != NodeId::Null && tree.Valid( cur ) && steps < limit; ++steps )
                 {
                     if ( cur == canvasEntity )
                     {
                         return true;
                     }
-                    cur = reg.has<ECS::RelationshipComponent>( cur )
-                               ? reg.get<ECS::RelationshipComponent>( cur ).Parent
-                               : entt::null;
+                    cur = tree.Parent( cur );
                 }
                 return false;
             };
 
             bool currentExists = false;
             bool anyScreenHere = false;
-            for ( const entt::entity s : reg.view<ECS::UIScreenComponent>() )
+            for ( const NodeId s : RootsOf( tree, ArgKind::Screen ) )
             {
-                const std::string& n = reg.get<ECS::UIScreenComponent>( s ).Data.Name;
+                const std::string& n = tree.Get<UIScreenData>( s )->Name;
                 if ( n.empty() || !underCanvas( s ) )
                 {
                     continue;
@@ -739,7 +735,7 @@ namespace Desert::UI
             if ( anyScreenHere && !currentExists )
             {
                 std::string firstScreen;
-                ForEachScreenName( reg, canvasEntity,
+                ForEachScreenName( tree, canvasEntity,
                                    [&firstScreen]( const std::string& n )
                                    {
                                        if ( firstScreen.empty() )
@@ -784,10 +780,9 @@ namespace Desert::UI
         // A context menu and a modal are the opposite: capturing the pointer IS what they are for.
         const bool inert = overlay != nullptr &&
                            ( overlay->Kind == UIOverlayKind::Tooltip || overlay->Kind == UIOverlayKind::Toast );
-        if ( reg.has<ECS::RelationshipComponent>( canvasEntity ) )
-            for ( auto c : reg.get<ECS::RelationshipComponent>( canvasEntity ).Children )
-                if ( reg.valid( c ) )
-                    DrawElement( ctx, reg, c, childRoot, scale, dl, input, outClicked, focused, &popups,
+        for ( NodeId c : ChildrenOf( tree, canvasEntity ) )
+                if ( tree.Valid( c ) )
+                    DrawElement( ctx, tree, c, childRoot, scale, dl, input, outClicked, focused, &popups,
                                  inert ? nullptr : &ctx.View.Focusables, rootClip, HitScope{ !inert } );
 
         // A ShowScreen / BackScreen button fired during the walk: start the hand-over now, so the very
@@ -820,9 +815,9 @@ namespace Desert::UI
         // Open dropdown option lists, drawn LAST so they overlay everything.
         for ( const PopupInfo& pi : popups )
         {
-            if ( !reg.valid( pi.Entity ) || !reg.has<ECS::UIDropdownComponent>( pi.Entity ) )
+            if ( !tree.Valid( pi.Entity ) || !tree.Has<UIDropdownData>( pi.Entity ) )
                 continue;
-            auto&       d       = reg.get<ECS::UIDropdownComponent>( pi.Entity ).Data;
+            auto&       d       = *tree.GetState<UIDropdownData>( pi.Entity );
             const auto  options = SplitOptions( ctx.View.Resources().Text(), d.Options );
             const float rowH    = pi.Box.H;
             const Rect  popup{ pi.Box.X, pi.Box.Y + pi.Box.H, pi.Box.W,
@@ -870,8 +865,8 @@ namespace Desert::UI
         return Common::MakeSuccess( true );
     }
 
-    void EndUIFrame( UIViewContext& view, entt::registry& reg, Graphic::Render2D::DrawList2D& dl,
-                     const UIInput* input, entt::entity* focused, std::string* outClicked,
+    void EndUIFrame( UIViewContext& view, IUITree& tree, Graphic::Render2D::DrawList2D& dl,
+                     const UIInput* input, NodeId* focused, std::string* outClicked,
                      std::vector<std::string>* outMessages )
     {
         // Named, not shrugged off: closing a frame that was never opened would hand over an election nobody
@@ -898,20 +893,20 @@ namespace Desert::UI
                 else if ( outClicked && outClicked->empty() )
                     *outClicked = msg;
             };
-            auto events = [&]( entt::entity e ) -> const UIPointerEventsData*
+            auto events = [&]( NodeId e ) -> const UIPointerEventsData*
             {
-                return ( e != entt::null && reg.valid( e ) && reg.has<ECS::UIPointerEventsComponent>( e ) )
-                            ? &reg.get<ECS::UIPointerEventsComponent>( e ).Data
+                return ( e != NodeId::Null && tree.Valid( e ) && tree.Has<UIPointerEventsData>( e ) )
+                            ? tree.Get<UIPointerEventsData>( e )
                             : nullptr;
             };
 
             // The hit-test axis already says what the pointer does with an element, and the routing must
             // read that answer rather than invent a second one. An element with no UILayout — the canvas
             // itself is the only one — takes the default, so a canvas-level listener is reachable.
-            auto hitTestOf = [&]( entt::entity e )
+            auto hitTestOf = [&]( NodeId e )
             {
-                return ( e != entt::null && reg.valid( e ) && reg.has<ECS::UILayoutComponent>( e ) )
-                            ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest
+                return ( e != NodeId::Null && tree.Valid( e ) && tree.Has<UILayoutData>( e ) )
+                            ? tree.Get<UILayoutData>( e )->HitTest
                             : UIHitTest::All;
             };
 
@@ -919,20 +914,19 @@ namespace Desert::UI
             // pointer, so telling it about a press it cannot receive would contradict the field that says
             // it cannot; Blocking responds to nothing by definition. Either may still sit on the route of a
             // descendant that does respond — being silent is not the same as being absent.
-            auto respondsToPointer = [&]( entt::entity e )
-            { return e != entt::null && reg.valid( e ) && hitTestOf( e ) == UIHitTest::All; };
+            auto respondsToPointer = [&]( NodeId e )
+            { return e != NodeId::Null && tree.Valid( e ) && hitTestOf( e ) == UIHitTest::All; };
 
             // The route of an event aimed at @p target: the chain from the canvas down to it, ANCESTORS
             // FIRST. Built by walking Parent and reversing, because that is the only direction the
             // relationship stores and a tree has exactly one path to its root.
-            auto chainOf = [&]( entt::entity target )
+            auto chainOf = [&]( NodeId target )
             {
-                std::vector<entt::entity> chain;
-                for ( entt::entity t = target; t != entt::null && reg.valid( t ); )
+                std::vector<NodeId> chain;
+                for ( NodeId t = target; t != NodeId::Null && tree.Valid( t ); )
                 {
                     chain.push_back( t );
-                    t = reg.has<ECS::RelationshipComponent>( t ) ? reg.get<ECS::RelationshipComponent>( t ).Parent
-                                                                 : entt::null;
+                    t = tree.Parent( t );
                 }
                 std::reverse( chain.begin(), chain.end() );
                 return chain;
@@ -941,7 +935,7 @@ namespace Desert::UI
             // One step of a route. Returns true when the route must end here — which is a property of the
             // listener and NOT of whether it had anything to say, so an element may swallow an event while
             // emitting nothing.
-            auto step = [&]( entt::entity e, UIEventPhase phase, std::string UIPointerEventsData::*msg )
+            auto step = [&]( NodeId e, UIEventPhase phase, std::string UIPointerEventsData::*msg )
             {
                 const auto* ev = events( e );
                 if ( ev == nullptr || ev->Phase != phase || !respondsToPointer( e ) )
@@ -952,7 +946,7 @@ namespace Desert::UI
 
             // Tunnel down the chain, then bubble back up it. Two passes over one chain rather than two
             // chains, so an element cannot be reached in one pass and missed in the other.
-            auto route = [&]( entt::entity target, std::string UIPointerEventsData::*msg )
+            auto route = [&]( NodeId target, std::string UIPointerEventsData::*msg )
             {
                 // Blocking STOPS THE POINTER, and a routed press IS that pointer, so it stops here for the
                 // ancestors too: a greyed-out form or a modal scrim that let the canvas behind it hear the
@@ -968,7 +962,7 @@ namespace Desert::UI
                 if ( hitTestOf( target ) == UIHitTest::Blocking )
                     return;
 
-                const std::vector<entt::entity> chain = chainOf( target );
+                const std::vector<NodeId> chain = chainOf( target );
                 for ( std::size_t i = 0; i < chain.size(); ++i )
                     if ( step( chain[i], UIEventPhase::Tunnel, msg ) )
                         return;
@@ -982,8 +976,8 @@ namespace Desert::UI
                 // Enter/Exit are the DIFFERENCE of the two chains, not a route (see UIPointerEventsData).
                 // The shared prefix is everything the pointer never left, so a move between two children of
                 // one panel reports nothing about the panel.
-                const std::vector<entt::entity> from = chainOf( view.Hot );
-                const std::vector<entt::entity> to   = chainOf( view.HotNext );
+                const std::vector<NodeId> from = chainOf( view.Hot );
+                const std::vector<NodeId> to   = chainOf( view.HotNext );
 
                 std::size_t common = 0;
                 while ( common < from.size() && common < to.size() && from[common] == to[common] )
@@ -1006,11 +1000,11 @@ namespace Desert::UI
 
                 // Start a drag from a draggable element. The ghost is the source's own footprint, so the
                 // cursor carries something the size of what it picked up.
-                if ( view.HotNext != entt::null && reg.valid( view.HotNext ) &&
-                     reg.has<ECS::UIDraggableComponent>( view.HotNext ) )
+                if ( view.HotNext != NodeId::Null && tree.Valid( view.HotNext ) &&
+                     tree.Has<UIDraggableData>( view.HotNext ) )
                 {
                     // Only PENDING for now — a press that never moves is a click, not a drag.
-                    const auto& d      = reg.get<ECS::UIDraggableComponent>( view.HotNext ).Data;
+                    const auto& d      = *tree.Get<UIDraggableData>( view.HotNext );
                     view.Drag.Pending  = true;
                     view.Drag.Source   = view.HotNext;
                     view.Drag.Payload  = d.Payload;
@@ -1035,11 +1029,11 @@ namespace Desert::UI
                 {
                     // Drop on the element under the cursor, or on the nearest ancestor that accepts — a
                     // target is usually a panel whose children are what you actually point at.
-                    for ( entt::entity t = view.HotNext; t != entt::null && reg.valid( t ); )
+                    for ( NodeId t = view.HotNext; t != NodeId::Null && tree.Valid( t ); )
                     {
-                        if ( reg.has<ECS::UIDropTargetComponent>( t ) )
+                        if ( tree.Has<UIDropTargetData>( t ) )
                         {
-                            const auto& dt = reg.get<ECS::UIDropTargetComponent>( t ).Data;
+                            const auto& dt = *tree.Get<UIDropTargetData>( t );
                             if ( Accepts( dt, view.Drag.Payload ) && t != view.Drag.Source )
                             {
                                 emit( dt.OnDropMessage.empty() ? view.Drag.Payload
@@ -1047,9 +1041,7 @@ namespace Desert::UI
                                 break;
                             }
                         }
-                        t = reg.has<ECS::RelationshipComponent>( t )
-                                 ? reg.get<ECS::RelationshipComponent>( t ).Parent
-                                 : entt::null;
+                        t = tree.Parent( t );
                     }
                 }
                 view.Drag = UIDragState{}; // a plain click on a draggable ends here too
@@ -1062,7 +1054,7 @@ namespace Desert::UI
             // authored (UIViewContext::AuthoringPreview) — and running a pointer machine over a pointer it
             // does not have would open menus nobody clicked.
             if ( !view.AuthoringPreview )
-                UpdateOverlays( view, reg, *input );
+                UpdateOverlays( view, tree, *input );
 
             view.PrevDown = input->MouseDown;
 
@@ -1078,16 +1070,16 @@ namespace Desert::UI
                 // of StyleFor's rules, which would be two statements of "which style does this element
                 // resolve through" and therefore two that can disagree.
                 ElementStyle ghostStyle;
-                if ( reg.valid( view.Drag.Source ) )
+                if ( tree.Valid( view.Drag.Source ) )
                 {
-                    const entt::entity ghostCanvas = CanvasOf( reg, view.Drag.Source );
-                    if ( ghostCanvas != entt::null && reg.has<ECS::UICanvasComponent>( ghostCanvas ) )
+                    const NodeId ghostCanvas = CanvasOf( tree, view.Drag.Source );
+                    if ( ghostCanvas != NodeId::Null && tree.Has<UICanvasData>( ghostCanvas ) )
                     {
-                        const auto& ghostCanvasData = reg.get<ECS::UICanvasComponent>( ghostCanvas ).Data;
+                        const auto& ghostCanvasData = *tree.Get<UICanvasData>( ghostCanvas );
                         WalkCtx     ghostCtx{ view, view.CanvasState( ghostCanvas ),
                                           CanvasStyle( view.Resources().Theme( ghostCanvasData.Theme ),
                                                            ghostCanvasData.FontScale, ghostCanvasData.HighContrast ) };
-                        ghostStyle = StyleFor( ghostCtx, reg, view.Drag.Source );
+                        ghostStyle = StyleFor( ghostCtx, tree, view.Drag.Source );
                     }
                 }
                 dl.AddRectFilled(
