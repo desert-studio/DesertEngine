@@ -55,6 +55,8 @@ namespace Common::Scalability
                "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)" },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
                "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)" },
+             { P::DepthOfFieldQuality, G::PostProcess, "PostProcess.DepthOfFieldQuality", 0, 2, CL::None,
+               "Graphic::DofRingsForQuality (SceneRenderer::BeginScene -> DepthOfField gather rings)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },

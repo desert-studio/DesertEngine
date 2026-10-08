@@ -114,6 +114,7 @@ namespace Common::Scalability
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
+        DepthOfFieldQuality, // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget
