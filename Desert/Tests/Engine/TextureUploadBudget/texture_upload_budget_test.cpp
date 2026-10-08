@@ -267,7 +267,8 @@ TEST( TextureUploadBudgetCensus, TheServiceNeverReadsPlatformDataOnTheMainThread
     // SHOT-SETTLE-c: a cook reaches a worker only through the admission gate, and the pump returns the slots.
     EXPECT_NE( Body( service, "TextureService::BeginCook" ).find( "m_CookAdmission.TryAdmit" ), std::string::npos )
          << "BeginCook submits without the admission gate: decoded textures pile up unbounded behind a long frame";
-    EXPECT_NE( Body( service, "TextureService::PumpUploads" ).find( "m_CookAdmission.Release" ), std::string::npos )
+    EXPECT_NE( Body( service, "TextureService::PumpUploads" ).find( "m_CookAdmission.Release" ),
+               std::string::npos )
          << "the pump never frees an admission slot: after CooksInFlight cooks nothing would start again";
 
     // The GPU half runs from the budgeted pump only, and the eager Create2D stays in Register (import-made
