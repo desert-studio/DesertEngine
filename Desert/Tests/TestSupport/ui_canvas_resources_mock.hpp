@@ -28,11 +28,11 @@ namespace TestSupport
             m_Animated.clear();
         }
 
-        [[nodiscard]] Desert::UI::TextureRef SpriteTexture( const Desert::Common::AssetHandle& ) override
+        [[nodiscard]] Desert::UI::TextureRef SpriteTexture( const ::Common::AssetHandle& ) override
         {
             return {};
         }
-        [[nodiscard]] Desert::UI::TextureRef AnimatedFrame( const Desert::Common::AssetHandle& sprite ) override
+        [[nodiscard]] Desert::UI::TextureRef AnimatedFrame( const ::Common::AssetHandle& sprite ) override
         {
             const auto it = m_Animated.find( static_cast<uint64_t>( sprite ) );
             return it == m_Animated.end() ? Desert::UI::TextureRef{} : Desert::UI::TextureRef{ .Id = it->second };
@@ -41,7 +41,7 @@ namespace TestSupport
         {
             return {};
         }
-        [[nodiscard]] const Desert::UI::UIThemeRuntime* Theme( const Desert::Common::AssetHandle& ) override
+        [[nodiscard]] const Desert::UI::UIThemeRuntime* Theme( const ::Common::AssetHandle& ) override
         {
             return nullptr;
         }

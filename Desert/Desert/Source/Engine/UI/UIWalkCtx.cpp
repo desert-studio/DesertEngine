@@ -5,6 +5,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Text/BakedFont.hpp>
+#include <Engine/Assets/UIThemeData.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
