@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -176,4 +177,51 @@ TEST( PhysicsAssetEditor, SimulateRunsInAPrivateWorldAndStopResets )
     // Every Start begins from the pose, not from where the last run fell.
     ASSERT_TRUE( sim.Start( asset, rig, animator.GetLocalPose() ).IsSuccess() );
     EXPECT_NEAR( sim.Parts()[0].Position.y, 100.0f, 1e-2f );
+}
+
+namespace
+{
+    std::string ReadRepoText( const char* relative )
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 6; ++up, prefix += "../" )
+        {
+            std::ifstream in( prefix + relative, std::ios::binary );
+            if ( in )
+                return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+        }
+        return {};
+    }
+} // namespace
+
+// THE WINDOW NEVER TOUCHES THE LEVEL'S PHYSICS (RAG1c). The document (compiled by no suite: it needs a device)
+// runs Simulate through PhysicsAssetPreviewSimulation, whose private world the suite above proves is not the
+// scene's. Red when the document's files stop holding that simulation, or name the level's physics system, a
+// physics world of their own, or a physics component of the scene.
+TEST( PhysicsAssetEditor, TheWindowSimulatesOnlyThroughThePrivatePreviewSimulation )
+{
+    std::string text;
+    for ( const char* file : { "Editor/Source/Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp",
+                               "Editor/Source/Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.cpp" } )
+    {
+        const std::string one = ReadRepoText( file );
+        ASSERT_FALSE( one.empty() ) << file << " not found from the working directory";
+        text += one;
+    }
+    EXPECT_NE( text.find( "PhysicsAssetPreviewSimulation m_Simulation" ), std::string::npos );
+    EXPECT_NE( text.find( "m_Simulation.Start(" ), std::string::npos );
+    for ( const char* forbidden : { "PhysicsECSSystem", "PhysicsWorld", "RigidBodyComponent", "RagdollComponent",
+                                    "RagdollLifetime", "GetPhysicsSystem" } )
+        EXPECT_EQ( text.find( forbidden ), std::string::npos ) << "the physics asset window names " << forbidden;
+}
+
+// The window's Open route: a physics asset opens (AssetOpenRefusal lets it through; the AssetOpenRoute census
+// holds that equal to the registration in AssetEditorRegistrations.cpp). Red when PhysicsAsset is refused again.
+TEST( PhysicsAssetEditor, APhysicsAssetOpensInAnEditorWindow )
+{
+    const std::string registrations =
+         ReadRepoText( "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp" );
+    ASSERT_FALSE( registrations.empty() );
+    EXPECT_NE( registrations.find( "Assets::AssetTypeID::PhysicsAsset" ), std::string::npos );
+    EXPECT_NE( registrations.find( "RequestPhysicsAssetDocument" ), std::string::npos );
 }

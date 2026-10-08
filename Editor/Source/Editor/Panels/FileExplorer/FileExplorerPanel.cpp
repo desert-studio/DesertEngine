@@ -44,6 +44,7 @@
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -2483,6 +2484,13 @@ namespace Desert::Editor
                 CommandMenuItem( ContentBrowserCommand::ReimportWithNewFile );
             }
 
+            // UE's Skeletal Mesh Asset Actions > Create > Physics Asset.
+            if ( entry.Type == FileType::SkinnedMesh && m_AssetManager )
+            {
+                ImGui::Separator();
+                CommandMenuItem( ContentBrowserCommand::CreatePhysicsAsset );
+            }
+
             // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
             if ( ThumbnailProducers::CaptureKeyOf( entry.Type ) && !m_ViewportScene.expired() )
             {
@@ -2991,6 +2999,24 @@ namespace Desert::Editor
                     CommitThumbnailGesture();
                 m_EditThumbnailPath      = entry.AssetPath;
                 m_EditThumbnailOrbitFile = *orbitFile;
+                return Common::MakeSuccess( true );
+            }
+            case ContentBrowserCommand::CreatePhysicsAsset:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const DirectoryInformation& entry = *target.GetValue();
+                if ( !entry.IsFile || entry.Type != FileType::SkinnedMesh || m_AssetManager == nullptr )
+                    return Common::MakeFormattedError<bool>( "'{}': '{}' is not a skeletal mesh", label,
+                                                             entry.AssetPath );
+                const auto created = CreatePhysicsAssetForMesh( *m_AssetManager, entry.AssetPath );
+                if ( !created )
+                    return Common::MakeFormattedError<bool>( "'{}': {}", label, created.GetError() );
+                LOG_INFO( "[Content Browser] Created physics asset '{}'", created.GetValue().generic_string() );
+                // Opened through the path route, as a double-click on it would (RequestPhysicsAssetDocument).
+                if ( m_SubjectEditors != nullptr )
+                    (void)m_SubjectEditors->OpenPath( created.GetValue().string() );
                 return Common::MakeSuccess( true );
             }
             case ContentBrowserCommand::ClearSelection:

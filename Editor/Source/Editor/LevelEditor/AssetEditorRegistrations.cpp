@@ -18,6 +18,7 @@
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
 #include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
+#include "Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
@@ -137,6 +138,21 @@ namespace Desert::Editor
                   {
                       return std::make_unique<Editor::SkyboxViewerDocument>( Assets::AssetHandle( subject.Owner ),
                                                                              assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE PHYSICS ASSET EDITOR (UE PhAT, RAG1c). A renderer-slot claimant (its preview is a PreviewViewport).
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::PhysicsAsset ) ),
+             Registration{
+                  "PhysicsAsset", ICON_MDI_BONE,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::PhysicsAssetEditorDocument>(
+                           Assets::AssetHandle( subject.Owner ), assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -465,6 +481,10 @@ namespace Desert::Editor
              { std::string( Common::Constants::Extensions::STATIC_MESH ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestStaticMeshDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Physics::kPhysicsAssetExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestPhysicsAssetDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Editor::kAnimationClipExtension ),
                std::string( Common::Content::KindSpec( Common::Content::ContentKind::SkinnedMesh ).Extension ),
