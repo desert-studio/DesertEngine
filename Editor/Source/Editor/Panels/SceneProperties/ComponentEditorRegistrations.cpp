@@ -187,6 +187,9 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HeroCloudComponent, Data, "H
 // Sky Atmosphere is a CUSTOM entry: the reflected fields PLUS the sky-colour ramp (which needs the scene's
 // sun elevation, and that is not a field) and the IBL bake button. See
 // ComponentWidgets/SkyAtmosphereComponent.cpp.
+// Time Of Day is the plain reflected one-liner (TOD-SPLIT): the clock that used to sit in the sky panel's
+// "Time Of Day" category is its own component, as UE's SunSky is its own actor.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::TimeOfDayComponent, Data, "TimeOfDayData", "Time Of Day" )
 
 namespace Desert::Editor
 {

@@ -188,7 +188,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionInstanceTransforms, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionNoUndeclaredKeys, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionPlayerViewFlag, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionUIAnimationSequences );
+    EXPECT_LT( Migration::kSceneVersionUIAnimationSequences, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionTimeOfDayComponent );
 }
 
 namespace

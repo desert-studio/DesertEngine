@@ -411,6 +411,62 @@ namespace Desert::Migration
         return report;
     }
 
+    TimeOfDayComponentReport MigrateTimeOfDayComponentV41ToV42( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr std::array<const char*, 5> kClockKeys = { "DriveSunFromTimeOfDay", "TimeOfDay",
+                                                            "DayLengthSeconds", "Latitude", "NorthOffset" };
+        TimeOfDayComponentReport             report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            // Collected first and written only when the sky block let go of its keys: a refusal leaves the
+            // record exactly as it was read.
+            rfl::Generic::Object clock;
+            EditBlock( entity.Components, "SkyAtmosphere",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           for ( const char* key : kClockKeys )
+                               if ( const auto value = block.get( key ); value.has_value() )
+                                   clock[key] = value.value();
+                           if ( clock.size() == 0 )
+                               return false;
+                           if ( entity.Components.get( "TimeOfDay" ).has_value() )
+                           {
+                               report.Refused.push_back( std::format(
+                                    "entity {}: its SkyAtmosphere states clock keys and the record already has "
+                                    "a TimeOfDay block; which clock is meant is not the migrator's to guess",
+                                    who ) );
+                               clock = rfl::Generic::Object{};
+                               return false;
+                           }
+                           for ( const char* key : kClockKeys )
+                               report.KeysMoved += DropKey( block, key ) ? 1 : 0;
+                           return true;
+                       } );
+            if ( clock.size() != 0 )
+            {
+                entity.Components["TimeOfDay"] = rfl::Generic( std::move( clock ) );
+                ++report.Clocks;
+            }
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                EditBlock( override_.Components, "SkyAtmosphere",
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               for ( const char* key : kClockKeys )
+                                   if ( block.get( key ).has_value() )
+                                       report.Refused.push_back(
+                                            std::format( "entity {} (prefab override): SkyAtmosphere states {}, "
+                                                         "which is a TimeOfDay key now; restate it on the "
+                                                         "prefab's own TimeOfDay block",
+                                                         who, key ) );
+                               return false;
+                           } );
+        }
+        return report;
+    }
+
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
     {
         namespace TL = Animation::Timeline;
@@ -1783,6 +1839,18 @@ namespace Desert::Migration
                 if ( !report.UIAnimations.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.UIAnimations.Refused );
+                    return;
+                }
+            }
+
+            // The clock leaves the sky (TOD-SPLIT): its five keys become a TimeOfDay block on the sky's record.
+            if ( statedSceneVersion < kSceneVersionTimeOfDayComponent )
+            {
+                report.TimeOfDayComponentRaised = true;
+                report.TimeOfDayComponent       = MigrateTimeOfDayComponentV41ToV42( entities );
+                if ( !report.TimeOfDayComponent.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.TimeOfDayComponent.Refused );
                     return;
                 }
             }

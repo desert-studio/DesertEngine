@@ -43,6 +43,7 @@
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/ECS/UIEasing.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
