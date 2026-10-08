@@ -871,6 +871,7 @@ namespace Desert::Assets
     /// Common/CloudNoise.glslh documents (Nubis Cubed). Its lattice cell is kCloudShapeNoiseCellsPerCell of
     /// the slot's CellKm, rounded so a whole number of cells spans RegionSizeKm: the field tiles with the
     /// volume, so the bake's wrap stays seamless and the preview at any point is the bake at its wrap.
+    /// Scaled by the point's height in the slot type's band, half at the base to full at the top (CLOUD-SHAPE).
     float CloudProceduralShapeNoise( const CloudProceduralFieldParams& params, uint32_t slot,
                                      const glm::vec3& pointKm );
 
@@ -904,7 +905,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000011ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000012ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
