@@ -560,6 +560,9 @@ namespace
          { "LensFlareStreakLength", kSceneRenderer },
          { "LensFlareStreakAngle", kSceneRenderer },
          { "LensFlareChromaShift", kSceneRenderer },
+         { "MotionBlurAmount", kSceneRenderer },
+         { "MotionBlurMax", kSceneRenderer },
+         { "MotionBlurTargetFPS", kSceneRenderer },
     };
 
     constexpr Row kDirLightRows[] = {

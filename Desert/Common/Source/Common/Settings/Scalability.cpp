@@ -53,6 +53,8 @@ namespace Common::Scalability
                "SSAORenderer kernel sampleCount (SSAO.shader MAX_SAMPLES = 32)" },
              { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
                "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)" },
+             { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
+               "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },

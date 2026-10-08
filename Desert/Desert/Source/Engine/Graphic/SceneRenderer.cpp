@@ -885,6 +885,13 @@ namespace Desert::Graphic
         m_LensFlare.ChromaShift     = post.LensFlareChromaShift;
         m_LensFlareTint             = post.LensFlareTint;
 
+        // Motion blur (MR2): the authored grade and the scalability tap count (PostProcess.MotionBlurQuality).
+        m_MotionBlurSettings = MotionBlurSettings{ .Amount     = post.MotionBlurAmount,
+                                                   .MaxPercent = post.MotionBlurMax,
+                                                   .TargetFPS  = post.MotionBlurTargetFPS,
+                                                   .Samples    = MotionBlurSamplesForQuality( m_Quality.As<int>(
+                                                        Common::Scalability::Parameter::MotionBlurQuality ) ) };
+
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetParams( post.AutoExposureSpeed, post.AutoExposureMin, post.AutoExposureMax );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
@@ -1657,7 +1664,14 @@ namespace Desert::Graphic
         const bool spatial     = IsSpatialUpscale( frame );
         const bool supersample = frame.Split.Mode == Common::Scalability::ScaleMode::Supersample;
         const bool temporal    = frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr;
-        if ( !m_TargetFramebuffer || ( !spatial && !supersample && !temporal ) )
+        // MR2: motion blur runs on the resolved colour at the end of this function (View/MotionBlur.hpp WHERE IT
+        // RUNS), so a frame with motion blur and no resolve still comes here and builds the overlay target set:
+        // the overlays draw onto the blurred colour, never under it. A multisampled scene target has no
+        // single-sample overlay set (the refusal below), so MSAA frames have no motion blur - a rule of the
+        // combination, not a fault: they never enter this function for it.
+        const bool motionBlur = MotionBlurRuns( m_MotionBlurSettings, frame ) && m_TargetFramebuffer &&
+                                m_TargetFramebuffer->GetSpecification().Samples == 1;
+        if ( !m_TargetFramebuffer || ( !spatial && !supersample && !temporal && !motionBlur ) )
             return {};
         // Every refusal below renders the frame WITHOUT the resolve and says so by name: an invalid set, so the
         // caller post-processes the scene colour and draws the overlays into the scene target.
@@ -1727,6 +1741,21 @@ namespace Desert::Graphic
             if ( !sharpened )
                 return withoutTemporal( sharpened.GetError() );
             resolvedColor = sharpened.GetValue();
+        }
+        // MR2: motion blur (UE PostProcessMotionBlur) after the resolve and before the overlays and the post
+        // chain: Flatten -> TileMax -> NeighborMax -> Gather on the resolved (OutputExtent) colour, from the
+        // render-extent velocity and depth. No nodes when Amount is 0, MotionBlurQuality is off or the frame has
+        // no duration under a TargetFPS (MotionBlurRuns).
+        if ( motionBlur )
+        {
+            const Common::ResultStr<RDG::TextureRef> blurred =
+                 m_MotionBlur->AddPasses( graph, frame, m_MotionBlurSettings,
+                                          MotionBlurInputs{ .SceneColor = resolvedColor,
+                                                            .SceneDepth = inputs.SceneDepth,
+                                                            .Velocity   = inputs.Velocity } );
+            if ( !blurred )
+                return withoutTemporal( blurred.GetError() );
+            resolvedColor = blurred.GetValue();
         }
 
         // THE OVERLAY TARGET SET (ViewTargetSet::Output): the resolved colour, and a velocity and a depth at the

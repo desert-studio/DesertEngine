@@ -37,6 +37,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/View/MotionBlur.hpp>
 #include <Engine/Graphic/View/SpatialUpscale.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
@@ -3272,6 +3273,27 @@ TEST( ShaderCacheKey, TemporalUpscalerLayoutsMatchTheShippedShadersReflection )
     const auto sharpen = ShaderPath( "TemporalAA/Sharpen.shader" );
     ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( sharpen, {} ), "Sharpen" ),
                       *Desert::Graphic::SharpenLayout(), "Sharpen" );
+}
+
+// MR2. The four motion blur layouts (View/MotionBlur.cpp) are hand-written like the temporal ones: each is pinned
+// to its shader's reflection, so a slot renamed, retyped, added or dropped on either side goes red here.
+TEST( ShaderCacheKey, MotionBlurLayoutsMatchTheShippedShadersReflection )
+{
+    using Desert::Graphic::API::Vulkan::MakeShaderBindingLayout;
+    const struct
+    {
+        const char*                                                             Name;
+        const std::shared_ptr<const Desert::Graphic::RDG::ShaderBindingLayout>& Layout;
+    } kernels[] = { { "MotionBlurFlatten", Desert::Graphic::MotionBlurFlattenLayout() },
+                    { "MotionBlurTileMax", Desert::Graphic::MotionBlurTileMaxLayout() },
+                    { "MotionBlurNeighborMax", Desert::Graphic::MotionBlurNeighborMaxLayout() },
+                    { "MotionBlurGather", Desert::Graphic::MotionBlurGatherLayout() } };
+    for ( const auto& kernel : kernels )
+    {
+        const auto path = ShaderPath( ( std::string( "MotionBlur/" ) + kernel.Name + ".shader" ).c_str() );
+        ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( path, {} ), kernel.Name ),
+                          *kernel.Layout, kernel.Name );
+    }
 }
 
 namespace
