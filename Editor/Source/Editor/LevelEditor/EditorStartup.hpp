@@ -16,6 +16,7 @@
 #include <Engine/Assets/ContentGate.hpp>
 #include <Engine/Assets/ItemProgress.hpp>
 #include <Engine/Core/BootTimeline.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -48,6 +49,7 @@ namespace Desert::Editor
     class ImportManager;
     class SceneFiles;
     class SceneWorkspace;
+    class ShotDirector;
 
     class EditorStartup
     {
@@ -95,6 +97,14 @@ namespace Desert::Editor
         // OnAttach: the splash plan, made once the cooked registry is read, and the engine shader compile's stage
         // begun — the longest single wait of the start, and one call (not a stage: the render systems resolve
         // their shaders in their constructors).
+        // THE FIRST LEVEL (UE: UEditorEngine::InitEditor's EditorStartupMap). Screenshot mode names its own scene;
+        // a project queues its DefaultScene (missing on disk = an error naming it, never a scene built in code);
+        // with nothing queued the Basic level template opens as an untitled scene. A capture whose scene is
+        // refused closes the application with its status.
+        void ChooseInitialLevel( ShotDirector& shots );
+        // THE CONTENT THE FIRST FRAME NEEDS (UE: FLevelEditorModule::StartupModule): the cooked asset registry,
+        // the engine shaders and their import templates, then the primary scene's systems. A refusal ends the run.
+        [[nodiscard]] Common::BoolResultStr BootContent();
         void BeginShaderStage();
         // The item line of the stage running now, for an engine call that works through a list.
         Assets::ItemProgress SplashItems();

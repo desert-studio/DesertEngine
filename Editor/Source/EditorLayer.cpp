@@ -59,18 +59,10 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
-#include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
-#include "Editor/Core/AutosavePaths.hpp"
-#include "Editor/Core/CrashRecovery.hpp"
-
-// The device-lost latch, read in OnDetach: a shutdown caused by a lost GPU must save the user's work
-// before it goes, and must not report itself as a clean exit.
-#include <Engine/Graphic/DeviceLost.hpp>
 #include "Editor/Core/PanelRequests.hpp"
 #include "Editor/Core/SceneOpenRequest.hpp"
 #include "Editor/Core/SceneSaveRules.hpp"
@@ -80,8 +72,6 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 // 2. Editor Base & Infrastructure
-#include "Editor/Core/EditorResources.hpp"
-#include "Editor/Core/ThemeManager.hpp"
 #include "Editor/Core/GizmoState.hpp"
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
@@ -100,7 +90,6 @@
 
 #include <array>
 #include <format>
-#include <ImGuizmo.h>
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
@@ -171,55 +160,6 @@
 
 namespace Desert::Editor
 {
-    namespace
-    {
-        // The recovery saves (autosave, device-lost) go through the one scene writer and only need to know
-        // whether it landed; what it counted is the editor save's business.
-        Common::BoolResultStr
-        WrittenOrError( const Common::ResultStr<Desert::Core::ExternalEntities::WriteOutcome>& r )
-        {
-            if ( !r )
-                return Common::MakeError( r.GetError() );
-            return BOOLSUCCESS;
-        }
-
-        // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
-        // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
-        // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
-        // naming them, because a re-cook is what makes the read unnecessary.
-        void NoteBoundsOfMeshesCookedWithoutThem( const std::vector<std::string>& keys )
-        {
-            if ( keys.empty() )
-                return;
-            std::string named;
-            for ( const std::string& key : keys )
-            {
-                named += named.empty() ? key : ", " + key;
-                const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
-                // The render-form bytes through the DDC, not the file at the key: an imported mesh has no
-                // `.stmesh` of its own since AF4h (its row comes from the import record, FIX8), and the
-                // DDC answers for it and for an authored `.stmesh` alike.
-                const auto bytes = Assets::LoadMeshPlatformData( file );
-                if ( !bytes )
-                {
-                    LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
-                    continue;
-                }
-                const auto mesh = Assets::Serialization::ReadMeshAssetData( bytes.GetValue(), file.string() );
-                if ( !mesh )
-                {
-                    LOG_ERROR( "[ContentRegistry] '{}' could not be decoded for its box: {}", key,
-                               mesh.GetError() );
-                    continue;
-                }
-                Assets::ContentRegistry::NoteBounds( file,
-                                                     Assets::Serialization::MeshDataBounds( mesh.GetValue() ) );
-            }
-            LOG_WARN( "[ContentRegistry] {} mesh(es) state no box in their header, so their bodies were read once "
-                      "(the local cache keeps the boxes); re-cook them to drop the read: {}",
-                      keys.size(), named );
-        }
-    } // namespace
 
     // A tool panel that only makes sense for a particular selection or mode opens itself when that
     // context appears and steps aside when it goes away — so the tab strip carries what the current work
@@ -278,63 +218,15 @@ namespace Desert::Editor
         // apply immediately; the camera speed is applied on the first frame (the camera exists by then).
         EditorPreferences::Load();
 
-        // Launched with --project (Project Hub): adopt the project's name and queue its default scene
-        // (loaded through the normal deferred path on the first frame, when the renderer is ready).
-        // Startup content is DATA: a template's DefaultScene ships in its Payload (Templates/Starter), and the
-        // launcher refuses a template that names a scene it does not carry. A DefaultScene that is not on disk
-        // is therefore an error naming the path, never a scene built in code. With no scene to open, the
-        // editor opens the Basic level template as an untitled scene (UE: EditorStartupMap / TemplateMapInfos).
-        // Screenshot mode names its own scene; it is the whole point of the flag.
-        if ( ShotDirector::NamesScene() )
-        {
-            if ( const auto refused = m_Shots.QueueScene() )
-                m_Application->Close( *refused );
-        }
-        else if ( ProjectContext::HasProject() )
-        {
-            m_Workspace.ActiveScene()->SetSceneName( ProjectContext::Current().Name );
-            if ( const auto scenePath = ProjectContext::DefaultScenePath(); !scenePath.empty() )
-            {
-                if ( std::filesystem::exists( scenePath ) )
-                    m_SceneFiles.RequestLoad( scenePath );
-                else
-                {
-                    LOG_ERROR( "[Editor] The project's DefaultScene '{}' does not exist — opening an untitled "
-                               "scene instead. Restore the file or point DefaultScene in the .deproj at a scene "
-                               "that is there.",
-                               scenePath );
-                    Editor::ToastManager::Push( "The project's default scene is missing (see the log)",
-                                                Editor::ToastLevel::Error );
-                }
-            }
-        }
-        // Nothing to open: the Basic level template, as an untitled scene (SceneFiles::NewSceneInternal).
-        if ( !m_SceneFiles.HasPendingLoad() )
-            m_SceneFiles.RequestNew();
+        // THE FIRST LEVEL (EditorStartup::ChooseInitialLevel; UE: UEditorEngine::InitEditor's EditorStartupMap):
+        // the capture's own scene, the project's DefaultScene, or the Basic level template as an untitled scene.
+        m_Startup.ChooseInitialLevel( m_Shots );
 
         BuiltinMeshRegistry::Init( nullptr );
 
-        // Crash recovery: if the previous session left its lock behind (unclean exit) and an autosave
-        // exists, arm a prompt to reopen it. Then (re)arm the lock for THIS session; a clean shutdown
-        // (OnDetach) removes it.
-        if ( CrashRecovery::WasUncleanExit() )
-        {
-            // Only a copy at this build's scene schema is offered; autosaves are never migrated, so one
-            // from another generation is named here and left as it is (CrashRecovery::ChooseAutosave).
-            const Autosave::RecoveryChoice choice = CrashRecovery::ChooseAutosave();
-            for ( const Autosave::NotOfferedCopy& copy : choice.NotOffered )
-            {
-                LOG_WARN( "[Recovery] not offered: '{}' states scene schema v{} / world units v{}; this build "
-                          "opens v{} / v{} only. Autosaves are not migrated -- the file is left as it is.",
-                          copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, Desert::Core::kSceneVersion,
-                          Desert::Core::kUnitVersion );
-            }
-            m_Dock.OfferRecovery( choice.Offered );
-        }
-        if ( !CrashRecovery::ArmSession() )
-            Editor::ToastManager::Push( "Crash recovery is OFF for this session — the lock file could "
-                                        "not be written (see the log)",
-                                        Editor::ToastLevel::Error );
+        // Crash recovery: the pop-up for the previous session's autosave after an unclean exit, then this
+        // session's lock (SessionRecovery::OfferAndArm); a clean shutdown (OnDetach) removes it.
+        m_Recovery.OfferAndArm( m_Dock );
     }
 
     EditorLayer::~EditorLayer() = default;
@@ -362,53 +254,9 @@ namespace Desert::Editor
                 return Common::MakeFormattedError( "control channel: {}", listening.GetError() );
         }
 
-        // THE WINDOW FRAME, IF THIS EDITOR OWNS IT. Asked of the window rather than assumed from the
-        // ApplicationInfo that requested it: a fullscreen-over-the-taskbar window is frameless whatever was
-        // asked for, and the window is the one that knows what actually happened (Window::IsDecorated).
-        if ( const auto& window = m_Application->GetWindow(); window && !window->IsDecorated() )
-        {
-            m_WindowChrome.emplace(
-                 *window,
-                 // The same ordered close the control channel's `quit` takes: Run() leaves its loop, every
-                 // layer is detached, the device goes idle. Two ways to end a session would drift.
-                 [this]() { RequestEditorExit(); } );
-        }
-
-        // THE OS FRAME'S CLOSE ASKS WHAT File -> Exit ASKS. The application no longer stops on the event
-        // itself: RequestEditorExit either closes at once (nothing dirty) or raises the Save / Don't Save /
-        // Cancel questions and closes after the last one; Cancel leaves the editor running, so the
-        // platform's should-close flag is cleared here rather than left set behind a live window.
-        m_Application->GetCloseGate().Install(
-             [this]()
-             {
-                 RequestEditorExit();
-                 if ( const auto& window = m_Application->GetWindow() )
-                 {
-                     // GLFW takes back the handle Window hands out as const void*.
-                     // NOLINTNEXTLINE(bugprone-casting-through-void,cppcoreguidelines-pro-type-const-cast)
-                     auto* native = static_cast<GLFWwindow*>( const_cast<void*>( window->GetNativeWindow() ) );
-                     glfwSetWindowShouldClose( native, GLFW_FALSE );
-                 }
-                 return false;
-             } );
-
-        // 1. Create ImGui Context first
-        ::ImGui::CreateContext();
-
-        // 2. Initialize Editor Resources (Adds fonts to the atlas)
-        Editor::EditorResources::Initialize( UI::IconFontFile().string() );
-
-        // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
-        m_ImGuiLayer = ImGui::ImGuiLayer::Create();
-        if ( const auto attached = m_ImGuiLayer->OnAttach(); !attached.IsSuccess() )
-            return Common::MakeFormattedError( "ImGui layer failed to attach: {}", attached.GetError() );
-
-        ImGuiIO& io = ::ImGui::GetIO();
-        (void)io;
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Enable Multi-Viewport / Platform Windows
+        // THE WINDOW, THE CLOSE GATE AND THE IMGUI CONTEXT (EditorImGuiHost; UE: FSlateApplication::Create).
+        if ( auto hosted = m_ImGuiHost.Attach( *m_Application, [this]() { RequestEditorExit(); } ); !hosted )
+            return hosted;
 
         // THE DOCKING LAYOUT FILE, OFF THE PROJECT (DockLayout::BindLayoutFile).
         if ( const auto bound = DockLayout::BindLayoutFile(); !bound.IsSuccess() )
@@ -418,58 +266,10 @@ namespace Desert::Editor
         m_Documents.RegisterDocumentWellLayoutHandler();
         m_Documents.RegisterDocumentPlacementHandler();
 
-        // Setup ImGui style
-        ThemeManager::SetDarkTheme();
-
-        // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to
-        // regular ones
-        ImGuiStyle& style = ::ImGui::GetStyle();
-        if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
-        {
-            style.WindowRounding              = 0.0f;
-            style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-        }
-
-        // THE COOKED ASSET REGISTRY, BEFORE ANY CONTENT IS ASKED FOR, including the engine shaders a few
-        // lines down, the earliest content this host creates. Every kind resolves its references through
-        // the registry rows, so anything asked before the file was read would come back empty; and
-        // the boot's cook stages call `ContentRegistry::NoteFile` as they write, which would be writing
-        // into rows that `Load` was about to replace.
-        //
-        // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
-        // could not parse is an editor showing an empty Content Browser over a project full of files,
-        // and "looks almost right" is the failure mode that costs the most to find.
-        std::vector<std::string> unboxedMeshes;
-        const auto               registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
-        if ( !registry )
-            return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
-        LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
-                  Assets::ContentRegistry::Get().Count(), registry.GetValue() );
-        NoteBoundsOfMeshesCookedWithoutThem( unboxedMeshes );
-
-        // The committed registry file is gone (AF9): nothing reads it, and a developer tree may still hold
-        // the last copy, untracked. It is harmless — said once so nobody mistakes it for the live registry.
-        if ( const std::filesystem::path stale = Common::Constants::Path::CurrentProjectRoot().ProjectDir /
-                                                 Common::Constants::Path::COOKED_DIR_NAME / "AssetRegistry.dreg";
-             Common::Utils::FileSystem::Exists( stale ) )
-            LOG_WARN( "[ContentRegistry] '{}' is a stale file from before the registry was gathered at start; "
-                      "nothing reads it and it can be deleted",
-                      stale.string() );
-
-        // Shaders must exist BEFORE the render systems below are constructed (their default materials
-        // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
-        // start, and one call: the splash says what it is before it begins, and cannot say more during it.
-        m_Startup.BeginShaderStage();
-        // The splash's close button, pressed during this one long call, stops it between programs.
-        if ( const auto shaders = Assets::CompileEngineShaders( m_AssetManager, m_Startup.SplashItems(),
-                                                                [this]() { return m_Startup.CloseRequested(); } );
-             !shaders )
-            return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
-        // The imported materials choose among these shaders' Import blocks; every cook below comes after.
-        LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
-                  ImportManager::PublishImportTemplates( *m_AssetManager ) );
-
-        m_Workspace.BuildSceneSystems( *m_Workspace.ActiveScene() );
+        // THE COOKED ASSET REGISTRY, THE ENGINE SHADERS AND THE SCENE SYSTEMS (EditorStartup::BootContent; UE:
+        // FLevelEditorModule::StartupModule). A refusal ends the run.
+        if ( auto booted = m_Startup.BootContent(); !booted )
+            return booted;
 
         // THE ANIMATION LIBRARY IS NOT FILLED HERE, and its absence is the fix rather than an omission: a fill
         // loop in OnAttach once ran before the clips were known and reported only the procedural ones, and the
@@ -506,104 +306,9 @@ namespace Desert::Editor
         // EVERY TOOL ENTERS THROUGH PanelRegistry::Add / Adopt, and that is the whole of the guarantee that
         // the View menu lists tools only: the registry REFUSES an ISubjectDocument at compile time, so a
         // document cannot be here to be listed. See Editor/Core/PanelRegistry.hpp.
-        // THE PALETTE'S PROVIDERS, in palette order (CommandRegistry.hpp). Each subject-owned provider reads the
-        // main-scene / asset-manager SLOT when an entry runs, so re-pointing the slot needs no re-registration.
-        // The order of these calls IS the palette's order of groups (and the control channel's list).
-        {
-            const auto camera = [this] { return m_Workspace.ActiveEditorCamera(); };
-            m_EntityCommands  = std::make_unique<EntityCommands>( m_Workspace.ActiveScene(),
-                                                                  m_Documents.SubjectEditors(), camera );
-            m_AssetCommands   = std::make_unique<AssetCommands>(
-                 m_FileExplorerPanel, m_WorldPartitionPanel, m_Workspace.ActiveScene(), m_AssetManager,
-                 m_PaletteAssetFiles, camera,
-                 [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } );
-            using Out = std::vector<PaletteCommand>;
-            m_Commands.OnBuildBegin( [this] { m_PaletteAssetFiles.Take(); } );
-            m_Commands.Register( "Panels", [this]( Out& out ) { m_Dock.AppendPanelCommands( out ); } );
-            m_Commands.Register( "Debug (crash)", []( Out& out ) { AppendCrashCommand( out ); } );
-            m_Commands.Register( "Assets (selection)",
-                                 [this]( Out& out ) { m_AssetCommands->AppendSelectionCommands( out ); } );
-            m_Commands.Register( "Panels (maximize)",
-                                 [this]( Out& out ) { m_Dock.AppendMaximizeCommands( out ); } );
-            // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
-            m_Commands.Register( "Details",
-                                 []( Out& out )
-                                 {
-                                     for ( PaletteCommand& command :
-                                           DetailsPaletteCommands( GetDetailsNavigation() ) )
-                                         out.push_back( std::move( command ) );
-                                 } );
-            // Anti-aliasing method (AA1): the Scalability panel's choice, reachable from the control channel.
-            m_Commands.Register( "Anti-aliasing",
-                                 []( Out& out )
-                                 {
-                                     for ( PaletteCommand& command : AntiAliasingPaletteCommands(
-                                                Common::Scalability::QualityState::Catalog() ) )
-                                     {
-                                         out.push_back( std::move( command ) );
-                                     }
-                                 } );
-            m_Commands.Register( "Clouds", []( Out& out ) { AppendCloudCommands( out ); } );
-            m_Commands.Register( "Language", []( Out& out ) { AppendLanguageCommands( out ); } );
-            m_Commands.Register( "Documents", [this]( Out& out ) { m_Documents.AppendDocumentCommands( out ); } );
-            m_Commands.Register( "Entity", [this]( Out& out ) { m_EntityCommands->Append( out ); } );
-            m_Commands.Register( "Modeling (Mesh To Collision)", [this]( Out& out )
-                                 { AppendMeshToCollisionCommands( out, m_Workspace.ActiveScene() ); } );
-            m_Commands.Register( "Entity (collapse)",
-                                 [this]( Out& out ) { m_EntityCommands->AppendCollapse( out ); } );
-            m_Commands.Register( "Menu", [this]( Out& out ) { m_MainMenu.AppendMenuCommands( out ); } );
-            m_Commands.Register( "Level viewport", []( Out& out ) { AppendViewportCommands( out ); } );
-            m_Commands.Register( "Modeling (Select Elements)",
-                                 []( Out& out ) { AppendSelectElementsCommand( out ); } );
-            m_Commands.Register( "Landscape", [this]( Out& out )
-                                 { AppendLandscapeCommands( out, m_Workspace.ActiveScene() ); } );
-            m_Commands.Register( "Modeling (Create Shape)", []( Out& out ) { AppendCreateShapeCommands( out ); } );
-            m_Commands.Register( "Humanoid", [this]( Out& out )
-                                 { AppendHumanoidCommands( out, m_Workspace.ActiveScene() ); } );
-            m_Commands.Register( "Scene (add shape)", [this]( Out& out ) { AppendAddShapeCommands( out ); } );
-            m_Commands.Register( "Modeling", [this]( Out& out )
-                                 { AppendModelingCommands( out, m_Workspace.ActiveScene() ); } );
-            m_Commands.Register( "UI",
-                                 [this]( Out& out ) { AppendUICommands( out, m_Workspace.ActiveScene() ); } );
-            m_Commands.Register( "Palette", [this]( Out& out ) { AppendPaletteDoorCommand( out ); } );
-            m_Commands.Register( "Assets (import)",
-                                 [this]( Out& out ) { m_AssetCommands->AppendImportCommands( out ); } );
-            m_Commands.Register( "Foliage",
-                                 [this]( Out& out ) {
-                                     AppendFoliageCommands( out, m_Workspace.ActiveScene(), m_AssetManager,
-                                                            m_PaletteAssetFiles.Files() );
-                                 } );
-            m_Commands.Register( "Open", [this]( Out& out )
-                                 { m_Documents.AppendOpenCommands( out, m_PaletteAssetFiles.Files() ); } );
-            m_Commands.Register( "Assets (folders)",
-                                 [this]( Out& out ) { m_AssetCommands->AppendFolderCommands( out ); } );
-            m_Commands.Register( "Scene", []( Out& out ) { AppendSceneCommands( out ); } );
-            m_Commands.Register( "Scene (new views)",
-                                 [this]( Out& out ) { m_Workspace.AppendNewViewCommands( out ); } );
-            m_Commands.Register( "Debug (GPU allocations)",
-                                 []( Out& out ) { AppendGpuAllocationCommand( out ); } );
-            m_Commands.Register( "Scene (view layout)",
-                                 [this]( Out& out ) { m_Workspace.AppendViewLayoutCommands( out ); } );
-            m_Commands.Register( "Scene (actions)", [this]( Out& out ) { AppendSceneTailCommands( out ); } );
-            m_Commands.Register( "AssetCompiling",
-                                 [this]( Out& out ) { m_AssetCompiling.AppendActionCommands( out ); } );
-            // SAVE SCENE ANSWERS WHETHER IT SAVED. `(void)SaveOpenScene()` stood here against a
-            // `[[nodiscard]] bool` — the attribute was on the declaration and the cast silenced it — so a
-            // scene that could not be written came back over the channel as a success. This is the same
-            // family as the toast that once said "Saved 'X'" for a file that had not been written
-            // (FileSystem.hpp's note on the write primitive that is gone).
-            m_Commands.Register( "SceneFiles (save)",
-                                 [this]( Out& out ) { m_SceneFiles.AppendSaveSceneCommand( out ); } );
-            m_Commands.Register( "Play", [this]( Out& out ) { m_Play.AppendPlayCommands( out ); } );
-            m_Commands.Register( "Edit (Undo, Redo)",
-                                 []( Out& out ) { MainMenu::AppendUndoRedoCommands( out ); } );
-            m_Commands.Register( "Documents (close all)",
-                                 [this]( Out& out ) { m_Documents.AppendCloseAllCommand( out ); } );
-            m_Commands.Register(
-                 "Window", [this]( Out& out )
-                 { DockLayout::AppendWindowCommands( out, m_WindowChrome ? m_Application : nullptr ); } );
-            m_Commands.Register( "Build", []( Out& out ) { AppendBuildCommands( out ); } );
-        }
+        // THE PALETTE'S PROVIDERS, in palette order: the order IS the palette's order of groups and the control
+        // channel's list. See Editor/LevelEditor/LevelEditorCommands.hpp.
+        m_LevelCommands.RegisterProviders();
         // THE TOOLS, in View-menu order (DockLayout.hpp, EditorPanels.cpp — UE: RegisterTabSpawner).
         {
             const EditorPanelHandles handles = RegisterEditorPanels( m_Panels, m_Workspace, m_Play, m_Documents,
@@ -629,7 +334,7 @@ namespace Desert::Editor
         //
         // The control channel replaces the whole family. "Panel" / "Open Details" is a command palette
         // entry, so it is reachable by a person with Ctrl+P and by a client at any moment in the session,
-        // as many times as it likes. See BuildPaletteCommands and Editor/Core/Control.
+        // as many times as it likes. See LevelEditorCommands::BuildPaletteCommands and Editor/Core/Control.
 
         // Only when the scene above really was initialised. Every editor pass builds its pipeline
         // against `scene->GetTargetFramebuffer()`, which does not exist until SceneRenderer::Init has
@@ -763,69 +468,8 @@ namespace Desert::Editor
         // command buffer that references them is in flight — see PlaySession::RequestStop.
         m_Play.ServiceRequests();
 
-        // First-frame prefs application (needs a live camera) + autosave timer.
-        {
-            static bool s_CameraSpeedApplied = false;
-            if ( !s_CameraSpeedApplied )
-            {
-                if ( auto cam = m_Workspace.ActiveScene()->GetMainCamera().lock() )
-                    if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
-                    {
-                        editorCam->SetMovementSpeed( EditorPreferences::Get().CameraSpeed );
-                        s_CameraSpeedApplied = true;
-                    }
-            }
-
-            // Autosave: Edit mode only, only when something actually changed since the last autosave.
-            // Writes a SEPARATE file under <Project>/Saved/Autosaves (Autosave::PathFor) — never the main
-            // save, and never anything under the assets root.
-            static float    s_AutosaveAccum        = 0.0f;
-            static uint64_t s_LastAutosaveRevision = 0;
-            const auto&     prefs                  = EditorPreferences::Get();
-            if ( prefs.AutosaveMinutes > 0 &&
-                 m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
-            {
-                // The wall clock: the period is minutes of the user's time, and an autosave never feeds the
-                // scene, so a `--play` capture is not made less reproducible by it.
-                s_AutosaveAccum += ts.GetSeconds();
-                if ( s_AutosaveAccum >= static_cast<float>( prefs.AutosaveMinutes ) * 60.0f )
-                {
-                    s_AutosaveAccum    = 0.0f;
-                    const uint64_t rev = CommandHistory::Get().Revision();
-                    if ( rev != s_LastAutosaveRevision )
-                    {
-                        const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
-                                                                        m_AssetManager.get() );
-                        const auto                          path = Autosave::PathFor( m_SceneFiles.OpenScenePath(),
-                                                                                      m_Workspace.ActiveScene()->GetSceneName(),
-                                                                                      Autosave::kPeriodicSuffix );
-                        const auto                          dir  = path.parent_path();
-                        std::error_code                     ec;
-                        std::filesystem::create_directories( dir, ec );
-                        const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
-                                                                              dir.string(), ec.message() )
-                                                : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText(
-                                                       path, serializer.SerializeToJson() ) );
-                        if ( written )
-                        {
-                            // The revision is marked done ONLY on a write that landed. It used to be
-                            // marked before the write, so a failed autosave was never retried: the next
-                            // tick saw the same revision, decided nothing had changed, and skipped —
-                            // and the log said the autosave had happened. A user going for their
-                            // autosave after a crash found an old file or none.
-                            s_LastAutosaveRevision = rev;
-                            LOG_INFO( "[Autosave] {}", path.string() );
-                        }
-                        else
-                        {
-                            LOG_ERROR( "[Autosave] {} was NOT written: {}. The next autosave tick will "
-                                       "try this revision again.",
-                                       path.string(), written.GetError() );
-                        }
-                    }
-                }
-            }
-        }
+        // The autosave timer (SessionRecovery::Tick).
+        m_Recovery.Tick( ts.GetSeconds() );
 
         // Apply any deferred panel state (e.g. viewport resize) before scene rendering.
         // Panels defer GPU-side resize from OnUIRender to here so descriptor set pools are
@@ -863,20 +507,7 @@ namespace Desert::Editor
         // Every open document, not only the focused one, for the same reason UpdateSceneFrame below runs
         // for every one: a secondary viewport showing a canvas is a live view, and a render-texture
         // element in it that stopped being advanced would show a frozen world with nothing in the log.
-        if ( m_AssetManager )
-        {
-            if ( m_Workspace.PrimaryRegistry() != nullptr )
-            {
-                m_Workspace.PrimaryRegistry()->TickRenderTextures( *m_AssetManager, frameTs );
-            }
-            for ( const auto& doc : m_Workspace.Documents() )
-            {
-                if ( doc->Registry )
-                {
-                    doc->Registry->TickRenderTextures( *m_AssetManager, frameTs );
-                }
-            }
-        }
+        m_Workspace.TickRenderTextures( frameTs );
 
         // The one thumbnail pump, gated by the reveal (EditorStartup::TickThumbnails).
         m_Startup.TickThumbnails();
@@ -916,51 +547,23 @@ namespace Desert::Editor
         m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
 
         // Multi-scene editing: drive EVERY open document each frame so all viewports render live. The active
-        // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder / F9 below act on it only. The
+        // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder below acts on it only. The
         // outline aid + Begin/RegistryRender/OnUpdate/End are folded into UpdateSceneFrame (see below), applied
         // per scene so a secondary viewport is a full, independent render — not a static snapshot.
-        if ( auto r = UpdateSceneFrame( *m_Workspace.PrimaryScene(), m_Workspace.PrimaryRegistry(), frameTs ); !r )
-            return Common::MakeError( r.GetError() );
-        for ( const auto& doc : m_Workspace.Documents() )
-            if ( auto r = UpdateSceneFrame( *doc->Scene, doc->Registry.get(), frameTs ); !r )
-                return Common::MakeError( r.GetError() );
+        // (SceneWorkspace::TickWorlds; UE: UEditorEngine::Tick's loop over the WorldContexts.)
+        if ( auto ticked = m_Workspace.TickWorlds( frameTs, m_Play, m_Shots.RecordingThisFrame() ); !ticked )
+            return ticked;
 
         // Runs a queued "Convert to Skinned" (rig builder) here, outside ImGui component iteration — the swap
         // removes the StaticMeshComponent the Details panel is drawing, so it must not happen mid-render.
         if ( m_Workspace.ActiveScene() && m_AssetManager )
             RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
 
-        if ( const auto& shot = ShotOptions::Get();
-             shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() &&
-             !m_Startup.StartupLoading() &&
-             m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
-            m_Profiler.RecordFlightFrame( !m_Startup.ContentSettling() );
-
-        // Screenshot mode, SECOND HALF (ShotDirector::CountRenderedFrame). On the capture's last frame the layer
-        // adds its own records — the profiler dump, the --flight CSV — and closes with the capture's status.
-        if ( m_Shots.CountRenderedFrame( shotRecorded ) )
-        {
-            const auto& shot = ShotOptions::Get();
-            if ( shot.GpuProfile )
-                ProfilerWindow::DumpProfilerToLog();
-            if ( shot.FlightRoute && !m_Profiler.FinishFlight() )
-                m_Shots.MarkFailed();
-            m_Application->Close( m_Shots.Finish() );
-        }
-
-        // DEBUG: press F9 to dump the final rendered viewport image to F:/DesertEngine/frame_dump.png. Useful
-        // because external GDI/PrintWindow capture returns white for the Vulkan surface — this reads the actual
-        // rendered frame back from the GPU. Edge-detected so one press = one dump.
-        {
-            static bool s_f9Prev = false;
-            const bool  f9       = Input::Keyboard::IsKeyPressed( Common::KeyCode::F9 );
-            if ( f9 && !s_f9Prev )
-            {
-                if ( !m_Capture.WriteViewportPng( "F:/DesertEngine/frame_dump.png" ) )
-                    LOG_ERROR( "[Dump] final frame could not be written" );
-            }
-            s_f9Prev = f9;
-        }
+        // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the --flight sample, and on the capture's last
+        // frame the profiler dump, the --flight CSV and the capture's status to close with.
+        if ( const auto finished = m_Shots.EndFrame( shotRecorded, m_Startup.StartupLoading(),
+                                                     m_Startup.ContentSettling(), m_Profiler ) )
+            m_Application->Close( *finished );
 
         return BOOLSUCCESS;
     }
@@ -992,95 +595,6 @@ namespace Desert::Editor
             m_Application->Close( *quit );
     }
 
-    Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
-                                                         Render::RenderRegistry* registry,
-                                                         const Common::Timestep& ts )
-    {
-        // Editor-only VIEW state (from EditorPreferences, not scene data) pushed per scene before it
-        // records this frame: the selection outline, and — since К2 — the debug/show flags that used to be
-        // serialized into the level. Both must land BEFORE BeginScene, which is where the renderer hands
-        // them on to its systems.
-        //
-        // Only scenes that reach this function are pushed to, and that is the point: the asset-thumbnail,
-        // inspector-preview and photogrammetry renderers own their own SceneRenderer, are never fed here,
-        // and therefore keep DebugViewState's all-off defaults. They used to have to remember to switch the
-        // grid off by hand on a scene they owned.
-        //
-        // ONCE PER VIEW, not once per scene. These reach the renderer's systems from BeginScene, and a
-        // scene has a LIST of renderers now — pushing only to view 0 left every second viewport with
-        // DebugViewState's all-off defaults, i.e. no grid, no collider wireframes, and the machine
-        // quality schema defaults instead of this machine's.
-        for ( size_t viewIndex = 0; viewIndex < scene.GetViewCount(); ++viewIndex )
-        {
-            auto* sr = scene.GetViewRenderer( viewIndex );
-            if ( sr == nullptr )
-                continue;
-            const auto& prefs = EditorPreferences::Get();
-            sr->SetOutlineSettings( prefs.OutlineColor, prefs.OutlineWidth, prefs.OutlineSmoothness,
-                                    prefs.EnableOutline );
-            // THE USER'S ANSWER, MINUS WHAT THIS SCENE'S VIEWPORTS ARE HIDING RIGHT NOW. `prefs.DebugView`
-            // is what the user chose and what editor.json holds; a viewport MODE (2D UI editing hides the
-            // ground grid) suppresses a flag in the COPY that reaches the renderer and never in the store.
-            // Before К10 the mode wrote the store directly and every unrelated EditorPreferences::Save()
-            // could make the suppression permanent — see Editor/Core/ViewportModes.hpp.
-            sr->SetDebugView( ViewportPanel::EffectiveDebugView( prefs.DebugView, scene ) );
-            // AND WHAT THIS MACHINE CAN AFFORD, on the same terms and for the same reason: post AA, mesh
-            // LOD, the sampler's filter and anisotropy, the cloud tier. It was scene data until К3, so a
-            // weak machine could not turn the picture down without editing a file that goes to everybody.
-            // The offscreen preview renderers are not fed here either — the inspector preview pushes its
-            // own copy with a cheaper cloud tier, and the other two keep the schema defaults.
-            sr->SetQuality( Common::Scalability::QualityState::Resolved() );
-        }
-
-        // THE WORLD'S CLOCK, set up for this frame before the scene ticks it (Core::WorldTime).
-        //
-        // A HEADLESS CAPTURE holds the preview clock at zero on every frame it does not RECORD (this frame's
-        // ShotRecordGate verdict: a load pending, the splash up, content settling, the viewport size not yet
-        // held), because how many such frames there are depends on the machine, and a world that moved during them
-        // (the cloud wind accumulates) would make two captures of one scene differ. Without `--play` the counted
-        // frames then step by a FIXED step from zero; under `--play` the preview never runs — Play resets the
-        // clock and `ts` is already the fixed step (ShotOptions::FrameSeconds), so the clock just follows it.
-        // Outside a capture the measured step drives it, and the viewport's Realtime toggle decides whether
-        // preview time moves while editing.
-        if ( const auto& shot = ShotOptions::Get(); shot.Active() )
-        {
-            const bool counting = m_Shots.RecordingThisFrame();
-            scene.GetWorldTime().SetFixedStep( shot.PlayActive() ? std::nullopt
-                                                                 : std::optional( ShotOptions::PlayStepSeconds ) );
-            if ( !counting && scene.GetState() == ::Desert::Core::Scene::SceneState::Edit )
-            {
-                scene.GetWorldTime().Reset();
-            }
-            scene.SetPreviewRealtime( counting && !shot.PlayActive() );
-        }
-        else
-        {
-            scene.GetWorldTime().SetFixedStep( std::nullopt );
-            scene.SetPreviewRealtime( EditorPreferences::Get().ViewportRealtime );
-        }
-
-        // BEFORE the scene's frame, not between its phases: the scene opens and closes each view's
-        // renderer itself now (Scene::OnUpdate), and nothing may sit between a renderer's open and its
-        // close. Today this records nothing into the graph anyway — the editor's injected passes execute
-        // inside the renderer's own update — so moving it costs the frame nothing.
-        if ( registry != nullptr )
-        {
-            registry->BeginFrame( ts );
-            registry->Render();
-        }
-
-        {
-            DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
-            // Play's time stops while streaming waits for the cell under the camera (WP12, decision O2); the
-            // streamer's Tick above goes on, so the loader keeps reading and the wait ends by itself.
-            const bool streamingWaits = m_Play.TickStreaming( scene, ts );
-            if ( auto frame = scene.OnUpdate( streamingWaits ? Common::Timestep( 0.0f ) : ts ); !frame )
-                return Common::MakeError( frame.GetError() );
-        }
-
-        return BOOLSUCCESS;
-    }
-
     Common::BoolResultStr EditorLayer::ShowFolderInBrowser( const std::string& folder )
     {
         if ( m_FileExplorerPanel == nullptr )
@@ -1099,13 +613,10 @@ namespace Desert::Editor
 
     Common::BoolResultStr EditorLayer::OnUIRender()
     {
-        m_ImGuiLayer->Begin();
+        // The ImGui frame and ImGuizmo's (EditorImGuiHost::BeginFrame).
+        m_ImGuiHost.BeginFrame();
 
-        // ImGuizmo is a single global per-frame state — begin it ONCE here, before any panel issues a
-        // Manipulate(). The viewport's object gizmo relies on this.
-        ImGuizmo::BeginFrame();
-
-        SyncWindowTitle();
+        SyncEditorWindowTitle( *m_Application, m_Workspace.ActiveScene().get() );
 
         // LOADING FRAMES DRAW NOTHING. They go to a window that is still hidden — the splash is what a
         // person sees until the start is over — and there is no dockspace or panel to draw yet (the
@@ -1113,7 +624,7 @@ namespace Desert::Editor
         // stood here was replaced by the splash, and deleted with the same change.
         if ( m_Startup.StartupLoading() || m_Startup.ContentSettling() )
         {
-            m_ImGuiLayer->End();
+            m_ImGuiHost.EndFrame();
             return BOOLSUCCESS;
         }
         // NOT YET REAL WHILE A SCENE LOAD IS STILL QUEUED. The frame right after the last stage draws the
@@ -1123,89 +634,12 @@ namespace Desert::Editor
         if ( !m_SceneFiles.HasPendingLoad() && !m_SceneFiles.HasPendingNew() )
             m_RealFrameDrawn = true;
 
-        // ---- Global editing shortcuts ----
-        // Edit mode only (Play discards its changes on Stop anyway) and never while a text field owns the
-        // keyboard. Runs at frame start, before any panel iterates the scene.
-        {
-            const ImGuiIO& io   = ::ImGui::GetIO();
-            const bool editMode = m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit;
-            if ( editMode && !io.WantTextInput && io.KeyCtrl )
-            {
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_Z, false ) )
-                {
-                    if ( io.KeyShift )
-                        CommandHistory::Get().Redo();
-                    else
-                        CommandHistory::Get().Undo();
-                }
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_Y, false ) )
-                    CommandHistory::Get().Redo();
+        // The level's global shortcuts (Ctrl+Z/Y/D/C/V/N/R/S, Ctrl+P, Ctrl+Tab), at frame start, before any panel
+        // iterates the scene. See Editor/LevelEditor/LevelEditorCommands.hpp.
+        m_LevelCommands.HandleShortcuts( ::ImGui::GetIO() );
 
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_D, false ) )
-                {
-                    if ( Core::SelectionManager::Count() > 0 )
-                        if ( auto dups = Commands::DuplicateEntities( Core::SelectionManager::GetSelection() );
-                             !dups.empty() )
-                            Core::SelectionManager::SetSelection( std::move( dups ) );
-                }
-
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_C, false ) && Core::SelectionManager::Count() > 0 )
-                    Commands::CopySelectionToClipboard( Core::SelectionManager::GetSelection() );
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_V, false ) )
-                    if ( auto pasted = Commands::PasteClipboard(); !pasted.empty() )
-                        Core::SelectionManager::SetSelection( std::move( pasted ) );
-
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_N, false ) )
-                    m_SceneFiles.RequestNew(); // Ctrl+N -> fresh empty scene (deferred, see OnUpdate)
-                // Ctrl+R -> the open scene again from its file; an untitled scene has none (the menu greys it).
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_R, false ) )
-                    (void)m_SceneFiles.RequestReload();
-
-                if ( ::ImGui::IsKeyPressed( ImGuiKey_S, false ) )
-                {
-                    // Deliberately discarded HERE and only here: Ctrl+S destroys nothing, so there is
-                    // no next step to gate. SaveOpenScene has already put the star back on and told the
-                    // user why if the write failed. A focused document saves its own asset instead, and
-                    // reports its own failure in its window.
-                    ISubjectDocument* document = m_Documents.Documents().Find( m_Documents.FocusedDocument() );
-                    switch ( ResolveSaveShortcut( m_Documents.DocumentHasFocus(), document ) )
-                    {
-                        case SaveShortcutTarget::Scene:
-                            (void)m_SceneFiles.SaveOpenScene();
-                            break;
-                        case SaveShortcutTarget::FocusedDocument:
-                            (void)document->SaveDocument();
-                            break;
-                        case SaveShortcutTarget::Nothing:
-                            break;
-                    }
-                }
-            }
-
-            // Command palette (Ctrl+P) — works in both edit and play modes, and even over a text field
-            // so it stays reachable; the palette grabs the keyboard once open.
-            if ( io.KeyCtrl && !io.KeyShift && ::ImGui::IsKeyPressed( ImGuiKey_P, false ) )
-                m_CommandPalette.Open();
-
-            // CTRL+TAB THROUGH THE DOCUMENTS, most recently used first. This is what makes ten open
-            // documents bearable: past about six the tab you want is off the end of the strip, and the
-            // keyboard is the only route to it that does not involve reading a list first.
-            //
-            // Outside the edit-mode guard on purpose — switching document is not an edit — but not over a
-            // text field, where Tab belongs to the field.
-            //
-            // ImGui BINDS Ctrl+Tab ITSELF (NavUpdateWindowing, enabled by NavEnableKeyboard) and it runs in
-            // NewFrame, before this layer draws — so both would fire on one press: ImGui's window-ring
-            // overlay AND this. The overlay is cancelled here rather than the key being fought for, and
-            // ONLY when there was a document to switch to: with no documents open, Ctrl+Tab keeps ImGui's
-            // ordinary window ring, which is a reasonable thing for it to do and not ours to remove.
-            m_Documents.UpdateCycleShortcut( io );
-        }
-
-        // Menu Bar
-        ::ImGui::PushStyleVar( ImGuiStyleVar_WindowBorderSize, 0.0f );
-        DrawMenuBar();
-        ::ImGui::PopStyleVar();
+        // The menu bar, which is the window's title bar (MainMenu::DrawBar).
+        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, m_ImGuiHost.Chrome() ? &*m_ImGuiHost.Chrome() : nullptr );
 
         m_Dock.BeginHost();
 
@@ -1216,7 +650,7 @@ namespace Desert::Editor
         m_Dock.DrawDockSpace();
 
         m_Dock.DrawPanels();
-        FollowImGuiWithEvents();
+        m_Dock.RouteEvents( Events(), EventNode() );
 
         // The well BEFORE the documents: it reads back the dock node id the documents are about to be
         // docked into, and a document opened this frame would otherwise float once and settle next frame.
@@ -1234,7 +668,7 @@ namespace Desert::Editor
 
         m_StatusBar.Draw();
 
-        DrawCommandPalette();
+        m_LevelCommands.DrawPalette();
         m_Dock.DrawRecoveryPopup();
         m_Dock.DrawLayoutSavePopup();
         m_Documents.DrawOpenRefusedPopup();
@@ -1250,10 +684,9 @@ namespace Desert::Editor
         // 6px windows of their own, and submitting them here is what puts them above the panels that reach
         // the screen edge. A no-op while the window is maximized, and absent entirely when the OS draws
         // the frame.
-        if ( m_WindowChrome )
-            m_WindowChrome->DrawResizeBorders();
+        m_ImGuiHost.DrawResizeBorders();
 
-        m_ImGuiLayer->End();
+        m_ImGuiHost.EndFrame();
 
         // AFTER the interface has been recorded into the swapchain pass and BEFORE the frame is submitted:
         // the only window in which the presented image is legally ours to copy out of. A no-op unless a
@@ -1263,371 +696,18 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
-    std::vector<PaletteCommand> EditorLayer::BuildPaletteCommands()
-    {
-        std::vector<PaletteCommand> commands;
-        commands.reserve( m_Panels.Size() + m_Documents.Documents().Count() + 32 );
-        m_Commands.Build( commands );
-        return commands;
-    }
-
-    void EditorLayer::AppendAddShapeCommands( std::vector<PaletteCommand>& commands )
-    {
-        // ADD SHAPE: the outliner's Add > Shapes, one entry per authorable primitive, through the same spawn.
-        for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
-        {
-            commands.push_back(
-                 { "Scene", std::string( "Add shape: " ) + Geometry::PrimitiveTypeName( type ), [this, type]
-                   {
-                       if ( !m_Workspace.ActiveScene() )
-                           return PaletteCommandOutcome( false, "no scene is open" );
-                       Editor::SceneHierarchyPanel::SpawnPrimitive( *m_Workspace.ActiveScene(), type );
-                       return PaletteCommandDone();
-                   } } );
-        }
-    }
-
-    void EditorLayer::AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands )
-    {
-        // THE PALETTE'S OWN DOOR. Ctrl+P is the only other way to it and a keystroke is not available to
-        // this machine, so the command palette was the single window in this editor that no unattended run
-        // could put on screen — and therefore the one whose appearance no change to it could ever be
-        // checked against. Г14's rule reaches its own instrument: a capability reachable only by hand does
-        // not exist for the channel. Found by needing it, exactly as the snap steps and the entity delete
-        // were: A6-1 changed WHEN this list is built and could not photograph the result.
-        commands.push_back( { "View", "Open the command palette", [this]
-                              {
-                                  m_OpenPaletteRequested = true;
-                                  return PaletteCommandDone();
-                              } } );
-    }
-
-    void EditorLayer::AppendSceneCommands( std::vector<PaletteCommand>& commands )
-    {
-        // THE LEVELS, which every other kind of document could already be opened by name from here and a
-        // level could not — the one thing an editor exists to open was the one thing the palette had no
-        // entry for, and therefore the one thing the control channel could not ask for either (the
-        // channel's vocabulary IS this list). A separate group from "Open" above because these are not
-        // documents: opening one REPLACES the world rather than adding a tab.
-        //
-        // Routed through SceneOpenRequest, not through LoadScene, on purpose: that is the path that runs
-        // the unsaved-changes gate, and a palette entry is at least as easy to hit by accident as the
-        // drag-and-drop it was written for.
-        SceneFiles::AppendOpenSceneCommands( commands );
-
-        // The Level Viewport commands the F / Esc keys run, on the viewport the user works in.
-        for ( const Editor::ViewportCommand command : Editor::kViewportCommandOrder )
-            commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
-                                  std::string( Editor::CommandInfo( command ).Label ),
-                                  std::bind_front( &Editor::ViewportPanel::RequestCommand, command ) } );
-    }
-
-    void EditorLayer::AppendSceneTailCommands( std::vector<PaletteCommand>& commands )
-    {
-        // NAMED VIEWPOINTS for the focused document's preview — the replacement for `--preview-orbit
-        // yaw,pitch`, whose continuous angle pair a palette entry has nowhere to carry. See
-        // Editor/Core/PreviewViewpoints.hpp for why names are MORE reproducible than numbers, not less.
-        //
-        // Offered for the FOCUSED document only, because that is the one a person means by "the preview"
-        // and because seven entries per open document would bury everything else in the list.
-        if ( ISubjectDocument* focused = m_Documents.Documents().Find( m_Documents.FocusedDocument() );
-             focused != nullptr && focused->HasPreview() )
-        {
-            for ( const PreviewViewpoint& viewpoint : kPreviewViewpoints )
-            {
-                const PreviewViewpoint* aim = &viewpoint;
-                commands.push_back( { "Preview", std::string( viewpoint.Name ), [this, aim]
-                                      {
-                                          // Re-resolved rather than captured: the focus can move, and the
-                                          // document can be destroyed, between this list being built and
-                                          // the entry being run.
-                                          ISubjectDocument* target =
-                                               m_Documents.Documents().Find( m_Documents.FocusedDocument() );
-                                          if ( target == nullptr || !target->HasPreview() )
-                                          {
-                                              // REFUSES INSTEAD OF SLIPPING PAST. That re-resolution is
-                                              // exactly a case that can come back empty, and the `if`
-                                              // used to swallow it: the command answered success having
-                                              // aimed nothing at anything.
-                                              return Common::MakeError<bool>(
-                                                   "the document this viewpoint was offered for no longer "
-                                                   "has a preview; the focus moved between the list being "
-                                                   "built and this command running." );
-                                          }
-                                          target->SetPreviewViewpoint( *aim );
-                                          return PaletteCommandDone();
-                                      } } );
-            }
-        }
-
-        // THE THREE STATES OF THE FOCUSED DOCUMENT, as ordinary commands.
-        //
-        // Apply, Discard and Save are ACTIONS with names — they belong in the palette by the same rule
-        // that put "Save Scene" there, and putting them here rather than inventing channel operations for
-        // them is what keeps the channel's vocabulary the palette's vocabulary. The artist gets them on
-        // the keyboard as a side effect, which is the argument for the palette in the first place.
-        //
-        // APPLY AND DISCARD ARE OFFERED ONLY WHILE THERE IS SOMETHING TO APPLY. The palette lists what is
-        // available THIS INSTANT, exactly as the toolbar disables the two buttons in the same state; an
-        // entry that ran and did nothing would be a silent no-op reported as a success, and a client
-        // would read it as "the scene now has my edit".
-        if ( ISubjectDocument* focused = m_Documents.Documents().Find( m_Documents.FocusedDocument() ) )
-        {
-            const SubjectId subject = m_Documents.FocusedDocument();
-
-            if ( focused->GetEditModel() == ISubjectDocument::EditModel::Staged && focused->HasUnappliedEdits() )
-            {
-                // Re-resolved inside, not captured: the focus can move and the document can be destroyed
-                // between this list being built and the entry being run — the same rule the Preview
-                // viewpoints above follow, for the same reason.
-                // THE THREE `(void)` CASTS THAT USED TO BE HERE ARE A6-2 POINT 1 IN ONE PLACE. Each of
-                // these operations already returns "did anything actually move" — ISubjectDocument says
-                // so at length, and says WHY: "a caller must not report a save that did not happen". The
-                // palette then threw the answer away, so over the channel an Apply that published nothing
-                // and a Save that wrote no file both came back `{"ok":true}`.
-                //
-                // The reason cannot be richer than this, and that is a limit worth naming rather than
-                // dressing up: those three virtuals return a bare `bool` and carry no message, so what
-                // the editor honestly knows is THAT the document declined. Turning the interface into
-                // BoolResultStr would touch every document type and belongs to whoever owns them.
-                commands.push_back( { "Document", "Apply this document's edits to the scene", [this, subject]
-                                      {
-                                          ISubjectDocument* target = m_Documents.Documents().Find( subject );
-                                          if ( target == nullptr )
-                                              return Common::MakeError<bool>(
-                                                   "the document that had these edits is no longer open." );
-                                          return PaletteCommandOutcome(
-                                               target->ApplyEdits(),
-                                               "the document published nothing: it had no outstanding edit "
-                                               "by the time the command ran, so the scene is unchanged." );
-                                      } } );
-                commands.push_back( { "Document", "Discard this document's unapplied edits", [this, subject]
-                                      {
-                                          ISubjectDocument* target = m_Documents.Documents().Find( subject );
-                                          if ( target == nullptr )
-                                              return Common::MakeError<bool>(
-                                                   "the document that had these edits is no longer open." );
-                                          return PaletteCommandOutcome(
-                                               target->DiscardEdits(),
-                                               "the document discarded nothing: it had no outstanding edit "
-                                               "by the time the command ran." );
-                                      } } );
-            }
-
-            commands.push_back( { "Document", "Save this document", [this, subject]
-                                  {
-                                      ISubjectDocument* target = m_Documents.Documents().Find( subject );
-                                      if ( target == nullptr )
-                                          return Common::MakeError<bool>( "the document to save is no longer "
-                                                                          "open." );
-                                      return PaletteCommandOutcome(
-                                           target->SaveDocument(),
-                                           "the document was NOT written. Its own log line says why; this "
-                                           "command only knows that no file was produced." );
-                                  } } );
-        }
-    }
-
-    void EditorLayer::DrawCommandPalette()
-    {
-        // THE OVERLAY ITSELF, ASKED FOR BY NAME. Ctrl+P is the only other way in, and a keystroke is not
-        // available to this machine — so the command palette was the one window in this editor that no
-        // unattended run could photograph, which made every change to it unverifiable. Г14's rule applied
-        // to the palette's own door: a capability reachable only by hand does not exist for the channel.
-        //
-        // A DEFERRED FLAG rather than calling Open() in the closure, and the reason is the one asymmetry
-        // that would otherwise make this a knob that does nothing. CommandPalette::Draw runs the chosen
-        // entry and then sets m_Open = false on the very next line, so an entry that opened the palette
-        // from inside the palette would be closed again before the frame ended — working over the socket
-        // and doing nothing under a person's hand. Consumed below, in this same frame, so the channel's
-        // ordering guarantee still holds: the frame that answers the command is the frame that shows it.
-        if ( m_OpenPaletteRequested )
-        {
-            m_OpenPaletteRequested = false;
-            m_CommandPalette.Open();
-        }
-
-        // BUILT ON THE FRAME IT OPENS, AND NOT ON EVERY FRAME IT IS OPEN.
-        //
-        // This used to call BuildPaletteCommands() unconditionally, sixty times a second for as long as
-        // the overlay was up — while EditorLayer.hpp said, one line above the declaration, "Built on
-        // demand — when the palette opens, or when a request arrives — never per frame." The comment was
-        // the design; the code was not doing it, and nothing said so.
-        //
-        // It became load-bearing with A6-1: the `Open` group is now enumerated from the project's FILES
-        // rather than from the asset manager's cache, so a per-frame rebuild is a recursive walk of the
-        // content tree sixty times a second while somebody types a query. (The scene list beside it,
-        // CollectAvailableScenes, has always walked a directory tree here too, so the rebuild was already
-        // doing disk work per frame — the file half simply made it bigger and more obvious.)
-        //
-        // Rebuilding on OPEN is not a snapshot going stale, and that is why this is the fix rather than a
-        // cache: the palette takes the keyboard while it is up, so nothing can open a document, load a
-        // scene or delete an entity between the build and the choice. Running an entry closes it, and the
-        // next Ctrl+P builds again.
-        if ( m_CommandPalette.TakeJustOpened() )
-            m_CommandPalette.SetCommands( BuildPaletteCommands() );
-
-        if ( !m_CommandPalette.IsOpen() )
-            return;
-
-        // AND THE PERSON WHO CLICKED HEARS IT TOO. The palette hands back what the chosen entry answered
-        // (A6-2 point 1); before that, a command picked from Ctrl+P that failed simply closed the overlay
-        // and left the editor looking as though it had obeyed. The toast is raised HERE and not inside
-        // CommandPalette so that class keeps one UI dependency instead of two — the layer that owns the
-        // toasts owns how a refusal is shown.
-        if ( const auto chosen = m_CommandPalette.Draw(); !chosen )
-            Editor::ToastManager::Push( chosen.GetError(), Editor::ToastLevel::Error );
-    }
-
-    void EditorLayer::DrawMenuBar()
-    {
-        namespace ImGui = ::ImGui;
-
-        if ( !ImGui::BeginMainMenuBar() )
-            return;
-
-        m_MainMenu.DrawMenus();
-
-        LevelToolbar::DrawProjectSection();
-        m_Toolbar.DrawSceneRenameSection();
-        // Play/Pause/Stop now live in the toolbar strip (LevelToolbar::Draw), not the menu bar.
-        //
-        // THIS BAR IS THE WINDOW'S TITLE BAR NOW. It already carried the project, the level, the menus and
-        // the stats while the system frame sat above it drawing a second one; the editor asks for a window
-        // without a frame (Sandbox.hpp), so the three window commands and the bar's own gestures come here.
-        // Both are conditional on the window actually being frameless — with a system frame they would be a
-        // second set of buttons for the same three actions.
-        const float chromeWidth = m_WindowChrome ? UI::WindowChrome::WindowButtonsWidth() : 0.0f;
-        m_Profiler.DrawEngineStats( chromeWidth );
-        if ( m_WindowChrome )
-        {
-            m_WindowChrome->DrawWindowButtons();
-            // LAST inside the bar, after every item: "over the bar and over nothing on it" is only a
-            // question with an answer once everything on it has been submitted.
-            m_WindowChrome->HandleTitleBarGestures();
-        }
-
-        ImGui::EndMainMenuBar();
-
-        DrawPopups();
-    }
-
-    // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no
-    // longer painted anywhere on screen, but the Dock, Mission Control, the taskbar and every window
-    // switcher still read it — and the window's own name was "Desert Engine — <project>" for the whole
-    // session, so those lists could not tell two editors on two levels apart.
-    //
-    // Compared against Window::GetTitle rather than against a copy of what was last pushed here: the window
-    // owns that string, and a second copy in this file would be the same one-fact-two-owners shape as a
-    // remembered "is it maximized". The comparison is what keeps this to one glfwSetWindowTitle per change
-    // rather than sixty a second.
-    void EditorLayer::SyncWindowTitle()
-    {
-        const auto& window = m_Application->GetWindow();
-        if ( !window || !m_Workspace.ActiveScene() )
-            return;
-
-        const std::string title = std::format( "Desert Engine — {} — {}", Editor::ProjectContext::Current().Name,
-                                               m_Workspace.ActiveScene()->GetSceneName() );
-        if ( window->GetTitle() != title )
-            window->SetTitle( title );
-    }
-
-    void EditorLayer::DrawPopups()
-    {
-        m_SceneFiles.DrawDialogs();
-        m_Preferences.Draw();
-    }
-
-    void EditorLayer::FollowImGuiWithEvents()
-    {
-        Common::EventTree* events = Events();
-        if ( events == nullptr )
-            return;
-        Common::EventNodeId focus   = EventNode();
-        Common::EventNodeId pointer = EventNode();
-        for ( const auto& panel : m_Panels )
-        {
-            if ( panel->HoldsKeyboardFocus() )
-                focus = panel->EventNode();
-            if ( panel->IsUnderPointer() )
-                pointer = panel->EventNode();
-        }
-        events->SetFocus( focus );
-        events->SetHovered( pointer );
-    }
-
     Common::BoolResultStr EditorLayer::OnDetach()
     {
         m_Subsystems.reset();
-        m_Application->GetCloseGate().Uninstall();
+        m_ImGuiHost.UninstallCloseGate();
         // The socket goes first, and its file with it (ControlService::Close).
         m_Control.Close();
         if ( const auto kept = m_Dock.KeepLayoutAcrossQuit(); !kept.IsSuccess() )
             LOG_ERROR( "[Layout] the layout from before the maximize was not saved: {}", kept.GetError() );
 
-        // THE DEVICE DIED, AND THIS IS THE LAST MOMENT THE USER'S WORK EXISTS ANYWHERE.
-        //
-        // Not left to the autosave timer, which has three separate reasons not to have run recently: it
-        // fires every AutosaveMinutes (default 5), it skips when the command revision has not moved, and
-        // it runs in Edit mode only. This one runs ONCE, unconditionally, at the moment of loss.
-        //
-        // It writes a SEPARATE file so that a good periodic autosave is never clobbered by it. The name
-        // still contains "_autosave", which is what Autosave::SceneFor matches on, and it is
-        // the newest file there, so the recovery prompt offers this one.
-        //
-        // IN PLAY MODE THE AUTHORED SCENE IS WHAT GETS WRITTEN — PlaySession's snapshot, the same text Stop would
-        // have restored. The live scene at that instant holds runtime mutations nobody authored and nobody
-        // wants back; saving those under the user's scene name would be the wrong answer wearing the right
-        // filename.
-        if ( Graphic::DeviceLost::IsLost() && m_Workspace.ActiveScene() )
-        {
-            using SceneState = ::Desert::Core::Scene::SceneState;
-            const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
-                                                            m_AssetManager.get() );
-            const std::string                   text = m_Workspace.ActiveScene()->GetState() == SceneState::Edit
-                                                            ? serializer.SerializeToJson()
-                                                            : m_Play.AuthoredSnapshot();
-            if ( text.empty() )
-            {
-                // An empty file under a recovery name is a silent wrong answer: the prompt would offer it
-                // and the user would open nothing. Say so instead.
-                LOG_ERROR( "[DeviceLost] nothing could be serialized to save — the scene is in {} and its "
-                           "authored snapshot is empty. Your periodic autosave, if any, is untouched.",
-                           m_Workspace.ActiveScene()->GetState() == SceneState::Edit ? "Edit" : "Play" );
-            }
-            else
-            {
-                const auto path =
-                     Autosave::PathFor( m_SceneFiles.OpenScenePath(), m_Workspace.ActiveScene()->GetSceneName(),
-                                        Autosave::kDeviceLostSuffix );
-                const auto      dir = path.parent_path();
-                std::error_code ec;
-                std::filesystem::create_directories( dir, ec );
-                const auto written =
-                     ec ? Common::MakeFormattedError( "could not create {}: {}", dir.string(), ec.message() )
-                        : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText( path, text ) );
-                // BRACES ARE REQUIRED ON BOTH ARMS: the LOG_ macros are not single statements, so a
-                // braceless if/else here does not compile. The autosave block above is written the same
-                // way for the same reason.
-                if ( written )
-                {
-                    LOG_INFO( "[DeviceLost] your work was saved to {} before shutting down; the next start "
-                              "will offer it.",
-                              path.string() );
-                }
-                else
-                {
-                    LOG_ERROR( "[DeviceLost] the emergency save FAILED: {}. The periodic autosave in {} is "
-                               "the newest copy that exists.",
-                               written.GetError(), dir.string() );
-                }
-            }
-        }
-
-        // Clean shutdown: drop the session lock so the next start doesn't think we crashed. After a device
-        // loss CrashRecovery::DisarmSession refuses, on purpose — see its own comment.
-        CrashRecovery::DisarmSession();
+        // The one emergency save after a device loss, then the lock drop of a clean shutdown (SessionRecovery).
+        m_Recovery.SaveOnDeviceLost();
+        SessionRecovery::Disarm();
 
         // The launcher's tile picture, refreshed on the way out — HERE, while the device and the
         // scene's final image still exist. Everything below this point is teardown; a few lines
@@ -1690,9 +770,7 @@ namespace Desert::Editor
         m_WorldPartitionPanel = nullptr;
         // Reported and not returned even though OnDetach has a channel: everything below this line still
         // has to run, and an early return would leave the extra documents and their render slots alive.
-        if ( const auto detached = m_ImGuiLayer->OnDetach(); !detached.IsSuccess() )
-            LOG_ERROR( "[EditorLayer] ImGui layer failed to detach: {}", detached.GetError() );
-        m_ImGuiLayer.reset();
+        m_ImGuiHost.Detach();
 
         // A scene names its views' renderers by raw pointer and owns none of them, so every renderer dies
         // after the scene that names it (FIX6) — the order is SceneWorkspace::Teardown's.

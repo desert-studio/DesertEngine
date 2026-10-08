@@ -114,10 +114,13 @@ namespace Desert::Editor
         void AskCloseAll( std::function<void()> onAllAnswered );
 
         // Palette providers (CommandRegistry, groups "Documents" and "Open"); @p assetFiles is the census the
-        // palette build took (EditorLayer::m_PaletteAssetFiles).
+        // palette build took (LevelEditorCommands::m_AssetFiles).
         void AppendDocumentCommands( std::vector<PaletteCommand>& commands );
         // "Action / Close All Documents" (each dirty one asks first).
         void AppendCloseAllCommand( std::vector<PaletteCommand>& commands );
+        // "Preview" viewpoints and "Document" Apply / Discard / Save for the FOCUSED document only (group
+        // "Scene (actions)"); each entry re-resolves its document when it runs.
+        void AppendFocusedDocumentCommands( std::vector<PaletteCommand>& commands );
         void AppendOpenCommands( std::vector<PaletteCommand>&              commands,
                                  const std::vector<std::filesystem::path>& assetFiles );
 
