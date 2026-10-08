@@ -498,6 +498,14 @@ namespace Desert::Editor
         return it->second;
     }
 
+    std::optional<FileExplorerPanel::MeshPicture>
+    FileExplorerPanel::WarmPictureOf( const ThumbnailWarmup::WarmItem& item )
+    {
+        if ( item.Kind == ThumbnailWarmup::WarmKind::Pose )
+            return MeshPicture{ item.Path, true };
+        return MeshPictureFor( item.Path, ThumbnailWarmup::FileTypeOfPath( item.Path ) );
+    }
+
     std::size_t FileExplorerPanel::WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
                                                           const std::vector<ThumbnailWarmup::WarmItem>& project )
     {
@@ -505,43 +513,12 @@ namespace Desert::Editor
         using ThumbnailWarmup::WarmKind;
         if ( m_AssetManager == nullptr )
             return 0;
-
-        // A mesh is judged and filed by its COOKED form, as its tile does (DrawRenderedMeshThumbnail): the
-        // picture is under the .stmesh and its freshness source is MeshFreshnessSource of it. A foliage type
-        // is its mesh's picture (MeshSourceFor); a .skmesh is its own cooked form; a skinned source is the
-        // pose of the asset its import wrote (MeshPictureFor), resolved as a Pose.
-        const auto pictureOf = [this]( const WarmItem& item ) -> std::optional<MeshPicture>
+        const auto cookedOf = [this]( const WarmItem& item ) -> std::optional<std::string>
         {
-            if ( item.Kind == WarmKind::Pose )
-                return MeshPicture{ item.Path, true };
-            return MeshPictureFor( item.Path, ThumbnailWarmup::FileTypeOfPath( item.Path ) );
-        };
-        const auto cookedOf = [&pictureOf]( const WarmItem& item ) -> std::optional<std::string>
-        {
-            const std::optional<MeshPicture> picture = pictureOf( item );
+            const std::optional<MeshPicture> picture = WarmPictureOf( item );
             if ( !picture )
                 return std::nullopt;
             return picture->Cooked;
-        };
-        const auto verdictOf = [&]( const WarmItem& item )
-        {
-            if ( item.Kind == WarmKind::Decoded )
-                return ThumbnailFreshness::Verdict::Show; // the file is its own picture
-            if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
-            {
-                const std::optional<std::string> cooked = cookedOf( item );
-                if ( !cooked )
-                    return ThumbnailFreshness::Verdict::Show; // refused and named by MeshSourceFor: no capture
-                return ThumbnailService::JudgeMeshPicture( *cooked ); // the tile's and the enqueue gate's verdict
-            }
-            if ( item.Kind == WarmKind::Sky )
-                return ThumbnailService::JudgeSkyboxPicture( item.Path ); // the tile's and RequestSkybox's verdict
-            return ThumbnailFreshness::Judge(
-                 ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
-        };
-        const auto needsCapture = [&]( const WarmItem& item ) {
-            return !m_FailedThumbs.contains( item.Path ) &&
-                   verdictOf( item ) == ThumbnailFreshness::Verdict::Capture;
         };
 
         // EVERY PICTURE OF THE PROJECT IS ASKED FOR — the one the disk has goes to a worker decode now, the one
@@ -563,79 +540,144 @@ namespace Desert::Editor
             }
         }
 
-        const std::vector<WarmItem> warm = ThumbnailWarmup::SplashWarmList( scene, project, needsCapture );
+        // THE ORDER IS FIXED NOW, THE JUDGING IS NOT (TickWarmProject): every subject is listed as if it needed a
+        // capture, and WarmProjectItem drops the fresh ones as it reaches them, a slice of each frame at a time.
+        m_WarmJudgeQueue = ThumbnailWarmup::SplashWarmList( scene, project, []( const WarmItem& ) { return true; } );
+        m_WarmJudgeNext  = 0;
         m_WarmMeshesPending.clear();
-        for ( const WarmItem& item : warm )
-        {
-            if ( !needsCapture( item ) )
-                continue; // a fresh scene subject: its picture is decoded with the rest
-            switch ( item.Kind )
-            {
-                case WarmKind::Mesh:
-                case WarmKind::Pose:
-                {
-                    // Resolved by TickWarmMeshes with the path each resolver takes, as the tile resolves it: a
-                    // pose by its cooked asset (ResolvePoseSubject), a static mesh by the FILE ITS PICTURE IS OF
-                    // (MeshFreshnessSource: a hand-authored .stmesh itself, else the raw source beside it).
-                    // ResolveMesh asks the DDC for the source's import; handed the cooked path of an import
-                    // (a scene root names base.stmesh, which an import never writes) it hashed a file that is
-                    // not on disk and logged "Could not read file" for every imported mesh the scene used.
-                    const std::optional<MeshPicture> picture = pictureOf( item );
-                    if ( !picture )
-                        break;
-                    if ( picture->Pose )
-                        m_WarmMeshesPending.push_back( { picture->Cooked, WarmKind::Pose } );
-                    else
-                        m_WarmMeshesPending.push_back(
-                             { ThumbnailFreshness::MeshFreshnessSource( picture->Cooked ).generic_string(),
-                               WarmKind::Mesh } );
-                    break;
-                }
-                case WarmKind::Painted:
-                    ThumbnailService::Get().WarmPainted( item.Path );
-                    break;
-                case WarmKind::Sky:
-                {
-                    // The row the registry filed it under names the handle, as the tile's request does.
-                    const Assets::AssetHandle skybox = Runtime::SkyboxHandleAtPath( item.Path );
-                    if ( static_cast<uint64_t>( skybox ) == 0 )
-                    {
-                        LOG_WARN( "[Thumbnails] the splash cannot warm '{}': the registry has no skybox row at it",
-                                  item.Path );
-                        m_FailedThumbs.insert( item.Path );
-                        break;
-                    }
-                    ThumbnailService::Get().WarmSkybox( skybox, item.Path );
-                    break;
-                }
-                case WarmKind::Material:
-                {
-                    // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
-                    const auto subject = ThumbnailSubject::ResolveMaterial(
-                         *m_AssetManager, item.Path,
-                         []( const std::string&                                   assetPath,
-                             const Common::ResultStr<ThumbnailSubject::Material>& resolved )
-                         {
-                             if ( resolved )
-                                 ThumbnailService::Get().WarmMaterial( resolved.GetValue(), assetPath );
-                         } );
-                    if ( !subject )
-                    {
-                        LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", item.Path, subject.GetError() );
-                        m_FailedThumbs.insert( item.Path );
-                        break;
-                    }
-                    if ( const auto& material = subject.GetValue() )
-                        ThumbnailService::Get().WarmMaterial( *material, item.Path );
-                    break;
-                }
-                case WarmKind::Decoded:
-                    break;
-            }
-        }
-        (void)TickWarmMeshes();
         RequestProjectPictures();
-        return ThumbnailService::Get().SceneWarmPending() + m_WarmMeshesPending.size();
+        (void)TickWarmProject();
+        return ThumbnailService::Get().SceneWarmPending() + m_WarmMeshesPending.size() +
+               ( m_WarmJudgeQueue.size() - m_WarmJudgeNext );
+    }
+
+    std::size_t FileExplorerPanel::TickWarmProject()
+    {
+        if ( m_WarmJudgeNext >= m_WarmJudgeQueue.size() )
+            return 0;
+        const auto start = std::chrono::steady_clock::now();
+        do
+        {
+            WarmProjectItem( m_WarmJudgeQueue[m_WarmJudgeNext] );
+            ++m_WarmJudgeNext;
+        } while ( m_WarmJudgeNext < m_WarmJudgeQueue.size() &&
+                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count() <
+                        WarmJudgeSliceMs );
+        if ( m_WarmJudgeNext == m_WarmJudgeQueue.size() )
+        {
+            LOG_INFO( "[Thumbnails] the splash judged {} subject(s); {} capture(s) queued, {} mesh(es) still read",
+                      m_WarmJudgeQueue.size(), ThumbnailService::Get().SceneWarmPending(), m_WarmMeshesPending.size() );
+            m_WarmJudgeQueue.clear();
+            m_WarmJudgeNext = 0;
+            (void)TickWarmMeshes();
+        }
+        return m_WarmJudgeQueue.size() - m_WarmJudgeNext;
+    }
+
+    void FileExplorerPanel::WarmProjectItem( const ThumbnailWarmup::WarmItem& item )
+    {
+        using ThumbnailWarmup::WarmItem;
+        using ThumbnailWarmup::WarmKind;
+        if ( m_AssetManager == nullptr )
+            return;
+        // A mesh is judged and filed by its COOKED form, as its tile does (DrawRenderedMeshThumbnail): the
+        // picture is under the .stmesh and its freshness source is MeshFreshnessSource of it. A foliage type
+        // is its mesh's picture (MeshSourceFor); a .skmesh is its own cooked form; a skinned source is the
+        // pose of the asset its import wrote (MeshPictureFor), resolved as a Pose.
+        const auto pictureOf = [this]( const WarmItem& subject ) { return WarmPictureOf( subject ); };
+        const auto cookedOf = [&pictureOf]( const WarmItem& subject ) -> std::optional<std::string>
+        {
+            const std::optional<MeshPicture> picture = pictureOf( subject );
+            if ( !picture )
+                return std::nullopt;
+            return picture->Cooked;
+        };
+        const auto verdictOf = [&]( const WarmItem& subject )
+        {
+            if ( subject.Kind == WarmKind::Decoded )
+                return ThumbnailFreshness::Verdict::Show; // the file is its own picture
+            if ( subject.Kind == WarmKind::Mesh || subject.Kind == WarmKind::Pose )
+            {
+                const std::optional<std::string> cooked = cookedOf( subject );
+                if ( !cooked )
+                    return ThumbnailFreshness::Verdict::Show; // refused and named by MeshSourceFor: no capture
+                return ThumbnailService::JudgeMeshPicture( *cooked ); // the tile's and the enqueue gate's verdict
+            }
+            if ( subject.Kind == WarmKind::Sky )
+                return ThumbnailService::JudgeSkyboxPicture( subject.Path ); // the tile's and RequestSkybox's verdict
+            return ThumbnailFreshness::Judge(
+                 ThumbnailFreshness::Observe( ThumbnailPngFor( subject.Path ), subject.Path ) );
+        };
+        const auto needsCapture = [&]( const WarmItem& subject ) {
+            return !m_FailedThumbs.contains( subject.Path ) &&
+                   verdictOf( subject ) == ThumbnailFreshness::Verdict::Capture;
+        };
+
+        if ( !needsCapture( item ) )
+            return; // a fresh scene subject: its picture is decoded with the rest
+        switch ( item.Kind )
+        {
+            case WarmKind::Mesh:
+            case WarmKind::Pose:
+            {
+                // Resolved by TickWarmMeshes with the path each resolver takes, as the tile resolves it: a
+                // pose by its cooked asset (ResolvePoseSubject), a static mesh by the FILE ITS PICTURE IS OF
+                // (MeshFreshnessSource: a hand-authored .stmesh itself, else the raw source beside it).
+                // ResolveMesh asks the DDC for the source's import; handed the cooked path of an import
+                // (a scene root names base.stmesh, which an import never writes) it hashed a file that is
+                // not on disk and logged "Could not read file" for every imported mesh the scene used.
+                const std::optional<MeshPicture> picture = pictureOf( item );
+                if ( !picture )
+                    break;
+                if ( picture->Pose )
+                    m_WarmMeshesPending.push_back( { picture->Cooked, WarmKind::Pose } );
+                else
+                    m_WarmMeshesPending.push_back(
+                         { ThumbnailFreshness::MeshFreshnessSource( picture->Cooked ).generic_string(),
+                           WarmKind::Mesh } );
+                break;
+            }
+            case WarmKind::Painted:
+                ThumbnailService::Get().WarmPainted( item.Path );
+                break;
+            case WarmKind::Sky:
+            {
+                // The row the registry filed it under names the handle, as the tile's request does.
+                const Assets::AssetHandle skybox = Runtime::SkyboxHandleAtPath( item.Path );
+                if ( static_cast<uint64_t>( skybox ) == 0 )
+                {
+                    LOG_WARN( "[Thumbnails] the splash cannot warm '{}': the registry has no skybox row at it",
+                              item.Path );
+                    m_FailedThumbs.insert( item.Path );
+                    break;
+                }
+                ThumbnailService::Get().WarmSkybox( skybox, item.Path );
+                break;
+            }
+            case WarmKind::Material:
+            {
+                // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
+                const auto subject = ThumbnailSubject::ResolveMaterial(
+                     *m_AssetManager, item.Path,
+                     []( const std::string&                                   assetPath,
+                         const Common::ResultStr<ThumbnailSubject::Material>& resolved )
+                     {
+                         if ( resolved )
+                             ThumbnailService::Get().WarmMaterial( resolved.GetValue(), assetPath );
+                     } );
+                if ( !subject )
+                {
+                    LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", item.Path, subject.GetError() );
+                    m_FailedThumbs.insert( item.Path );
+                    break;
+                }
+                if ( const auto& material = subject.GetValue() )
+                    ThumbnailService::Get().WarmMaterial( *material, item.Path );
+                break;
+            }
+            case WarmKind::Decoded:
+                break;
+        }
     }
 
     void FileExplorerPanel::RequestProjectPictures()

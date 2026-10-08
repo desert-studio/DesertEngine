@@ -253,7 +253,10 @@ namespace Desert::Editor
         // uncaptured picture of the project, queued by WarmSplashScene. A warmed mesh still being read when
         // the window appears keeps being asked for after it (TickWarmMeshes), first in the queue once queued.
         if ( m_Revealed && m_FileExplorer != nullptr )
+        {
+            (void)m_FileExplorer->TickWarmProject();
             (void)m_FileExplorer->TickWarmMeshes();
+        }
         if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
             ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );
         else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&
@@ -360,8 +363,9 @@ namespace Desert::Editor
         }
         WarmSplashScene();
         // A cold mesh still being read counts too: it is a capture that has not been queued YET (THM1m).
-        const std::size_t warmPending =
-             ThumbnailService::Get().SceneWarmPending() + m_FileExplorer->TickWarmMeshes();
+        // The subjects not judged yet count as captures too: the judging is time-sliced (TickWarmProject).
+        const std::size_t warmPending = m_FileExplorer->TickWarmProject() +
+                                        ThumbnailService::Get().SceneWarmPending() + m_FileExplorer->TickWarmMeshes();
         m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
         // THE CAPTURES' PICTURES ARE UPLOADED TOO (THM1n-13): once every splash capture has landed, the PNGs they
         // wrote are asked of the workers like the rest, so the window never opens on a picture still on disk.
@@ -431,7 +435,8 @@ namespace Desert::Editor
                  gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
         m_SplashWarmTotal = m_FileExplorer->WarmProjectThumbnails( scene, project );
         LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
-                  "picture(s) to capture before the hand-over, the rest decode from the disk cache",
+                  "subject(s) to judge (a slice per frame) and capture before the hand-over, the rest decode from the "
+                  "disk cache",
                   scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );
     }
 

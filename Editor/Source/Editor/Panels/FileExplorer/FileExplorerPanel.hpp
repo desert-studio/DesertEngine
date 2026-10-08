@@ -109,9 +109,18 @@ namespace Desert::Editor
         /// (and uploaded by UploadPrefetchedThumbnails); every one missing or stale is resolved (a mesh on a
         /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh / WarmPose / WarmPainted, scene
         /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
-        /// captures it queued or is still resolving.
+        /// captures it queued or is still resolving, counting every subject not judged yet as one.
+        ///
+        /// THE JUDGING IS TIME-SLICED (TickWarmProject), not done here. Whether a mesh's picture is stale reads its
+        /// import record, and on Bistro (1296 scene subjects, 2324 project pictures) judging all of them in this
+        /// call held ONE splash frame for ~2.5 min in Debug: no texture upload, no deletion-queue drain and no
+        /// splash progress for that long. UE renders thumbnails incrementally for the same reason.
         std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
                                            const std::vector<ThumbnailWarmup::WarmItem>& project );
+
+        /// Judges and queues the next subjects WarmProjectThumbnails listed, for at most WarmJudgeSliceMs of this
+        /// frame (always at least one). Returns how many are still unjudged.
+        std::size_t TickWarmProject();
 
         /// The splash's captures have landed: hand the project's pictures that are not resident yet — the PNGs
         /// those captures just wrote — to the workers again, so they are uploaded before the hand-over too.
@@ -404,6 +413,12 @@ namespace Desert::Editor
              m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
         std::vector<ThumbnailWarmup::WarmItem>
              m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
+        // TickWarmProject: the splash's subjects in SplashWarmList order, judged from m_WarmJudgeNext on.
+        std::vector<ThumbnailWarmup::WarmItem> m_WarmJudgeQueue;
+        std::size_t                            m_WarmJudgeNext = 0;
+        static constexpr double                WarmJudgeSliceMs = 8.0; // half a 60 Hz frame
+        // One subject of the warm: judged by its picture's freshness and, when it needs a capture, queued.
+        void WarmProjectItem( const ThumbnailWarmup::WarmItem& item );
 
         // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
         // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the
@@ -447,6 +462,8 @@ namespace Desert::Editor
             bool        Pose = false;
         };
         std::optional<MeshPicture> MeshPictureFor( const std::string& assetPath, FileType type );
+        // The picture a Mesh/Pose subject is filed under: its cooked form (MeshPictureFor); a pose is its own.
+        std::optional<MeshPicture> WarmPictureOf( const ThumbnailWarmup::WarmItem& item );
         // The record read, cached per source and the record's file time (a re-import rewrites it).
         struct SourcePictureRead
         {

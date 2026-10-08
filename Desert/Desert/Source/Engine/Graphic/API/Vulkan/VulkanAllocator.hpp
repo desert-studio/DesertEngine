@@ -8,6 +8,7 @@
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 
+#include <chrono>
 #include <cstddef>
 #include <functional>
 
@@ -95,6 +96,13 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] static std::size_t AllocationSize( VmaAllocation allocation );
 
         void RT_DestroyBuffer( VkBuffer buffer, VmaAllocation allocation );
+        /// THE STAGING COPY OF A BLOCKING ONE-OFF UPLOAD. @p flushed is what RT_Flush*CommandBuffer* answered for
+        /// the command buffer that read it: a success is a waited fence, so the GPU is done with the buffer and it
+        /// is destroyed NOW; a failure may have left it pending, so it is queued as RT_DestroyBuffer would.
+        /// Queuing every staging copy tied its memory to the frame ring: on Bistro the splash ran ~400 uploads
+        /// (~11 MB each) while frames were minutes apart, and the device footprint passed the 6 GB cap.
+        void RT_ReleaseStaging( VkBuffer buffer, VmaAllocation allocation,
+                                const Common::ResultStr<VkResult>& flushed );
         void RT_DestroyImage( VkImage image, VmaAllocation allocation, VkImageView imageView = VK_NULL_HANDLE,
                               VkSampler sampler = VK_NULL_HANDLE,
                               const std::vector<VkImageView>& mipImageViews = {} );
@@ -113,6 +121,10 @@ namespace Desert::Graphic::API::Vulkan
 
         /// The per-frame drain, called once per present: destroys what the ring has come back round to.
         void ProcessDeletionQueue();
+        /// At most once a second, from ProcessDeletionQueue: owed deletions, the ledger's live bytes and largest tags,
+        /// and VMA's per-heap block/allocation bytes against the driver's usage, as one debug line. Growth inside
+        /// the ledger, inside VMA's blocks, or only in the driver's number names three different causes.
+        void LogCensusIfDue();
 
         /// Destroys EVERYTHING still queued, whatever frame it was queued on, and answers how many.
         /// For teardown only — see the argument at the definition. The caller must have idled the device.
@@ -171,5 +183,6 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
 
         AllocationLedger m_Ledger;
+        std::chrono::steady_clock::time_point m_LastCensus{};
     };
 } // namespace Desert::Graphic::API::Vulkan
