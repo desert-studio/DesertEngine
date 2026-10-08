@@ -750,8 +750,31 @@ namespace Desert::Editor
             // The read count of this load starts here: whatever the load asks for is counted from now.
             const uint64_t readsFinishedBefore = Assets::AsyncAssetLoader::Get().Progress().Finished;
             // The load blocks in AwaitOne until the scene's closure is resident; every read that lands there
-            // moves the splash's line (LOAD-SHOW-b), which draws on its own thread.
-            const Assets::ScopedWaitFeedback loadFeedback( m_Startup.SceneLoadFeedback( readsFinishedBefore ) );
+            // moves the splash's line (LOAD-SHOW-b), which draws on its own thread. AFTER THE REVEAL there is no
+            // splash, and the thread that would draw the editor is the one waiting: so the read that lands draws
+            // a frame of the loading window itself (LOAD-SHOW-c, UE's FSlowTask::TickProgress ticking Slate) —
+            // that window only, not the editor, at most ~30 times a second, presented and the frame reopened.
+            auto                             settleLine     = m_Startup.SceneLoadFeedback( readsFinishedBefore );
+            const auto                       slowTaskPeriod = std::chrono::milliseconds( 33 );
+            auto                             lastSlowFrame  = std::chrono::steady_clock::now();
+            const Assets::ScopedWaitFeedback loadFeedback(
+                 [this, settleLine = std::move( settleLine ), slowTaskPeriod,
+                  lastSlowFrame]( const Assets::LoadProgress& now ) mutable
+                 {
+                     settleLine( now );
+                     const auto clock = std::chrono::steady_clock::now();
+                     if ( !m_Startup.Revealed() || clock - lastSlowFrame < slowTaskPeriod )
+                         return;
+                     lastSlowFrame = clock;
+                     m_ImGuiLayer->Begin();
+                     DrawSceneLoadingOverlay( m_Startup.ContentProgress() );
+                     m_ImGuiLayer->End();
+                     const auto& window = m_Application->GetWindow();
+                     if ( !window )
+                         return;
+                     if ( const auto presented = Engine::PresentInterimFrame( *window ); !presented.IsSuccess() )
+                         LOG_ERROR( "[Editor] the scene-open loading frame: {}", presented.GetError() );
+                 } );
             if ( m_SceneFiles.ServiceLoadRequest() )
             {
                 m_Startup.BeginContentSettle( readsFinishedBefore );

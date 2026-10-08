@@ -426,10 +426,7 @@ namespace Desert::Assets
 
     bool AsyncAssetLoader::AwaitOne( const AssetHandle& handle )
     {
-        State&   state            = *m_State;
-        uint64_t reportedStarted  = 0;
-        uint64_t reportedFinished = 0;
-        bool     reported         = false;
+        State& state = *m_State;
         for ( ;; )
         {
             LoadProgress now;
@@ -441,23 +438,31 @@ namespace Desert::Assets
                     now = { state.Started.load( std::memory_order_relaxed ), state.Finished, state.CurrentPath,
                             state.CurrentType };
             }
-            // EACH READ THAT LANDS OR STARTS WHILE THIS THREAD WAITS IS REPORTED (LOAD-SHOW-b), outside the lock:
-            // the feedback pushes to a loading screen that draws on its own thread.
-            if ( m_WaitFeedback &&
-                 ( !reported || now.Started != reportedStarted || now.Finished != reportedFinished ) )
-            {
-                reported         = true;
-                reportedStarted  = now.Started;
-                reportedFinished = now.Finished;
-                m_WaitFeedback( now );
-            }
+            // EACH READ THAT LANDS WHILE THIS THREAD WAITS IS REPORTED (LOAD-SHOW-c), outside the lock: the
+            // feedback may draw a whole frame of the loading window (EditorLayer's slow-task frame).
+            ReportWaitProgress( now );
             // The queued job is a worker's to run; this thread only waits for it to settle.
             std::this_thread::yield();
         }
         const bool delivered = DeliverCompleted( handle );
-        if ( m_WaitFeedback && reported )
-            m_WaitFeedback( Progress() ); // the last read of this wait has landed: the count says so
+        if ( m_WaitFeedback )
+            ReportWaitProgress( Progress() ); // the reads that landed since the last poll, this one included
         return delivered;
+    }
+
+    void AsyncAssetLoader::ReportWaitProgress( LoadProgress now )
+    {
+        // ONE CALL PER READ THAT RETURNED, IN ORDER — UE's `EnterProgressFrame` once per unit of work. Two reads
+        // that land between two polls are two calls (`Finished` one apart), never one call that skips a number,
+        // so a host counting calls counts reads.
+        if ( !m_WaitFeedback )
+            return;
+        const uint64_t landed = now.Finished;
+        while ( m_WaitReported < landed )
+        {
+            now.Finished = ++m_WaitReported;
+            m_WaitFeedback( now );
+        }
     }
 
     bool AsyncAssetLoader::DeliverCompleted( const AssetHandle& handle )
@@ -530,6 +535,8 @@ namespace Desert::Assets
 
     AsyncAssetLoader::WaitFeedback AsyncAssetLoader::SetWaitFeedback( WaitFeedback feedback )
     {
+        // Reads that returned before this feedback was installed are not its to report.
+        m_WaitReported = Progress().Finished;
         return std::exchange( m_WaitFeedback, std::move( feedback ) );
     }
 
@@ -608,5 +615,6 @@ namespace Desert::Assets
         state.Finished    = 0;
         state.CurrentPath = {};
         state.CurrentType = AssetTypeID::Unknown;
+        m_WaitReported    = 0;
     }
 } // namespace Desert::Assets

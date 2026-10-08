@@ -38,7 +38,9 @@ using Desert::Assets::AssetBase;
 using Desert::Assets::AssetTypeID;
 using Desert::Assets::AsyncAssetLoader;
 using Desert::Assets::LoadOutcome;
+using Desert::Assets::LoadProgress;
 using Desert::Assets::LoadRequest;
+using Desert::Assets::ScopedWaitFeedback;
 using Desert::Assets::SyncLoadLedger;
 
 namespace
@@ -761,6 +763,48 @@ TEST_F( AsyncAssetLoad, TheLoadingCountClimbsToItsTotalAndEqualsTheReadsThatRan 
     EXPECT_EQ( done.Done, static_cast<size_t>( reads ) )
          << "the loading count is not the number of reads that ran";
     EXPECT_EQ( AsyncAssetLoader::Get().Progress().Finished, AsyncAssetLoader::Get().Progress().Started );
+}
+
+// A blocking scene open draws its loading window from the wait's feedback (LOAD-SHOW-c, UE's FScopedSlowTask): the
+// feedback is the only voice the window has while the main thread is held, so it hears every read that lands,
+// exactly once, and its last word is the total — reads that landed before it was installed are not its own.
+TEST_F( AsyncAssetLoad, AWaitReportsEveryReadThatLandsExactlyOnceAndEndsAtTheTotal )
+{
+    auto earlier = std::make_shared<ProbeAsset>( "earlier.probe" );
+    auto first =
+         AsyncAssetLoader::Get().Request( earlier, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
+    ASSERT_TRUE( PumpUntilQuiet() );
+    const uint64_t before = AsyncAssetLoader::Get().Progress().Finished;
+
+    constexpr int         kAssets = 6;
+    std::vector<uint64_t> heard;
+    {
+        const ScopedWaitFeedback                 feedback( [&heard]( const LoadProgress& now )
+                                           { heard.push_back( now.Finished ); } );
+        std::vector<std::shared_ptr<ProbeAsset>> assets;
+        std::vector<LoadRequest>                 requests;
+        for ( int i = 0; i < kAssets; ++i )
+        {
+            assets.push_back( std::make_shared<ProbeAsset>( "waited_" + std::to_string( i ) + ".probe" ) );
+            requests.push_back( AsyncAssetLoader::Get().Request(
+                 assets.back(), []( const auto&, LoadOutcome, const std::string& ) {}, [] {} ) );
+        }
+        for ( const auto& asset : assets )
+            EXPECT_TRUE( AsyncAssetLoader::Get().AwaitOne( asset->GetMetadata().Handle ) );
+    }
+
+    ASSERT_EQ( heard.size(), static_cast<size_t>( kAssets ) )
+         << "the wait's feedback did not hear each read that landed exactly once";
+    for ( size_t i = 0; i < heard.size(); ++i )
+        EXPECT_EQ( heard[i], before + i + 1 ) << "call " << i << " skipped or repeated a read";
+    EXPECT_EQ( heard.back() - before, static_cast<uint64_t>( kAssets ) ) << "the last call is not the total";
+
+    // Out of the scope nothing hears a wait: the previous (empty) feedback is back.
+    auto later = std::make_shared<ProbeAsset>( "later.probe" );
+    auto last =
+         AsyncAssetLoader::Get().Request( later, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
+    EXPECT_TRUE( AsyncAssetLoader::Get().AwaitOne( later->GetMetadata().Handle ) );
+    EXPECT_EQ( heard.size(), static_cast<size_t>( kAssets ) ) << "a feedback outlived its scope";
 }
 
 TEST_F( AsyncAssetLoad, TheLoadingLineSaysPipelinesOnceTheReadsAreDoneAndIsEmptyAtZero )

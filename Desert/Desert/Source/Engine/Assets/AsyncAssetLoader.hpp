@@ -218,8 +218,10 @@ namespace Desert::Assets
 
         /// WHO HEARS A BLOCKING WAIT MOVE (LOAD-SHOW-b) — the shape of UE's `FScopedSlowTask::EnterProgressFrame`:
         /// the code that waits reports, because the thread that would otherwise draw the progress is the one
-        /// waiting. `AwaitOne` calls it with `Progress()` each time a read lands or starts while it blocks, so a
-        /// loading screen with its own thread (the editor's splash) moves while the main thread is held.
+        /// waiting. `AwaitOne` calls it ONCE PER READ THAT RETURNS while it is installed (`Finished` one higher
+        /// each call, the item the read a worker began last), so a loading screen with its own thread (the splash)
+        /// moves while the main thread is held, and a host on the waiting thread can draw a frame of its own
+        /// loading window from the call (the editor's slow-task frame, LOAD-SHOW-c).
         /// Installed by a host for the length of a load with `ScopedWaitFeedback`; main thread only, as
         /// `AwaitOne` is.
         using WaitFeedback = std::function<void( const LoadProgress& )>;
@@ -271,6 +273,8 @@ namespace Desert::Assets
         void               ReleaseById( uint64_t id );
         [[nodiscard]] bool IsLive( uint64_t id ) const;
         bool               DeliverCompleted( const AssetHandle& handle );
+        // Calls m_WaitFeedback once for each read that returned since the last call, up to @p now.Finished.
+        void ReportWaitProgress( LoadProgress now );
 
         /// THE LOADER'S STATE IS THE LOADER'S, and it did not start out that way. It began as a
         /// file-local `static LoaderState&`, which compiles and works and is wrong in a way the analyser
@@ -281,6 +285,7 @@ namespace Desert::Assets
         /// decoration.
         std::unique_ptr<State> m_State;
         WaitFeedback           m_WaitFeedback; // main thread only (SetWaitFeedback)
+        uint64_t               m_WaitReported = 0; // the last `Finished` m_WaitFeedback was called with
     };
 
     /// `AsyncAssetLoader::SetWaitFeedback` for one scope: installs on construction, puts the previous back on
