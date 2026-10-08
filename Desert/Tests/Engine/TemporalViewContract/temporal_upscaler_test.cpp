@@ -114,13 +114,21 @@ namespace TemporalUpscalerTest
             return static_cast<MemoryAccessFlags>( mask );
         }
     };
-    // TAA1-B step 6: the one per-view resolution function and the two target sets it sizes.
+    // TAA1-B step 6: the one per-view resolution function and the two target sets it sizes. The path is what
+    // Resolve hands a scene below 100 %: temporal AA (Resolve's step 5 makes the method TAA when it upscales).
+    ::Common::Scalability::PathAntiAliasing TemporalPath()
+    {
+        return { .Method      = ::Common::Scalability::AntiAliasingMethod::TAA,
+                 .Samples     = 1,
+                 .PostProcess = ::Common::Scalability::AntiAliasingMethod::None };
+    }
+
     TEST( TemporalUpscalerResolution, AtFiftyPercentTheRenderSetIsHalfAndTheOutputSetFull )
     {
         const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
-        const auto resolved = ResolveViewResolution(
-             ViewExtent{ 1920, 1080 }, 50, std::nullopt, ::Common::Scalability::PathAntiAliasing{},
-             ::Common::Scalability::Upscaler::TAAU, [&]( TemporalMethod ) { return taau.get(); } );
+        const auto resolved = ResolveViewResolution( ViewExtent{ 1920, 1080 }, 50, std::nullopt, TemporalPath(),
+                                                     ::Common::Scalability::Upscaler::TAAU,
+                                                     [&]( TemporalMethod ) { return taau.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAAU );
         EXPECT_TRUE( resolved.GetValue().Clamped.empty() );
@@ -130,24 +138,44 @@ namespace TemporalUpscalerTest
                    ( ViewExtent{ 1920, 1080 } ) );
     }
 
-    TEST( TemporalUpscalerResolution, TheViewportOverrideReplacesTheSetting )
+    // The live bug at c57226960: the game setting at 100 % resolves Upscaler None; an editor viewport at 50 %
+    // then asked SelectTemporalMethod for "50 % with Upscaler None" and the frame was refused (black viewport).
+    // The view applies Resolve's rule (UpscalerForScale) to ITS percent: TAA below 100 % upscales with TAAU.
+    TEST( TemporalUpscalerResolution, AViewportOverrideBelowTheSettingUpscalesByResolvesRule )
     {
         const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
-        const auto resolved = ResolveViewResolution(
-             ViewExtent{ 1000, 1000 }, 100, 50, ::Common::Scalability::PathAntiAliasing{},
-             ::Common::Scalability::Upscaler::TAAU, [&]( TemporalMethod ) { return taau.get(); } );
+        const auto resolved = ResolveViewResolution( ViewExtent{ 1000, 1000 }, 100, 50, TemporalPath(),
+                                                     ::Common::Scalability::Upscaler::None,
+                                                     [&]( TemporalMethod ) { return taau.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 500, 500 } ) );
+        EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAAU );
+        EXPECT_TRUE( resolved.GetValue().Clamped.empty() );
     }
 
-    TEST( TemporalUpscalerResolution, BelowNativeWithoutAnUpscalerIsTheNamedError )
+    // And the other way: a setting at 50 % (resolved TAAU) under a viewport at 100 % runs plain TAA at native.
+    TEST( TemporalUpscalerResolution, AViewportOverrideAtNativeDropsTheSettingsUpscaler )
     {
-        const auto resolved = ResolveViewResolution(
-             ViewExtent{ 1920, 1080 }, 50, std::nullopt, ::Common::Scalability::PathAntiAliasing{},
-             ::Common::Scalability::Upscaler::None,
-             []( TemporalMethod ) -> const ITemporalUpscaler* { return nullptr; } );
-        ASSERT_FALSE( resolved );
-        EXPECT_NE( resolved.GetError().find( "Upscaler None" ), std::string::npos ) << resolved.GetError();
+        const auto taa      = CreateTemporalUpscaler( TemporalMethod::TAA );
+        const auto resolved = ResolveViewResolution( ViewExtent{ 1000, 1000 }, 50, 100, TemporalPath(),
+                                                     ::Common::Scalability::Upscaler::TAAU,
+                                                     [&]( TemporalMethod ) { return taa.get(); } );
+        ASSERT_TRUE( resolved ) << resolved.GetError();
+        EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 1000, 1000 } ) );
+        EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAA );
+    }
+
+    // Below 100 % with no temporal method nothing can upscale (no spatial upscaler): 100 %, said - Resolve's rule.
+    TEST( TemporalUpscalerResolution, BelowNativeWithoutTemporalAAIsClampedToNativeByName )
+    {
+        const auto resolved =
+             ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, ::Common::Scalability::PathAntiAliasing{},
+                                    ::Common::Scalability::Upscaler::None,
+                                    []( TemporalMethod ) -> const ITemporalUpscaler* { return nullptr; } );
+        ASSERT_TRUE( resolved ) << resolved.GetError();
+        EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 1920, 1080 } ) );
+        EXPECT_NE( resolved.GetValue().Clamped.find( "no spatial upscaler" ), std::string::npos )
+             << resolved.GetValue().Clamped;
     }
 } // namespace TemporalUpscalerTest
 

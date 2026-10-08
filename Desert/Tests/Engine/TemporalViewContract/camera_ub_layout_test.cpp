@@ -242,14 +242,18 @@ TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
 // camera calls are held too.
 TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
 {
-    namespace fs        = std::filesystem;
-    const fs::path root = Desert::TestSupport::RepositoryRoot();
+    namespace fs           = std::filesystem;
+    const fs::path root    = Desert::TestSupport::RepositoryRoot();
     const fs::path shaders = root / "Editor" / "Resources" / "Shaders";
-    // Not resolved by the temporal pass: drawn after it (Debug phase into TAA.Output) or into a mask TAA never reads.
+    // Not resolved by the temporal pass: drawn after it (Debug phase into TAA.Output) or into a mask TAA never
+    // reads.
     const std::map<std::string, std::string> postTemporal = {
          { "Programs/Debug/DebugLine.shader", "editor debug lines: Debug phase, after TAA" },
-         { "Programs/Silhouette/Silhouette.shader", "selection mask for the Jump Flood outline: never temporally resolved, unjittered keeps the outline still" },
-         { "Programs/Silhouette/Silhouette_Skinned.shader", "selection mask for the Jump Flood outline: never temporally resolved, unjittered keeps the outline still" },
+         { "Programs/Silhouette/Silhouette.shader", "selection mask for the Jump Flood outline: never temporally "
+                                                    "resolved, unjittered keeps the outline still" },
+         { "Programs/Silhouette/Silhouette_Skinned.shader",
+           "selection mask for the Jump Flood outline: never temporally resolved, unjittered keeps the outline "
+           "still" },
     };
     const std::regex unjittered(
          R"(gl_Position\s*=\s*cameraUB\s*\.\s*(Projection\s*\*\s*cameraUB\s*\.\s*View|ViewProjection)\b)" );
@@ -283,9 +287,9 @@ TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
     EXPECT_GT( scanned, 50u ) << "the scan found too few shaders to mean anything";
     EXPECT_GE( jittered, 5u ) << "Vertex_Static/Skinned/Instanced, TextSDF and Overdraw raster jittered";
 
-    const std::string terrain = CameraUBLayoutTest::ReadText(
-         root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" / "Terrain" /
-         "TerrainRenderer.cpp" );
+    const std::string terrain =
+         CameraUBLayoutTest::ReadText( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" /
+                                       "Scene" / "Terrain" / "TerrainRenderer.cpp" );
     EXPECT_EQ( terrain.find( "GetProjectionMatrix() * camera->GetViewMatrix()" ), std::string::npos )
          << "the terrain pushes the unjittered camera matrix; push the view's JitteredViewProjection";
     EXPECT_NE( terrain.find( "->JitteredViewProjection" ), std::string::npos );

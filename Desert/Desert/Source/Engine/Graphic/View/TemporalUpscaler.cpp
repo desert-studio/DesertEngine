@@ -155,17 +155,32 @@ namespace Desert::Graphic
          const Common::Scalability::PathAntiAliasing& antiAliasing, const Common::Scalability::Upscaler upscaler,
          const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor )
     {
-        const int  requested = viewportOverridePercent.value_or( settingPercent );
-        const auto choose    = [&]( const int percent ) -> Common::ResultStr<ViewResolution>
+        const int requested = viewportOverridePercent.value_or( settingPercent );
+        // The upscaler of THIS view's percent, by Resolve's own rule (Scalability UpscalerForScale): the setting's
+        // resolved upscaler is for the setting's percent, and a viewport override may sit on the other side of
+        // 100 %. Only called where the rule has an answer (percent >= 100, or a temporal method).
+        const auto upscalerAt = [&]( const int percent )
+        { return Common::Scalability::UpscalerForScale( antiAliasing.Method, percent, upscaler ); };
+        const auto choose = [&]( const int percent ) -> Common::ResultStr<ViewResolution>
         {
             const auto split = MakeResolutionSplit( output, percent );
             if ( !split )
                 return Common::MakeFormattedError<ViewResolution>( "{}", split.GetError() );
-            const auto method = SelectTemporalMethod( antiAliasing, split.GetValue(), upscaler );
+            const auto method = SelectTemporalMethod( antiAliasing, split.GetValue(), *upscalerAt( percent ) );
             if ( !method )
                 return Common::MakeFormattedError<ViewResolution>( "{}", method.GetError() );
             return Common::MakeSuccess( ViewResolution{ .Split = split.GetValue(), .Method = method.GetValue() } );
         };
+        if ( !upscalerAt( requested ) )
+        {
+            // Below 100 % with no temporal method: nothing can upscale (no spatial upscaler) - Resolve's rule.
+            auto native = choose( 100 );
+            if ( native )
+                native.GetValue().Clamped = std::format( "no spatial upscaler: {} % needs a temporal AA method, "
+                                                         "the view's is not one: clamped to 100 %",
+                                                         requested );
+            return native;
+        }
         auto chosen = choose( requested );
         if ( !chosen )
             return chosen;

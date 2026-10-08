@@ -891,3 +891,18 @@ TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChange
     otherGpu.DeviceId                           = 0x2484;
     EXPECT_FALSE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( otherGpu, 3 ) ) );
 }
+
+// UpscalerForScale is the one coupling rule (Resolve step 5 and the renderer's per-view resolution both call it,
+// so an editor viewport's Screen Percentage cannot pick an upscaler the game setting would not).
+TEST( ScalabilityContract, UpscalerForScaleIsResolvesCouplingRule )
+{
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::None ), Upscaler::TAAU );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 99, Upscaler::FSR ), Upscaler::FSR ); // vendor override
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 100, Upscaler::TAAU ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 150, Upscaler::None ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 50, Upscaler::None ), std::nullopt );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::MSAA, 50, Upscaler::TAAU ), std::nullopt );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 100, Upscaler::None ), Upscaler::None );
+    EXPECT_TRUE( IsTemporalAntiAliasing( AntiAliasingMethod::DLAA ) );
+    EXPECT_FALSE( IsTemporalAntiAliasing( AntiAliasingMethod::SMAA ) );
+}

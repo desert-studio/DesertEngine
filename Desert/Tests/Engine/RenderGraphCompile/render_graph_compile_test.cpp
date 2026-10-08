@@ -2060,6 +2060,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // TAA1-B 6: the output-extent overlay depth, filled from the render-extent scene depth, before the
          // overlay phases that test against it.
          "Scene: PopulateSceneDepth",
+         "Debug: Velocity",
          "phases[phase==RenderPhase::Debug]",
          "UI: BackdropBlur{}",
          "phases[phase==RenderPhase::UI]",
