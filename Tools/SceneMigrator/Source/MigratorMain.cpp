@@ -1375,6 +1375,25 @@ namespace Desert::Migration
                     ++cloudTypesRaised;
                     continue;
                 }
+                if ( stated && stated.GetValue() == 6u )
+                {
+                    const auto raised = Desert::Migration::MigrateCloudTypeV6ToV7( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — CLTY 6 -> 7: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " CLTY 6 -> "
+                        << Desert::Assets::kCloudTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++cloudTypesRaised;
+                    continue;
+                }
             }
             if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
             {

@@ -14,6 +14,7 @@
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <unordered_map>
 
 // Common/CloudNoise.glslh COMPILED AS C++ for the body's silhouette noise (SHAPE-NOISE), the arrangement
 // CloudNoiseVolumeGenerator.cpp established: the same text the noise volume is generated from, so the
@@ -76,26 +77,14 @@ namespace Desert::Assets
         /// Desert/Tests/Engine/CloudProceduralField failing exactly where it was written to.
         constexpr float kJoinCutoffRadii = 14.0f;
 
-        /// How fast a cluster narrows as a cell is given more of them, as the exponent of the count.
-        ///
-        /// A HALF IS THE ANSWER TO THE WRONG QUESTION, and the suite is what said so. A half preserves the
-        /// total AREA of the clusters in a cell exactly — `d` of them, each of `1/sqrt(d)` the width — and
-        /// that would be the right compensation if the ground they covered were the sum of their areas. It
-        /// is not, because they OVERLAP, and how much they overlap depends on how many there are: one
-        /// cluster at the shipped size covers 1.63 cell-areas, so it saturates its own cell and spills into
-        /// its neighbours, while four clusters of a quarter that area each cover 0.41 of a cell and between
-        /// them leave 12 per cent of it open. Measured on the placement, a half took the sky's cover from
-        /// 0.701 at a density of 1 to 0.597 at 4 — a tenth of the sky, which is the whole tolerance
-        /// Desert/Tests/Engine/CloudProceduralField allows the Coverage slider.
-        ///
-        /// 0.40 IS MEASURED AND NOT DERIVED, and the difference is worth naming: the derivation would need
-        /// the saturation of a cluster wider than its own cell, which depends on the coverage as well as on
-        /// the count. What is asserted instead is the RELATION — Desert/Tests/Engine/CloudPlacementSpectrum
-        /// re-measures the cover at a density of 1 and of 4 on every run and fails if they part company by
-        /// more than a twentieth of the sky.
-        constexpr float kDensityCompensation = 0.40f;
+        /// HOW MUCH BODY AREA ONE PATCH HOLDS, in units of the patch's own disc (FIELD-GRAIN). One: the
+        /// bodies' summed mean area is the disc's, so a patch alone covers 1 - e^-1 of it (Boolean model)
+        /// and the discs of neighbouring cells, 1.63 cell-areas each, overlap into a sky with no grid. The
+        /// sky's cover against the Coverage slider is RECAL's to re-measure; this number is the grain's.
+        constexpr float kBodyFillOfPatch = 1.0f;
 
-        /// A cluster's footprint radius in cell means, before the size draw and the density compensation.
+        /// A PATCH'S footprint radius in cell means: the disc its bodies are spread over (FIELD-GRAIN; it was
+        /// one cluster's radius until bodies got their own size law).
         ///
         /// SIZED FOR THE BODY AND NOT FOR THE SKY. 0.72 is the cluster an alive cell is mostly full of, and
         /// the bake of every cell covers about 0.69 of the columns with it (Boolean model, 1 - e^-1.17). The
@@ -392,44 +381,43 @@ namespace Desert::Assets
             return std::clamp( modulated, 0.0f, 1.0f );
         }
 
-        /// THE ASPECT OF A CLUSTER'S SIZE THAT A REAL CUMULUS FIELD HAS: many small clouds and few large
-        /// ones, as a POWER LAW in the diameter — `n(D) ~ D^-2` — between a smallest and a largest that are
-        /// `ratio` apart. Returned as a multiplier on the cluster's radius, from a uniform @p unit.
+        /// THE SIZE LAW OF A CUMULUS FIELD: exponential in the diameter, `n(D) ~ exp(-D / D0)` (Plank 1969;
+        /// Wielicki & Welch 1986), with D0 the TYPE's Body Diameter (FIELD-GRAIN). Returned as the drawn
+        /// diameter over D0, from a uniform @p unit.
         ///
-        /// WHAT IT REPLACED. The draw was uniform in area on `[1 - v, 1 + v]`, which at the shipped 0.75
-        /// put every cloud within a factor of 2.6 of every other and made the commonest size the middle
-        /// one — a sky of one cloud repeated, which is what the owner saw (10-07: "all spawned by one
-        /// pattern"). Observed fields are scale-free over two decades: Benner & Curry (1998) and Neggers et
-        /// al. (2003) measure a size density falling as the diameter to a power near -2 from a few hundred
-        /// metres to a few kilometres, which is the range one species' clusters span here.
+        /// WHAT IT REPLACED. A power law `D^-2` between bounds 16^variety apart around a cell-sized cluster
+        /// (CLOUD-VARIETY): a body was a whole cell, 4 km across, so the zenith's 2-4 km frame held under
+        /// two of them and was empty a fifth of the time at the Demo (CLOUD-LOOK (4)). The type's bodies are
+        /// half a kilometre to a kilometre now and a cell is a PATCH of them.
         ///
-        /// THE MEAN AREA IS ONE, EXACTLY, and that is what keeps decision D-20's Coverage mapping: for a
-        /// density `c D^-2` on `[m, M]` the mean of `D^2` is `m * M`, so choosing `m = 1/sqrt(ratio)` and
-        /// `M = sqrt(ratio)` makes it one at every setting of the knob. And for bodies placed
-        /// independently, the sky they cover depends on the MEAN area alone (the Boolean model's
-        /// `1 - exp(-lambda E[A])`), not on how that area is shared out — so widening the spread moves the
-        /// cover only through the overlap the free placement already pays for.
-        ///
-        /// THE KNOB IS THE SPREAD ON A LOG SCALE: `ratio = 16^variety`, so zero is every cloud the size
-        /// its cell's fill says, the shipped 0.75 is an eightfold range and one is sixteenfold. The
-        /// exponent is not a knob — it is what the atmosphere measures.
-        float CloudClusterSizeDraw( float variety, float unit )
+        /// THE VARIETY MIXES the law with its mean: `(1 - v) + v * X`, X ~ Exp(1). The mean is one at
+        /// every setting, so the type's D0 is the mean body; zero is every body that size, one is Plank's
+        /// law exactly, and in between the law sits on a smallest body of `1 - v`. The tail is cut at six
+        /// means (e^-6 of the bodies, 1.7 % of the law's area), the cut being what keeps one body from
+        /// outgrowing its patch.
+        float CloudBodyDiameterDraw( float variety, float unit )
         {
-            const float ratio = std::pow( 16.0f, std::clamp( variety, 0.0f, 1.0f ) );
-            const float root  = std::sqrt( ratio );
-
-            // The inverse of the CDF `(1/m - 1/D) / (1/m - 1/M)`, with `1/m = root` and `1/M = 1/root`.
-            return 1.0f / ( root - unit * ( root - 1.0f / root ) );
+            const float v = std::clamp( variety, 0.0f, 1.0f );
+            const float u = std::clamp( unit, 0.0f, 1.0f - 2.4787522e-3f ); // 1 - e^-6
+            return ( 1.0f - v ) + v * -std::log( 1.0f - u );
         }
 
-        /// How many clusters this cell carries, given a mean of @p density.
+        /// The mean of the square of CloudBodyDiameterDraw: `(1 - v)^2 + 2 v (1 - v) + 2 v^2 = 1 + v^2` (the
+        /// exponential's second moment is 2). The patch's body count divides by it, so the size spread
+        /// moves how the area is shared out and not how much of it there is.
+        float CloudBodyDiameterMeanSquare( float variety )
+        {
+            const float v = std::clamp( variety, 0.0f, 1.0f );
+            return 1.0f + v * v;
+        }
+
+        /// How many bodies this patch carries, given a mean of @p mean.
         ///
         /// A WHOLE NUMBER WITH THAT MEAN EXACTLY, by taking the integer part always and the fraction with
-        /// its own probability. Rounding instead would make a density of 1.5 produce two clusters in every
-        /// cell and a mean of two, which is a knob that lies about its own units.
-        uint32_t ClusterCount( uint32_t cellSeed, float density )
+        /// its own probability. Rounding instead would make a mean of 1.5 produce two bodies in every patch.
+        uint32_t CloudBodyCount( uint32_t cellSeed, float mean )
         {
-            const float clamped = std::max( density, 0.0f );
+            const float clamped = std::max( mean, 0.0f );
             const float whole   = std::floor( clamped );
             const float frac    = clamped - whole;
 
@@ -661,7 +649,7 @@ namespace Desert::Assets
         // A NEW FIELD HAS TO BE CONSIDERED HERE, not silently left out of the key: these sizes are the field
         // lists SerializeCloudProceduralBakeInputs writes. Growing either struct fails the build right here.
         static_assert( sizeof( Graphic::CloudTypeShape ) ==
-                            ( 13u + 2u * Graphic::kCloudProfileSamples ) * sizeof( float ),
+                            ( 14u + 2u * Graphic::kCloudProfileSamples ) * sizeof( float ),
                        "CloudTypeShape gained a field: add it to SerializeCloudProceduralBakeInputs" );
         static_assert( sizeof( CloudLayoutPlacement ) == 2u * sizeof( uint32_t ) + 4u * sizeof( float ),
                        "CloudLayoutPlacement gained a field: add it to SerializeCloudProceduralBakeInputs" );
@@ -746,6 +734,7 @@ namespace Desert::Assets
             KeyF32( out, shape.ExtinctionFactor );
             KeyF32( out, shape.PlacementScale );
             KeyF32( out, shape.PlacementAnisotropy );
+            KeyF32( out, shape.BodyDiameterKm );
         }
         return out;
     }
@@ -1148,13 +1137,12 @@ namespace Desert::Assets
 
         const uint32_t speciesSeed = CloudSpeciesSeed( params, slot );
 
-        // THE DENSITY DOES NOT ADD MATTER, IT REDISTRIBUTES IT. A cell that carries `d` clusters narrows
-        // each of them by `d` to the power of kDensityCompensation, so the ground they cover between them
-        // is the ground one covered. Without this line the density knob would move the sky's cover, and
-        // the Coverage mapping decision D-20 re-authorised every scene against would have to be measured
-        // again for every setting of it — which is a knob that silently invalidates another knob.
-        const float density      = std::max( params.PlacementDensity, 0.0f );
-        const float densityScale = std::pow( std::max( density, 1e-3f ), -kDensityCompensation );
+        // THE DENSITY DOES NOT ADD MATTER, IT REDISTRIBUTES IT: a patch of density `d` holds `d` times the
+        // bodies, each `1/sqrt(d)` of the width, so their summed area is the same (see the body count below).
+        // The type's Body Diameter is floored at two of the volume's lump floors — a body narrower than that
+        // is lumps the floor has already widened.
+        const float densityShrinkSq = std::max( params.PlacementDensity, 1e-3f );
+        const float bodyMeanKm      = std::max( shape.BodyDiameterKm, 2.0f * CloudProceduralLumpFloorKm( params ) );
 
         const float scatter = std::max( params.PlacementScatter, 0.0f );
         const float variety = std::clamp( params.PlacementSizeVariety, 0.0f, 1.0f );
@@ -1188,17 +1176,12 @@ namespace Desert::Assets
                 const uint32_t cellSeed =
                      HashCombine( HashCombine( speciesSeed, IndexWord( iu ) ), IndexWord( iv ) );
 
-                // THE CLUSTER IS CHOSEN HERE, BY THE SLIDER (CUT-AT-BAKE). The cell keeps its hash as a RANK
-                // and exists when the rank is under Coverage — one decision per cluster, made where the
-                // cluster is whole, so no voxel grid ever interpolates it (the march's trilinear read of an
-                // R8 rank drew the live/dead seam as a comb of voxel columns). The weather and the painting
-                // stay the march's, as a continuous remap of the profile per column (Nubis's weather map),
-                // which is what keeps the region's repeats at the horizon from being one sky.
-                const float cellRank = HashUnit( cellSeed );
-                if ( set == CloudProceduralLumpSet::KeptCells &&
-                     CloudProceduralClusterReach( cellRank, params.Coverage,
-                                                  CloudProceduralRankSoftness( params ) ) <= 0.0f )
-                    continue;
+                // THE BODY IS CHOSEN BELOW, BY THE SLIDER (CUT-AT-BAKE, per body since FIELD-GRAIN). Each body
+                // keeps its own hash as a RANK and exists when the rank is under Coverage — one decision per
+                // body, made where the body is whole, so no voxel grid ever interpolates it. Per body and not
+                // per cell, because a cell is a PATCH of bodies now: a per-cell rank cleared 3 km at a time,
+                // which is the empty zenith CLOUD-LOOK (4) measured. The weather and the painting stay the
+                // march's, as a continuous remap of the profile per column (Nubis's weather map).
 
                 // EDGE TOP FRACTION IS WHAT A SMALL CLUSTER LOSES. The type says how tall the smallest
                 // cluster of the size law is, and the cluster's own size draw says how far from it this one
@@ -1214,34 +1197,53 @@ namespace Desert::Assets
                 // humilis read as a truncated congestus. Six flattened lobes over half a band is a
                 // pancake — which is what a humilis IS.
 
-                // HOW MANY CLOUDS THIS CELL HOLDS, and it is the line that removes "exactly one per cell"
-                // from the field. The count is drawn per cell with the density as its mean, so the number
-                // density of clouds stops being a constant of the lattice.
-                const uint32_t clusters = ClusterCount( cellSeed, density );
+                // THE PATCH'S SITE: the cell's lattice centre displaced by the scatter, in cells. At the shipped
+                // scatter it crosses into the neighbouring cell's territory, which is exactly what the lattice
+                // peak measures the absence of. Every body of the cell is spread over the patch around it.
+                const glm::vec2 jitter( HashSigned( HashCombine( cellSeed, 0x1u ) ) * extent.x * scatter,
+                                        HashSigned( HashCombine( cellSeed, 0x2u ) ) * extent.y * scatter );
+                const glm::vec2 siteXZ = centre + along * jitter.x + across * jitter.y;
 
-                for ( uint32_t index = 0; index < clusters; ++index )
+                // HOW MANY BODIES THIS PATCH HOLDS (FIELD-GRAIN), and the number is the Boolean model's: the
+                // bodies' mean area summed over the patch is the patch's own area, so a type's small bodies
+                // come many to a cell and its large ones few, at the same cover. The density multiplies the
+                // count and shrinks each body by its square root, so it redistributes matter instead of
+                // adding it — for bodies placed independently the cover depends on the summed area alone.
+                const float meanBodyRadiusSqKm =
+                     0.25f * bodyMeanKm * bodyMeanKm * CloudBodyDiameterMeanSquare( variety ) / densityShrinkSq;
+                const float meanBodies =
+                     kBodyFillOfPatch * baseRadiusKm * baseRadiusKm / std::max( meanBodyRadiusSqKm, 1e-6f );
+                const uint32_t bodies = CloudBodyCount( cellSeed, meanBodies );
+
+                for ( uint32_t index = 0; index < bodies; ++index )
                 {
-                    // EACH CLUSTER IS ITS OWN CLOUD. Everything below hangs off this seed rather than off
-                    // the cell's, so two clusters in one cell differ in place, in size and in which way
-                    // their lobes spiral — otherwise a density above one would put N copies of one cloud
-                    // in one place, which is one cloud with N times the arithmetic.
+                    // EACH BODY IS ITS OWN CLOUD. Everything below hangs off this seed rather than off the
+                    // cell's, so two bodies in one patch differ in place, in size, in rank and in which way
+                    // their lobes spiral.
                     const uint32_t clusterSeed = HashCombine( cellSeed, 0x51u + index );
 
-                    // THE CLUSTER'S DISPLACEMENT FROM ITS LATTICE SITE, in cells. At the shipped scatter it
-                    // crosses into the neighbouring cell's territory, which is exactly what the lattice
-                    // peak measures the absence of.
-                    const glm::vec2 jitter( HashSigned( HashCombine( clusterSeed, 0x1u ) ) * extent.x * scatter,
-                                            HashSigned( HashCombine( clusterSeed, 0x2u ) ) * extent.y * scatter );
+                    // ITS OWN RANK AGAINST THE SLIDER — see the note above the loop.
+                    const float bodyRank = HashUnit( HashCombine( clusterSeed, 0x5u ) );
+                    if ( set == CloudProceduralLumpSet::KeptCells &&
+                         CloudProceduralClusterReach( bodyRank, params.Coverage,
+                                                      CloudProceduralRankSoftness( params ) ) <= 0.0f )
+                        continue;
 
-                    const glm::vec2 clusterXZ = centre + along * jitter.x + across * jitter.y;
+                    // UNIFORM OVER THE PATCH'S DISC, drawn out along the wind by the cell's own stretch, so
+                    // the patch covers the same fraction of its cell at every anisotropy.
+                    const float discR     = baseRadiusKm * std::sqrt( HashUnit( HashCombine( clusterSeed, 0x1u ) ) );
+                    const float discAngle = HashUnit( HashCombine( clusterSeed, 0x2u ) ) * 6.2831853f;
+                    const glm::vec2 clusterXZ = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
+                                                across * ( std::sin( discAngle ) * discR / stretch );
 
-                    // HOW BIG THIS PARTICULAR CLOUD IS — drawn from a POWER LAW, because that is what a
-                    // cumulus field is (CLOUD-VARIETY). See CloudClusterSizeDraw.
+                    // HOW BIG THIS PARTICULAR CLOUD IS — drawn from the EXPONENTIAL law around the type's
+                    // Body Diameter (FIELD-GRAIN). See CloudBodyDiameterDraw. `size` is the draw over the
+                    // mean, so 1 is the type's typical body.
                     const float size =
-                         CloudClusterSizeDraw( variety, HashUnit( HashCombine( clusterSeed, 0x4u ) ) );
+                         CloudBodyDiameterDraw( variety, HashUnit( HashCombine( clusterSeed, 0x4u ) ) );
 
-                    // THE CLUSTER'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
-                    const float clusterRadiusKm = baseRadiusKm * size * densityScale;
+                    // THE BODY'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
+                    const float clusterRadiusKm = 0.5f * bodyMeanKm * size / std::sqrt( densityShrinkSq );
 
                     // A SMALL CLOUD IS ALSO A FLAT ONE, which is what a cumulus field looks like and what
                     // keeps a quarter-width cluster from being a full-height tower on a narrow base. The
@@ -1435,7 +1437,7 @@ namespace Desert::Assets
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
                         blob.DensityScale = 1.0f;
 
-                        blobs.push_back( CloudProceduralLump{ blob, cellRank, clusterXZ } );
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, clusterXZ } );
                     }
 
                     // THE ANVIL, and it is the shape no vertical curve could express: a lobe of cloud at the
@@ -1458,8 +1460,8 @@ namespace Desert::Assets
 
                         // Wider than the tower and much flatter, which is what spreading against a stable layer
                         // looks like. The strength decides how far it spreads and how much matter is in it.
-                        const float spread = baseRadiusKm * size * densityScale *
-                                             ( 1.0f + kAnvilSpreadPerStrength * shape.AnvilStrength );
+                        const float spread =
+                             clusterRadiusKm * ( 1.0f + kAnvilSpreadPerStrength * shape.AnvilStrength );
 
                         // THE CANOPY IS A LUMP AND IS FLOORED LIKE ONE, from the two floors the tower
                         // already uses rather than from a second copy of `0.5 * ResolvableChordKm` — which
@@ -1484,7 +1486,7 @@ namespace Desert::Assets
                         // per-voxel field over the crease between the anvil and the body.
                         anvil.DensityScale = std::clamp( shape.AnvilStrength, 0.0f, 1.0f );
 
-                        blobs.push_back( CloudProceduralLump{ anvil, cellRank, clusterXZ } );
+                        blobs.push_back( CloudProceduralLump{ anvil, bodyRank, clusterXZ } );
                     }
                 }
             }
@@ -1578,30 +1580,49 @@ namespace Desert::Assets
         /// appearance: CloudProceduralBodyDepthKm of the deepest lump. Over EVERY lump of the cluster the
         /// caller holds — the bake its whole kept set before any wrap or bin culls one, the preview what it is
         /// handed — so a voxel's normalisation never depends on which lumps reach it.
-        void CloudClusterBodyDepths( const CloudProceduralFieldParams&       params,
-                                     const std::vector<CloudProceduralLump>& lumps, std::vector<glm::vec2>& sites,
-                                     std::vector<float>& invDepths )
+        /// A cluster's exact site as one word: its two floats' bits. The site IS the cluster's identity (one
+        /// float pair shared by its lumps), so equal words are the same cluster and the lookup is exact.
+        uint64_t CloudClusterSiteWord( const glm::vec2& siteKm )
         {
-            sites.clear();
+            return ( static_cast<uint64_t>( std::bit_cast<uint32_t>( siteKm.x ) ) << 32u ) |
+                   static_cast<uint64_t>( std::bit_cast<uint32_t>( siteKm.y ) );
+        }
+
+        /// The clusters of a lump set, indexed by site in order of first appearance, with each one's inverse
+        /// body depth. A HASH AND NOT A SCAN (FIELD-GRAIN): a cell is a patch of a dozen-odd bodies now, so a
+        /// region holds thousands of clusters and a linear search per lump was quadratic in them.
+        struct CloudClusterSites
+        {
+            std::unordered_map<uint64_t, uint32_t> Index;
+            std::vector<float>                     InvDepths;
+
+            [[nodiscard]] uint32_t Of( const glm::vec2& siteKm ) const
+            {
+                return Index.at( CloudClusterSiteWord( siteKm ) );
+            }
+        };
+
+        void CloudClusterBodyDepths( const CloudProceduralFieldParams&       params,
+                                     const std::vector<CloudProceduralLump>& lumps, CloudClusterSites& sites )
+        {
+            sites.Index.clear();
+            sites.Index.reserve( lumps.size() );
             std::vector<float> deepest;
             for ( const CloudProceduralLump& lump : lumps )
             {
-                const auto  found = std::find( sites.begin(), sites.end(), lump.ClusterKm );
                 const float depth = CloudProceduralLumpDepthKm( lump.Blob );
-                if ( found == sites.end() )
-                {
-                    sites.push_back( lump.ClusterKm );
+                const auto [it, fresh] =
+                     sites.Index.try_emplace( CloudClusterSiteWord( lump.ClusterKm ),
+                                              static_cast<uint32_t>( deepest.size() ) );
+                if ( fresh )
                     deepest.push_back( depth );
-                }
                 else
-                {
-                    float& best = deepest[static_cast<size_t>( found - sites.begin() )];
-                    best        = std::max( best, depth );
-                }
+                    deepest[it->second] = std::max( deepest[it->second], depth );
             }
-            invDepths.clear();
+            sites.InvDepths.clear();
+            sites.InvDepths.reserve( deepest.size() );
             for ( const float depth : deepest )
-                invDepths.push_back( 1.0f / CloudProceduralBodyDepthKm( params, depth ) );
+                sites.InvDepths.push_back( 1.0f / CloudProceduralBodyDepthKm( params, depth ) );
         }
 
         /// THE VOXEL, ONE HOME (CUT-AT-BAKE-b) — the bake's and the preview's. The smooth minimum joins the
@@ -1656,9 +1677,8 @@ namespace Desert::Assets
         // cluster is its exact site (the lattice site plus its scatter, shared by its lumps), as the bake's
         // clusterOf decides; a caller that hands wrapped copies shifts their ClusterKm with them.
         const float            softness = CloudProceduralRankSoftness( params );
-        std::vector<glm::vec2> sites;
-        std::vector<float>     invDepths;
-        CloudClusterBodyDepths( params, lumps, sites, invDepths );
+        CloudClusterSites sites;
+        CloudClusterBodyDepths( params, lumps, sites );
 
         // THE SILHOUETTE NOISE moves every lump's distance BEFORE the join (SHAPE-NOISE), as the bake does.
         const float shape = CloudProceduralShapeNoise( params, slot, pointKm );
@@ -1667,13 +1687,12 @@ namespace Desert::Assets
         candidates.reserve( lumps.size() );
         for ( const CloudProceduralLump& lump : lumps )
         {
-            const auto cluster =
-                 static_cast<uint32_t>( std::find( sites.begin(), sites.end(), lump.ClusterKm ) - sites.begin() );
+            const uint32_t cluster = sites.Of( lump.ClusterKm );
             candidates.push_back( CloudClusterCandidate{
                  CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ) +
                       CloudProceduralShapeReachKm( lump.Blob ) * shape,
                  lump.Blob.Weight, cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ),
-                 invDepths[cluster] } );
+                 sites.InvDepths[cluster] } );
         }
 
         return CloudProceduralCutJoin( candidates,
@@ -1807,9 +1826,8 @@ namespace Desert::Assets
 
             // EACH CLUSTER'S BODY DEPTH over all its kept lumps, before a wrap or a bin culls one — the same
             // set and the same function the preview (EvaluateCloudProceduralProfile) uses.
-            std::vector<glm::vec2> depthSites;
-            std::vector<float>     invDepths;
-            CloudClusterBodyDepths( params, blobs, depthSites, invDepths );
+            CloudClusterSites depthSites;
+            CloudClusterBodyDepths( params, blobs, depthSites );
 
             std::vector<Placed> placed;
             placed.reserve( blobs.size() * 2u );
@@ -1817,23 +1835,22 @@ namespace Desert::Assets
             // ONE ID PER CLUSTER AT EACH WRAP, in order of first appearance — the lumps are canonically
             // ordered, so the ids are too. A cluster's site is exact (the lattice site plus its scatter, one
             // float pair shared by its lumps), so equality of the pair is identity of the cluster.
-            std::vector<glm::vec4> clusterKeys;
-            const auto             clusterOf = [&clusterKeys]( const glm::vec2& siteKm, int wx, int wz )
+            std::unordered_map<uint64_t, uint32_t> clusterKeys;
+            const auto clusterOf = [&clusterKeys]( uint32_t site, int wx, int wz )
             {
-                const glm::vec4 key( siteKm.x, siteKm.y, static_cast<float>( wx ), static_cast<float>( wz ) );
-                for ( size_t k = clusterKeys.size(); k-- > 0; )
-                    if ( clusterKeys[k] == key )
-                        return static_cast<uint32_t>( k );
-                clusterKeys.push_back( key );
-                return static_cast<uint32_t>( clusterKeys.size() - 1u );
+                constexpr uint64_t kWraps = 2u * kWrapRange + 1u;
+                const uint64_t key = ( static_cast<uint64_t>( site ) * kWraps + static_cast<uint64_t>( wz + kWrapRange ) ) *
+                                          kWraps +
+                                     static_cast<uint64_t>( wx + kWrapRange );
+                return clusterKeys.try_emplace( key, static_cast<uint32_t>( clusterKeys.size() ) ).first->second;
             };
 
             for ( const CloudProceduralLump& lump : blobs )
             {
                 const CloudModellingBlob& blob   = lump.Blob;
                 const float     reach  = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
-                const float               invDepth = invDepths[static_cast<size_t>(
-                     std::find( depthSites.begin(), depthSites.end(), lump.ClusterKm ) - depthSites.begin() )];
+                const uint32_t  site     = depthSites.Of( lump.ClusterKm );
+                const float     invDepth = depthSites.InvDepths[site];
                 // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
                 // reaches that much past its own ellipsoid (SHAPE-NOISE).
                 const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
@@ -1862,7 +1879,7 @@ namespace Desert::Assets
                             continue;
 
                         placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, reach,
-                                                  clusterOf( lump.ClusterKm, wx, wz ), invDepth, shapeReachKm } );
+                                                  clusterOf( site, wx, wz ), invDepth, shapeReachKm } );
                     }
                 }
             }

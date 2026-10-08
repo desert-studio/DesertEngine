@@ -3,7 +3,7 @@
         "Kind": "CloudType",
         "Guid": "7d575e2bd31aa9d8cf62bc245172d603",
         "Versions": {
-            "CLTY": 6
+            "CLTY": 7
         },
         "Dependencies": ["59b7443e94dad9b6c1caccb34d62b5ff"]
     },
@@ -36,6 +36,7 @@
         "DensityFactor": 0.35,
         "ExtinctionFactor": 0.25,
         "PlacementScale": 0.6,
-        "PlacementAnisotropy": 8.0
+        "PlacementAnisotropy": 8.0,
+        "BodyDiameterKm": 1.0
     }
 }

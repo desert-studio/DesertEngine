@@ -417,6 +417,11 @@ namespace Desert::Migration
     // an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text );
 
+    // The v7 text of a v6 `.decloudtype`: every v6 value kept, `Shape.BodyDiameterKm` written as the default
+    // type's (FIELD-GRAIN: the exponential body-size law's D0), the header's GUID kept. A file that does not
+    // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

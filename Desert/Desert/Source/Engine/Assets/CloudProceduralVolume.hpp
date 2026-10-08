@@ -360,6 +360,10 @@ namespace Desert::Assets
         /// those four settings and the frame's contrast goes 0.378 / 0.379 / 0.374 / 0.349 against the
         /// 0.384 of the sky the owner accepted. 1.75 is the lowest setting that is a whole measured step
         /// away from the one that fails and is on the contrast plateau.
+        ///
+        /// SINCE FIELD-GRAIN a cell is a PATCH of the type's bodies, and the density multiplies how many
+        /// bodies a patch holds while shrinking each by its square root — the summed area, hence the cover,
+        /// stays. The table above was measured on one cluster per cell and is RECAL's to re-measure.
         float PlacementDensity = 1.75f;
 
         /// How far a cluster may wander from its lattice site, in CELLS — 1.0 means it may sit anywhere in
@@ -376,14 +380,12 @@ namespace Desert::Assets
         /// 1.0 km to 1.5 km at the same distance.
         float PlacementScatter = 1.0f;
 
-        /// How much cluster sizes spread, 0..1, on a LOG scale: the largest cloud is `16^variety` times the
-        /// width of the smallest, so zero makes every cluster the size its cell's fill says, the shipped
-        /// 0.75 spans eightfold and one spans sixteenfold.
-        ///
-        /// THE SIZES FOLLOW A POWER LAW, `n(D) ~ D^-2`, which is what observed cumulus fields measure —
-        /// many small clouds and few large ones (CLOUD-VARIETY; CloudClusterSizeDraw). The mean AREA is one
-        /// at every setting, so the knob shares the same cloud out differently and the Coverage mapping
-        /// does not move with it.
+        /// How much body sizes spread, 0..1 (FIELD-GRAIN): a body's diameter is the type's Body Diameter
+        /// times `(1 - v) + v * X` with X exponential of mean one, so one is the exponential size law
+        /// observed cumulus fields follow (Plank 1969) — many small clouds and few large ones — and zero is
+        /// every body the type's size (CloudBodyDiameterDraw). The mean diameter is the type's at every
+        /// setting and the patch's body count divides by the mean square, so the knob shares the same cloud
+        /// out differently and the Coverage mapping does not move with it.
         float PlacementSizeVariety = 0.75f;
 
         /// The size of a WEATHER SYSTEM, kilometres: the SHORTEST wavelength of the large-scale modulation
@@ -895,7 +897,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000eULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000fULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.

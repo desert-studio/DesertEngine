@@ -142,6 +142,10 @@ namespace Desert::Editor
                8.0f, "%.2f", nullptr, false, false,
                "How much longer this kind's patches are ALONG THE WIND than across it. 1 is round; above 1 "
                "they are drawn out downwind into bands, which is what makes fibrous cirrus read as cirrus." },
+             { "BodyDiameterKm", "Body Diameter", &Graphic::CloudTypeShape::BodyDiameterKm, 0.2f, 8.0f, "%.2f km",
+               nullptr, false, false,
+               "The mean width of one cloud of this kind. A patch is many such bodies, drawn from the "
+               "exponential size law observed cumulus fields follow: many small, few large. Cumulus 0.5-1 km." },
         };
     } // namespace
 

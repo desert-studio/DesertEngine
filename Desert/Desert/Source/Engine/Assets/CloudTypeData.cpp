@@ -64,6 +64,8 @@ namespace Desert::Assets
              // what T1 shipped, and this is that, digit for digit.
              /* PlacementScale      */ 1.00f,
              /* PlacementAnisotropy */ 1.00f,
+             // FIELD-GRAIN: a congestus field's bodies, a kilometre on average (Plank's law, D0 0.5-1 km).
+             /* BodyDiameterKm      */ 1.00f,
         };
         return kDefault;
     }
@@ -189,6 +191,11 @@ namespace Desert::Assets
         // stretch about the same axis, and forbidding one half of it would have made the lenticular
         // unreachable.
         if ( auto r = InRange( "PlacementAnisotropy", shape.PlacementAnisotropy, 0.1f, 16.0f ); !r )
+            return r;
+
+        // A body is drawn from the exponential law around this mean. Under a fifth of a kilometre it is
+        // narrower than one voxel of the shipped volume (0.1875 km); over 8 km it is a patch, not a body.
+        if ( auto r = InRange( "BodyDiameterKm", shape.BodyDiameterKm, 0.2f, 8.0f ); !r )
             return r;
 
         return BOOLSUCCESS;

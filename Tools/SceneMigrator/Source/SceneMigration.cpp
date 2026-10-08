@@ -1704,6 +1704,45 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
+    Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text )
+    {
+        // CLTY 7 IS CLTY 6 PLUS ONE KEY, so the v6 body is the v7 one once `Shape.BodyDiameterKm` is there:
+        // it goes in after `PlacementAnisotropy`, the shape's last v6 key, and the body then reads as the
+        // current type — no frozen v6 copy of fifteen fields to keep in step with the struct.
+        const std::string key = "\"PlacementAnisotropy\"";
+        const size_t      at  = text.find( key );
+        if ( at == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "CLTY 6 body has no Shape.PlacementAnisotropy" );
+        if ( text.find( "\"BodyDiameterKm\"" ) != std::string::npos )
+            return Common::MakeFormattedError<std::string>( "the body already states BodyDiameterKm" );
+        const size_t end = text.find_first_of( ",}\n", text.find( ':', at ) + 1u );
+        if ( end == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "CLTY 6 Shape.PlacementAnisotropy has no value end" );
+
+        // ONE KILOMETRE, the default type's (Assets::CloudTypeDefaultShape): a v6 type had no body size, its
+        // bodies were its cells; the shipped library states its own after the raise (FIELD-GRAIN).
+        std::string patched = text;
+        patched.insert( end, ", \"BodyDiameterKm\": " + std::format( "{}", Graphic::CloudTypeShape{}.BodyDiameterKm ) );
+
+        const auto v6 = Common::Json::Read<Assets::CloudTypeData>( patched );
+        if ( !v6 )
+            return Common::MakeFormattedError<std::string>( "CLTY 6 body does not read: {}", v6.GetError() );
+        const Assets::CloudTypeData& data = v6.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header, and this step raises CLTY 6 only" );
+        const auto stated = data.Header->Versions.find( "CLTY" );
+        if ( stated == data.Header->Versions.end() || stated->second != 6u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states CLTY {}, and this step raises CLTY 6 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" ) : std::to_string( stated->second ) );
+
+        std::string written = Assets::WriteCloudType( data );
+        if ( auto reread = Assets::ParseCloudType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as CLTY 7: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
     Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text )
     {
         if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 6u )

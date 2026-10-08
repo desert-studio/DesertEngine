@@ -418,6 +418,13 @@ namespace Desert::Graphic
         /// note at CloudVerticalProfile::operator==. Read by the cloud documents' GetDiskState.
         [[nodiscard]] bool operator==( const CloudTypeShape& ) const = default;
         float PlacementAnisotropy;
+
+        /// THE TYPE'S BODY SIZE, in km: `D0` of the exponential size law `n(D) ~ exp(-D / D0)` its bodies
+        /// are drawn from (FIELD-GRAIN), so it is the MEAN body diameter at the layer's Size Variety of 1.
+        /// Observed cumulus fields follow that law with D0 of half a kilometre to a kilometre (Plank 1969);
+        /// a cell (Placement Scale) is a PATCH of such bodies, not one body. Read only by the bake
+        /// (Assets::CloudProceduralVolume's cluster emission), so the GPU payload does not carry it.
+        float BodyDiameterKm = 1.0f;
     };
 
     /**
