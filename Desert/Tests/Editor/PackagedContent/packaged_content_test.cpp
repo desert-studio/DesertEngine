@@ -195,8 +195,8 @@ TEST( PackagedContent, EveryScannedRootIsAPackagedTree )
 
 // WHAT A PACKAGE IS BUILT FROM (PRJ1, UE: /Game + /Engine runtime content). The committed project lives in
 // Projects/Desert/, apart from the engine: every census tree the packager stages is EITHER the project's (its
-// Content/ and its Cooked/, both under the project folder) OR the engine's runtime resources (under the
-// engine directory's Resources/) — never a tree of the editor, and project content never inside the engine.
+// Content/, its Cooked/ and its Config/, all under the project folder) OR the engine's runtime resources (under
+// the engine directory's Resources/) — never a tree of the editor, and project content never inside the engine.
 // Mutation: add a census row for P::RESOURCE_PATH / "Branding" (editor-only) in PackagedContentTrees.hpp, or set
 // the .deproj AssetsRoot to "../../Editor/Resources/Assets" => red here.
 TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnly )
@@ -236,7 +236,10 @@ TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnl
         EXPECT_TRUE( runtimeEngineTrees.contains( rel.begin()->string() ) )
              << "an editor resource tree is packaged: " << path.string();
     }
-    EXPECT_EQ( projectTrees, 2u ) << "the project contributes its Content/ and its Cooked/, nothing else";
+    EXPECT_EQ( projectTrees, 3u ) << "the project contributes its Content/, its Cooked/ and its Config/ (UE "
+                                     "<Project>/Config), nothing else";
+    EXPECT_TRUE( under( Common::Constants::Path::PROJECT_CONFIG_PATH, projectDir / "Config" ) )
+         << Common::Constants::Path::PROJECT_CONFIG_PATH.string();
     EXPECT_TRUE( under( Common::Constants::Path::ASSETS_PATH, projectDir / "Content" ) )
          << Common::Constants::Path::ASSETS_PATH.string();
 

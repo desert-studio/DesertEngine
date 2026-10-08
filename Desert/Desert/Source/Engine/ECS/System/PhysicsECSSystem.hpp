@@ -94,9 +94,8 @@ namespace Desert::ECS
                     return; // said once this Play; the register is read again on the next one
                 // The project's channels and profiles (UE DefaultEngine.ini [CollisionProfile]). No register,
                 // no simulation: there is no built-in answer to which bodies collide.
-                auto profiles =
-                     Physics::CollisionProfiles::Read( Common::Constants::Path::CurrentProjectRoot().ProjectDir /
-                                                       "Config" / Physics::kCollisionProfilesFileName );
+                auto profiles = Physics::CollisionProfiles::Read( Common::Constants::Path::PROJECT_CONFIG_PATH /
+                                                                  Physics::kCollisionProfilesFileName );
                 if ( !profiles )
                 {
                     m_ProfilesRefused = true;

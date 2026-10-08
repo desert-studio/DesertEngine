@@ -175,7 +175,16 @@ namespace Desert::Migration
     //       refused by name: an override that restates a clip has no v40 whole to lift. Scenes and prefabs alike.
     inline constexpr int kSceneVersionUIAnimationSequences = 41;
 
-    static_assert( kSceneVersionUIAnimationSequences == kSceneVersion,
+    //  42 - COLLISION IS A PROFILE (PHYS-A1). Bodies filter by UE-style channels and profiles from the project's
+    //       Config/CollisionProfiles.json; RigidBody and CharacterController gain CollisionProfile. Its default
+    //       ("PhysicsActor") fits a simulated body only, so every RigidBody STATES its profile by Type
+    //       (MigrateCollisionProfilesV41ToV42): Static -> "BlockAll", Kinematic -> "BlockAllDynamic",
+    //       Dynamic or no Type -> "PhysicsActor"; every CharacterController states "Pawn". A prefab override
+    //       that restates RigidBody.Type gets the profile of that Type; a stated profile is kept. Scenes and
+    //       prefabs alike.
+    inline constexpr int kSceneVersionCollisionProfiles = 42;
+
+    static_assert( kSceneVersionCollisionProfiles == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -273,6 +282,18 @@ namespace Desert::Migration
     // Lifts every record's v40 UIAnim block into the v41 {Sequence, Loop, AutoPlay} form under the rule
     // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateCollisionProfilesV41ToV42 did to one file.
+    struct CollisionProfilesReport
+    {
+        std::size_t              Bodies     = 0; // RigidBody blocks (records and overrides) given a profile
+        std::size_t              Characters = 0; // CharacterController blocks given "Pawn"
+        std::vector<std::string> Refused; // one line per block whose Type is not a BodyType; nothing written
+    };
+
+    // States CollisionProfile on every RigidBody / CharacterController block under the rule
+    // kSceneVersionCollisionProfiles states. PURE.
+    CollisionProfilesReport MigrateCollisionProfilesV41ToV42( std::vector<Assets::EntityData>& entities );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -460,6 +481,9 @@ namespace Desert::Migration
         bool               UIAnimationsRaised = false; // below kSceneVersionUIAnimationSequences
         UIAnimationsReport UIAnimations;
 
+        bool                    CollisionProfilesRaised = false; // below kSceneVersionCollisionProfiles
+        CollisionProfilesReport CollisionProfiles;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -469,7 +493,7 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || UIAnimationTimelinesRaised;
+                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised;
         }
     };
 

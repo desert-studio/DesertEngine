@@ -1,4 +1,5 @@
 #include <Engine/Physics/CollisionProfiles.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <format>
@@ -96,8 +97,8 @@ namespace Desert::Physics
 
     Common::ResultStr<CollisionProfiles> CollisionProfiles::Read( const std::filesystem::path& path )
     {
-        std::error_code ec;
-        if ( !std::filesystem::is_regular_file( path, ec ) )
+        // Through the VFS as well as the disk: a packaged game reads the register out of its archive.
+        if ( !Common::Utils::FileSystem::Exists( path ) )
             return Common::MakeFormattedError<CollisionProfiles>( "collision profile register '{}' does not exist",
                                                                   path.string() );
         auto read = Common::Json::ReadFile<CollisionProfilesConfig>( path );
