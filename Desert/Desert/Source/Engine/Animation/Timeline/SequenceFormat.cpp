@@ -42,12 +42,21 @@ namespace Desert::Animation::Timeline::Format
         float                Default = 0.0F;
     };
 
+    /// Absent from a key that only names itself, so every clip notify and plain marker writes the bytes it
+    /// wrote before actions existed — the member is additive, no TMLN version reads it differently.
+    struct EventActionData
+    {
+        uint8_t     Kind = 0;
+        std::string Target;
+    };
+
     struct EventKeyData
     {
-        int32_t     Tick     = 0;
-        int32_t     Duration = 0;
-        std::string Name;
-        int32_t     Row = 0;
+        int32_t                        Tick     = 0;
+        int32_t                        Duration = 0;
+        std::string                    Name;
+        int32_t                        Row = 0;
+        std::optional<EventActionData> Action;
     };
 
     struct ChannelData
@@ -70,7 +79,14 @@ namespace Desert::Animation::Timeline::Format
         std::string Camera;
     };
 
-    /// Exactly one of the three content members is present — the SectionContent alternative.
+    struct SubsequenceData
+    {
+        std::string Sequence;
+        int32_t     StartOffset = 0;
+        double      TimeScale   = 1.0;
+    };
+
+    /// Exactly one of the four content members is present — the SectionContent alternative.
     struct SectionData
     {
         int32_t                      Start = 0;
@@ -81,7 +97,8 @@ namespace Desert::Animation::Timeline::Format
         std::string                  Name;
         std::optional<ChannelData>   Channel;
         std::optional<AnimationData> Animation;
-        std::optional<CameraCutData> CameraCut;
+        std::optional<CameraCutData>   CameraCut;
+        std::optional<SubsequenceData> Subsequence;
     };
 
     struct TrackData
@@ -200,8 +217,13 @@ namespace Desert::Animation::Timeline
                      {
                          for ( const EventKey& key : typed.Keys )
                          {
-                             out.Events.push_back(
-                                  EventKeyData{ key.Tick.Value, key.Duration.Value, key.Name, key.Row } );
+                             EventKeyData data{ key.Tick.Value, key.Duration.Value, key.Name, key.Row, {} };
+                             if ( key.Action )
+                             {
+                                 data.Action = EventActionData{ static_cast<uint8_t>( key.Action->Kind ),
+                                                                key.Action->Target };
+                             }
+                             out.Events.push_back( std::move( data ) );
                          }
                      }
                  },
@@ -232,6 +254,13 @@ namespace Desert::Animation::Timeline
                 out.Animation = AnimationData{ AssetGuidToText( anim->Clip ), anim->StartOffset.Value,
                                                anim->PlayRate, anim->Loop };
                 clips.push_back( out.Animation->Clip );
+            }
+            else if ( const auto* sub = std::get_if<SubsequenceSectionContent>( &section.Content ) )
+            {
+                // The played sequence is a dependency like a played clip: the walk reaches it from the header.
+                out.Subsequence =
+                     SubsequenceData{ AssetGuidToText( sub->Sequence ), sub->StartOffset.Value, sub->TimeScale };
+                clips.push_back( out.Subsequence->Sequence );
             }
             else
             {
@@ -335,8 +364,18 @@ namespace Desert::Animation::Timeline
             EventChannel events;
             for ( const EventKeyData& key : data.Events )
             {
-                events.Keys.push_back(
-                     EventKey{ FrameNumber{ key.Tick }, FrameNumber{ key.Duration }, key.Name, key.Row } );
+                EventKey event{ FrameNumber{ key.Tick }, FrameNumber{ key.Duration }, key.Name, key.Row, {} };
+                if ( key.Action )
+                {
+                    if ( key.Action->Kind > static_cast<uint8_t>( EventActionKind::CallScript ) )
+                    {
+                        return Common::MakeFormattedError<Channel>( "event '{}': unknown action kind {}", key.Name,
+                                                                    key.Action->Kind );
+                    }
+                    event.Action =
+                         EventAction{ static_cast<EventActionKind>( key.Action->Kind ), key.Action->Target };
+                }
+                events.Keys.push_back( std::move( event ) );
             }
             return Common::MakeSuccess( Channel{ std::move( events ) } );
         }
@@ -369,13 +408,14 @@ namespace Desert::Animation::Timeline
             }
             section.Blend = static_cast<SectionBlendType>( data.Blend );
 
-            const int contents = static_cast<int>( data.Channel.has_value() ) +
-                                 static_cast<int>( data.Animation.has_value() ) +
-                                 static_cast<int>( data.CameraCut.has_value() );
+            const int contents =
+                 static_cast<int>( data.Channel.has_value() ) + static_cast<int>( data.Animation.has_value() ) +
+                 static_cast<int>( data.CameraCut.has_value() ) + static_cast<int>( data.Subsequence.has_value() );
             if ( contents != 1 )
             {
                 return Common::MakeFormattedError<Section>(
-                     "states {} of Channel / Animation / CameraCut; a section holds exactly one", contents );
+                     "states {} of Channel / Animation / CameraCut / Subsequence; a section holds exactly one",
+                     contents );
             }
             if ( data.Channel )
             {
@@ -396,6 +436,17 @@ namespace Desert::Animation::Timeline
                 section.Content =
                      AnimationSectionContent{ clip.GetValue(), FrameNumber{ data.Animation->StartOffset },
                                               data.Animation->PlayRate, data.Animation->Loop };
+            }
+            else if ( data.Subsequence )
+            {
+                auto played = AssetGuidFromText( data.Subsequence->Sequence );
+                if ( !played )
+                {
+                    return Common::MakeFormattedError<Section>( "Subsequence sequence: {}", played.GetError() );
+                }
+                section.Content =
+                     SubsequenceSectionContent{ played.GetValue(), FrameNumber{ data.Subsequence->StartOffset },
+                                                data.Subsequence->TimeScale };
             }
             else if ( data.CameraCut ) // the count above leaves this the only one present
             {
@@ -455,7 +506,7 @@ namespace Desert::Animation::Timeline
                     return Common::MakeFormattedError<Sequence>( "track {} '{}': {}", t, in.Property,
                                                                  guid.GetError() );
                 }
-                if ( in.Kind > static_cast<uint8_t>( TrackKind::CameraCut ) )
+                if ( in.Kind > static_cast<uint8_t>( TrackKind::Subsequence ) )
                 {
                     return Common::MakeFormattedError<Sequence>( "track {} '{}': unknown kind {}", t, in.Property,
                                                                  in.Kind );

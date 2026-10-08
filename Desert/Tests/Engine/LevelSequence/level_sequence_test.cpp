@@ -1130,3 +1130,92 @@ TEST( LevelSequencePlayer, ABindingToAMissingEntityIsReportedAndThePlayerGoesOn 
     EXPECT_NEAR( playback.Player.Current().AsTicks(), 50.0, 1e-3 ) << "the transport still advanced";
     EXPECT_EQ( DoorX( world ), 0.0F );
 }
+
+// ── SEQ1b: event actions and the Subsequence track in the .dseq ──────────────────────────────────────
+
+namespace
+{
+    /// DoorAndCut plus a sequence-level Event track whose keys carry each action kind, and a Subsequence track.
+    T::Sequence WithActionsAndSubsequence()
+    {
+        T::Sequence    sequence = DoorAndCut( std::to_string( kDoorUuid ) );
+        T::BindingGuid master;
+        for ( const T::Binding& binding : sequence.Bindings )
+            if ( binding.Kind == T::BindingKind::Sequence )
+                master = binding.Guid;
+
+        T::Track    events{ master, "Actions", T::TrackKind::Event, {}, false };
+        T::Section& eventSection = T::AddSection( events, T::FrameNumber{ 0 }, T::FrameNumber{ 48000 } );
+        auto&       keys         = std::get<T::EventChannel>( std::get<T::Channel>( eventSection.Content ) ).Keys;
+        keys.push_back( T::EventKey{ T::FrameNumber{ 100 }, T::FrameNumber{ 0 }, "Bell", 0,
+                                     T::EventAction{ T::EventActionKind::PlaySound, "Audio/Bell.wav" } } );
+        keys.push_back( T::EventKey{ T::FrameNumber{ 200 }, T::FrameNumber{ 0 }, "Sparks", 0,
+                                     T::EventAction{ T::EventActionKind::ActivateParticles, "" } } );
+        keys.push_back( T::EventKey{ T::FrameNumber{ 300 }, T::FrameNumber{ 0 }, "Open", 0,
+                                     T::EventAction{ T::EventActionKind::CallScript, "OnDoorCue" } } );
+        keys.push_back( T::EventKey{ T::FrameNumber{ 400 }, T::FrameNumber{ 0 }, "Marker", 0, std::nullopt } );
+        sequence.Tracks.push_back( std::move( events ) );
+
+        T::Track    sub{ master, "Subsequence", T::TrackKind::Subsequence, {}, false };
+        T::Section& subSection = T::AddSection( sub, T::FrameNumber{ 24000 }, T::FrameNumber{ 72000 } );
+        subSection.Content =
+             T::SubsequenceSectionContent{ AssetGuid{ 0xABCD, 0xEF01 }, T::FrameNumber{ 600 }, 0.5 };
+        sequence.Tracks.push_back( std::move( sub ) );
+        return sequence;
+    }
+} // namespace
+
+TEST( LevelSequenceAsset, EventActionsAndASubsequenceKeepEveryFieldThroughTheFile )
+{
+    const T::Sequence sequence = WithActionsAndSubsequence();
+    ASSERT_TRUE( T::Validate( sequence ).IsSuccess() ) << T::Validate( sequence ).GetError();
+    const AssetGuid guid{ 0x1234, 0x5678 };
+
+    const auto text = Desert::Assets::LevelSequenceAsset::Write( sequence, guid );
+    ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
+    const auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const T::Sequence& back = parsed.GetValue().Sequence;
+    ASSERT_EQ( back.Tracks.size(), sequence.Tracks.size() );
+
+    const auto& keys = std::get<T::EventChannel>(
+                            std::get<T::Channel>( back.Tracks[back.Tracks.size() - 2].Sections[0].Content ) )
+                            .Keys;
+    ASSERT_EQ( keys.size(), 4U );
+    ASSERT_TRUE( keys[0].Action && keys[1].Action && keys[2].Action );
+    EXPECT_EQ( keys[0].Action->Kind, T::EventActionKind::PlaySound );
+    EXPECT_EQ( keys[0].Action->Target, "Audio/Bell.wav" );
+    EXPECT_EQ( keys[1].Action->Kind, T::EventActionKind::ActivateParticles );
+    EXPECT_EQ( keys[2].Action->Kind, T::EventActionKind::CallScript );
+    EXPECT_EQ( keys[2].Action->Target, "OnDoorCue" );
+    EXPECT_FALSE( keys[3].Action ) << "a plain marker stays a marker";
+
+    const T::Track& sub = back.Tracks.back();
+    EXPECT_EQ( sub.Kind, T::TrackKind::Subsequence );
+    const auto& content = std::get<T::SubsequenceSectionContent>( sub.Sections[0].Content );
+    EXPECT_EQ( content.Sequence, ( AssetGuid{ 0xABCD, 0xEF01 } ) );
+    EXPECT_EQ( content.StartOffset.Value, 600 );
+    EXPECT_EQ( content.TimeScale, 0.5 );
+    EXPECT_NE( text.GetValue().find( "abcd" ), std::string::npos )
+         << "the played sequence is a header dependency, as a played clip is";
+
+    const auto again = Desert::Assets::LevelSequenceAsset::Write( back, guid );
+    ASSERT_TRUE( again.IsSuccess() ) << again.GetError();
+    EXPECT_EQ( again.GetValue(), text.GetValue() );
+}
+
+TEST( LevelSequenceAsset, AnActionWithoutItsTargetAndAStoppedSubsequenceAreRefused )
+{
+    T::Sequence noTarget = WithActionsAndSubsequence();
+    std::get<T::EventChannel>(
+         std::get<T::Channel>( noTarget.Tracks[noTarget.Tracks.size() - 2].Sections[0].Content ) )
+         .Keys[0]
+         .Action->Target.clear();
+    EXPECT_FALSE( T::Validate( noTarget ).IsSuccess() );
+
+    T::Sequence stopped = WithActionsAndSubsequence();
+    std::get<T::SubsequenceSectionContent>( stopped.Tracks.back().Sections[0].Content ).TimeScale = 0.0;
+    const auto refused = T::Validate( stopped );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "time scale" ), std::string::npos ) << refused.GetError();
+}

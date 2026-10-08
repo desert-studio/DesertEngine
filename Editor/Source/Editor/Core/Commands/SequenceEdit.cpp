@@ -116,8 +116,21 @@ namespace Desert::Editor
 
     bool SameStoredValue( const Timeline::EventKey& a, const Timeline::EventKey& b )
     {
-        const auto& [aTick, aDuration, aName, aRow] = a;
-        const auto& [bTick, bDuration, bName, bRow] = b;
+        const auto& [aTick, aDuration, aName, aRow, aAction] = a;
+        const auto& [bTick, bDuration, bName, bRow, bAction] = b;
+        if ( aAction.has_value() != bAction.has_value() )
+        {
+            return false;
+        }
+        if ( aAction )
+        {
+            const auto& [aKind, aTarget] = *aAction;
+            const auto& [bKind, bTarget] = *bAction;
+            if ( aKind != bKind || aTarget != bTarget )
+            {
+                return false;
+            }
+        }
         return aTick == bTick && aDuration == bDuration && aName == bName && aRow == bRow;
     }
 
@@ -145,6 +158,14 @@ namespace Desert::Editor
         const auto& [aCamera] = a;
         const auto& [bCamera] = b;
         return SameGuid( aCamera, bCamera );
+    }
+
+    bool SameStoredValue( const Timeline::SubsequenceSectionContent& a,
+                          const Timeline::SubsequenceSectionContent& b )
+    {
+        const auto& [aSequence, aOffset, aScale] = a;
+        const auto& [bSequence, bOffset, bScale] = b;
+        return SameGuid( aSequence, bSequence ) && aOffset == bOffset && aScale == bScale;
     }
 
     bool SameStoredValue( const Timeline::Section& a, const Timeline::Section& b )

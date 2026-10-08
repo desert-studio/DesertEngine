@@ -30,6 +30,8 @@ namespace Desert::Animation::Timeline
                 return "Animation";
             case TrackKind::CameraCut:
                 return "CameraCut";
+            case TrackKind::Subsequence:
+                return "Subsequence";
         }
         // A kind outside the enum is refused where it is READ; this names it for the log that says so.
         return "Unknown";
@@ -50,10 +52,14 @@ namespace Desert::Animation::Timeline
                  {
                      return TrackKind::Animation;
                  }
+                 else if constexpr ( std::is_same_v<Held, CameraCutSectionContent> )
+                 {
+                     return TrackKind::CameraCut;
+                 }
                  else
                  {
-                     static_assert( std::is_same_v<Held, CameraCutSectionContent> );
-                     return TrackKind::CameraCut;
+                     static_assert( std::is_same_v<Held, SubsequenceSectionContent> );
+                     return TrackKind::Subsequence;
                  }
              },
              content );
@@ -69,6 +75,8 @@ namespace Desert::Animation::Timeline
                     return AnimationSectionContent{};
                 case TrackKind::CameraCut:
                     return CameraCutSectionContent{};
+                case TrackKind::Subsequence:
+                    return SubsequenceSectionContent{};
                 default:
                     return MakeChannel( static_cast<ChannelKind>( kind ) );
             }
@@ -221,7 +229,8 @@ namespace Desert::Animation::Timeline
                               held );
                      }
                      // Animation: StartOffset is in the clip's ticks, relative to the section — it moves
-                     // with the section by construction. Camera Cut: no keys.
+                     // with the section by construction. Subsequence: StartOffset is in the subsequence's
+                     // ticks, relative to the section, the same. Camera Cut: no keys.
                  },
                  content );
         }
