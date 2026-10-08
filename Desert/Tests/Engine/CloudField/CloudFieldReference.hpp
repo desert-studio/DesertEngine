@@ -400,6 +400,61 @@ namespace Desert::Tests::CloudFieldRef
             state.Voxels   = CloudModellingBake( state.Params, state.OriginKm );
         }
 
+        // A TRILINEAR, REPEAT-wrapped fetch — the filter and the address mode VulkanImage3D creates for
+        // every sampled volume, written out here because the difference between this and a nearest fetch
+        // is exactly the half-texel error the relation test exists to catch.
+        vec4 CloudSampleModellingTexture( vec3 uvw )
+        {
+            const ModellingVoxels& bytes = ModellingVolume().Voxels;
+            if ( !bytes || bytes->empty() )
+                return vec4( 0.0f );
+
+            const std::vector<unsigned char>& voxels = *bytes;
+
+            constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
+            constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
+            constexpr int depth  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
+
+            const float x = uvw.x * static_cast<float>( width ) - 0.5f;
+            const float y = uvw.y * static_cast<float>( height ) - 0.5f;
+            const float z = uvw.z * static_cast<float>( depth ) - 0.5f;
+
+            const float fx = x - std::floor( x );
+            const float fy = y - std::floor( y );
+            const float fz = z - std::floor( z );
+
+            const auto wrap = []( float coordinate, int extent )
+            {
+                const int index = static_cast<int>( std::floor( coordinate ) ) % extent;
+                return index < 0 ? index + extent : index;
+            };
+
+            const int x0 = wrap( x, width );
+            const int y0 = wrap( y, height );
+            const int z0 = wrap( z, depth );
+            const int x1 = ( x0 + 1 ) % width;
+            const int y1 = ( y0 + 1 ) % height;
+            const int z1 = ( z0 + 1 ) % depth;
+
+            const auto texel = [&]( int ix, int iy, int iz )
+            {
+                const size_t base = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
+                                    Desert::Assets::kCloudProceduralBytesPerVoxel;
+                return vec4( voxels[base] / 255.0f, voxels[base + 1] / 255.0f, voxels[base + 2] / 255.0f,
+                             voxels[base + 3] / 255.0f );
+            };
+
+            const auto plane = [&]( int iz )
+            {
+                const vec4 top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
+                const vec4 bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
+                return top * ( 1.0f - fy ) + bottom * fy;
+            };
+
+            return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
+        }
+
+
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleModellingTexture( p )
         // The march's weather remap inputs, from the very functions the renderer uploads: the world weather
         // at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
