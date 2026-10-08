@@ -1322,15 +1322,16 @@ namespace Desert::Editor
                 // Values are this device's catalog RenderScale range (the Scalability panel's Render Scale
                 // slider's), so the menu cannot write one the resolver refuses.
                 {
-                    const auto& renderScale = Common::Scalability::QualityState::Catalog().RenderScale;
-                    const int   scaleMin    = renderScale.MinPercent;
-                    const int   scaleMax    = renderScale.MaxPercent;
+                    const auto&       renderScale = Common::Scalability::QualityState::Catalog().RenderScale;
+                    const int         scaleMin    = renderScale.MinPercent;
+                    const int         scaleMax    = renderScale.MaxPercent;
                     const std::string label =
                          view.ScreenPercentage ? std::format( "Screen Percentage: {} %", *view.ScreenPercentage )
                                                : std::string( "Screen Percentage: project setting" );
                     if ( ImGui::BeginMenu( label.c_str() ) )
                     {
-                        if ( ImGui::MenuItem( "Use project setting", nullptr, !view.ScreenPercentage.has_value() ) )
+                        if ( ImGui::MenuItem( "Use project setting", nullptr,
+                                              !view.ScreenPercentage.has_value() ) )
                         {
                             view.ScreenPercentage.reset();
                             viewChanged = true;

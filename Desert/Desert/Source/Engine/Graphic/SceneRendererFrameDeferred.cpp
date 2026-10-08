@@ -447,12 +447,13 @@ namespace Desert::Graphic
                                               const RDG::TextureRef target )
     {
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
-        if ( m_DebugView.DeferredDebug != DeferredDebugMode::Velocity || m_RenderPath != Core::RenderPath::Deferred )
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::Velocity ||
+             m_RenderPath != Core::RenderPath::Deferred )
             return;
         const RDG::TextureRef velocity = textures.Transients.Velocity;
         const auto            it       = m_RenderSystems.find( "VelocityViewSystem" );
-        auto* const view = it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::VelocityViewRenderer, it->second )
-                                                       : nullptr;
+        auto* const           view =
+             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::VelocityViewRenderer, it->second ) : nullptr;
         if ( view == nullptr || !target.IsValid() || !velocity.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Velocity not drawn: {}",

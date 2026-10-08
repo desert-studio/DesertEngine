@@ -12,11 +12,11 @@
 
 namespace Desert::Graphic::System
 {
-    // The Velocity view mode (DeferredDebugMode::Velocity, UE's "Velocity" buffer visualization): "Debug: Velocity"
-    // samples the view's velocity transient (FrameTransients::Velocity, NDC current - previous at the render extent)
-    // and writes it as a colour over the view's post input - hue = direction, brightness = speed in pixels, black
-    // where the pixel is still. Drawn after the temporal resolve, so what is shown is the motion TAA reprojected
-    // with and not a history-blended picture of it.
+    // The Velocity view mode (DeferredDebugMode::Velocity, UE's "Velocity" buffer visualization): "Debug:
+    // Velocity" samples the view's velocity transient (FrameTransients::Velocity, NDC current - previous at the
+    // render extent) and writes it as a colour over the view's post input - hue = direction, brightness = speed in
+    // pixels, black where the pixel is still. Drawn after the temporal resolve, so what is shown is the motion TAA
+    // reprojected with and not a history-blended picture of it.
     //
     // The post input's format and sample count are the view's (the MSAA scene target without a temporal method,
     // the single-sample overlay colour with one), so the pipeline is made per (format, samples) on first use.
@@ -38,7 +38,8 @@ namespace Desert::Graphic::System
         }
 
         // The pipeline that draws into a target of @p format at @p samples, made the first time it is asked for.
-        [[nodiscard]] Common::BoolResultStr Prepare( const Core::Formats::ImageFormat format, const uint32_t samples )
+        [[nodiscard]] Common::BoolResultStr Prepare( const Core::Formats::ImageFormat format,
+                                                     const uint32_t                   samples )
         {
             if ( !m_Shader )
                 return Common::MakeError( "Debug: Velocity: the VelocityView shader is not loaded" );
@@ -49,10 +50,9 @@ namespace Desert::Graphic::System
                 return BOOLSUCCESS;
             }
             GraphicsPipelineSpecification spec;
-            spec.DebugName         = "VelocityView";
-            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { format },
-                                                         .DepthFormat  = std::nullopt,
-                                                         .Samples      = samples };
+            spec.DebugName = "VelocityView";
+            spec.TargetLayout =
+                 RenderTargetLayout{ .ColorFormats = { format }, .DepthFormat = std::nullopt, .Samples = samples };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
@@ -82,8 +82,8 @@ namespace Desert::Graphic::System
         }
 
     private:
-        std::shared_ptr<Shader>          m_Shader;
-        mutable ShaderBindingLayoutCache m_BindingLayout;
+        std::shared_ptr<Shader>                                               m_Shader;
+        mutable ShaderBindingLayoutCache                                      m_BindingLayout;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_Pipelines;
         std::shared_ptr<GraphicsPipeline>                                     m_Current;
     };
