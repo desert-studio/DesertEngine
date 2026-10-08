@@ -98,11 +98,11 @@ namespace
       "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.RayTracing": "None" }
     },
     "PostProcess": {
-      "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3 },
-      "Medium":    { "PostProcess.AmbientOcclusionSamples": 8,  "PostProcess.BloomMips": 4 },
-      "High":      { "PostProcess.AmbientOcclusionSamples": 16, "PostProcess.BloomMips": 6 },
-      "Epic":      { "PostProcess.AmbientOcclusionSamples": 24, "PostProcess.BloomMips": 6 },
-      "Cinematic": { "PostProcess.AmbientOcclusionSamples": 32, "PostProcess.BloomMips": 6 }
+      "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0 },
+      "Medium":    { "PostProcess.AmbientOcclusionSamples": 8,  "PostProcess.BloomMips": 4, "PostProcess.MotionBlurQuality": 1 },
+      "High":      { "PostProcess.AmbientOcclusionSamples": 16, "PostProcess.BloomMips": 6, "PostProcess.MotionBlurQuality": 2 },
+      "Epic":      { "PostProcess.AmbientOcclusionSamples": 24, "PostProcess.BloomMips": 6, "PostProcess.MotionBlurQuality": 2 },
+      "Cinematic": { "PostProcess.AmbientOcclusionSamples": 32, "PostProcess.BloomMips": 6, "PostProcess.MotionBlurQuality": 2 }
     }
   },
   "Recommend": {

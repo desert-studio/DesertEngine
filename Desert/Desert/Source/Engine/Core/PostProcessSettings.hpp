@@ -93,6 +93,16 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Lens Dispersion" ), Category( "Bloom" ), Range( 0.0f, 3.0f ) )
         float LensDispersion = 0.0f; // chromatic rainbow fringe on the bloom halo (glare); 0 = off
 
+        // MR2 (Graphic/View/MotionBlur.hpp): UE MotionBlurAmount / MotionBlurMax / MotionBlurTargetFPS, UE's
+        // defaults. The sample count is a cost knob (Scalability PostProcess.MotionBlurQuality), not authored
+        // here.
+        PROPERTY( DisplayName( "Amount" ), Category( "Motion Blur" ), Range( 0.0f, 1.0f ) )
+        float MotionBlurAmount = 0.5f; // shutter fraction of the frame's motion; 0 = off
+        PROPERTY( DisplayName( "Max (% of screen)" ), Category( "Motion Blur" ), Range( 0.0f, 100.0f ) )
+        float MotionBlurMax = 5.0f; // longest blur, percent of the output width
+        PROPERTY( DisplayName( "Target FPS" ), Category( "Motion Blur" ), Range( 0.0f, 120.0f ) )
+        float MotionBlurTargetFPS = 30.0f; // > 0: blur length as at this frame rate; 0: per rendered frame
+
         PROPERTY( DisplayName( "Enable Lens Flare" ), Category( "Lens Flare" ) )
         bool EnableLensFlare = false;
         PROPERTY( DisplayName( "Intensity" ), Category( "Lens Flare" ), Range( 0.0f, 5.0f ) )

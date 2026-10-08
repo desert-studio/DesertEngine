@@ -2137,6 +2137,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
          // phases, which draw into its output.
          "temporal[m_TemporalUpscaler]",
+         // MR2: motion blur on the resolved colour (Flatten, TileMax, NeighborMax, Gather), before the overlay
+         // target set and the post chain.
+         "temporal[m_MotionBlur]",
          // TAA1-B 6: the output-extent overlay depth, filled from the render-extent scene depth, before the
          // overlay phases that test against it.
          "Scene: PopulateSceneDepth",
@@ -2199,9 +2202,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // alone on the scene colour without a temporal method, and its output is the resolved colour.
     declares( "AddFrameTemporal",
               { "constboolsupersample=frame.Split.Mode==Common::Scalability::ScaleMode::Supersample;",
-                "if(!m_TargetFramebuffer||(!spatial&&!supersample&&!temporal))", "resolvedColor=inputs.SceneColor;",
-                "m_SupersampleResolve.AddPasses(graph,frame,resolvedColor)", "resolvedColor=downsampled.GetValue();",
-                "returnwithoutTemporal(downsampled.GetError());" } );
+                "if(!m_TargetFramebuffer||(!spatial&&!supersample&&!temporal&&!motionBlur))",
+                "resolvedColor=inputs.SceneColor;", "m_SupersampleResolve.AddPasses(graph,frame,resolvedColor)",
+                "resolvedColor=downsampled.GetValue();", "returnwithoutTemporal(downsampled.GetError());" } );
+    // MR2: motion blur is decided by MotionBlurRuns (Amount, MotionBlurQuality, TargetFPS duration), reads the
+    // resolve's inputs (scene depth, velocity) and the resolved colour, and its output is the resolved colour the
+    // overlay set is built on; nothing is added when it does not run.
+    declares( "AddFrameTemporal",
+              { "constboolmotionBlur=MotionBlurRuns(m_MotionBlurSettings,frame)", "if(motionBlur)",
+                "m_MotionBlur->AddPasses(graph,frame,m_MotionBlurSettings,",
+                ".SceneColor=resolvedColor,.SceneDepth=inputs.SceneDepth,.Velocity=inputs.Velocity",
+                "resolvedColor=blurred.GetValue();", "returnwithoutTemporal(blurred.GetError());" } );
     // TAA1-B 6: the overlay target set is at the OUTPUT extent and its depth is the scene depth populated by
     // "Scene: PopulateSceneDepth"; a frame the resolve cannot run on is rendered without it, by name, and the
     // caller then post-processes the scene colour (the fallback is the caller's, not a silent skip).
