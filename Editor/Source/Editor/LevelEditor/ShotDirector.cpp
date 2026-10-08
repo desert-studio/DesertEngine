@@ -18,6 +18,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
+#include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -74,8 +75,17 @@ namespace Desert::Editor
             {
                 const ECS::Entity entity( handle, registry );
                 const auto&       mesh = registry.get<ECS::StaticMeshComponent>( handle );
+                // The renderer's precedence (MeshECSSystem): an edited RuntimeMesh, then a PRIMITIVE from the
+                // process-wide shared mesh, then the asset. A primitive has neither a RuntimeMesh nor a
+                // handle — leaving it out framed Clouds_Showcase's six cubes as "no measurable mesh".
                 if ( mesh.RuntimeMesh )
                     Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
+                else if ( mesh.Primitive.has_value() )
+                {
+                    // Null only for a type the factory does not build — which the renderer does not draw either.
+                    if ( const auto* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive ) )
+                        Include( bounds, entity, &shared->GetSubmeshes() );
+                }
                 else if ( mesh.MeshHandle )
                     Include( bounds, entity, AssetSubmeshes( mesh.MeshHandle ) );
             }
