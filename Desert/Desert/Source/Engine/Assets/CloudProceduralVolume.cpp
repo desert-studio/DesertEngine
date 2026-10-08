@@ -1260,9 +1260,10 @@ namespace Desert::Assets
                 std::vector<uint32_t> order( bodies );
                 for ( uint32_t index = 0; index < bodies; ++index )
                     order[index] = index;
-                std::sort( order.begin(), order.end(), [&patch]( uint32_t a, uint32_t b ) {
-                    return patch[a].Size > patch[b].Size || ( patch[a].Size == patch[b].Size && a < b );
-                } );
+                std::sort( order.begin(), order.end(),
+                           [&patch]( uint32_t a, uint32_t b ) {
+                               return patch[a].Size > patch[b].Size || ( patch[a].Size == patch[b].Size && a < b );
+                           } );
 
                 std::vector<uint32_t> massifs;
                 for ( const uint32_t index : order )
@@ -1277,7 +1278,7 @@ namespace Desert::Assets
                         // stretch, so the patch covers the same fraction of its cell at every anisotropy.
                         const float discR = baseRadiusKm * std::sqrt( HashUnit( HashCombine( body.Seed, 0x1u ) ) );
                         const float discAngle = HashUnit( HashCombine( body.Seed, 0x2u ) ) * 6.2831853f;
-                        body.CentreKm = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
+                        body.CentreKm         = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
                                         across * ( std::sin( discAngle ) * discR / stretch );
                         body.MassifKm = body.CentreKm;
                         body.IsLobe   = false;
@@ -1292,11 +1293,11 @@ namespace Desert::Assets
                     // instead of being a pea of its own in clear sky.
                     const CloudPatchBody& massif =
                          patch[massifs[std::min( static_cast<size_t>( HashUnit( HashCombine( body.Seed, 0x7u ) ) *
-                                                                       static_cast<float>( massifs.size() ) ),
+                                                                      static_cast<float>( massifs.size() ) ),
                                                  massifs.size() - 1u )]];
                     const float rimKm =
                          massif.RadiusKm * ( kLobeRimNear + ( kLobeRimFar - kLobeRimNear ) *
-                                                                HashUnit( HashCombine( body.Seed, 0x1u ) ) );
+                                                                 HashUnit( HashCombine( body.Seed, 0x1u ) ) );
                     const float rimAngle = HashUnit( HashCombine( body.Seed, 0x2u ) ) * 6.2831853f;
                     body.CentreKm        = massif.CentreKm + along * ( std::cos( rimAngle ) * rimKm * stretch ) +
                                     across * ( std::sin( rimAngle ) * rimKm / stretch );

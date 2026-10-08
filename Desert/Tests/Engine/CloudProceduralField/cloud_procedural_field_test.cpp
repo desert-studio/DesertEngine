@@ -298,16 +298,15 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
         for ( const CloudModellingBlob& blob : cluster )
             reach.CentreKm += glm::vec2( blob.CentreKm.x, blob.CentreKm.z ) / static_cast<float>( cluster.size() );
         for ( const CloudModellingBlob& blob : cluster )
-            reach.RadiusKm = std::max( reach.RadiusKm, glm::length( glm::vec2( blob.CentreKm.x, blob.CentreKm.z ) -
-                                                                    reach.CentreKm ) +
-                                                            std::max( blob.RadiiKm.x, blob.RadiiKm.z ) +
-                                                            CloudProceduralShapeReachKm( blob ) );
+            reach.RadiusKm =
+                 std::max( reach.RadiusKm,
+                           glm::length( glm::vec2( blob.CentreKm.x, blob.CentreKm.z ) - reach.CentreKm ) +
+                                std::max( blob.RadiiKm.x, blob.RadiiKm.z ) + CloudProceduralShapeReachKm( blob ) );
         reach.RadiusKm += 16.0f * params.BlendRadiusKm + 2.0f * voxelXKm;
         reaches.push_back( reach );
     }
-    const auto wrapped = [&params]( float d ) {
-        return d - params.RegionSizeKm * std::round( d / params.RegionSizeKm );
-    };
+    const auto wrapped = [&params]( float d )
+    { return d - params.RegionSizeKm * std::round( d / params.RegionSizeKm ); };
 
     const uint32_t window = kCloudProceduralVolumeSide / 2u;
     size_t         kept = 0, orphaned = 0;
