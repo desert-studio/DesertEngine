@@ -132,7 +132,7 @@ namespace Desert::Editor
 
     void VFXDataChannelDocument::Report( const Common::BoolResultStr& result )
     {
-        if ( result )
+        if ( result.IsSuccess() )
             m_Refusal.clear();
         else
             m_Refusal = result.GetError();
