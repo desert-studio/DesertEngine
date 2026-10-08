@@ -6,21 +6,15 @@
 #include "Editor/Core/ViewportCameraProperties.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
+#include "Editor/LevelEditor/SceneMeshBounds.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
-#include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
-#include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
-#include <Engine/Geometry/PrimitiveMeshFactory.hpp>
-#include <Engine/Geometry/SkinnedMesh.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
@@ -30,78 +24,6 @@
 
 namespace Desert::Editor
 {
-    namespace
-    {
-        // WHAT THE SCENE'S MESHES OCCUPY, in world space: the union of every placed static and skinned
-        // mesh's box (Geometry::LocalBounds through the entity's world transform — the culler's extent, so
-        // the framing and the culling agree on where a mesh is). A mesh drawn from its in-editor build
-        // (RuntimeMesh) is measured from that build, as the renderer draws it. A mesh whose asset is not
-        // parsed yet is COUNTED and reported, not silently left out of the frame.
-        struct SceneBounds
-        {
-            ::Common::Math::AABB Box{ glm::vec3( Geometry::kNoBoundsSentinel ),
-                                      glm::vec3( -Geometry::kNoBoundsSentinel ) };
-            int                  Meshes  = 0;
-            int                  Missing = 0;
-        };
-
-        void Include( SceneBounds& bounds, const ECS::Entity& entity, const std::vector<Submesh>* submeshes )
-        {
-            if ( submeshes == nullptr )
-            {
-                ++bounds.Missing;
-                return;
-            }
-            const auto world =
-                 Geometry::TransformBounds( entity.GetWorldTransform(), Geometry::LocalBounds( *submeshes ) );
-            if ( Geometry::IsEmpty( world ) )
-                return;
-            bounds.Box.Min = glm::min( bounds.Box.Min, world.Min );
-            bounds.Box.Max = glm::max( bounds.Box.Max, world.Max );
-            ++bounds.Meshes;
-        }
-
-        const std::vector<Submesh>* AssetSubmeshes( const Assets::AssetHandle& handle )
-        {
-            const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( handle );
-            return asset != nullptr ? &asset->GetSubmeshes() : nullptr;
-        }
-
-        SceneBounds MeasureScene( ::Desert::Core::Scene& scene )
-        {
-            SceneBounds bounds;
-            auto&       registry = scene.GetRegistry();
-            for ( const auto handle : registry.view<ECS::TransformComponent, ECS::StaticMeshComponent>() )
-            {
-                const ECS::Entity entity( handle, registry );
-                const auto&       mesh = registry.get<ECS::StaticMeshComponent>( handle );
-                // The renderer's precedence (MeshECSSystem): an edited RuntimeMesh, then a PRIMITIVE from the
-                // process-wide shared mesh, then the asset. A primitive has neither a RuntimeMesh nor a
-                // handle — leaving it out framed Clouds_Showcase's six cubes as "no measurable mesh".
-                if ( mesh.RuntimeMesh )
-                    Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
-                else if ( mesh.Primitive.has_value() )
-                {
-                    // Null only for a type the factory does not build — which the renderer does not draw either.
-                    if ( const auto* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive ) )
-                        Include( bounds, entity, &shared->GetSubmeshes() );
-                }
-                else if ( mesh.MeshHandle )
-                    Include( bounds, entity, AssetSubmeshes( mesh.MeshHandle ) );
-            }
-            for ( const auto handle : registry.view<ECS::TransformComponent, ECS::SkinnedMeshComponent>() )
-            {
-                const ECS::Entity entity( handle, registry );
-                const auto&       mesh = registry.get<ECS::SkinnedMeshComponent>( handle );
-                if ( mesh.RuntimeMesh )
-                    Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
-                else if ( mesh.MeshHandle )
-                    Include( bounds, entity, AssetSubmeshes( mesh.MeshHandle ) );
-            }
-            return bounds;
-        }
-    } // namespace
-
     // THE ONE PLACEMENT. Both the `--camera`/`--look` capture path and the control channel's
     // `set Camera.Position` land here, which is the rule the protocol states for a property write: the
     // value goes into the same setter the widget calls, so there is one route into the camera and two ways
@@ -294,7 +216,8 @@ namespace Desert::Editor
         // Taken on the FIRST RECORDED frame and not earlier, because the gate admits that frame only once
         // the scene load, the background cook and the content stream have settled — so every mesh the
         // picture will show is parsed and measured, and the record size (the aspect) is final. The view
-        // direction is the camera's own, as F keeps it.
+        // direction is FIXED, not the camera's own: --look when given, else UE's default perspective view
+        // (DefaultPerspectiveViewForward) — the camera's own pointed up and framed from under the ground.
         const auto&                   scene = m_Workspace.ActiveScene();
         ::Desert::Core::EditorCamera* cam   = m_Workspace.ActiveEditorCamera();
         if ( !scene || cam == nullptr )
@@ -309,7 +232,7 @@ namespace Desert::Editor
                        "orthographic; the camera stays where it is" );
             return;
         }
-        const SceneBounds bounds = MeasureScene( *scene );
+        const SceneMeshBounds bounds = MeasureSceneMeshes( scene->GetRegistry(), &SharedPrimitiveSubmeshes );
         if ( bounds.Missing > 0 )
             LOG_WARN( "[Shot] framing: {} mesh(es) not parsed yet are outside the measured bounds",
                       bounds.Missing );
@@ -321,7 +244,9 @@ namespace Desert::Editor
         }
         const float aspect =
              static_cast<float>( m_Gate.RecordWidth() ) / static_cast<float>( m_Gate.RecordHeight() );
-        const FramedView view = FrameBox( bounds.Box, cam->GetDirection(), cam->GetFOV(), aspect );
+        const auto&      shot    = ShotOptions::Get();
+        const glm::vec3  forward = shot.HasLook ? shot.Forward : DefaultPerspectiveViewForward();
+        const FramedView view    = FrameBox( bounds.Box, forward, cam->GetFOV(), aspect );
         cam->SetNear( view.Near );
         cam->SetFar( view.Far );
         PlaceEditorCamera( *cam, view.Position, view.Forward );

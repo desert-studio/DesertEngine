@@ -406,3 +406,12 @@ TEST( CommandLine, ViewBudgetMiBIsReadAndANonNumberIsRefused )
         EXPECT_FALSE( ParseCommandLine( { "--view-budget-mib", bad } ).IsSuccess() )
              << "--view-budget-mib " << bad << " was accepted";
 }
+
+// `--look` alone names a direction and places nothing: the shot frames the scene along it (FrameScene).
+TEST( CommandLine, ALookAloneFramesTheSceneRatherThanPlacingTheCamera )
+{
+    const CommandLineOptions options = ParseOk( { "--shot", "/tmp/out.png", "--look", "0,-1,-1" } );
+    EXPECT_TRUE( options.Shot.HasLook );
+    EXPECT_FALSE( options.Shot.HasCamera );
+    EXPECT_EQ( options.Shot.Forward, glm::vec3( 0.0f, -1.0f, -1.0f ) );
+}

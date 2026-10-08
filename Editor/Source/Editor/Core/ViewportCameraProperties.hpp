@@ -5,6 +5,7 @@
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>
 
 #include <glm/glm.hpp>
@@ -178,6 +179,19 @@ namespace Desert::Editor
 
         return Common::MakeSuccess( isPosition ? ViewportCameraWrite::Position : ViewportCameraWrite::Direction );
     }
+    /// THE DIRECTION A SHOT WITHOUT --camera/--look FRAMES THE SCENE ALONG: the view a new level opens with
+    /// in UE, looking DOWN onto it. Port of UE Viewports.h EditorViewportDefs::DefaultPerspectiveViewRotation
+    /// (Pitch -15, Yaw -90): fifteen degrees below the horizon. The azimuth is the editor camera's own zero
+    /// yaw (-Z), as UE's -90 yaw is its viewport's forward; a fixed direction, not the camera's current one —
+    /// that one can point at the sky and put the framed camera under the ground.
+    inline constexpr float kDefaultPerspectiveViewPitchDegrees = 15.0f;
+
+    [[nodiscard]] inline glm::vec3 DefaultPerspectiveViewForward()
+    {
+        // OrbitForward's positive pitch looks down (EditorCameraBasis.hpp).
+        return ::Desert::Core::OrbitForward( 0.0f, glm::radians( kDefaultPerspectiveViewPitchDegrees ) );
+    }
+
     /// The smallest radius a framed box is given. A box of one point (a single-vertex mesh, or every mesh
     /// collapsed onto one spot) has no extent, and a zero radius puts the camera ON the point it frames.
     /// One millimetre, not UE's 15 (MinimumFocusRadius): a 1 cm scene is still a scene to frame, and a

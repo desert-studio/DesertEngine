@@ -573,3 +573,22 @@ TEST( SceneFraming, AnOrdinarySceneKeepsTheDefaultDepthRange )
     EXPECT_EQ( view.Near, Desert::Core::kDefaultNearPlane );
     EXPECT_EQ( view.Far, Desert::Core::kDefaultFarPlane );
 }
+
+// No --camera / --look: the shot looks DOWN onto the scene (UE's default perspective view), so the framed
+// camera is above the top face of what it frames — the camera's own direction pointed up and put the
+// framed camera under Clouds_Showcase's ground slab. A flat slab and a tall box, both seen from above.
+TEST( SceneFraming, TheDefaultDirectionFramesFromAboveTheTopFace )
+{
+    const glm::vec3 forward = DefaultPerspectiveViewForward();
+    EXPECT_LT( forward.y, 0.0f ) << "the default perspective view looks down";
+    const ::Common::Math::AABB slab{ glm::vec3( -200000.0f, -20.0f, -200000.0f ),
+                                     glm::vec3( 200000.0f, 5700.0f, 200000.0f ) };
+    const ::Common::Math::AABB tower{ glm::vec3( -50.0f, 0.0f, -50.0f ), glm::vec3( 50.0f, 3000.0f, 50.0f ) };
+    for ( const auto& box : { slab, tower } )
+    {
+        const FramedView view =
+             FrameBox( box, forward, Desert::Core::kEditorViewportFovXDegrees, 16.0f / 9.0f );
+        EXPECT_GT( view.Position.y, box.Max.y ) << "the framed camera is above the box's top face";
+        ExpectBoxInsideTheFrame( box, forward, 16.0f / 9.0f );
+    }
+}
