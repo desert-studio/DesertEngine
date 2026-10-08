@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "0b0c2fb9c8f2eb2ebdc1dc7b17dff753",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 43,
             "UNIT": 1
         },
         "Dependencies": []
@@ -65,11 +65,6 @@
                 "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
-                "DriveSunFromTimeOfDay": false,
-                "TimeOfDay": 12.0,
-                "DayLengthSeconds": 600.0,
-                "Latitude": 45.0,
-                "NorthOffset": 0.0,
                 "AutoRebakeEnvironment": true,
                 "RebakeSunAngleThreshold": 5.0,
                 "EnvironmentResolution": 1,
@@ -120,9 +115,14 @@
                 "ShadowStrength": 1.0,
                 "MaxSteps": 256,
                 "StopTransmittance": 0.004999999888241291,
-                "VolumeResolution": 256,
-                "WindDirection": [1.0, 0.0, 0.0],
-                "WindSpeed": 3000.0
+                "VolumeResolution": 256
+            },
+            "TimeOfDay": {
+                "DriveSunFromTimeOfDay": false,
+                "TimeOfDay": 12.0,
+                "DayLengthSeconds": 600.0,
+                "Latitude": 45.0,
+                "NorthOffset": 0.0
             }
         },
         {
@@ -211,6 +211,16 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
+            }
+        },
+        {
+            "id": 10723461114232914775,
+            "Tag": "Wind Source",
+            "WindSource": {
+                "Direction": [1.0, 0.0, 0.0],
+                "Speed": 3000.0,
+                "PointWind": false,
+                "Radius": 1000.0
             }
         }
     ],
