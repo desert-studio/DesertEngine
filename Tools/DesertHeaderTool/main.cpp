@@ -685,6 +685,15 @@ namespace
 
             if ( std::isspace( (unsigned char)c ) ) { ++i; continue; }
 
+            // A preprocessor directive is not a declaration: `#define FUNCTION( ... )` in ReflectionMacros.hpp
+            // is not an annotation. Skipped to the end of its (backslash-continued) line.
+            if ( c == '#' )
+            {
+                while ( i < raw.size() && raw[i] != '\n' )
+                    i += ( raw[i] == '\\' && i + 1 < raw.size() ) ? 2 : 1;
+                continue;
+            }
+
             // identifiers / keywords
             if ( IsIdentChar( c ) )
             {
