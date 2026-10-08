@@ -21,6 +21,13 @@ namespace Desert::Editor
     {
         using Data = ECS::ParticleEmitterData;
 
+        // The glowing presets (fire, sparks, magic, an explosion) composite additively: they name the engine's
+        // additive sprite material; Smoke keeps the default translucent sprite (no material).
+        Assets::AssetHandle AdditiveMaterial()
+        {
+            return Assets::AssetHandle::FromKey( ECS::kParticleAdditiveMaterialKey );
+        }
+
         struct Preset
         {
             const char* Name;
@@ -29,6 +36,7 @@ namespace Desert::Editor
 
         void Fire( Data& d )
         {
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 300.0f;
             d.Lifetime       = 1.2f;
             d.StartSpeed     = 1.5f;
@@ -63,6 +71,7 @@ namespace Desert::Editor
         }
         void Sparks( Data& d )
         {
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 220.0f;
             d.Lifetime       = 0.8f;
             d.StartSpeed     = 6.0f;
@@ -80,6 +89,7 @@ namespace Desert::Editor
         }
         void Magic( Data& d )
         {
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 150.0f;
             d.Lifetime       = 2.0f;
             d.StartSpeed     = 1.0f;
@@ -97,6 +107,7 @@ namespace Desert::Editor
         }
         void Explosion( Data& d )
         {
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 500.0f;
             d.Lifetime       = 0.6f;
             d.StartSpeed     = 8.0f;

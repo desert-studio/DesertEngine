@@ -46,6 +46,7 @@
 #include <Engine/ECS/UIEasing.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <string_view>
 
 namespace Desert::Geometry
 {
@@ -1015,6 +1016,12 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Material" ), Category( "Look" ), Asset<MaterialAsset> )
         Assets::AssetHandle Material;
     };
+
+    // The engine's additive sprite material (Editor/Resources/Engine/Materials/M_ParticleAdditive.demat) by its
+    // stable key - the one the scene migrator writes (SceneMigration.hpp kParticleAdditiveMaterialPath) and the
+    // Particle Editor's glowing presets pick; its handle is Assets::AssetHandle::FromKey of this key.
+    inline constexpr std::string_view kParticleAdditiveMaterialKey =
+         "engine:Engine/Materials/M_ParticleAdditive.demat";
 
     struct ParticleEmitterComponent
     {
