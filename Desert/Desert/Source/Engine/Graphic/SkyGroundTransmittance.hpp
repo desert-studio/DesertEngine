@@ -35,19 +35,24 @@ namespace Desert::Graphic
      * THE factor the directional (atmosphere) sun's colour is multiplied by before it lights geometry —
      * the one place that decides how much of the authored sun reaches the ground, in BOTH sky models.
      *
-     * Two terms, and the order of the conditions is the point:
-     *   * the PLANET'S SHADOW, always. A sun below the horizon is behind the ground, and no sky model
-     *     can make it shine up through the floor. It is SkyScattering.glslh's SkyPlanetShadow evaluated
-     *     at the ground — the same terminator, with the same smooth band, that darkens the physical sky —
-     *     so the light fades across the horizon instead of switching, and fades exactly where the sky
-     *     says the sun has set. Without it SkyModel::ArtisticGradient lit a night scene from below at
-     *     full strength (the sun at -34 degrees in GI_Bistro_Night).
-     *   * the ATMOSPHERE'S TRANSMITTANCE (SunTransmittanceAtGround), only in SkyModel::PhysicalAtmosphere
-     *     and only while the light opts in (UE's bAffectedByAtmosphereTransmittance). ArtisticGradient
-     *     keeps the documented independence of sky radiance and surface illuminance ABOVE the horizon:
-     *     there the factor is exactly (1,1,1).
+     * Two terms in both models — the PLANET'S SHADOW and the ATMOSPHERE'S TRANSMITTANCE — each model
+     * evaluating them the way its sky does:
+     *   * SkyModel::PhysicalAtmosphere: SkyScattering.glslh's SkyPlanetShadow at the ground (the same
+     *     terminator, with the same smooth band, that darkens the physical sky) x the transmittance LUT's
+     *     own value (SunTransmittanceAtGround) while the light opts in (UE's
+     *     bAffectedByAtmosphereTransmittance).
+     *   * SkyModel::ArtisticGradient (no LUTs): the horizon cutting the SOLAR DISK — the visible area
+     *     fraction of a disk of SkySettings::SunAngularRadius, so the light fades over the disk's
+     *     angular diameter and is exactly zero once the top limb has set — x, while the light opts in,
+     *     an analytic transmittance: the zenith column of the SAME medium coefficients raised to the
+     *     Kasten-Young relative air mass, per RGB channel, so the low sun dims and reddens as in the
+     *     physical model (within ~2 % above 20 degrees, ~7 % at 5 degrees).
+     * Without the shadow ArtisticGradient lit a night scene from below at full strength (the sun at
+     * -34 degrees in GI_Bistro_Night); without the transmittance it switched off at the horizon at noon
+     * brightness and colour.
      *
-     * @return per-channel factor in [0, 1]; exactly zero once the sun is past the terminator band.
+     * @return per-channel factor in [0, 1]; exactly zero once the sun is past the terminator
+     *         band (physical) or the disk has fully set (artistic).
      */
     glm::vec3 SunLightFactorAtGround( const SkySettings& sky, const glm::vec3& towardSun,
                                       bool affectedByAtmosphereTransmittance );

@@ -820,8 +820,8 @@ namespace Desert::Graphic
         // dims every lit surface by the same law that reddens the sky behind it, for free.
         //
         // The factor is decided in one place for both models (Graphic::SunLightFactorAtGround): zero for
-        // a sun below the horizon in either model, and above it exactly (1,1,1) unless the physical model
-        // is running AND this sun opted in — so there is no branch here and no second behaviour to test.
+        // a sun below the horizon in either model, and above it the atmosphere's transmittance in either
+        // model while this sun opts in — so there is no branch here and no second behaviour to test.
         //
         // Index 0 is the atmosphere sun because the engine renders exactly one directional light and
         // Scene::OnUpdate says so with an error when a scene holds more. This runs AFTER the frame's

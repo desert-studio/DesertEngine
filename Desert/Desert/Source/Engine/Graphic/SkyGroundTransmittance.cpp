@@ -3,6 +3,8 @@
 #include <Engine/Graphic/SkyPayload.hpp>
 #include <Common/Core/GlslAsCpp.hpp>
 
+#include <glm/gtc/constants.hpp>
+
 namespace Desert::Graphic
 {
     namespace
@@ -67,22 +69,73 @@ namespace Desert::Graphic
         return glm::clamp( t, glm::vec3( 0.0f ), glm::vec3( 1.0f ) );
     }
 
+    namespace
+    {
+    float SunDiskFractionAboveHorizon( float sunElevationRad, float sunAngularRadiusRad )
+    {
+        // The planet's shadow cut through the solar DISK: the area fraction of a circle of radius r whose
+        // centre sits h = elevation / r radii above a straight horizon (a circular segment). Exactly 0
+        // once the disk's top limb has set, exactly 1 once its bottom limb has risen, 0.5 at the centre.
+        // A zero-size disk is a point: a step at the horizon.
+        if ( sunAngularRadiusRad <= 0.0f )
+            return sunElevationRad > 0.0f ? 1.0f : 0.0f;
+        const float h = glm::clamp( sunElevationRad / sunAngularRadiusRad, -1.0f, 1.0f );
+        const float hiddenSegment = glm::acos( h ) - h * glm::sqrt( glm::max( 1.0f - h * h, 0.0f ) );
+        return glm::clamp( 1.0f - hiddenSegment / glm::pi<float>(), 0.0f, 1.0f );
+    }
+
+    float RelativeAirMass( float sunElevationRad )
+    {
+        // Kasten & Young (1989), Applied Optics 28(22): air mass relative to the zenith column, finite
+        // (~38) at the horizon. Elevation is clamped at the horizon: a partly set disk is lit through the
+        // horizontal path, the part below is already taken by the disk shadow.
+        const float elevationDeg = glm::degrees( glm::max( sunElevationRad, 0.0f ) );
+        const float zenithDeg    = 90.0f - elevationDeg;
+        return 1.0f / ( glm::sin( glm::radians( elevationDeg ) ) +
+                        0.50572f * glm::pow( 96.07995f - zenithDeg, -1.6364f ) );
+    }
+
+    glm::vec3 SunTransmittanceByAirMass( const SkySettings& sky, const glm::vec3& towardSun )
+    {
+        // The zenith column of THE SAME medium (Rayleigh, Mie extinction, ozone — the component's
+        // coefficients through the shared SkyMedium.glslh integral), tilted to the sun's elevation by the
+        // analytic air mass: T = T_zenith ^ m. Per channel, so the light reddens by the same Rayleigh
+        // spectrum that colours the physical sky. Above ~15 degrees m is within a few percent of 1/sin.
+        const glm::vec3 zenith = SunTransmittanceAtGround( sky, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        const float     elevation = glm::asin( glm::clamp( towardSun.y, -1.0f, 1.0f ) );
+        const glm::vec3 opticalDepth = -glm::log( glm::max( zenith, glm::vec3( 1e-30f ) ) );
+        return glm::clamp( glm::exp( -opticalDepth * RelativeAirMass( elevation ) ), glm::vec3( 0.0f ),
+                           glm::vec3( 1.0f ) );
+    }
+    } // namespace
+
     glm::vec3 SunLightFactorAtGround( const SkySettings& sky, const glm::vec3& towardSun,
                                       bool affectedByAtmosphereTransmittance )
     {
-        const SkyGpuPayload payload = PackSky( towardSun, sky );
-        const SkyAtmParams  p =
-             SkyMakeAtmParams( payload.MediumRayleigh, payload.MediumMie, payload.MediumMieAbsorption,
-                               payload.MediumOzone, payload.MediumGround, payload.MediumTentPlanet );
+        if ( sky.Model == ECS::SkyModel::PhysicalAtmosphere )
+        {
+            const SkyGpuPayload payload = PackSky( towardSun, sky );
+            const SkyAtmParams  p =
+                 SkyMakeAtmParams( payload.MediumRayleigh, payload.MediumMie, payload.MediumMieAbsorption,
+                                   payload.MediumOzone, payload.MediumGround, payload.MediumTentPlanet );
 
-        // The ground sample sits where the transmittance march starts, so the shadow's horizon and the
-        // physical model's horizon are the same circle.
-        const float sunZenithCos = glm::clamp( towardSun.y, -1.0f, 1.0f );
-        const float planetShadow =
-             SkyPlanetShadow( p.BottomRadiusKm + SKY_PLANET_RADIUS_OFFSET_KM, sunZenithCos, p.BottomRadiusKm );
+            // The ground sample sits where the transmittance march starts, so the shadow's horizon and
+            // the physical model's horizon are the same circle — the sky's own terminator band.
+            const float sunZenithCos = glm::clamp( towardSun.y, -1.0f, 1.0f );
+            const float planetShadow =
+                 SkyPlanetShadow( p.BottomRadiusKm + SKY_PLANET_RADIUS_OFFSET_KM, sunZenithCos, p.BottomRadiusKm );
+            const glm::vec3 atmosphere =
+                 affectedByAtmosphereTransmittance ? SunTransmittanceAtGround( sky, towardSun ) : glm::vec3( 1.0f );
+            return planetShadow * atmosphere;
+        }
 
-        const bool couple = sky.Model == ECS::SkyModel::PhysicalAtmosphere && affectedByAtmosphereTransmittance;
-        const glm::vec3 atmosphere = couple ? SunTransmittanceAtGround( sky, towardSun ) : glm::vec3( 1.0f );
-        return planetShadow * atmosphere;
+        // ArtisticGradient: no LUTs exist, so the same two terms analytically — the horizon cuts the
+        // solar disk (a fade over the disk's angular diameter, not a switch), and the atmosphere dims and
+        // reddens the light by air mass with the component's own coefficients.
+        const float     elevation = glm::asin( glm::clamp( towardSun.y, -1.0f, 1.0f ) );
+        const float     disk      = SunDiskFractionAboveHorizon( elevation, sky.SunAngularRadius );
+        const glm::vec3 atmosphere =
+             affectedByAtmosphereTransmittance ? SunTransmittanceByAirMass( sky, towardSun ) : glm::vec3( 1.0f );
+        return disk * atmosphere;
     }
 } // namespace Desert::Graphic

@@ -611,8 +611,8 @@ namespace Desert::Graphic::System
 
             // UE's PrepareSunLightProxy, plus the planet's shadow, decided in ONE place for both sky
             // models (Graphic::SunLightFactorAtGround says which term applies when): a sun below the
-            // horizon gives no direct light in either model; above it, PhysicalAtmosphere dims and reddens
-            // it by the transmittance and ArtisticGradient leaves it exactly as authored.
+            // horizon gives no direct light in either model; above it both dim and redden it by the
+            // atmosphere's transmittance (the LUT's march, or the same medium by analytic air mass).
             //
             // Evaluated HERE rather than by the consumer because this is where the sun and the medium
             // are both in hand, and because it must be one value per frame: two consumers each
