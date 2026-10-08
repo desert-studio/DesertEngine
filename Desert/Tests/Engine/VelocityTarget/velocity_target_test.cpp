@@ -60,7 +60,7 @@ namespace VelocityTargetTest
     std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << in.rdbuf();
         return text.str();
     }
@@ -474,7 +474,7 @@ namespace VelocityTargetTest
             return {};
         const auto end = source.find( "\n    }\n", begin );
         return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
-}
+    }
 } // namespace VelocityTargetTest
 
 // Step B: every view-pass draw builder indexes the object's motion row and pushes the submesh transform RELATIVE
@@ -1039,7 +1039,8 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
         for ( const bool blend : { false, true } )
         {
             const auto attachments = ShaderReflection::BuildColorBlendAttachments(
-                 written, std::vector<bool>( slots, blend ), VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA );
+                 written, std::vector<bool>( slots, blend ), VK_BLEND_FACTOR_SRC_ALPHA,
+                 VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA );
             ASSERT_EQ( attachments.size(), slots ) << name;
             EXPECT_EQ( attachments[velocity].colorWriteMask, 0u )
                  << name << ": the velocity slot is not masked (blend " << blend << ")";

@@ -324,10 +324,10 @@ namespace Desert::Graphic
         m_CommittedCameraIdentity = m_PendingCameraIdentity;
         m_HasCommitted            = true;
         m_FrameOpen               = false;
-        m_JitterIndex       = m_Committed.JitterSequenceLength == 0
-                                   ? 0
-                                   : ( m_Committed.JitterIndex + 1 ) % m_Committed.JitterSequenceLength;
-        m_PendingFaultReset = m_History.LostToFault( report );
+        m_JitterIndex             = m_Committed.JitterSequenceLength == 0
+                                         ? 0
+                                         : ( m_Committed.JitterIndex + 1 ) % m_Committed.JitterSequenceLength;
+        m_PendingFaultReset       = m_History.LostToFault( report );
         m_History.Swap();
         m_Motion.EndFrame();
     }

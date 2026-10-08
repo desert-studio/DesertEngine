@@ -1140,7 +1140,8 @@ namespace Desert::Graphic::System
                                                                 ? m_StaticGBufferPipeline.get()
                                                                 : WireframePipelineOr( m_StaticPipeline.get() ),
                                                            *drawMat );
-                pipeline = CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
+                pipeline =
+                     CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
                 // View pass (forward or G-buffer): World / PrevWorld come from the object's motion row; the push
                 // carries the submesh transform RELATIVE to it (identity, RenderMesh multiplies the submesh's in).
                 list.Add( { .Pipeline          = pipeline,

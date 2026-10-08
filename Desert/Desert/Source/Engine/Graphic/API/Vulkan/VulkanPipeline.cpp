@@ -484,13 +484,14 @@ namespace Desert::Graphic::API::Vulkan
         const std::vector<bool> blends = ColourAttachmentBlendEnables( ColourAttachmentFormats( m_Specification ),
                                                                        m_Specification.BlendEnable );
 
-        // Per slot: blending from the attachment's FORMAT (above), the write mask from what the fragment stage writes
-        // — a slot the stage does not write is masked (write mask 0), so a target carrying the view's velocity next
-        // to scene colour keeps the velocity the depth-writing passes left there.
+        // Per slot: blending from the attachment's FORMAT (above), the write mask from what the fragment stage
+        // writes — a slot the stage does not write is masked (write mask 0), so a target carrying the view's
+        // velocity next to scene colour keeps the velocity the depth-writing passes left there.
         const auto* vulkanShader =
              std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
         m_ColorBlendAttachments = ShaderReflection::BuildColorBlendAttachments(
-             vulkanShader->GetFragmentOutputLocations(), blends, ConvertBlendFactor( m_Specification.SrcColorBlendFactor ),
+             vulkanShader->GetFragmentOutputLocations(), blends,
+             ConvertBlendFactor( m_Specification.SrcColorBlendFactor ),
              ConvertBlendFactor( m_Specification.DstColorBlendFactor ) );
 
         m_ColorBlending = VkPipelineColorBlendStateCreateInfo{

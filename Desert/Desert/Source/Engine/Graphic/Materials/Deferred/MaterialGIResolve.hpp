@@ -36,8 +36,8 @@ namespace Desert::Graphic
                          const glm::vec4& sunColorIntensity, float giIntensity, float jitterSeed, int samples )
         {
             GIResolveUBData data{};
-            data.RSMViewProj    = rsmViewProj;
-            data.InvRSMViewProj = glm::inverse( rsmViewProj );
+            data.RSMViewProj               = rsmViewProj;
+            data.InvRSMViewProj            = glm::inverse( rsmViewProj );
             data.InvJitteredViewProjection = invJitteredViewProjection;
             data.SunColor    = sunColorIntensity;
             const bool valid = giIntensity > 0.0f;

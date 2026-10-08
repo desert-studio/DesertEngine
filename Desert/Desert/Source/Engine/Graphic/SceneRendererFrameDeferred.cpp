@@ -274,7 +274,7 @@ namespace Desert::Graphic
              // reconstructs positions with its inverse (both from the ViewFrame, one copy).
              [ssao, viewProj = frame.JitteredViewProjection, invViewProj = frame.InvJitteredViewProjection,
               cameraPos = glm::vec4( frame.CameraPosition, 1.0f ),
-              samples = m_SSAOSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
+              samples   = m_SSAOSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  return ssao->Record( context, viewProj, invViewProj, cameraPos, kSSAORadius, kSSAOBias,
                                       /*power*/ 1.5f, samples );
@@ -551,7 +551,7 @@ namespace Desert::Graphic
         // World positions come from the G-buffer depth (Common/ReconstructPosition.glslh).
         const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1],
                                                          textures.Depth( m_GBuffer, "GBuffer" ) };
-        const RDG::BufferRef traceUniforms =
+        const RDG::BufferRef                     traceUniforms =
              System::SSRRenderer::UploadTraceUniforms( graph, frame.InvJitteredViewProjection );
         // Build time, after Prepare (see GITemporal).
         const bool ssrHistoryReadable = ssr->HistoryReadableIn( frame );

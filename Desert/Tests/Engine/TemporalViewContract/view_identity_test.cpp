@@ -43,7 +43,7 @@ namespace ViewIdentityTest
     std::string ReadText( const std::filesystem::path& path )
     {
         const std::ifstream file( path, std::ios::binary );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << file.rdbuf();
         return text.str();
     }
@@ -200,9 +200,9 @@ TEST( ViewIdentity, SceneTakesANewGenerationAtConstructionAndAtEveryClear )
     std::smatch       head;
     ASSERT_TRUE( std::regex_search( source, head, std::regex( R"(void\s+Scene\s*::\s*Clear\s*\(\s*\)\s*\{)" ) ) );
     // The body by brace depth, not by an indentation pattern, so a re-format cannot cut it short.
-    const auto   start = static_cast<size_t>( head.position( 0 ) );
-    size_t       end   = start + static_cast<size_t>( head.length( 0 ) );
-    int          depth = 1;
+    const auto start = static_cast<size_t>( head.position( 0 ) );
+    size_t     end   = start + static_cast<size_t>( head.length( 0 ) );
+    int        depth = 1;
     for ( ; end < source.size() && depth > 0; ++end )
     {
         if ( source[end] == '{' )

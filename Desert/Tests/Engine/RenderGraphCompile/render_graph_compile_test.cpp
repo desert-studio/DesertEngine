@@ -783,6 +783,86 @@ TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
     EXPECT_NE( std::string_view( bufferRefusal ).find( "buffer" ), std::string_view::npos );
 }
 
+// VAL-SSAO1: "u_SSAO bound as VkImageView 0x0" (30 validation warnings, one editor session). Before RDG-A2 the
+// composite's AO was a material Texture2DProperty set only `if ( m_SSAO && aoImage )`: a frame without an AO image
+// (SSAO off, a new renderer's first frame) drew with whatever the property held - nothing on a fresh material.
+// Now the AO input is declared from the graph: the SSAO transient when the SSAO pass ran, else the registered
+// System.White (AO = 1); a ref that is neither faults the composite before its exec, so no null view is bound.
+TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefFaultsThePass )
+{
+    const ShaderBindingLayout layout{
+         "DeferredLighting", { { "u_SSAO", ShaderResourceKind::SampledTexture } }, 0 };
+
+    // SSAO did not run this frame: the composite reads System.White, compiled with no fault and not culled.
+    {
+        ExternalTexture  black{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+        ExternalTexture  white{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+        ExternalTexture  blackCube{ Tex2D( 1, 1, ImageFormat::RGBA8F, 1, 6 ), Access::SampledGraphics };
+        ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+        Builder          graph( "composite without ssao" );
+        const auto       system = RegisterSystemTextures( graph, black, white, blackCube );
+        const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+        const TextureRef ssao{}; // FrameTransients::SSAO when AddFrameSSAO returned early
+        graph.AddPass(
+             "Deferred: Composite", PassFlags::Raster,
+             [&]( PassBuilder& pass )
+             {
+                 pass.Bindings( layout, {} )
+                      .Sampled( "u_SSAO", ssao.IsValid() ? ssao : system.White, Access::SampledGraphics,
+                                SubresourceRange::All(), SamplerDesc::LinearRepeat() );
+                 pass.ColorTarget( 0, back, LoadOp::DontCare() );
+             },
+             Ok );
+        const CompileResult result = CompileOrFail( graph );
+        EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+        ASSERT_EQ( result.Passes.size(), 1u );
+        EXPECT_TRUE( result.CulledPassNames.empty() );
+    }
+
+    // The null path: an AO ref the graph does not know faults the composite by name at declaration.
+    {
+        ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+        Builder          graph( "composite with a null ao" );
+        const TextureRef back = graph.RegisterExternal( backbuffer, "Backbuffer" );
+        graph.AddPass(
+             "Deferred: Composite", PassFlags::Raster,
+             [&]( PassBuilder& pass )
+             {
+                 pass.Bindings( layout, {} )
+                      .Sampled( "u_SSAO", TextureRef{}, Access::SampledGraphics, SubresourceRange::All(),
+                                SamplerDesc::LinearRepeat() );
+                 pass.ColorTarget( 0, back, LoadOp::DontCare() );
+             },
+             Ok );
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "Deferred: Composite" ), std::string::npos ) << fault;
+        EXPECT_NE( fault.find( "invalid texture handle" ), std::string::npos ) << fault;
+    }
+
+    // The frame code keeps that shape: the one assignment of the composite's AO falls back to System.White, and
+    // the deferred-lighting material holds no u_SSAO property of its own (the pre-RDG route that bound null).
+    const fs::path root     = RepoRoot();
+    const auto     stripped = [&root]( const char* relative )
+    {
+        std::ifstream file( root / relative );
+        EXPECT_TRUE( file ) << relative << " is gone";
+        std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+    const std::string frame = stripped( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    const std::string_view assignment =
+         "inputs.SSAO=refs.Transients.SSAO.IsValid()?refs.Transients.SSAO:refs.System.White;";
+    EXPECT_NE( frame.find( assignment ), std::string::npos );
+    const size_t first = frame.find( "inputs.SSAO=" );
+    EXPECT_EQ( frame.find( "inputs.SSAO=", first == std::string::npos ? 0 : first + 1 ), std::string::npos )
+         << "the composite's AO is assigned in more than one place";
+    EXPECT_EQ( stripped( "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp" )
+                    .find( "u_SSAO" ),
+               std::string::npos );
+}
+
 // A chain of transients ending in an EXTRACTED texture survives although no pass of the graph reads the end of
 // it: the extraction is the consumer. The unrelated dead pass beside it is still culled, by name.
 TEST( RenderGraphCompile, AChainFeedingAnExtractedTextureIsKept )

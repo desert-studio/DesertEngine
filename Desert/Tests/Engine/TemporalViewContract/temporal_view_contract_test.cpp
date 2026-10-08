@@ -82,9 +82,9 @@ namespace
         {
             const ViewExtent   side = split.Mode == Scal::ScaleMode::Supersample ? split.Render : split.Output;
             HistoryTextureDesc desc;
-            desc.Desc.Size   = { side.Width, side.Height, 1 };
-            desc.Desc.Format = Desert::Core::Formats::ImageFormat::RGBA16F;
-            desc.Name        = "TAA.History";
+            desc.Desc.Size    = { side.Width, side.Height, 1 };
+            desc.Desc.Format  = Desert::Core::Formats::ImageFormat::RGBA16F;
+            desc.Name         = "TAA.History";
             desc.PreviousName = "TAA.History.Previous";
             return { desc };
         }

@@ -515,8 +515,9 @@ namespace Desert::Graphic::System
                                                    bytes, wrote.GetError() );
             return BOOLSUCCESS;
         };
-        if ( const auto uploaded = upload( m_ObjectMotions, SceneResources::kObjectMotionsName, Core::kObjectMotionsBinding,
-                                           rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
+        if ( const auto uploaded =
+                  upload( m_ObjectMotions, SceneResources::kObjectMotionsName, Core::kObjectMotionsBinding,
+                          rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
              !uploaded )
             return uploaded;
         return upload( m_ObjectBones, SceneResources::kObjectBonesName, Core::kObjectBonesBinding, palettes.data(),
