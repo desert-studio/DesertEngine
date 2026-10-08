@@ -42,7 +42,7 @@ Shader "ParticleSimulate"
             uint u_Free[];
         };
 
-        ReadBuffer(3) AliveList
+        Buffer(3) AliveList
         {
             uint u_Alive[];
         };
@@ -90,7 +90,7 @@ Shader "ParticleSimulate"
 
             if ( t < alive )
             {
-                uint     i = u_Alive[base + t];
+                uint     i = u_Alive[2u * base + slot * u_Counts.x + t];
                 Particle p = u_Particles[i];
                 p.VelLife.xyz += u_Gravity.xyz * dt;
                 if ( u_Counts.w == 1u )
@@ -112,6 +112,8 @@ Shader "ParticleSimulate"
             if ( t < min( u_Steps[step].Budget, freeCount ) )
             {
                 uint i  = u_Free[base + freeCount - 1u - t];
+                // Appended after the alive entries: compact step+1 scans alive + spawned (Dispatch Args).
+                u_Alive[2u * base + slot * u_Counts.x + alive + t] = i;
                 uint id = u_Steps[step].IdBase + t;
                 vec4 r  = VFXRandomFloat4( uvec4( u_Steps[step].Seed, id, 0u, 0u ) );
 

@@ -5,6 +5,7 @@
 // never ask for one.
 
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
@@ -2180,8 +2181,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 
     const std::vector<std::string> frameOrder = {
          "ClearMainFramebuffer",
-         // VFX-07: the world particle pool - compact 0, then per fixed step Spawn+Update and the next compact.
+         // VFX-07b: the scene's particle pool - compact 0, then per fixed step Dispatch Args, Spawn+Update, the
+         // next compact.
          "Particles: Compact 0",
+         "Particles: Dispatch Args {}",
          "Particles: Spawn+Update {}",
          "Particles: Compact {}",
          "compute[clouds->DeclareShadowMapNodes()]",
@@ -3121,8 +3124,10 @@ namespace
 
 TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
 {
-    // VFX-07. The frame build: compact 0, then per step Spawn+Update and the next compact, Compute and NOT
-    // NeverCull (a node is live because it writes the imported pool; with no emitter it declares nothing).
+    // VFX-07/07b. The frame build: every view imports the scene's pool for its draw, only the view that claimed
+    // the VFXWorld tick adds the nodes - compact 0, then per step Dispatch Args, Spawn+Update and the next
+    // compact, Compute and NOT NeverCull (a node is live because it writes the imported pool; with no emitter it
+    // declares nothing).
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
     const std::string frame =
@@ -3130,116 +3135,205 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     const size_t begin = frame.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = frame.substr( begin, frame.find( "voidSceneRenderer::", begin + 1 ) - begin );
+    EXPECT_NE( body.find( "particles->ImportFrameBuffers(graph);if(!particles->ClaimsSimulation())return;"
+                          "constuint32_tsteps=particles->SimulationStepCount();"
+                          "graph.AddPass(\"Particles:Compact0\",RDG::PassFlags::Compute," ),
+               std::string::npos )
+         << "a view that did not claim the tick adds simulation nodes, or the draw view does not import the pool";
     EXPECT_NE(
-         body.find(
-              "particles->ImportSimulationBuffers(graph);constuint32_tsteps=particles->SimulationStepCount();"
-              "graph.AddPass(\"Particles:Compact0\",RDG::PassFlags::Compute," ),
+         body.find( "for(uint32_tstep=0;step<steps;++step){graph.AddPass(std::format(\"Particles:DispatchArgs{}\","
+                    "step),RDG::PassFlags::Compute," ),
          std::string::npos );
     EXPECT_NE(
-         body.find( "for(uint32_tstep=0;step<steps;++step){graph.AddPass(std::format(\"Particles:Spawn+Update{}\","
-                    "step),RDG::PassFlags::Compute," ),
+         body.find( "graph.AddPass(std::format(\"Particles:Spawn+Update{}\",step),RDG::PassFlags::Compute," ),
          std::string::npos );
     EXPECT_NE( body.find( "graph.AddPass(std::format(\"Particles:Compact{}\",step+1),RDG::PassFlags::Compute," ),
                std::string::npos );
     EXPECT_EQ( body.find( "NeverCull" ), std::string::npos ) << "a particle node outlives its emitters";
 
-    // The declarations: compact writes the pool, both lists and the emitter's Counters; Spawn+Update writes the
-    // pool and reads the step table, the lists and the Counters; the draw reads the pool and the alive list and
-    // the Counters as IndirectArgs, and draws indirect from the last compact's slot.
+    // The declarations: compact writes the pool, both lists and the emitter's Counters, and a later compact reads
+    // the step's dispatch arguments IndirectArgs; Dispatch Args reads the step table and writes the Counters and
+    // the arguments; Spawn+Update writes the pool and the alive list (the spawned are appended) and reads the
+    // arguments IndirectArgs; the draw reads the pool and the alive list and the Counters as IndirectArgs.
     const std::string particles = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
     EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"Counters\",fe.CountersRef,RDG::Access::StorageWrite)"
-                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(CompactPush)))" ),
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleCompactPush)));"
+                               "if(compact>0)pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
+    EXPECT_NE( particles.find( ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
+               std::string::npos )
+         << "Dispatch Args does not declare the indirect arguments it writes";
     EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"StepTable\",fe.StepsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
-                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageRead)"
-                               ".Storage(\"Counters\",fe.CountersRef,RDG::Access::StorageRead)"
-                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(SimPush)))" ),
+                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
+                               "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
-    EXPECT_NE( particles.find(
-                    "Renderer::DrawProceduralIndirect(bindings,*pipeline,fe.Gpu->Material->GetMaterialExecutor(),"
-                    "fe.CountersRef,slot)" ),
+    // Sized by the GPU counts: Spawn+Update and every compact after the first dispatch indirect; the CPU sizes
+    // only Dispatch Args (one thread) and compact 0 (the range's full scan).
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_SimPipeline,ve.ArgsRef,"
+                               "kParticleSimulateArgsOffset)" ),
                std::string::npos );
-    EXPECT_NE( particles.find( "constuint64_tslot=(fe.StepCount&1u)*kParticleDrawSlotStride;" ),
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_CompactPipeline,ve.ArgsRef,"
+                               "kParticleCompactArgsOffset)" ),
+               std::string::npos );
+    EXPECT_NE( particles.find( "renderer.DispatchCompute(bindings,*m_ArgsPipeline,1,1,1)" ), std::string::npos );
+    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
+         << "Spawn+Update is dispatched over a CPU count";
+    EXPECT_NE(
+         particles.find( "Renderer::DrawProceduralIndirect(bindings,*pipeline,ve.Material->GetMaterialExecutor(),"
+                         "ve.CountersRef,slot)" ),
+         std::string::npos );
+    EXPECT_NE( particles.find( "constuint64_tslot=(ve.Frame->StepCount&1u)*kParticleDrawSlotStride;" ),
                std::string::npos );
     EXPECT_EQ( particles.find( "DrawProcedural(" ), std::string::npos ) << "the billboards draw a fixed count";
-    EXPECT_NE( particles.find( "returnfe.Declared&&compact<=fe.StepCount;" ), std::string::npos );
-    EXPECT_NE( particles.find( "returnfe.Declared&&step<fe.StepCount;" ), std::string::npos );
+    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&compact<=ve.Frame->StepCount;" ),
+               std::string::npos );
+    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&step<ve.Frame->StepCount;" ), std::string::npos );
+    // The draw is every view's: it is not gated by the claim.
+    EXPECT_NE( particles.find( "returnve.Declared&&ve.Material!=nullptr;" ), std::string::npos );
+    EXPECT_NE( particles.find( "m_Simulates=world.PrepareTick(scene);" ), std::string::npos );
+
+    // The pool is the scene's: ParticleWorldGpu, owned by the VFXWorld, claims each tick once; ParticleRenderer
+    // owns no pool buffer.
+    const std::string world = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
+    EXPECT_NE( world.find( "if(!m_Claim.Claim(world.GetTickSerial()))returnfalse;" ), std::string::npos );
+    EXPECT_NE( world.find( "world.SetGpuState(std::move(made));" ), std::string::npos );
+    const std::string header = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp" );
+    EXPECT_EQ( header.find( "ShaderResources::StorageBuffer>" ), std::string::npos )
+         << "a view owns particle buffers again";
 }
 
-TEST( RenderGraphCompile, ParticlePoolNodesOrderAndCullWithNoEmitter )
+TEST( RenderGraphCompile, TwoViewsOfOneSceneSimulateParticlesOnceAndDrawTwice )
 {
-    // The node shape in a graph: compact 0, Spawn+Update 0, compact 1 over an external pool, lists and counters,
-    // and the draw reading the counters IndirectArgs into an external target. Every node is live and in call
-    // order, the draw waits on the last compact; with no emitter (the setups declare nothing) every particle node
-    // is culled.
+    // VFX-07b. Two views of one scene in one tick: the scene's claim (ParticleTickClaim, ParticleWorldGpu) gives
+    // the simulation to the first view only; each view's graph is built as AddFrameParticlesSimulate builds it
+    // (imports, then the nodes only when claimed) plus ParticlePass. The simulation nodes are added once and the
+    // draw twice; in the simulating graph Spawn+Update and compact 1 wait on Dispatch Args' write of the indirect
+    // arguments (IndirectArgs after StorageWrite) and the draw on the last compact's Counters. With no emitter the
+    // simulation nodes declare nothing and are culled. The next tick is claimed again.
     for ( const bool emitter : { true, false } )
     {
-        ExternalBuffer  pool( BufferDesc{ 64 * 64 }, Access::None );
-        ExternalBuffer  freeList( BufferDesc{ 4 * 64 }, Access::None );
-        ExternalBuffer  aliveList( BufferDesc{ 4 * 64 }, Access::None );
-        ExternalBuffer  counters( BufferDesc{ 64 }, Access::None );
-        ExternalBuffer  target( BufferDesc{ 16 }, Access::None );
-        Builder         graph( "particle pool" );
-        const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticlePool" );
-        const BufferRef freeRef     = graph.RegisterExternal( freeList, "ParticleFreeList" );
-        const BufferRef aliveRef    = graph.RegisterExternal( aliveList, "ParticleAliveList" );
-        const BufferRef countersRef = graph.RegisterExternal( counters, "ParticleCounters0" );
-        const BufferRef targetRef   = graph.RegisterExternal( target, "SceneColor" );
-        const auto      compact     = [&]( PassBuilder& pass )
+        Desert::Graphic::System::ParticleTickClaim claim;
+        constexpr uint64_t                         tick = 7;
+        ExternalBuffer                             pool( BufferDesc{ 64 * 64 }, Access::None );
+        ExternalBuffer                             freeList( BufferDesc{ 4 * 64 }, Access::None );
+        ExternalBuffer                             aliveList( BufferDesc{ 8 * 64 }, Access::None );
+        ExternalBuffer                             counters( BufferDesc{ 64 }, Access::None );
+        ExternalBuffer                             steps( BufferDesc{ 12 }, Access::None );
+        ExternalBuffer                             args( BufferDesc{ 32 }, Access::None );
+        ExternalBuffer                             target( BufferDesc{ 16 }, Access::None );
+        std::vector<std::string>                   added;
+        uint32_t                                   draws = 0;
+        for ( const char* viewName : { "view A", "view B" } )
         {
-            if ( !emitter )
-                return;
-            pass.Write( poolRef, Access::StorageWrite );
-            pass.Write( freeRef, Access::StorageWrite );
-            pass.Write( aliveRef, Access::StorageWrite );
-            pass.Write( countersRef, Access::StorageWrite );
-        };
-        const auto none = []( PassContext& ) { return Common::MakeSuccess( true ); };
-        graph.AddPass( "Particles: Compact 0", PassFlags::Compute, compact, none );
-        graph.AddPass(
-             "Particles: Spawn+Update 0", PassFlags::Compute,
-             [&]( PassBuilder& pass )
-             {
-                 if ( !emitter )
-                     return;
-                 pass.Write( poolRef, Access::StorageWrite );
-                 pass.Read( freeRef, Access::StorageRead );
-                 pass.Read( aliveRef, Access::StorageRead );
-                 pass.Read( countersRef, Access::StorageRead );
-             },
-             none );
-        graph.AddPass( "Particles: Compact 1", PassFlags::Compute, compact, none );
-        graph.AddPass(
-             "ParticlePass", PassFlags::Compute,
-             [&]( PassBuilder& pass )
-             {
-                 pass.Write( targetRef, Access::StorageWrite );
-                 if ( !emitter )
-                     return;
-                 pass.Read( poolRef, Access::StorageRead );
-                 pass.Read( aliveRef, Access::StorageRead );
-                 pass.Read( countersRef, Access::IndirectArgs );
-             },
-             none );
-        const CompileResult result = CompileOrFail( graph );
-        if ( emitter )
-        {
-            EXPECT_TRUE( result.CulledPassNames.empty() );
-            EXPECT_EQ( BarriersOn( result.FindPass( "ParticlePass" ), countersRef.Index ).size(), 1u )
-                 << "the indirect draw does not wait on the last compact's counters";
+            Builder         graph( viewName );
+            const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticlePool" );
+            const BufferRef freeRef     = graph.RegisterExternal( freeList, "ParticleFreeList" );
+            const BufferRef aliveRef    = graph.RegisterExternal( aliveList, "ParticleAliveList" );
+            const BufferRef countersRef = graph.RegisterExternal( counters, "ParticleCounters0" );
+            const BufferRef targetRef   = graph.RegisterExternal( target, "SceneColor" );
+            const auto      none        = []( PassContext& ) { return Common::MakeSuccess( true ); };
+            const bool      simulates   = claim.Claim( tick );
+            BufferRef       stepsRef;
+            BufferRef       argsRef;
+            if ( simulates )
+            {
+                stepsRef           = graph.RegisterExternal( steps, "ParticleSteps0" );
+                argsRef            = graph.RegisterExternal( args, "ParticleDispatchArgs0" );
+                const auto compact = [&]( const bool indirect )
+                {
+                    return [&, indirect]( PassBuilder& pass )
+                    {
+                        if ( !emitter )
+                            return;
+                        pass.Write( poolRef, Access::StorageWrite );
+                        pass.Write( freeRef, Access::StorageWrite );
+                        pass.Write( aliveRef, Access::StorageWrite );
+                        pass.Write( countersRef, Access::StorageWrite );
+                        if ( indirect )
+                            pass.Read( argsRef, Access::IndirectArgs );
+                    };
+                };
+                const std::vector<std::string> nodes = { "Particles: Compact 0", "Particles: Dispatch Args 0",
+                                                         "Particles: Spawn+Update 0", "Particles: Compact 1" };
+                graph.AddPass( nodes[0], PassFlags::Compute, compact( false ), none );
+                graph.AddPass(
+                     nodes[1], PassFlags::Compute,
+                     [&]( PassBuilder& pass )
+                     {
+                         if ( !emitter )
+                             return;
+                         pass.Read( stepsRef, Access::StorageRead );
+                         pass.Write( countersRef, Access::StorageWrite );
+                         pass.Write( argsRef, Access::StorageWrite );
+                     },
+                     none );
+                graph.AddPass(
+                     nodes[2], PassFlags::Compute,
+                     [&]( PassBuilder& pass )
+                     {
+                         if ( !emitter )
+                             return;
+                         pass.Write( poolRef, Access::StorageWrite );
+                         pass.Read( stepsRef, Access::StorageRead );
+                         pass.Read( freeRef, Access::StorageRead );
+                         pass.Write( aliveRef, Access::StorageWrite );
+                         pass.Read( countersRef, Access::StorageRead );
+                         pass.Read( argsRef, Access::IndirectArgs );
+                     },
+                     none );
+                graph.AddPass( nodes[3], PassFlags::Compute, compact( true ), none );
+                added.insert( added.end(), nodes.begin(), nodes.end() );
+            }
+            graph.AddPass(
+                 "ParticlePass", PassFlags::Compute,
+                 [&]( PassBuilder& pass )
+                 {
+                     pass.Write( targetRef, Access::StorageWrite );
+                     if ( !emitter )
+                         return;
+                     pass.Read( poolRef, Access::StorageRead );
+                     pass.Read( aliveRef, Access::StorageRead );
+                     pass.Read( countersRef, Access::IndirectArgs );
+                 },
+                 none );
+            ++draws;
+
+            const CompileResult result = CompileOrFail( graph );
+            if ( simulates && emitter )
+            {
+                EXPECT_TRUE( result.CulledPassNames.empty() ) << viewName;
+                EXPECT_EQ( BarriersOn( result.FindPass( "Particles: Spawn+Update 0" ), argsRef.Index ).size(), 1u )
+                     << "Spawn+Update does not wait on Dispatch Args' indirect arguments";
+                EXPECT_EQ( BarriersOn( result.FindPass( "ParticlePass" ), countersRef.Index ).size(), 1u )
+                     << "the indirect draw does not wait on the last compact's counters";
+            }
+            else if ( simulates )
+            {
+                EXPECT_EQ( result.CulledPassNames,
+                           ( std::vector<std::string>{ "Particles: Compact 0", "Particles: Dispatch Args 0",
+                                                       "Particles: Spawn+Update 0", "Particles: Compact 1" } ) );
+            }
+            else
+            {
+                EXPECT_TRUE( result.CulledPassNames.empty() ) << viewName << ": the draw-only view culls its draw";
+            }
         }
-        else
-        {
-            EXPECT_EQ( result.CulledPassNames,
-                       ( std::vector<std::string>{ "Particles: Compact 0", "Particles: Spawn+Update 0",
-                                                   "Particles: Compact 1" } ) );
-        }
+        EXPECT_EQ( added.size(), 4u ) << "the scene's particles are simulated once per view, not once per tick";
+        EXPECT_EQ( draws, 2u );
+        EXPECT_FALSE( claim.Claim( tick ) );
+        EXPECT_TRUE( claim.Claim( tick + 1 ) ) << "the next tick is not simulated";
     }
 }
 

@@ -72,6 +72,11 @@ namespace Desert::Graphic
                                                                     const ComputePipeline&   pipeline,
                                                                     uint32_t groupCountX, uint32_t groupCountY,
                                                                     uint32_t groupCountZ );
+        // DispatchCompute with its group counts in a graph buffer the pass declared Access::IndirectArgs
+        // (RendererAPI::DispatchComputeIndirect): the particle Spawn+Update and Compact, sized by the GPU counts.
+        [[nodiscard]] static Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                                            const ComputePipeline&   pipeline,
+                                                                            RDG::BufferRef args, uint64_t offset );
         // One triangle covering the viewport: DrawProcedural( ..., kFullscreenTriangleVertexCount, 1 )
         // (Common/FullscreenTriangle.glslh), drawn inside the render pass the graph opened for this pass (its
         // ColorTarget / DepthTarget declarations). @p material supplies uniform values and asset textures only;

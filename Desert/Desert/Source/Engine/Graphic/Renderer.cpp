@@ -167,6 +167,13 @@ namespace Desert::Graphic
         return s_RendererAPI->DispatchCompute( bindings, pipeline, groupCountX, groupCountY, groupCountZ );
     }
 
+    Common::BoolResultStr Renderer::DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                             const ComputePipeline&   pipeline,
+                                                             const RDG::BufferRef args, const uint64_t offset )
+    {
+        return s_RendererAPI->DispatchComputeIndirect( bindings, pipeline, args, offset );
+    }
+
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline&  pipeline,
                                                     const MaterialExecutor*  material )

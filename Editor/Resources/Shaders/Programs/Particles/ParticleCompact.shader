@@ -38,26 +38,36 @@ Shader "ParticleCompact"
 
         PushConstant PushConstants
         {
-            uvec4 u_Range; // x = the range's pool base, y = its particle count, z = the slot filled, w = reset
+            uvec4 u_Range; // x = the range's pool base, y = its particle count, z = the slot filled, w = 1 reset | 2 full scan
         };
 
         void main()
         {
-            uint t = gl_GlobalInvocationID.x;
-            if ( t >= u_Range.y )
-                return;
-
-            uint base = u_Range.x;
-            uint slot = u_Range.z;
-            if ( t == 0u )
-                u_Slots[1u - slot] = ParticleDrawSlot( 0u, 1u, base * 6u, 0u, 0u, 0u, 0u, 0u );
-
-            uint i = base + t;
-            if ( u_Range.w == 1u )
-                u_Particles[i] = Particle( vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ) );
+            uint t     = gl_GlobalInvocationID.x;
+            uint base  = u_Range.x;
+            uint count = u_Range.y;
+            uint slot  = u_Range.z;
+            uint i;
+            if ( ( u_Range.w & 2u ) != 0u )
+            {
+                // Compact 0: the whole range (slot 0 uploaded empty).
+                if ( t >= count )
+                    return;
+                i = base + t;
+                if ( ( u_Range.w & 1u ) != 0u )
+                    u_Particles[i] = Particle( vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ) );
+            }
+            else
+            {
+                // A later compact: the particles the step touched (the other half: alive + spawned), its slot
+                // opened by Dispatch Args with the untouched free entries kept.
+                if ( t >= u_Slots[slot].Touched )
+                    return;
+                i = u_Alive[2u * base + ( 1u - slot ) * count + t];
+            }
 
             if ( u_Particles[i].VelLife.w > 0.0 )
-                u_Alive[base + atomicAdd( u_Slots[slot].VertexCount, 6u ) / 6u] = i;
+                u_Alive[2u * base + slot * count + atomicAdd( u_Slots[slot].VertexCount, 6u ) / 6u] = i;
             else
                 u_Free[base + atomicAdd( u_Slots[slot].FreeCount, 1u )] = i;
         }

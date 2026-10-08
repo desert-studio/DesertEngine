@@ -11,12 +11,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
 
 #include <Common/Core/Logger.hpp>
-
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -40,36 +36,32 @@ namespace Desert::Graphic::System
         if ( !shaderService )
             return false;
 
-        auto simShader  = shaderService->GetByName( "ParticleSimulate" );
         auto billShader = shaderService->GetByName( "ParticleBillboard" );
-        if ( !simShader || !billShader )
+        if ( !billShader )
         {
-            LOG_ERROR( "ParticleRenderer: missing Particle shaders" );
+            LOG_ERROR( "ParticleRenderer: missing ParticleBillboard shader" );
             return false;
         }
 
-        const auto sim = ComputePipeline::Create( { .Shader = simShader, .DebugName = "ParticleSimulate" } );
-        if ( !sim )
+        // The three compute programs of the simulation: Spawn+Update, Compact and Dispatch Args.
+        for ( const auto& [name, into] : { std::pair{ "ParticleSimulate", &m_SimPipeline },
+                                           std::pair{ "ParticleCompact", &m_CompactPipeline },
+                                           std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline } } )
         {
-            LOG_ERROR( "ParticleRenderer: {}", sim.GetError() );
-            return false;
+            auto shader = shaderService->GetByName( name );
+            if ( !shader )
+            {
+                LOG_ERROR( "ParticleRenderer: missing {} shader", name );
+                return false;
+            }
+            const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
+            if ( !made )
+            {
+                LOG_ERROR( "ParticleRenderer: {}", made.GetError() );
+                return false;
+            }
+            *into = made.GetValue();
         }
-        m_SimPipeline = sim.GetValue();
-
-        auto compactShader = shaderService->GetByName( "ParticleCompact" );
-        if ( !compactShader )
-        {
-            LOG_ERROR( "ParticleRenderer: missing ParticleCompact shader" );
-            return false;
-        }
-        const auto compact =
-             ComputePipeline::Create( { .Shader = compactShader, .DebugName = "ParticleCompact" } );
-        if ( !compact )
-        {
-            LOG_ERROR( "ParticleRenderer: {}", compact.GetError() );
-            return false;
-        }
-        m_CompactPipeline = compact.GetValue();
 
         const auto& target = m_TargetFramebuffer.lock();
         if ( !target )
@@ -122,186 +114,61 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    ParticleRenderer::EmitterGpu& ParticleRenderer::GetOrCreate( const uint32_t entityId,
-                                                                 const uint32_t stepCapacity )
-    {
-        auto& e = m_Emitters[entityId];
-        if ( !e.Material )
-            e.Material = std::make_unique<MaterialParticleBillboard>();
-        if ( !e.Counters )
-            e.Counters = ShaderResources::StorageBuffer::Create( "ParticleCounters",
-                                                                 kParticleDrawSlots * kParticleDrawSlotStride, 1 );
-        if ( e.StepCapacity != stepCapacity || !e.Steps )
-        {
-            e.StepCapacity = stepCapacity;
-            e.Steps        = ShaderResources::StorageBuffer::Create(
-                 "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
-        }
-        return e;
-    }
-
-    bool ParticleRenderer::EnsurePoolCapacity( const uint32_t particles )
-    {
-        if ( particles <= m_Pool.Capacity && m_Pool.Particles )
-            return true;
-        // Grown to at least double, so a scene adding emitters one by one recreates the pool a logarithmic number
-        // of times. The contents are not carried over: every emitter restarts (compact 0 resets its range).
-        const uint32_t capacity = std::max( particles, m_Pool.Capacity * 2u );
-        m_Pool                  = {};
-        m_Pool.Particles = ShaderResources::StorageBuffer::Create( "ParticlePool", capacity * kParticleStride, 1,
-                                                                   /*persistent=*/true );
-        m_Pool.FreeList  = ShaderResources::StorageBuffer::Create( "ParticleFreeList", capacity * 4u, 2, true );
-        m_Pool.AliveList = ShaderResources::StorageBuffer::Create( "ParticleAliveList", capacity * 4u, 2, true );
-        if ( !m_Pool.Particles || !m_Pool.FreeList || !m_Pool.AliveList )
-        {
-            LOG_ERROR( "[Particles] the world pool of {} particles could not be created: no emitter runs",
-                       capacity );
-            m_Pool = {};
-            return false;
-        }
-        m_Pool.Capacity = capacity;
-        for ( auto& [key, gpu] : m_Emitters )
-            gpu.NeedsReset = true;
-        return true;
-    }
-
     void ParticleRenderer::OnSceneReplaced()
     {
-        if ( m_Emitters.empty() )
+        m_ViewEmitters.clear();
+        m_World     = nullptr;
+        m_Simulates = false;
+        if ( m_Materials.empty() )
             return;
-
-        m_FrameEmitters.clear();
-
-        LOG_INFO( "[Particles] Released {} cached emitter(s) belonging to the previous scene.",
-                  m_Emitters.size() );
-        m_Emitters.clear();
-        m_Ranges.Clear(); // the pool keeps its capacity; the next scene's emitters reset their ranges
+        LOG_INFO( "[Particles] Released {} emitter material(s) belonging to the previous scene.",
+                  m_Materials.size() );
+        m_Materials.clear();
     }
 
     void ParticleRenderer::PrepareFrame( const ::Desert::Core::Scene& scene )
     {
-        m_FrameEmitters.clear();
+        m_ViewEmitters.clear();
 
-        const VFX::VFXWorld& world        = scene.GetVFXWorld();
-        const auto&          clock        = world.GetClock().GetSettings();
-        const auto           stepSeconds  = static_cast<float>( clock.StepSeconds );
-        const uint32_t       stepCapacity = std::max( clock.MaxStepsPerTick, clock.MaxSeekStepsPerTick );
+        ParticleWorldGpu& world = ParticleWorldGpu::Of( scene.GetVFXWorld() );
+        m_World                 = &world;
+        m_Simulates             = world.PrepareTick( scene );
 
-        const auto& reg = scene.GetRegistry();
-
-        const std::size_t retired = RetireDestroyedEmitters( m_Emitters, reg );
-        if ( retired > 0 )
-            LOG_INFO( "[Particles] Released {} emitter(s) whose entity is gone.", retired );
-        m_Ranges.ReleaseUnless( [this]( const uint32_t key ) { return m_Emitters.contains( key ); } );
-
-        auto view = reg.view<const ECS::ParticleEmitterComponent, const ECS::TransformComponent,
-                             const ECS::UUIDComponent>();
-        view.each(
-             [&]( entt::entity entity, const ECS::ParticleEmitterComponent& emitter,
-                  const ECS::TransformComponent& transform, const ECS::UUIDComponent& id )
-             {
-                 const auto& d = emitter.Data;
-                 if ( !d.Enabled || d.MaxParticles <= 0 )
-                     return;
-
-                 const VFX::EmitterInstance* instance = world.FindEmitter( static_cast<uint64_t>( id.UUID ) );
-                 if ( instance == nullptr )
-                     return;
-
-                 const auto  entityId = static_cast<uint32_t>( entity );
-                 EmitterGpu& gpu      = GetOrCreate( entityId, stepCapacity );
-                 if ( !gpu.Steps || !gpu.Counters )
-                     return;
-
-                 // The emitter's range of the world pool; a new or moved range starts dead.
-                 const ParticlePoolRange range =
-                      m_Ranges.Acquire( entityId, static_cast<uint32_t>( d.MaxParticles ) );
-                 if ( range.Base != gpu.Range.Base || range.Count != gpu.Range.Count )
-                     gpu.NeedsReset = true;
-                 gpu.Range = range;
-                 // A state whose VFXWorld generation was moved past (seek, restart) restarts.
-                 if ( gpu.Generation != instance->Generation )
-                 {
-                     gpu.NeedsReset = true;
-                     gpu.Generation = instance->Generation;
-                 }
-
-                 uint32_t stepCount =
-                      std::min( static_cast<uint32_t>( instance->Steps.size() ), gpu.StepCapacity );
-                 if ( stepCount > 0 )
-                 {
-                     std::vector<StepGpu> table( stepCount );
-                     for ( uint32_t s = 0; s < stepCount; ++s )
-                         table[s] = { instance->Steps[s].IdBase, instance->Seed, instance->Steps[s].Budget };
-                     const auto uploaded = gpu.Steps->SetData(
-                          table.data(), stepCount * static_cast<uint32_t>( sizeof( StepGpu ) ) );
-                     if ( !uploaded.IsSuccess() )
-                     {
-                         LOG_ERROR( "[Particles] emitter {} does not simulate this frame, its step table did "
-                                    "not upload: {}",
-                                    entityId, uploaded.GetError() );
-                         stepCount = 0;
-                     }
-                 }
-
-                 // Both draw slots start empty: compact 0 fills slot 0 from the pool, so the counters need no
-                 // history (ParticleCompact).
-                 DrawSlotGpu slots[kParticleDrawSlots];
-                 for ( DrawSlotGpu& slot : slots )
-                     slot.FirstVertex = range.Base * 6u;
-                 const auto counted = gpu.Counters->SetData( slots, static_cast<uint32_t>( sizeof( slots ) ) );
-                 if ( !counted.IsSuccess() )
-                 {
-                     LOG_ERROR( "[Particles] emitter {} sits out this frame, its counters did not upload: {}",
-                                entityId, counted.GetError() );
-                     return;
-                 }
-
-                 const glm::vec3 worldPos = glm::vec3( transform.GetTransform()[3] );
-                 glm::vec3       dir      = d.Direction;
-                 if ( glm::dot( dir, dir ) < 1e-6f )
-                     dir = glm::vec3( 0.0f, 1.0f, 0.0f );
-                 dir = glm::normalize( dir );
-
-                 FrameEmitter fe;
-                 fe.Gpu             = &gpu;
-                 fe.Additive        = ( d.Blend == ECS::ParticleBlendMode::Additive );
-                 fe.StepCount       = stepCount;
-                 fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
-                 fe.Push.Gravity    = glm::vec4( d.Gravity, 0.0f );
-                 fe.Push.Direction  = glm::vec4( dir, glm::radians( d.ConeAngle ) );
-                 fe.Push.Params     = glm::vec4( d.StartSpeed, d.SpeedVariance, d.Lifetime, d.LifetimeVariance );
-                 fe.Push.StartColor = glm::vec4( d.StartColor, d.StartAlpha );
-                 fe.Push.EndColor   = glm::vec4( d.EndColor, d.EndAlpha );
-                 fe.Push.Sizes      = glm::vec4( d.StartSize, d.EndSize, d.SizeCurvePower, 0.0f );
-                 fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, d.WorldSpace ? 0u : 1u );
-
-                 m_FrameEmitters.push_back( fe );
-             } );
-
-        if ( !m_FrameEmitters.empty() && !EnsurePoolCapacity( m_Ranges.End() ) )
-            m_FrameEmitters.clear();
+        // This view's materials follow the scene's emitters: a destroyed emitter's goes through the allocator's
+        // deletion ring with it, so the frame still reading it finishes first.
+        RetireDestroyedEmitters( m_Materials, scene.GetRegistry() );
+        m_ViewEmitters.reserve( world.FrameEmitters().size() );
+        for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
+        {
+            std::unique_ptr<MaterialParticleBillboard>& material = m_Materials[fe.EntityId];
+            if ( !material )
+                material = std::make_unique<MaterialParticleBillboard>();
+            ViewEmitter ve;
+            ve.Frame    = &fe;
+            ve.Material = material.get();
+            m_ViewEmitters.push_back( ve );
+        }
     }
 
     uint32_t ParticleRenderer::SimulationStepCount() const
     {
-        if ( !m_SimPipeline || !m_CompactPipeline )
+        if ( !m_Simulates || !m_SimPipeline || !m_CompactPipeline || !m_ArgsPipeline )
             return 0; // the nodes dispatch nothing either
         uint32_t steps = 0;
-        for ( const FrameEmitter& fe : m_FrameEmitters )
-            if ( fe.Declared )
-                steps = std::max( steps, fe.StepCount );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+            if ( ve.Declared )
+                steps = std::max( steps, ve.Frame->StepCount );
         return steps;
     }
 
-    bool ParticleRenderer::RunsStep( const FrameEmitter& fe, const uint32_t step )
+    bool ParticleRenderer::RunsStep( const ViewEmitter& ve, const uint32_t step ) const
     {
-        return fe.Declared && step < fe.StepCount;
+        return m_Simulates && ve.Declared && step < ve.Frame->StepCount;
     }
 
-    bool ParticleRenderer::RunsCompact( const FrameEmitter& fe, const uint32_t compact )
+    bool ParticleRenderer::RunsCompact( const ViewEmitter& ve, const uint32_t compact ) const
     {
-        return fe.Declared && compact <= fe.StepCount;
+        return m_Simulates && ve.Declared && compact <= ve.Frame->StepCount;
     }
 
     Common::BoolResultStr ParticleRenderer::Compact( const RDG::PassContext& context, const uint32_t compact )
@@ -311,22 +178,29 @@ namespace Desert::Graphic::System
 
         auto&    renderer = Renderer::GetInstance();
         uint32_t block    = 0;
-        for ( const FrameEmitter& fe : m_FrameEmitters )
+        for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsCompact( fe, compact ) )
+            if ( !RunsCompact( ve, compact ) )
                 continue;
-            const bool        reset = compact == 0 && fe.Gpu->NeedsReset;
-            const CompactPush push{
-                 glm::uvec4( fe.Gpu->Range.Base, fe.Gpu->Range.Count, compact & 1u, reset ? 1u : 0u ) };
-            RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+            ParticleEmitterGpu& gpu   = *ve.Frame->Gpu;
+            const bool          reset = compact == 0 && gpu.NeedsReset;
+            const uint32_t      flags =
+                 ( compact == 0 ? kParticleCompactFullScan : 0u ) | ( reset ? kParticleCompactReset : 0u );
+            const ParticleCompactPush push{ glm::uvec4( gpu.Range.Base, gpu.Range.Count, compact & 1u, flags ) };
+            RDG::PassBindings         bindings( context, context.GetBindingBlock( block++ ) );
             bindings.PushConstants( &push, sizeof( push ) );
-            const uint32_t groups = ( fe.Gpu->Range.Count + kParticleLocalSize - 1 ) / kParticleLocalSize;
+            // Compact 0 rebuilds the lists from the whole range; a later one scans the touched particles only,
+            // as many groups as the step's Dispatch Args wrote.
             const Common::BoolResultStr dispatched =
-                 renderer.DispatchCompute( bindings, *m_CompactPipeline, groups, 1, 1 );
+                 compact == 0 ? renderer.DispatchCompute(
+                                     bindings, *m_CompactPipeline,
+                                     ( gpu.Range.Count + kParticleLocalSize - 1 ) / kParticleLocalSize, 1, 1 )
+                              : Renderer::DispatchComputeIndirect( bindings, *m_CompactPipeline, ve.ArgsRef,
+                                                                   kParticleCompactArgsOffset );
             if ( !dispatched )
                 return dispatched;
             if ( reset )
-                fe.Gpu->NeedsReset = false;
+                gpu.NeedsReset = false;
         }
         return BOOLSUCCESS;
     }
@@ -336,16 +210,58 @@ namespace Desert::Graphic::System
         if ( !m_CompactPipeline )
             return; // Compact dispatches nothing either
         const auto& layout = m_CompactLayout.Get( m_CompactPipeline->GetSpecification().Shader );
-        for ( const FrameEmitter& fe : m_FrameEmitters )
+        for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsCompact( fe, compact ) )
+            if ( !RunsCompact( ve, compact ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
                  .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
                  .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageWrite )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
-                 .Storage( "Counters", fe.CountersRef, RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( CompactPush ) ) );
+                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleCompactPush ) ) );
+            if ( compact > 0 )
+                pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
+        }
+    }
+
+    Common::BoolResultStr ParticleRenderer::BuildDispatchArgs( const RDG::PassContext& context,
+                                                               const uint32_t          step )
+    {
+        if ( !m_ArgsPipeline )
+            return BOOLSUCCESS;
+
+        auto&    renderer = Renderer::GetInstance();
+        uint32_t block    = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsStep( ve, step ) )
+                continue;
+            const ParticleArgsPush push{ glm::uvec4( step, 0u, 0u, 0u ) };
+            RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &push, sizeof( push ) );
+            const Common::BoolResultStr dispatched =
+                 renderer.DispatchCompute( bindings, *m_ArgsPipeline, 1, 1, 1 );
+            if ( !dispatched )
+                return dispatched;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::DeclareDispatchArgsBindings( RDG::PassBuilder& pass, const uint32_t step ) const
+    {
+        if ( !m_ArgsPipeline )
+            return; // BuildDispatchArgs dispatches nothing either
+        const auto& layout = m_ArgsLayout.Get( m_ArgsPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsStep( ve, step ) )
+                continue; // BuildDispatchArgs skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_ArgsPipeline ) )
+                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
+                 .Storage( "DispatchArgs", ve.ArgsRef, RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
         }
     }
 
@@ -354,37 +270,56 @@ namespace Desert::Graphic::System
         if ( !m_SimPipeline )
             return BOOLSUCCESS;
 
-        auto&    renderer = Renderer::GetInstance();
-        uint32_t block    = 0;
-        for ( const FrameEmitter& fe : m_FrameEmitters )
+        uint32_t block = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( fe, step ) )
+            if ( !RunsStep( ve, step ) )
                 continue;
-            SimPush push  = fe.Push;
-            push.Counts.y = step;
+            ParticleSimPush push = ve.Frame->Push;
+            push.Counts.y        = step;
             RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
             bindings.PushConstants( &push, sizeof( push ) );
-
-            const uint32_t groups = ( fe.Gpu->Range.Count + kParticleLocalSize - 1 ) / kParticleLocalSize;
-            const Common::BoolResultStr dispatched =
-                 renderer.DispatchCompute( bindings, *m_SimPipeline, groups, 1, 1 );
+            // As many groups as the step's Dispatch Args wrote: max(alive, spawned) threads.
+            const Common::BoolResultStr dispatched = Renderer::DispatchComputeIndirect(
+                 bindings, *m_SimPipeline, ve.ArgsRef, kParticleSimulateArgsOffset );
             if ( !dispatched )
                 return dispatched;
         }
         return BOOLSUCCESS;
     }
 
-    void ParticleRenderer::ImportSimulationBuffers( RDG::Builder& graph )
+    void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass, const uint32_t step ) const
+    {
+        if ( !m_SimPipeline )
+            return; // Simulate dispatches nothing either
+        const auto& layout = m_SimLayout.Get( m_SimPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsStep( ve, step ) )
+                continue; // Simulate skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_SimPipeline ) )
+                 .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
+                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
+                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
+                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
+            pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
+        }
+    }
+
+    void ParticleRenderer::ImportFrameBuffers( RDG::Builder& graph )
     {
         m_Pool.Declared = false;
-        for ( FrameEmitter& fe : m_FrameEmitters )
-            fe.Declared = false;
-        if ( m_FrameEmitters.empty() || !m_Pool.Particles )
+        for ( ViewEmitter& ve : m_ViewEmitters )
+            ve.Declared = false;
+        if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Particles )
             return;
+        const ParticlePoolBuffers& pool = m_World->Pool();
         for ( const auto& [buffer, import, name] :
-              { std::tuple{ &m_Pool.Particles, &m_Pool.ParticlesImport, "ParticlePool" },
-                std::tuple{ &m_Pool.FreeList, &m_Pool.FreeImport, "ParticleFreeList" },
-                std::tuple{ &m_Pool.AliveList, &m_Pool.AliveImport, "ParticleAliveList" } } )
+              { std::tuple{ &pool.Particles, &m_Pool.ParticlesImport, "ParticlePool" },
+                std::tuple{ &pool.FreeList, &m_Pool.FreeImport, "ParticleFreeList" },
+                std::tuple{ &pool.AliveList, &m_Pool.AliveImport, "ParticleAliveList" } } )
         {
             const Common::BoolResultStr imported = Renderer::ImportBuffer( *buffer, *import );
             if ( !imported )
@@ -399,18 +334,11 @@ namespace Desert::Graphic::System
         m_Pool.AliveRef     = graph.RegisterExternal( m_Pool.AliveImport, "ParticleAliveList" );
         m_Pool.Declared     = true;
 
-        for ( size_t i = 0; i < m_FrameEmitters.size(); ++i )
+        for ( size_t i = 0; i < m_ViewEmitters.size(); ++i )
         {
-            FrameEmitter&               fe    = m_FrameEmitters[i];
-            const Common::BoolResultStr steps = Renderer::ImportBuffer( fe.Gpu->Steps, fe.StepsImport );
-            if ( !steps )
-            {
-                LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table is not in the frame "
-                           "graph: {}",
-                           i, steps.GetError() );
-                continue;
-            }
-            const Common::BoolResultStr counters = Renderer::ImportBuffer( fe.Gpu->Counters, fe.CountersImport );
+            ViewEmitter&                ve       = m_ViewEmitters[i];
+            const ParticleEmitterGpu&   gpu      = *ve.Frame->Gpu;
+            const Common::BoolResultStr counters = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
             if ( !counters )
             {
                 LOG_ERROR(
@@ -418,39 +346,34 @@ namespace Desert::Graphic::System
                      counters.GetError() );
                 continue;
             }
-            fe.StepsRef    = graph.RegisterExternal( fe.StepsImport, std::format( "ParticleSteps{}", i ) );
-            fe.CountersRef = graph.RegisterExternal( fe.CountersImport, std::format( "ParticleCounters{}", i ) );
-            fe.Declared    = true;
+            // The step table and the dispatch arguments are read only by the simulation nodes.
+            if ( m_Simulates )
+            {
+                const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
+                const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
+                if ( !steps || !args )
+                {
+                    LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table or dispatch arguments "
+                               "are not in the frame graph: {}",
+                               i, !steps ? steps.GetError() : args.GetError() );
+                    continue;
+                }
+                ve.StepsRef = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
+                ve.ArgsRef  = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
+            }
+            ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
+            ve.Declared    = true;
         }
     }
 
-    void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass, const uint32_t step ) const
+    bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        if ( !m_SimPipeline )
-            return; // Simulate dispatches nothing either
-        const auto& layout = m_SimLayout.Get( m_SimPipeline->GetSpecification().Shader );
-        for ( const FrameEmitter& fe : m_FrameEmitters )
-        {
-            if ( !RunsStep( fe, step ) )
-                continue; // Simulate skips it the same way
-            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_SimPipeline ) )
-                 .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
-                 .Storage( "StepTable", fe.StepsRef, RDG::Access::StorageRead )
-                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
-                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
-                 .Storage( "Counters", fe.CountersRef, RDG::Access::StorageRead )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( SimPush ) ) );
-        }
+        return ve.Declared && ve.Material != nullptr;
     }
 
-    bool ParticleRenderer::IsDrawn( const FrameEmitter& fe )
+    GraphicsPipeline* ParticleRenderer::BillboardPipeline( const ViewEmitter& ve ) const
     {
-        return fe.Declared && fe.Gpu != nullptr && fe.Gpu->Material;
-    }
-
-    GraphicsPipeline* ParticleRenderer::BillboardPipeline( const FrameEmitter& fe ) const
-    {
-        return fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
+        return ve.Frame->Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
     }
 
     SystemRasterPass ParticleRenderer::DrawPass()
@@ -463,26 +386,25 @@ namespace Desert::Graphic::System
              .Name        = "ParticlePass",
              .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
              {
-                 if ( m_FrameEmitters.empty() )
+                 if ( m_ViewEmitters.empty() )
                      return BOOLSUCCESS;
                  if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr )
                      return BOOLSUCCESS;
 
                  uint32_t block = 0;
-                 for ( auto& fe : m_FrameEmitters )
+                 for ( const ViewEmitter& ve : m_ViewEmitters )
                  {
-                     if ( !IsDrawn( fe ) )
+                     if ( !IsDrawn( ve ) )
                          continue;
-                     GraphicsPipeline* pipeline = BillboardPipeline( fe );
+                     GraphicsPipeline* pipeline = BillboardPipeline( ve );
                      if ( pipeline == nullptr )
                          return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
                      // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
-                     // particle from vertex 6 x the emitter's pool base.
-                     const uint64_t slot = ( fe.StepCount & 1u ) * kParticleDrawSlotStride;
-                     if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *pipeline,
-                                                                         fe.Gpu->Material->GetMaterialExecutor(),
-                                                                         fe.CountersRef, slot );
+                     // particle of alive half StepCount & 1 (the slot's FirstVertex).
+                     const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
+                     if ( auto drawn = Renderer::DrawProceduralIndirect(
+                               bindings, *pipeline, ve.Material->GetMaterialExecutor(), ve.CountersRef, slot );
                           !drawn.IsSuccess() )
                          return drawn;
                  }
@@ -494,21 +416,21 @@ namespace Desert::Graphic::System
             const ViewFrame* view = m_SceneRenderer->GetViewFrame();
             if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
                 return; // the exec draws nothing either
-            for ( const FrameEmitter& fe : m_FrameEmitters )
+            for ( const ViewEmitter& ve : m_ViewEmitters )
             {
-                if ( !IsDrawn( fe ) )
+                if ( !IsDrawn( ve ) )
                     continue;
-                GraphicsPipeline* pipeline = BillboardPipeline( fe );
+                GraphicsPipeline* pipeline = BillboardPipeline( ve );
                 if ( pipeline == nullptr )
                     continue; // the exec refuses the emitter by name before it opens a block
-                fe.Gpu->Material->Update( *view );
-                ShaderBindingLayoutCache& layout = fe.Additive ? m_AddLayout : m_AlphaLayout;
+                ve.Material->Update( *view );
+                ShaderBindingLayoutCache& layout = ve.Frame->Additive ? m_AddLayout : m_AlphaLayout;
                 declared
                      .Bindings( layout.Get( pipeline->GetSpecification().Shader ),
-                                fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill() )
+                                ve.Material->GetMaterialExecutor()->GetRouteFill() )
                      .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageRead )
                      .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead );
-                declared.Read( fe.CountersRef, RDG::Access::IndirectArgs );
+                declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };
         return pass;

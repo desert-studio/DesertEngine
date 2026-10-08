@@ -53,7 +53,13 @@ namespace Desert::Graphic
         auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
         if ( particles == nullptr )
             return;
-        particles->ImportSimulationBuffers( graph );
+        // VFX-07b: the pool is the scene's (ParticleWorldGpu). Every view imports it for its draw; only the view
+        // that claimed the VFXWorld tick adds the simulation, so two views of one scene simulate once and draw
+        // twice. Spawn+Update s and compact s+1 are dispatched INDIRECT from what "Dispatch Args s" wrote from
+        // compact s's GPU counts.
+        particles->ImportFrameBuffers( graph );
+        if ( !particles->ClaimsSimulation() )
+            return;
         const uint32_t steps = particles->SimulationStepCount();
         graph.AddPass(
              "Particles: Compact 0", RDG::PassFlags::Compute,
@@ -62,6 +68,12 @@ namespace Desert::Graphic
              { return particles->Compact( context, 0 ); } );
         for ( uint32_t step = 0; step < steps; ++step )
         {
+            graph.AddPass(
+                 std::format( "Particles: Dispatch Args {}", step ), RDG::PassFlags::Compute,
+                 [particles, step]( RDG::PassBuilder& pass )
+                 { particles->DeclareDispatchArgsBindings( pass, step ); },
+                 [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->BuildDispatchArgs( context, step ); } );
             graph.AddPass(
                  std::format( "Particles: Spawn+Update {}", step ), RDG::PassFlags::Compute,
                  [particles, step]( RDG::PassBuilder& pass ) { particles->DeclareSimulateBindings( pass, step ); },

@@ -20,7 +20,7 @@ Shader "ParticleBillboard"
         };
 
         // VFX-07: the emitter's alive list in the world pool. The draw is indirect (ParticleCompact's slot):
-        // VertexCount = 6 x alive, FirstVertex = 6 x the emitter's pool base, so gl_VertexIndex / 6 is the alive
+        // VertexCount = 6 x alive, FirstVertex = 6 x the start of the slot's alive half, so gl_VertexIndex / 6 is the alive
         // entry Base + k and every drawn particle is alive.
         ReadBuffer(2) AliveList
         {

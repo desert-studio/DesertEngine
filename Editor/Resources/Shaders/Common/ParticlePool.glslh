@@ -8,6 +8,12 @@
 // entry (Base + k). FreeCount counts the free-list entries. ParticleCompact of compact c fills slot (c & 1) and
 // resets slot ((c + 1) & 1) for the next compact; ParticleSimulate of step s reads slot (s & 1), the one compact s
 // filled before it.
+// The thread-group size of ParticleSimulate and ParticleCompact (ParticleGpuLayout.hpp kParticleLocalSize): the
+// divisor ParticleDispatchArgs turns thread counts into group counts with.
+#define PARTICLE_GROUP_SIZE 64u
+
+// Alive lists: each emitter has two halves, [2 Base + h Count, 2 Base + (h + 1) Count); compact c writes half c & 1
+// and slot c & 1 (FirstVertex = 6 x the half's start), compact c+1 reads half c & 1 back.
 struct ParticleDrawSlot
 {
     uint VertexCount;
@@ -15,7 +21,7 @@ struct ParticleDrawSlot
     uint FirstVertex;
     uint FirstInstance;
     uint FreeCount;
-    uint Pad0;
+    uint Touched; // the particles compact c+1 scans: compact c's alive + step c's spawned
     uint Pad1;
     uint Pad2;
 };

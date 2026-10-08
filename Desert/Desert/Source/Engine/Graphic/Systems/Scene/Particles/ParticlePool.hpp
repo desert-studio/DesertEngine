@@ -165,4 +165,24 @@ namespace Desert::Graphic::System
         std::vector<uint32_t> m_Alive;
         std::vector<uint32_t> m_Free;
     };
+
+    // Which view of a scene runs a VFXWorld tick's particle simulation: the first to claim the tick's serial
+    // (VFXWorld::GetTickSerial). Every later claim of the same serial is refused, so two views of one scene add
+    // the simulation nodes once and both draw the same pool.
+    class ParticleTickClaim
+    {
+    public:
+        [[nodiscard]] bool Claim( const uint64_t tickSerial )
+        {
+            if ( m_Claimed && m_Tick == tickSerial )
+                return false;
+            m_Claimed = true;
+            m_Tick    = tickSerial;
+            return true;
+        }
+
+    private:
+        uint64_t m_Tick    = 0;
+        bool     m_Claimed = false;
+    };
 } // namespace Desert::Graphic::System

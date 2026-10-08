@@ -106,6 +106,14 @@ namespace Desert::Graphic
                                                                      const ComputePipeline&   pipeline,
                                                                      uint32_t groupCountX, uint32_t groupCountY,
                                                                      uint32_t groupCountZ ) = 0;
+        // The same dispatch with its group counts read on the GPU (UE DispatchIndirectComputeShader): one
+        // VkDispatchIndirectCommand at byte @p offset of @p args, a buffer of this graph the pass declared
+        // Access::IndirectArgs. Refused for an undeclared buffer, an offset not a multiple of four or arguments
+        // past the buffer's end.
+        [[nodiscard]] virtual Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                                             const ComputePipeline&   pipeline,
+                                                                             RDG::BufferRef           args,
+                                                                             uint64_t                 offset ) = 0;
         // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices x @p instanceCount instances whose
         // vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex (UE DrawPrimitive; the
         // fullscreen triangle is 3 x 1; the SSR tile grid is six vertices per tile).
