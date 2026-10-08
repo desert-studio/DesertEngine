@@ -35,7 +35,7 @@ namespace Desert::Graphic
         void BindInputs( const glm::mat4& rsmViewProj, const glm::mat4& invJitteredViewProjection,
                          const glm::vec4& sunColorIntensity, float giIntensity, float jitterSeed, int samples )
         {
-            GIResolveUBData data;
+            GIResolveUBData data{};
             data.RSMViewProj    = rsmViewProj;
             data.InvRSMViewProj = glm::inverse( rsmViewProj );
             data.InvJitteredViewProjection = invJitteredViewProjection;

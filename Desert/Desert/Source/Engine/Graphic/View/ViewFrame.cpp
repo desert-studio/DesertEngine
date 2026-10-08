@@ -91,9 +91,11 @@ namespace Desert::Graphic
         ResolutionSplit split;
         split.Output             = output;
         split.RenderScalePercent = renderScalePercent;
-        split.Mode               = renderScalePercent < 100    ? Scal::ScaleMode::Upscale
-                                   : renderScalePercent == 100 ? Scal::ScaleMode::Native
-                                                               : Scal::ScaleMode::Supersample;
+        split.Mode               = Scal::ScaleMode::Native;
+        if ( renderScalePercent < 100 )
+            split.Mode = Scal::ScaleMode::Upscale;
+        else if ( renderScalePercent > 100 )
+            split.Mode = Scal::ScaleMode::Supersample;
 
         if ( output.Width == 0 || output.Height == 0 )
             return Common::MakeSuccess( split ); // Render stays empty: a minimised view draws nothing
@@ -181,8 +183,8 @@ namespace Desert::Graphic
         if ( length == 0 )
             return glm::vec2( 0.0f );
         const uint32_t haltonIndex = index % length + 1; // Halton(0) is 0 in every base: start at 1
-        return glm::vec2( static_cast<float>( Halton( haltonIndex, 2 ) - 0.5 ),
-                          static_cast<float>( Halton( haltonIndex, 3 ) - 0.5 ) );
+        return { static_cast<float>( Halton( haltonIndex, 2 ) - 0.5 ),
+                 static_cast<float>( Halton( haltonIndex, 3 ) - 0.5 ) };
     }
 
     glm::vec2 JitterPixelsToNdc( const glm::vec2 pixels, const ViewExtent render )

@@ -45,7 +45,7 @@ namespace
 
     std::string ReadText( const std::filesystem::path& path )
     {
-        std::ifstream      file( path, std::ios::binary );
+        const std::ifstream file( path, std::ios::binary );
         std::ostringstream text;
         text << file.rdbuf();
         return text.str();
@@ -215,7 +215,7 @@ TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
                 continue;
             ++scanned;
             const fs::path    rel = fs::relative( entry.path(), root );
-            std::ifstream     in( entry.path(), std::ios::binary );
+            const std::ifstream in( entry.path(), std::ios::binary );
             std::stringstream text;
             text << in.rdbuf();
             const std::string source = text.str();

@@ -199,12 +199,10 @@ namespace Desert::Core::Formats
                 return { 1, 1, 2 }; // one channel, 16 bits
             case ImageFormat::R8_UNORM:
                 return { 1, 1, 1 }; // one channel, 8 bits
-            case ImageFormat::R32F:
-                return { 1, 1, 4 }; // one channel, 32-bit float
-            case ImageFormat::RG16F:
-                return { 1, 1, 4 }; // 2 channels, 16 bits each
-            case ImageFormat::R32_UINT:
-                return { 1, 1, 4 }; // one channel, 32-bit unsigned integer
+            case ImageFormat::R32F: // one channel, 32-bit float
+            case ImageFormat::RG16F:    // 2 channels, 16 bits each
+            case ImageFormat::R32_UINT: // one channel, 32-bit unsigned integer
+                return { 1, 1, 4 };
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -302,10 +300,9 @@ namespace Desert::Core::Formats
                 return 1;
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
-            case ImageFormat::BC5_UNORM:
-                return 2; // X and Y of a tangent normal; Z is reconstructed by the shader
-            case ImageFormat::RG16F:
-                return 2; // velocity: NDC x and y
+            case ImageFormat::BC5_UNORM: // X and Y of a tangent normal; Z is reconstructed by the shader
+            case ImageFormat::RG16F:     // velocity: NDC x and y
+                return 2;
             case ImageFormat::BC4_UNORM:
                 return 1;
             case ImageFormat::Count:
@@ -581,7 +578,7 @@ namespace Desert::Core::Formats
         // MSAA sample count (1/2/4/8) — attachments only; a multisampled image must have Mips == 1
         // and is consumed by the render pass RESOLVE, not by ordinary samplers.
         uint32_t              Samples = 1;
-        ImagePixelData        Data;
+        ImagePixelData        Data{};
         const Image2DUsage    Usage;
         const ImageProperties Properties;
 

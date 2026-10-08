@@ -914,7 +914,8 @@ namespace Desert::Graphic::System
         // never samples them). Both are entries of the pass's block, so each entry is the read's declaration.
         // The camera block is the frame's view (declared inside SceneRenderer::OnUpdate, so it is there).
         const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
-        if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera && view )
+        if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera != nullptr &&
+             view != nullptr )
         {
             m_ProceduralMaterial->Update( view, m_SkyParams );
             const MaterialExecutor* executor = m_ProceduralMaterial->GetMaterialExecutor();
@@ -942,7 +943,7 @@ namespace Desert::Graphic::System
                 m_SkyDraw.Fault = "SkyboxPass: a skybox material without its pipeline";
                 return;
             }
-            if ( m_ActiveCamera )
+            if ( m_ActiveCamera != nullptr )
                 material->BindInputs( { view, m_SkyboxLook } );
             const MaterialExecutor* executor = material->GetMaterialExecutor();
             declared.Bindings( m_SkyLayout.Get( m_Pipeline->GetSpecification().Shader ),

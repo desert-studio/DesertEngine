@@ -7,6 +7,6 @@ namespace Desert::Graphic
     Common::BoolResultStr RendererGraphImageImporter::ImportImage( const std::shared_ptr<Image>& image,
                                                                    RDG::ExternalTexture&         into ) const
     {
-        return Renderer::GetInstance().ImportImage( image, into );
+        return Renderer::ImportImage( image, into );
     }
 } // namespace Desert::Graphic

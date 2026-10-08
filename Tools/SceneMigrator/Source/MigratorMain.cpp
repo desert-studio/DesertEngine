@@ -57,6 +57,7 @@
 #include "SceneMigration.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
+#include "ShaderLocatorFollow.hpp"
 #include "ClipInterpShift.hpp"
 #include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
@@ -309,38 +310,6 @@ namespace
                 byGuid.emplace( header.GetValue().Guid, Common::AssetHandle::StableKeyForPath( entry.path() ) );
         }
         return byGuid;
-    }
-
-    // What following one material's shader locator came to: a refusal (Error), the rewritten text (Text), or
-    // neither (the locator already names where its GUID lives, or the material states no engine shader).
-    struct ShaderLocatorFollow
-    {
-        std::string                Error;
-        std::optional<std::string> Text;
-    };
-
-    // Content-detected (MATL has no generation for a locator): the `Shader` block's `Guid` decides, and an
-    // `engine:` locator whose GUID no engine shader states is REFUSED by both, never guessed from the path.
-    ShaderLocatorFollow FollowShaderLocator( const std::string&                        source,
-                                             const std::map<std::string, std::string>& engineShaders )
-    {
-        static const std::regex kShaderRef(
-             R"re("Shader"\s*:\s*\{\s*"Guid"\s*:\s*"([0-9a-f]{32})"\s*,\s*"Path"\s*:\s*"(engine:[^"]*)")re" );
-        std::smatch match;
-        if ( !std::regex_search( source, match, kShaderRef ) )
-            return {};
-        const std::string guid    = match[1].str();
-        const std::string locator = match[2].str();
-        const auto        found   = engineShaders.find( guid );
-        if ( found == engineShaders.end() )
-            return { std::format( "shader {} at '{}' is stated by no engine shader under {}", guid, locator,
-                                  Common::Constants::Path::SHADERDIR_PATH.string() ),
-                     std::nullopt };
-        if ( found->second == locator )
-            return {};
-        std::string text = source;
-        text.replace( static_cast<std::size_t>( match.position( 2 ) ), locator.size(), found->second );
-        return { std::string(), std::move( text ) };
     }
 
     // A SCENE goes through the engine's one scene writer (ExternalEntities::WriteSceneFile), partitioned or not,

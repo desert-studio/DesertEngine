@@ -57,15 +57,15 @@ namespace Desert::Graphic
         if ( Reads( groups, SceneRead::ObjectMotion ) )
         {
             auto* rows = material->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
-            DESERT_VERIFY( rows != nullptr && ObjectMotions != nullptr,
-                           "a view-pass material reads ObjectMotions but the frame carries none" );
+            const bool bound = rows != nullptr && ObjectMotions != nullptr;
+            DESERT_VERIFY( bound, "a view-pass material reads ObjectMotions but the frame carries none" );
             rows->SetBuffer( ObjectMotions );
         }
         if ( Reads( groups, SceneRead::ObjectBones ) )
         {
             auto* palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBonesName );
-            DESERT_VERIFY( palettes != nullptr && ObjectBones != nullptr,
-                           "a skinned view-pass material reads ObjectBones but the frame carries none" );
+            const bool bound    = palettes != nullptr && ObjectBones != nullptr;
+            DESERT_VERIFY( bound, "a skinned view-pass material reads ObjectBones but the frame carries none" );
             palettes->SetBuffer( ObjectBones );
         }
     }

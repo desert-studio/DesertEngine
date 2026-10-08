@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace Desert::Graphic
 {
@@ -59,13 +60,14 @@ namespace Desert::Graphic
     /// The C++ struct and the reflected block have one size (camera_ub_layout_test), so the whole struct goes.
     inline void SceneCameraBind( Material* material, const ViewFrame& frame )
     {
-        if ( !material )
+        if ( material == nullptr )
             return;
 
         if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
         {
-            const auto data = ShaderProtocols::MakeCameraUB( frame );
-            ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
+            const auto data  = ShaderProtocols::MakeCameraUB( frame );
+            const auto bytes = std::as_bytes( std::span{ &data, 1 } );
+            ub->SetRawData( bytes.data(), bytes.size() );
         }
     }
 

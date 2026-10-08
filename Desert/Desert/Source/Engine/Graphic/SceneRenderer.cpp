@@ -1344,14 +1344,14 @@ namespace Desert::Graphic
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
-    void SceneRenderer::SubmitGenericMesh( const uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
+    void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity               = entity,
-                                    .Mesh                 = const_cast<Mesh*>( mesh ),
+                                    .Mesh                 = mesh,
                                     .Transform            = transform,
                                     .ShaderName           = shaderName,
                                     .Overrides            = overrides,
@@ -1361,13 +1361,13 @@ namespace Desert::Graphic
                                     .DirectTextureSampler = directTextureSampler } );
     }
 
-    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, const Mesh* mesh,
-                                                const glm::mat4& transform, Material* material,
-                                                uint64_t visibleSubmeshMask, bool outlined, bool castShadows )
+    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
+                                                Material* material, uint64_t visibleSubmeshMask, bool outlined,
+                                                bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity             = entity,
-                                    .Mesh               = const_cast<Mesh*>( mesh ),
+                                    .Mesh               = mesh,
                                     .Transform          = transform,
                                     .Outlined           = outlined,
                                     .CastShadows        = castShadows,

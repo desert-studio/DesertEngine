@@ -42,7 +42,7 @@ namespace Desert::Graphic
         for ( const MotionRecord& record : skinned )
         {
             const uint32_t index = newRow( record.Entity, record.World );
-            const uint32_t slot  = static_cast<uint32_t>( entityRows[record.Entity].size() - 1 );
+            const auto     slot  = static_cast<uint32_t>( entityRows[record.Entity].size() - 1 );
             out.RecordRows.push_back( index );
             // Both palettes go into the ONE buffer every pass that draws the primitive skins it from.
             out.Rows[index].BoneOffset = static_cast<uint32_t>( out.Palettes.size() );

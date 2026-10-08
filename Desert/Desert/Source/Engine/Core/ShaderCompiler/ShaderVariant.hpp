@@ -60,9 +60,9 @@ namespace Desert::Core
      */
     struct ShaderVariant
     {
-        std::vector<ShaderVirtualSource> VirtualSources;
+        std::vector<ShaderVirtualSource> VirtualSources{};
         /// Macros defined for the compile, each `NAME` or `NAME=VALUE` (ShaderDefineName / ShaderDefineValue).
-        std::vector<std::string> Defines;
+        std::vector<std::string> Defines{};
 
         [[nodiscard]] bool IsDefault() const
         {

@@ -42,7 +42,7 @@ namespace ViewIdentityTest
 
     std::string ReadText( const std::filesystem::path& path )
     {
-        std::ifstream      file( path, std::ios::binary );
+        const std::ifstream file( path, std::ios::binary );
         std::ostringstream text;
         text << file.rdbuf();
         return text.str();
@@ -128,7 +128,8 @@ TEST( ViewIdentity, IssuedCameraSourceIdsAreUniqueAndNeverAnEntity )
     EXPECT_NE( b.Get() & kIssuedCameraSourceBit, 0u );
 
     // A copy is another camera object; an assignment keeps the destination object's id.
-    const CameraSourceTicket copy( a );
+    const auto               copyOf = []( const CameraSourceTicket& ticket ) { return ticket; };
+    const CameraSourceTicket copy   = copyOf( a );
     EXPECT_NE( copy.Get(), a.Get() );
     CameraSourceTicket assigned;
     const auto         assignedId = assigned.Get();
@@ -137,7 +138,7 @@ TEST( ViewIdentity, IssuedCameraSourceIdsAreUniqueAndNeverAnEntity )
 
     // Never the identity of an entity camera, whatever the entity id (bit 32 survives the identity packing).
     const uint64_t generation = NextSceneGeneration();
-    const uint32_t lowBits    = static_cast<uint32_t>( a.Get() & 0xFFFFFFFFull );
+    const auto     lowBits    = static_cast<uint32_t>( a.Get() & 0xFFFFFFFFull );
     EXPECT_NE( MakeViewCameraIdentity( generation, a.Get() ),
                MakeViewCameraIdentity( generation, EntityCameraSource( lowBits ) ) );
 }
@@ -199,11 +200,16 @@ TEST( ViewIdentity, SceneTakesANewGenerationAtConstructionAndAtEveryClear )
     std::smatch       head;
     ASSERT_TRUE( std::regex_search( source, head, std::regex( R"(void\s+Scene\s*::\s*Clear\s*\(\s*\)\s*\{)" ) ) );
     // The body by brace depth, not by an indentation pattern, so a re-format cannot cut it short.
-    const size_t start = static_cast<size_t>( head.position( 0 ) );
+    const auto   start = static_cast<size_t>( head.position( 0 ) );
     size_t       end   = start + static_cast<size_t>( head.length( 0 ) );
     int          depth = 1;
     for ( ; end < source.size() && depth > 0; ++end )
-        depth += source[end] == '{' ? 1 : source[end] == '}' ? -1 : 0;
+    {
+        if ( source[end] == '{' )
+            ++depth;
+        else if ( source[end] == '}' )
+            --depth;
+    }
     ASSERT_EQ( depth, 0 ) << "Scene::Clear has no closing brace";
     const std::string clearBody = source.substr( start, end - start );
     EXPECT_TRUE( std::regex_search( clearBody, initialised ) )

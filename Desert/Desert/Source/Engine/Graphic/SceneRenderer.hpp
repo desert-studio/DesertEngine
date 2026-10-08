@@ -218,15 +218,15 @@ namespace Desert::Graphic
         // castShadows: rasterize this draw into the shadow cascades. Off by default — see the note on
         // GenericMeshRenderData::CastShadows; only a producer that knows the draw is a solid mesh, and
         // that no OTHER draw of the same entity is already casting, may turn it on.
-        void SubmitGenericMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
+        void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides,
                                 bool outlined = false, Image2D* directTexture = nullptr,
                                 const std::string& directTextureSampler = {}, bool castShadows = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial).
-        void SubmitSlotMaterialMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
-                                     Material* material, uint64_t visibleSubmeshMask, bool outlined = false,
+        void SubmitSlotMaterialMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform, Material* material,
+                                     uint64_t visibleSubmeshMask, bool outlined = false,
                                      bool castShadows = false );
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).

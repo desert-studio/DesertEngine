@@ -20,6 +20,7 @@
 
 #include <spdlog/sinks/base_sink.h>
 
+#include <algorithm>
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
@@ -1765,14 +1766,8 @@ namespace Common::Crash
     {
         // Prefixes: __chkstk covers __chkstk_darwin, _RTC_ every MSVC run-time check.
         constexpr std::string_view kInserted[] = { "__CheckForDebuggerJustMyCode", "__chkstk", "_RTC_" };
-        for ( const std::string_view prefix : kInserted )
-        {
-            if ( inFunction.starts_with( prefix ) )
-            {
-                return true;
-            }
-        }
-        return false;
+        return std::ranges::any_of( kInserted, [inFunction]( const std::string_view prefix )
+                                    { return inFunction.starts_with( prefix ); } );
     }
 
     std::size_t SelectFaultFrame( const FrameIdentity* inFrames, std::size_t inCount, bool inSynthesized )

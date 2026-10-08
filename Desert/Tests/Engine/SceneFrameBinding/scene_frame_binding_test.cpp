@@ -319,9 +319,9 @@ TEST_F( SceneFrameBindingShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclar
 
         // Mutation: drop DESERT_OBJECT_MOTION_ROWS / DESERT_OBJECT_BONES from a view-pass vertex path -> red.
         for ( const auto& name : MotionNamesOf( shader ) )
-            EXPECT_TRUE( declared.count( name ) != 0 ) << shader.Cell << " does not declare '" << name << "'";
+            EXPECT_TRUE( declared.contains( name ) ) << shader.Cell << " does not declare '" << name << "'";
         for ( const auto& name : expected )
-            EXPECT_TRUE( declared.count( name ) != 0 )
+            EXPECT_TRUE( declared.contains( name ) )
                  << shader.Path << " does not declare '" << name
                  << "', which SceneFrameBinding::ApplyTo fills for it. Declared: " << Describe( declared );
     }
@@ -368,7 +368,7 @@ TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoAppl
             accounted.insert( name );
 
         for ( const auto& name : declared )
-            EXPECT_TRUE( accounted.count( name ) != 0 )
+            EXPECT_TRUE( accounted.contains( name ) )
                  << shader.Path << " declares '" << name
                  << "' and nothing in the engine writes it — an unwritten binding is not a disabled "
                     "feature, it is whatever the fallback descriptor happens to contain";
@@ -513,7 +513,7 @@ TEST_F( SceneFrameBindingShaderRoot, EveryShaderCompilingTheCascadeTextDeclaresT
         ASSERT_FALSE( declared.empty() ) << shader.string();
 
         for ( const auto& name : expected )
-            EXPECT_TRUE( declared.count( name ) != 0 )
+            EXPECT_TRUE( declared.contains( name ) )
                  << shader.string() << " compiles Mesh/CascadedShadow.glslh but does not declare '" << name
                  << "', which the text reads and Graphic::SceneShadowBind fills. Declared: "
                  << Describe( declared );

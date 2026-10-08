@@ -107,7 +107,7 @@ TEST( ShadingWord, FieldsAreDisjointInsideTheUintWord )
         ASSERT_GT( f.BitCount, 0 ) << f.Name;
         ASSERT_LE( f.FirstBit + f.BitCount, SM::kShadingWordBits )
              << f.Name << " reaches past bit " << static_cast<int>( SM::kShadingWordBits ) << " of the word";
-        const std::uint32_t mask = static_cast<std::uint32_t>( ( ( 1ull << f.BitCount ) - 1ull ) << f.FirstBit );
+        const auto mask = static_cast<std::uint32_t>( ( ( 1ull << f.BitCount ) - 1ull ) << f.FirstBit );
         EXPECT_EQ( used & mask, 0u ) << f.Name << " overlaps another field of the shading word";
         used |= mask;
     }

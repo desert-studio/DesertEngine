@@ -33,7 +33,7 @@ namespace Desert::Graphic
         void BindInputs( const glm::mat4& viewProj, const glm::mat4& invJitteredViewProjection,
                          const glm::vec4& cameraPos, float radius, float bias, float power, int sampleCount )
         {
-            SSAOUBData data;
+            SSAOUBData data{};
             data.ViewProj                  = viewProj;
             data.InvJitteredViewProjection = invJitteredViewProjection;
             data.CameraPos = cameraPos;

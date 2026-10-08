@@ -16,7 +16,7 @@ namespace Desert::Graphic
     {
         uint32_t                   Entity = 0;
         glm::mat4                  World{ 1.0f };
-        std::span<const glm::mat4> Bones;
+        std::span<const glm::mat4> Bones{};
     };
 
     // The CPU half of MeshRenderer::BuildObjectMotions (no device): what the view's ObjectMotions / ObjectBones
