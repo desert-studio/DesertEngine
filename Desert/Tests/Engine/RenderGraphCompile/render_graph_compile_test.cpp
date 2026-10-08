@@ -1937,9 +1937,10 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
 
 // WHICH ORDER SceneRenderer ADDS. The pass sequence of SceneRenderer::OnUpdate, read from the source: every
 // graph node call (graph.AddPass, AddRaster, the DeferredFrameNodes declarations it calls) by its name, every
-// system's compute nodes by the declaring call and, for AddGraphPhasePasses, its phase selector (it adds one
-// node per RenderGraphBuilder::GetSortedPasses entry the selector admits, in that order). A node added only at
-// some sample counts (Deferred: DepthResolve at 1x, Deferred: DepthExpand and Scene: DepthResolve at MSAA) is
+// system's compute nodes by the declaring call, every system raster pass by the getter that hands it over (a
+// getter returning several, ShadowCascadePasses, adds one node per element in its order) and every
+// AddSystemRasters call by its list and clear mode (its passes are the getters named before it). A node added only
+// at some sample counts (Deferred: DepthResolve at 1x, Deferred: DepthExpand and Scene: DepthResolve at MSAA) is
 // listed where its call stands. The table is the frame order before RDG3 (c303909f9, SceneRenderer::OnUpdate):
 // its DESERT_PROFILE_PASS scopes and direct calls in sequence, ExecuteRenderGraph = every phase but the deferred
 // overlays, then ExecuteTransparency, ExecuteDebugOverlay and ExecuteUI one phase each. Moving a pass changes
@@ -2018,7 +2019,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
         for ( size_t at = from;; )
         {
             const size_t pass   = text.find( "graph.AddPass(", at );
-            const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
             size_t       raster = text.find( "AddRaster(", at );
             // A system's compute nodes (AddComputeNodes): the entry names the system call that declares them.
@@ -2028,9 +2028,36 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // TAA1-B: the view's temporal upscaler declares its own nodes (ITemporalUpscaler::AddPasses); the
             // entry names the member that holds it.
             const size_t temporal = text.find( "->AddPasses(", at );
-            // ARCH1b: a system's raster pass placed by the position of its call (AddSystemRaster); the entry names
-            // the system member that hands the pass over.
-            const size_t systemRaster = text.find( "AddSystemRaster(", at );
+            // ARCH1b: a system's raster pass, placed by the position of the call to the getter that hands it over
+            // (`->XPass()` / `->XPasses()`, no arguments); the entry names the receiver, when it is a variable,
+            // and the getter.
+            const auto isGetter = [&text]( size_t arrow )
+            {
+                size_t end = arrow + 2;
+                while ( end < text.size() &&
+                        ( std::isalnum( static_cast<unsigned char>( text[end] ) ) || text[end] == '_' ) )
+                    ++end;
+                const std::string_view name( text.data() + arrow + 2, end - arrow - 2 );
+                if ( !name.ends_with( "Pass" ) && !name.ends_with( "Passes" ) )
+                    return false;
+                size_t open = end;
+                while ( open < text.size() && std::isspace( static_cast<unsigned char>( text[open] ) ) )
+                    ++open;
+                size_t close = open + 1;
+                while ( close < text.size() && std::isspace( static_cast<unsigned char>( text[close] ) ) )
+                    ++close;
+                return close < text.size() && text[open] == '(' && text[close] == ')';
+            };
+            size_t systemRaster = text.find( "->", at );
+            while ( systemRaster != std::string::npos && !isGetter( systemRaster ) )
+                systemRaster = text.find( "->", systemRaster + 1 );
+            // ARCH1b-4: a list of system raster passes added in order (AddSystemRasters); the entry names the list
+            // and the clear mode. The member's own definition (its parameters are not `graph, textures,`) is
+            // skipped.
+            size_t rasters = text.find( "AddSystemRasters(", at );
+            while ( rasters != std::string::npos &&
+                    squeeze( text.substr( rasters, 48 ) ).rfind( "AddSystemRasters(graph,textures,", 0 ) != 0 )
+                rasters = text.find( "AddSystemRasters(", rasters + 1 );
             // ARCH1b-2: an extension point invoked at its place (AddExtensionPoint): the entry names the point.
             // The member's own definition names no point before its first ';' and is skipped.
             size_t extension = text.find( "AddExtensionPoint(", at );
@@ -2046,7 +2073,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
             const size_t first = std::min(
-                 { pass, phases, frame, raster, node, compute, deferred, temporal, systemRaster, extension } );
+                 { pass, frame, raster, node, compute, deferred, temporal, systemRaster, rasters, extension } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -2071,19 +2098,32 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             }
             else if ( first == systemRaster )
             {
-                size_t close = text.find( '(', systemRaster );
+                size_t receiver = systemRaster;
+                while ( receiver > 0 && ( std::isalnum( static_cast<unsigned char>( text[receiver - 1] ) ) ||
+                                          text[receiver - 1] == '_' ) )
+                    --receiver;
+                // No variable before the arrow (a macro call's result): the getter alone.
+                if ( receiver == systemRaster )
+                    receiver += 2;
+                const size_t close = text.find( ')', systemRaster );
+                added.push_back(
+                     std::format( "system[{}]", squeeze( text.substr( receiver, close + 1 - receiver ) ) ) );
+                at = close + 1;
+            }
+            else if ( first == rasters )
+            {
+                size_t close = text.find( '(', rasters );
                 for ( int depth = 0; close < text.size(); ++close )
                 {
                     depth += text[close] == '(' ? 1 : text[close] == ')' ? -1 : 0;
                     if ( depth == 0 )
                         break;
                 }
-                ASSERT_LT( close, text.size() ) << "unbalanced AddSystemRaster call";
-                const std::string call   = squeeze( text.substr( systemRaster, close + 1 - systemRaster ) );
-                const size_t      member = call.rfind( "->" );
-                ASSERT_NE( member, std::string::npos ) << call;
+                ASSERT_LT( close, text.size() ) << "unbalanced AddSystemRasters call";
+                const std::string      call   = squeeze( text.substr( rasters, close + 1 - rasters ) );
+                const std::string_view prefix = "AddSystemRasters(graph,textures,";
                 added.push_back(
-                     std::format( "system[{}]", call.substr( member + 2, call.size() - member - 3 ) ) );
+                     std::format( "rasters[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
                 at = close + 1;
             }
             else if ( first == temporal )
@@ -2125,21 +2165,14 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                      std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
                 at = close + 1;
             }
-            else if ( first == pass || first == raster || first == node )
+            else
             {
+                // graph.AddPass / AddRaster: the node's name literal.
                 const size_t open  = text.find( '"', first );
                 const size_t close = text.find( '"', open + 1 );
                 ASSERT_NE( close, std::string::npos );
                 added.push_back( text.substr( open + 1, close - open - 1 ) );
                 at = close + 1;
-            }
-            else
-            {
-                const size_t ret  = text.find( "return ", phases );
-                const size_t semi = text.find( ';', ret );
-                ASSERT_NE( semi, std::string::npos );
-                added.push_back( std::format( "phases[{}]", squeeze( text.substr( ret + 7, semi - ret - 7 ) ) ) );
-                at = semi + 1;
             }
         }
     };
@@ -2149,7 +2182,18 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "ClearMainFramebuffer",
          "Particles: Simulate {}",
          "compute[clouds->DeclareShadowMapNodes()]",
-         "phases[!RenderPhase::IsDeferredOverlay(phase)]",
+         // ARCH1b-4: the opaque raster of the systems by explicit calls, in the order the phase walk drew it:
+         // the shadow cascades (each clearing its cascade, 0 first), then ONE clearing sequence on the scene
+         // target - the sky CLEARS it, the meshes then the terrain LOAD over it - then the outline silhouette
+         // mask (cleared).
+         "system[mesh->ShadowCascadePasses()]",
+         "rasters[cascades,true]",
+         "system[sky->SkyPass()]",
+         "system[mesh->GeometryPass()]",
+         "system[terrain->GeometryPass()]",
+         "rasters[passes,true]",
+         "system[mesh->SilhouettePass()]",
+         "rasters[std::span<constSystemRasterPass>(&silhouette,1),true]",
          "Deferred: GBuffer",
          "TerrainGBuffer",
          "Deferred: DepthResolve",
@@ -2177,21 +2221,21 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // everything nearer the camera (particles, the editor's passes) over both.
          "system[ApplyPass()]",
          "system[CompositePass()]",
-         "phases[phase==RenderPhase::Transparency]",
+         "system[particles->DrawPass()]",
          "extension[AfterTranslucency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
-         // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
-         // phases, which draw into its output.
+         // TAA1-B: the temporal resolve, after the last velocity writer (the translucency) and before the
+         // overlays, which draw into its output.
          "temporal[m_TemporalUpscaler]",
          // TAA1-B 6: the output-extent overlay depth, filled from the render-extent scene depth, before the
-         // overlay phases that test against it.
+         // overlays that test against it.
          "Scene: PopulateSceneDepth",
          "Debug: Velocity",
-         "phases[phase==RenderPhase::Debug]",
+         // The engine's debug lines (bounding boxes), the first overlay, below the editor's.
+         "system[mesh->DebugLinesPass()]",
          "extension[Overlay]",
          "UI: BackdropBlur{}",
-         "phases[phase==RenderPhase::UI]",
          "extension[UI]",
          "PostFX: JumpFloodInit",
          "PostFX: JumpFloodStep{}",
@@ -2265,15 +2309,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 "returnwithoutTemporal(prepared.GetError());" } );
     declares( "OnUpdate",
               { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
-                "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
+                "AddSystemRaster(graph,textures,mesh->DebugLinesPass(),overlay);",
+                "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::Overlay,overlay);",
+                "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::UI,overlay);",
                 // The one resolution function, the render set resized to the frame's split, the velocity at it.
                 "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView."
                 "ScreenPercentage,",
                 // The frame's upscaler is the VIEW's (a viewport override at 50 % under a 100 % setting is TAAU).
                 "inputs.Upscaler=resolved.GetValue().Upscaler;", "ResizeRenderTargets(frame.Split.Render);",
                 "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
-    // The overlay phases draw into the overlay set: every scene-target attachment replaced, no resolves.
-    declares( "AddGraphPhasePasses",
+    // The overlays draw into the overlay set: every scene-target attachment replaced, no resolves.
+    declares( "AddPassNode",
               { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",
                 "targets->Depth=overlay.Depth;", "targets->Resolves={};" } );
     // TWO EXTENT SETS: ResizeRenderTargets sizes the Render set (scene target, G-buffer, depth resolve, mask,
@@ -3283,13 +3329,12 @@ TEST( RenderGraphCompile, NoExternalPassApiRemainsInEngineOrEditor )
     EXPECT_GT( files, 100u ) << "the census read almost nothing";
 }
 
-// THE PHASE PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). The AddGraphPhasePasses bridge
-// no longer opens the engine's render pass around a legacy wrapper: every registered pass is a Raster node whose
-// targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
-// names in SystemRasterPass::Declare, and whose render pass the graph opens and merges. Each system
-// declares its own reads where it registers the pass, the editor's external passes through
-// ExternalPassSpecification::Declare, and the in-graph DispatchCompute records no barrier of its own (the
-// particle draw declares its StorageRead).
+// THE SYSTEM RASTER PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). AddSystemRasters /
+// AddPassNode never open the engine's render pass around a legacy wrapper: every system pass is a Raster node
+// whose targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the
+// system names in SystemRasterPass::Declare, and whose render pass the graph opens and merges. Each system
+// declares its own reads where it builds the pass, the editor's extension passes through ExtensionPass::Declare,
+// and the in-graph DispatchCompute records no barrier of its own (the particle draw declares its StorageRead).
 TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 {
     const fs::path root = RepoRoot();
@@ -3299,32 +3344,37 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     { return SqueezedSource( root, std::format( "{}{}", graphic, relative ).c_str() ); };
 
     const std::string sceneRenderer = source( "SceneRenderer.cpp" );
-    EXPECT_EQ( sceneRenderer.find( "BeginRenderPass(pass->CachedRenderPass" ), std::string::npos )
-         << "the bridge still opens the engine render pass itself";
+    EXPECT_EQ( sceneRenderer.find( "BeginRenderPass(pass" ), std::string::npos )
+         << "the scene renderer still opens a system pass's render pass itself";
 
-    const std::string bridge = SqueezedBody( source( "SceneRendererFrameMesh.cpp" ),
-                                             "voidSceneRenderer::AddGraphPhasePasses(", "voidSceneRenderer::" );
-    ASSERT_FALSE( bridge.empty() ) << "no AddGraphPhasePasses in SceneRendererFrameMesh.cpp";
+    const std::string frameMesh = source( "SceneRendererFrameMesh.cpp" );
+    const std::string list =
+         SqueezedBody( frameMesh, "voidSceneRenderer::AddSystemRasters(", "voidSceneRenderer::" );
+    ASSERT_FALSE( list.empty() ) << "no AddSystemRasters in SceneRendererFrameMesh.cpp";
+    const std::string node = SqueezedBody( frameMesh, "voidSceneRenderer::AddPassNode(", "voidSceneRenderer::" );
+    ASSERT_FALSE( node.empty() ) << "no AddPassNode in SceneRendererFrameMesh.cpp";
+    const std::string bridge = list + node;
     for ( const char* needle :
           { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
             "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=overlay.Color;",
             "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;", "targets->Depth=overlay.Depth;",
             "node.DepthTarget(targets->Depth,depth)", "DeclareResolves(node,targets->Resolves)",
-            "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
-        EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
+            "RDG::LoadOp::ClearDepth(pass.ClearDepth.value_or(defaults.ClearColor.DepthStencil.x))",
+            "AddPassNode(graph,textures,pass,target,pass.Name,color,depth,overlay);" } )
+        EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the system raster node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
     // The declaration lives on the pass registration, not in a list in SceneRenderer.
-    EXPECT_NE( source( "RenderGraphBuilder.hpp" )
+    EXPECT_NE( source( "SystemRasterPass.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
                std::string::npos );
     EXPECT_NE( source( "ExtensionPass.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constExtensionPassContext&)>Declare;" ),
                std::string::npos );
 
-    // Each system names what its pass samples, in its own RegisterPasses.
+    // Each system names what its pass samples, in its own pass getter.
     const std::pair<const char*, const char*> declared[] = {
          // The procedural sky's LUTs are entries of the SkyboxPass's block (DeclareSkyDraw), each the read.
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
