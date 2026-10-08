@@ -78,7 +78,7 @@ namespace
     // because the question is where the element's size and its ResolutionScale meet.
     struct Ask
     {
-        UI::NodeId Element = UI::NodeId::Null;
+        UI::NodeId   Element = UI::NodeId::Null;
         std::string  ScenePath;
         uint32_t     Width  = 0;
         uint32_t     Height = 0;
