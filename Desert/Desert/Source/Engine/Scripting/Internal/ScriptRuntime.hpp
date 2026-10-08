@@ -389,23 +389,31 @@ namespace Desert::Scripting
                 return nullptr;
             }
 
-            // forward = W/S axis, right = D/A axis (each -1..1), speed in m/s.
-            void Move( float forward, float right, float speed )
+            // UE AddMovementInput: camera-relative intent, forward and right each -1..1 (IA_Move's Y and X). The
+            // speed is the controller's (Max Walk Speed / Crouched / Swim), not the script's.
+            void Move( float forward, float right )
             {
                 if ( auto* cc = Character() )
-                {
-                    cc->MoveInput    = { right, forward };
-                    cc->DesiredSpeed = speed;
-                }
+                    cc->MoveInput = { right, forward };
             }
 
-            void Jump( float strength )
+            // UE Jump: Jump Z Velocity from the ground, not while crouched.
+            void Jump()
             {
                 if ( auto* cc = Character() )
-                {
                     cc->JumpRequested = true;
-                    cc->JumpStrength  = strength;
-                }
+            }
+
+            // UE Crouch / UnCrouch: the wish; standing up waits for head room.
+            void Crouch( bool on )
+            {
+                if ( auto* cc = Character() )
+                    cc->CrouchRequested = on;
+            }
+            bool IsCrouched() const
+            {
+                auto* cc = Character();
+                return cc ? cc->IsCrouched : false;
             }
 
             bool IsOnGround() const
@@ -447,7 +455,10 @@ namespace Desert::Scripting
                 auto& reg = Reg();
                 for ( entt::entity child : reg.get<ECS::RelationshipComponent>( handle ).Children )
                 {
-                    if ( reg.has<ECS::CameraComponent>( child ) && reg.has<ECS::TransformComponent>( child ) )
+                    // A spring arm takes the pitch (UE: the arm follows the control rotation) and swings its
+                    // camera with it; without one the camera child itself tilts.
+                    if ( ( reg.has<ECS::SpringArmComponent>( child ) || reg.has<ECS::CameraComponent>( child ) ) &&
+                         reg.has<ECS::TransformComponent>( child ) )
                     {
                         auto& rot = reg.get<ECS::TransformComponent>( child ).Rotation;
                         rot.x     = glm::clamp( rot.x + radians, glm::radians( -85.0f ), glm::radians( 85.0f ) );

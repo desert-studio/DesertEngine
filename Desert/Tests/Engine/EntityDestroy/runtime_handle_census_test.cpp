@@ -273,7 +273,7 @@ TEST( RuntimeHandleCensus, EveryComponentHandleFieldHasARegisteredRelease )
     for ( const auto& [component, field] :
           std::vector<std::pair<std::string, std::string>>{ { "TransformComponent", "Translation" },
                                                             { "StaticMeshComponent", "MeshHandle" },
-                                                            { "CharacterControllerComponent", "VerticalVelocity" },
+                                                            { "CharacterControllerComponent", "Velocity" },
                                                             { "RigidBodyComponent", "Data" } } )
         EXPECT_TRUE( seen.count( { component, field } ) )
              << "the field scan no longer sees " << component << "::" << field;

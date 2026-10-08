@@ -17,6 +17,9 @@
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -760,6 +763,53 @@ namespace Desert::Physics
         return hit;
     }
 
+    float PhysicsWorld::GetGravity() const
+    {
+        if ( !m_Impl )
+            return 0.0f;
+        return -m_Impl->System.GetGravity().GetY();
+    }
+
+    std::optional<RayHit> PhysicsWorld::CastSphere( const glm::vec3& origin, const glm::vec3& direction,
+                                                    float radius, float maxDistance ) const
+    {
+        if ( !m_Impl || !( maxDistance > 0.0f ) || !( radius > 0.0f ) || glm::length( direction ) == 0.0f )
+            return std::nullopt;
+        const glm::vec3                                            dir    = glm::normalize( direction );
+        const JPH::RefConst<JPH::Shape>                            sphere = new JPH::SphereShape( radius );
+        const JPH::RShapeCast                                      cast( sphere, JPH::Vec3::sReplicate( 1.0f ),
+                                                                         JPH::RMat44::sTranslation( JPH::RVec3( origin.x, origin.y, origin.z ) ),
+                                                                         ToJolt( dir * maxDistance ) );
+        JPH::ShapeCastSettings                                     settings;
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        m_Impl->System.GetNarrowPhaseQuery().CastShape( cast, settings, JPH::RVec3::sZero(), collector );
+        if ( !collector.HadHit() )
+            return std::nullopt;
+
+        RayHit hit;
+        hit.Body             = collector.mHit.mBodyID2.GetIndexAndSequenceNumber();
+        hit.Distance         = glm::max( collector.mHit.mFraction, 0.0f ) * maxDistance;
+        hit.Point            = ToGlm( JPH::RVec3( collector.mHit.mContactPointOn2 ) );
+        const JPH::Vec3 axis = collector.mHit.mPenetrationAxis;
+        if ( axis.LengthSq() > 0.0f )
+            hit.Normal = ToGlm( JPH::RVec3( -axis.Normalized() ) );
+        return hit;
+    }
+
+    bool PhysicsWorld::OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const
+    {
+        if ( !m_Impl || !( radius > 0.0f ) )
+            return false;
+        const JPH::RefConst<JPH::Shape> capsule = new JPH::CapsuleShape( glm::max( halfHeight, 0.01f ), radius );
+        JPH::CollideShapeSettings       settings;
+        JPH::AnyHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        m_Impl->System.GetNarrowPhaseQuery().CollideShape(
+             capsule, JPH::Vec3::sReplicate( 1.0f ),
+             JPH::RMat44::sTranslation( JPH::RVec3( center.x, center.y, center.z ) ), settings,
+             JPH::RVec3::sZero(), collector );
+        return collector.HadHit();
+    }
+
     glm::vec3 PhysicsWorld::GetPosition( BodyHandle handle ) const
     {
         if ( !m_Impl || handle == kInvalidBody )
@@ -912,5 +962,18 @@ namespace Desert::Physics
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
             return;
         m_Impl->Characters[handle]->SetPosition( ToJolt( position ) );
+    }
+    bool PhysicsWorld::SetCharacterCapsule( CharacterHandle handle, float radius, float halfHeight )
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return false;
+        auto&                           character = m_Impl->Characters[handle];
+        const JPH::RefConst<JPH::Shape> capsule =
+             new JPH::CapsuleShape( glm::max( halfHeight, 1.0f ), glm::max( radius, 1.0f ) );
+        // Jolt's own crouch sample allows the character's padding of penetration and no more.
+        return character->SetShape( capsule, 1.5f * character->GetCharacterPadding(),
+                                    m_Impl->System.GetDefaultBroadPhaseLayerFilter( Layers::MOVING ),
+                                    m_Impl->System.GetDefaultLayerFilter( Layers::MOVING ), {}, {},
+                                    *m_Impl->TempAllocator );
     }
 } // namespace Desert::Physics

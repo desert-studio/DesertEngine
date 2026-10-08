@@ -105,6 +105,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AnchorFieldComponent, Data, 
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
 // runs, and they were invisible. See MakeCharacterControllerEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
+// UE USpringArmComponent: the third-person camera boom (ECS/System/SpringArm.cpp places its camera child).
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpringArmComponent, Data, "SpringArmData", "Spring Arm" )
 // UE's APlayerStart: where Play puts the pawn (::Desert::Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
 // UE's World Partition Streaming Source: the world loads around this entity in Play
@@ -2188,8 +2190,9 @@ namespace Desert::Editor
             readOnlyRow( "On Ground", c.OnGround ? "Yes" : "No" );
             std::snprintf( buf, sizeof( buf ), "%.0f cm/s", c.CurrentSpeed );
             readOnlyRow( "Planar Speed", buf );
-            std::snprintf( buf, sizeof( buf ), "%.0f cm/s", c.VerticalVelocity );
+            std::snprintf( buf, sizeof( buf ), "%.0f cm/s", c.Velocity.y );
             readOnlyRow( "Vertical Velocity", buf );
+            readOnlyRow( "Crouched", c.IsCrouched ? "Yes" : "No" );
             readOnlyRow( "Swimming", c.Swimming ? "Yes" : "No" );
             std::snprintf( buf, sizeof( buf ), "%.2f, %.2f", c.MoveInput.x, c.MoveInput.y );
             readOnlyRow( "Move Input", buf );

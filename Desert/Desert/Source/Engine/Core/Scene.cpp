@@ -763,6 +763,7 @@ namespace Desert::Core
         r.prepare<ECS::KillFieldComponent>();
         r.prepare<ECS::AnchorFieldComponent>();
         r.prepare<ECS::CharacterControllerComponent>();
+        r.prepare<ECS::SpringArmComponent>();
         r.prepare<ECS::PlayerStartComponent>();
         r.prepare<ECS::StreamingSourceComponent>();
         r.prepare<ECS::LocomotionComponent>();
