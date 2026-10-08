@@ -88,7 +88,7 @@
 #include <Common/Core/Events/KeyEvents.hpp>
 #include <Common/Core/KeyCodes.hpp>
 
-#include <Engine/UI/LoadingOverlay.hpp>
+#include <Engine/UI/Ecs/LoadingOverlay.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -812,8 +812,8 @@ namespace Desert::Player
 
         // AND SOMETHING THAT MOVES. A still loading screen is indistinguishable from a hung game, and this
         // cover cannot rely on a font (fonts are assets, and the point of this screen is that the assets are not
-        // here yet). The strip is the engine's one (Engine/UI/LoadingOverlay.hpp), driven by the PRESENTED frame
-        // count so an unattended capture of frame N is reproducible.
+        // here yet). The strip is the engine's one (Engine/UI/Ecs/LoadingOverlay.hpp), driven by the PRESENTED
+        // frame count so an unattended capture of frame N is reproducible.
         UI::DrawLoadingStrip( dl, w, h, m_LoadingFramesPresented );
     }
 

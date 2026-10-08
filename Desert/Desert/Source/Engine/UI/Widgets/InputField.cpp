@@ -4,14 +4,8 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -79,7 +73,7 @@ namespace Desert::UI::Walk
         // The PLACEHOLDER is authored and therefore localisable; `f.Text` is what the player
         // typed and is drawn exactly as typed — translating a person's own input would be
         // absurd, and it is the one string on a canvas that must never go through the table.
-        td.Text     = showPlaceholder ? Localization::Localization::Get().Resolve( f.Placeholder ).Text : f.Text;
+        td.Text     = showPlaceholder ? ctx.View.Resources().Text().Resolve( f.Placeholder ).Text : f.Text;
         td.FontSize = f.FontSize;
         td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
         td.Align    = UITextAlign::Left;

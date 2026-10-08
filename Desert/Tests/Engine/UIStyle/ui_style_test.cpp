@@ -35,14 +35,12 @@
 #include <vector>
 
 using Desert::Assets::BuildUIThemeRuntime;
-using Desert::Assets::kUIThemeDefaultStyle;
 using Desert::Assets::ParseUITheme;
 using Desert::Assets::UIThemeBinding;
 using Desert::Assets::UIThemeColor;
 using Desert::Assets::UIThemeData;
 using Desert::Assets::UIThemeFont;
 using Desert::Assets::UIThemeMetric;
-using Desert::Assets::UIThemeRuntime;
 using Desert::Assets::UIThemeStyle;
 using Desert::Assets::ValidateUIThemeData;
 using Desert::Assets::WriteUITheme;
@@ -50,10 +48,12 @@ using Desert::UI::CanvasStyle;
 using Desert::UI::ElementStyle;
 using Desert::UI::kStyleSlotCount;
 using Desert::UI::kStyleSlotInfo;
+using Desert::UI::kUIThemeDefaultStyle;
 using Desert::UI::StyleSlot;
 using Desert::UI::StyleSlotKind;
 using Desert::UI::StyleSlotKindOf;
 using Desert::UI::StyleSlotName;
+using Desert::UI::UIThemeRuntime;
 
 namespace
 {
@@ -452,8 +452,8 @@ TEST( UIThemeLibrary, TheShippedThemesDeclareTheSameStylesAndBindTheSameSlots )
         ASSERT_NE( other, nullptr ) << "only one of the shipped themes declares the style '" << name << "'";
         for ( std::size_t i = 0; i < kStyleSlotCount; ++i )
         {
-            const bool boundHere  = table.Slots[i] != Desert::Assets::kUIThemeUnbound;
-            const bool boundThere = other->Slots[i] != Desert::Assets::kUIThemeUnbound;
+            const bool boundHere  = table.Slots[i] != Desert::UI::kUIThemeUnbound;
+            const bool boundThere = other->Slots[i] != Desert::UI::kUIThemeUnbound;
             EXPECT_EQ( boundHere, boundThere )
                  << "the style '" << name << "' binds " << StyleSlotName( static_cast<StyleSlot>( i ) )
                  << " in only one of the two shipped themes";

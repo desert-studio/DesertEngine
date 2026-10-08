@@ -4,14 +4,8 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -58,9 +52,8 @@ namespace Desert::UI::Walk
 
         // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
         float      reveal = path.Reveal;
-        const auto clip   = ctx.View.AnimClips.Samples.find( e );
-        if ( clip != ctx.View.AnimClips.Samples.end() )
-            reveal = clip->second.Reveal.value_or( reveal );
+        if ( const UIClipSample* clip = ctx.View.Animation().Sample( e ); clip != nullptr )
+            reveal = clip->Reveal.value_or( reveal );
 
         const std::vector<glm::vec2> shown = RevealUIPath( line, reveal );
         if ( shown.size() >= 2 )

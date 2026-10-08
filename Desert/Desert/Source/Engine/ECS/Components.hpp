@@ -1117,7 +1117,7 @@ namespace Desert::ECS
 
         // Where playback is. RUNTIME only — never serialized, so scrubbing in the editor cannot dirty the
         // scene. Created lazily from Sequence.TickRate/Start/End by the one view that drives scene animation
-        // (UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
+        // (UI/Ecs/UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
         std::optional<Animation::Timeline::Player> Playback;
     };
     struct UIAnimComponent

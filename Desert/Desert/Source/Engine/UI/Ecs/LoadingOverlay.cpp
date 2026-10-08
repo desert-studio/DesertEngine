@@ -1,4 +1,4 @@
-#include <Engine/UI/LoadingOverlay.hpp>
+#include <Engine/UI/Ecs/LoadingOverlay.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
