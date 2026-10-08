@@ -322,7 +322,9 @@ float CloudNormalCdf( float x )
 
 // THE LOCAL COVER at a world column — Assets::CloudProceduralLocalCover, written for the GPU (WX-NUBIS):
 // Nubis' localCover = Coverage * W, W = saturate(1 - 2 s Phi(w)) the weather map with true zeros
-// (Assets::CloudWeatherPresence). A strength of 0 (none, or a painted pattern is the weather) is W = 1.
+// (Assets::CloudWeatherPresence). A strength of 0 (none, or a painted pattern is the weather) is W = 1 here:
+// a painted W = 1 - PatternStrength * (1 - painted) reaches this cut through the baked rank instead, shifted
+// by Coverage * (1 - W) (Assets::CloudProceduralCellRank), so Coverage - rank is Coverage * W - draw exactly.
 float CloudLocalCover( vec4 weather, vec2 windPosXz )
 {
     float cover    = clamp( weather.x, 0.0f, 1.0f );

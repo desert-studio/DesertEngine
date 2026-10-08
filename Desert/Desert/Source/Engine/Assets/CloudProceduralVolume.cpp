@@ -258,20 +258,21 @@ namespace Desert::Assets
         /// all — which is what makes that end of the slider a live position instead of "no modulation",
         /// a state the sky already reads as "the whole sky is cloud" (CALIBRATION.md §RW).
         ///
-        /// WHY THE PATTERN IS APPLIED ZERO-MEAN AND THE MASK IS NOT.
+        /// THE PATTERN IS A WEATHER MAP AND THE MASK IS NOT (WX-NUBIS-b).
         ///
-        ///   * The PATTERN is on by default the moment a painting is bound, so if it could move the sky's
-        ///     average cover, then `Coverage` would stop meaning the fraction of sky it delivers — and that
-        ///     mapping is what decision D-20 re-authorised every shipped scene against. Subtracting the
-        ///     painting's own mean makes it redistribute cloud exactly as the patch field it replaces does
-        ///     ("symmetric about the slider"), so the average is the slider again whatever is painted.
+        ///   * The PATTERN is the artist's W: the same presence map the world weather is, a MULTIPLIER on
+        ///     the slider — localCover = Coverage * W, W = 1 - PatternStrength * (1 - painted) — so black
+        ///     paint is clear sky and white paint is the slider's own cover. It no longer shifts Coverage
+        ///     about the painting's mean: that was decision D-20's "Coverage is the fraction of sky", which
+        ///     Coverage * W retired for the procedural weather (WX-NUBIS), and one number with two meanings
+        ///     depending on which W is bound is the second path the contract forbids. Over the sky the cover
+        ///     is Coverage * E[W] whichever W it is. This is Unreal's Layout pattern exactly: the painted
+        ///     channel multiplies the assembled coverage (Docs/Clouds/RESEARCH_LAYOUT_TEXTURES.md §3).
         ///   * The MASK is asymmetric, and that is its job: "add cloud here, remove it there" is the one
-        ///     control an artist reaches for when they want MORE sky covered, and a symmetric version of it
-        ///     could not do that. It is safe for D-20 in a way the pattern is not because a layout with no
-        ///     mask table contributes exactly nothing, so no sky moves that an artist did not paint. This is
-        ///     Unreal's own arrangement unchanged — the mask is summed into the assembled shape, and it
-        ///     subtracts by carrying a negative weight rather than by multiplying
-        ///     (Docs/Clouds/RESEARCH_LAYOUT_TEXTURES.md §3).
+        ///     control an artist reaches for when they want MORE sky covered, and a multiplier could not do
+        ///     it. A layout with no mask table contributes exactly nothing. This is Unreal's own arrangement
+        ///     unchanged — the mask is summed into the assembled shape, and it subtracts by carrying a
+        ///     negative weight rather than by multiplying (RESEARCH_LAYOUT_TEXTURES.md §3).
         ///
         /// THE SEEDS ARE DERIVED IN ONE PLACE, and it is not tidiness. The public
         /// CloudProceduralCellCoverage has to reach the same weather patch the bake's own loop reaches, or
@@ -307,15 +308,13 @@ namespace Desert::Assets
                 // The channel is the SLOT and not a genus. Unreal fixes R/G/B/A to four named types for
                 // ever; ours is whichever kind of cloud the artist dropped into that slot, which is the
                 // more general arrangement and costs nothing.
-                const float painted = SampleCloudLayoutPattern( *patternSource, slot, uv );
-                const float centred =
-                     painted - patternSource->PatternMean[std::min( slot, kCloudLayoutChannels - 1u )];
+                const float painted =
+                     std::clamp( SampleCloudLayoutPattern( *patternSource, slot, uv ), 0.0f, 1.0f );
 
-                // The same shape the patch field's own expression has, so the two sources push the slider
-                // by comparable amounts and swapping one for the other is not also a change of scale. The
-                // factor of two is what takes a centred fraction — which spans at most -1..1 and typically
-                // far less — onto the same +/-100 per cent the patch field's `2*p - 1` covers.
-                modulated = base * ( 1.0f + params.LayoutPlacement.PatternStrength * 2.0f * centred );
+                // THE PAINTED W, the same shape of answer CloudWeatherPresence gives the world weather: one at
+                // white, and at full strength zero at black, so an unpainted region is clear sky.
+                const float strength = std::clamp( params.LayoutPlacement.PatternStrength, 0.0f, 1.0f );
+                modulated            = base * ( 1.0f - strength * ( 1.0f - painted ) );
             }
             else
             {
@@ -1163,7 +1162,7 @@ namespace Desert::Assets
                 // is its profile, which no cover moves. KeptCells asks the cover at the cluster's centre —
                 // the march asks it per column, which differs only across a weather gradient inside one
                 // cluster (the weather's waves are tens of kilometres). A painted pattern or mask still
-                // enters HERE, by scaling the rank, because a painting is a property of the region.
+                // enters HERE, by shifting the rank, because a painting is a property of the region.
                 const float cellRank = CloudProceduralCellRank( params, slot, cellSeed, centre );
                 if ( !( cellRank < 1.0f ) )
                     continue;
@@ -2102,13 +2101,17 @@ namespace Desert::Assets
         if ( !painted )
             return draw;
 
-        // THE PAINTING SCALES THE RANK so that `rank < Coverage` holds exactly where the cell's painted
-        // cover admitted it: draw < painted  <=>  draw * Coverage / painted < Coverage.
+        // THE PAINTING SHIFTS THE RANK by what it takes off the slider, so the march's cut against Coverage
+        // is the cut against Coverage * W the world weather makes, in its RUN as well as its keep:
+        // Coverage - (draw + Coverage - painted) = painted - draw. Scaling the rank instead kept the keep but
+        // stretched the run by 1 / W, so a painted cloud near a black edge stood whole where a weather cloud
+        // at the same W shows only its core. A shift past 1 is a cluster no cover keeps (Coverage <= 1); one
+        // under 0 (a mask that added cloud) is kept at every cover, which is what the mask asked for.
         const float base      = std::clamp( params.Coverage, 0.0f, 1.0f );
         const float paintedAt = CloudCellCoverage( params, slot, centreKm, false );
         if ( !( paintedAt > 1e-6f ) )
             return std::numeric_limits<float>::infinity();
-        return draw * std::max( base, 1e-6f ) / paintedAt;
+        return std::max( draw + base - paintedAt, 0.0f );
     }
 
     Common::ResultStr<CloudLayoutPreview> BuildCloudLayoutPreview( const CloudProceduralFieldParams& params,

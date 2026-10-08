@@ -186,7 +186,9 @@ namespace Desert::Assets
         /// the periodicity: sliding a periodic function along its own axis leaves it periodic.
         glm::vec2 OffsetKm{ 0.0f, 0.0f };
 
-        /// How hard the painted pattern rules the coverage, 0..1.
+        /// How hard the painted pattern rules the coverage, 0..1: the painted W is
+        /// 1 - PatternStrength * (1 - painted), a multiplier on Coverage exactly as the world weather's W is,
+        /// so at full strength black paint is clear sky (WX-NUBIS-b).
         ///
         /// AT ZERO THE PROCEDURAL PATCH FIELD TAKES OVER, and that is not a fallback bolted on — it is the
         /// single-source rule. A cell's coverage has ONE modulator: the painting when there is one and it

@@ -819,7 +819,9 @@ namespace Desert::Assets
     /// localCover), or Coverage itself when a painted pattern is the weather.
     float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
 
-    /// One cell's rank: its own hash, scaled by a bound painting so the painting's cover is respected.
+    /// One cell's rank: its own hash, shifted by a bound painting by what it takes off the slider
+    /// (draw + Coverage - Coverage * W_painted), so the march's cut against Coverage is the cut against the
+    /// painted Coverage * W — the same keep and the same run the world weather's W gives (WX-NUBIS-b).
     float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,
                                    const glm::vec2& centreKm );
 

@@ -1417,48 +1417,80 @@ TEST( CloudPlacementSpectrum, ThePaintingRepeatsExactlyWithTheRegionAtEveryRotat
                                   "field grows a seam at every region face";
 }
 
-// THE PAINTING REDISTRIBUTES THE SKY RATHER THAN ADDING TO IT, and this is the single relation that keeps
-// decision D-20 true once a layout can be bound.
+// THE PAINTED PATTERN IS THE AUTHORED WEATHER (WX-NUBIS-b): it enters as a MULTIPLIER in W, exactly as the
+// world weather does — localCover = Coverage * W, W = 1 - PatternStrength * (1 - painted) — so black paint is
+// clear sky and the slider is never shifted. The relation this replaces held the painting zero-mean about the
+// slider (decision D-20's "Coverage is the fraction of sky"), which Coverage * W retired for the procedural
+// weather; one slider with two meanings depending on which W is bound is the second path the contract forbids.
 //
-// `Coverage` addresses a FRACTION OF SKY directly, and every shipped scene was re-authorised against that
-// mapping (CALIBRATION.md §RW: out by at most 0.019 over five settings). The painted pattern is ON the
-// moment a layout is dropped into the slot, so if it could move the sky's average cover then the slider
-// would quietly stop meaning the sky for every painted layer — and the artist would discover it as "my
-// clouds got thicker when I loaded my picture".
-//
-// What prevents it is one subtraction: the pattern is applied about its OWN MEAN, which the container
-// computes once and carries in its header. Delete `- layout->PatternMean[...]` in
-// Assets::CloudCellCoverage and this goes red.
-TEST( CloudPlacementSpectrum, APaintedPatternRedistributesTheSkyRatherThanAddingToIt )
+// Asserted twice: per cell on the function the bake calls (the formula, exactly, with the world weather
+// switched ON to show it stands down), and on the real bake (half the stripe black at full strength keeps
+// about half the sky, and never more than the unpainted slider).
+// MUTATION: put `+ 2 * centred` back in Assets::CloudCellCoverage and both halves go red.
+namespace
 {
+    std::shared_ptr<const CloudLayoutData> RippleLayout( uint32_t resolution ); // defined with the map tests
+} // namespace
+
+TEST( CloudPlacementSpectrum, APaintedPatternIsTheWeatherAMultiplierOnTheSliderNotAShiftOfIt )
+{
+    {
+        CloudProceduralFieldParams params       = ShippedParams();
+        params.Coverage                         = 0.6f;
+        params.PatchStrength                    = 0.7f;
+        params.PatternSource                    = RippleLayout( 64u );
+        params.LayoutPlacement.PatternStrength  = 0.5f;
+        params.LayoutPlacement.MaskStrength     = 0.0f;
+        params.LayoutPlacement.RepeatsPerRegion = 2u;
+        ASSERT_TRUE( params.PatternSource ) << "the fixture painting could not be built";
+
+        float darkest = 1.0f;
+        for ( int j = 0; j < 24; ++j )
+            for ( int i = 0; i < 24; ++i )
+            {
+                const glm::vec2 at( ( static_cast<float>( i ) + 0.37f ) * 2.0f - 24.0f,
+                                    ( static_cast<float>( j ) + 0.61f ) * 2.0f - 24.0f );
+                const float     painted = std::clamp(
+                     SampleCloudLayoutPattern( *params.PatternSource, 0u,
+                                                   CloudLayoutUv( params.LayoutPlacement, params.RegionSizeKm, at ) ),
+                     0.0f, 1.0f );
+                darkest = std::min( darkest, painted );
+
+                const float expected = params.Coverage * ( 1.0f - 0.5f * ( 1.0f - painted ) );
+                ASSERT_NEAR( CloudProceduralCellCoverage( params, 0u, at ), expected, 1e-5f )
+                     << "at (" << at.x << ", " << at.y << ") km, painted " << painted
+                     << ": a cell's cover is not Coverage * (1 - PatternStrength * (1 - painted))";
+            }
+        ASSERT_LT( darkest, 0.5f ) << "the ripple never went dark, so the multiplier was not exercised";
+    }
+
     CloudProceduralFieldParams plain = ShippedParams();
     plain.Coverage                   = 0.5f;
+    plain.PatchStrength              = 0.0f; // W = 1 without the painting: the slider's own sky
 
     const double unpainted = SkyCover( plain );
-    ASSERT_GE( unpainted, 0.0 ) << "the unpainted bake failed, so there is nothing to compare against";
+    ASSERT_GT( unpainted, 0.0 ) << "the unpainted bake failed or kept nothing, so there is nothing to compare";
 
-    CloudProceduralFieldParams painted = plain;
-    painted.PatternSource              = StripeLayout();
+    CloudProceduralFieldParams painted      = plain;
+    painted.PatternSource                   = StripeLayout();
+    painted.LayoutPlacement.PatternStrength = 1.0f;
     ASSERT_TRUE( painted.PatternSource ) << "the fixture painting could not be built";
-
-    // HALF STRENGTH AND NOT FULL, and the reason is that the fixture is the harshest painting there is: a
-    // hard black-and-white stripe. At full strength the lit half asks for twice the slider and the dark
-    // half for none, so both ends CLAMP — and a clamped mean is no longer the mean that was subtracted.
-    // At a half the modulation spans 0.25..0.75 around a slider of 0.5 and nothing clamps, which is what
-    // makes this a measurement of the zero-mean rule rather than of the clamp.
-    painted.LayoutPlacement.PatternStrength = 0.5f;
 
     const double withPainting = SkyCover( painted );
     ASSERT_GE( withPainting, 0.0 ) << "the painted bake failed";
 
-    std::printf( "[CloudPlacementSpectrum] sky at Coverage 0.50: %.3f unpainted, %.3f painted (%+.3f)\n",
-                 unpainted, withPainting, withPainting - unpainted );
+    std::printf( "[CloudPlacementSpectrum] sky at Coverage 0.50: %.3f unpainted, %.3f under a half-black stripe "
+                 "(ratio %.3f, E[W] 0.5)\n",
+                 unpainted, withPainting, withPainting / unpainted );
 
-    EXPECT_NEAR( withPainting, unpainted, 0.10 )
-         << "binding a painting moved the sky's cover by " << std::abs( withPainting - unpainted )
-         << " at the same Coverage. The pattern must be applied about its own mean, or the slider stops "
-            "meaning the fraction of sky it delivers and decision D-20's re-authorisation of every shipped "
-            "scene stops holding for any painted layer";
+    // E[W] = 0.5 for a half-black stripe at full strength. Not exact in columns: a cluster on the white side
+    // reaches over the stripe's two edges by its radius (1.5 km of a 24 km half), hence a tenth.
+    EXPECT_NEAR( withPainting / unpainted, 0.5, 0.1 )
+         << "a stripe half black at full strength left " << withPainting / unpainted
+         << " of the slider's sky: the painting is not a multiplier in W with black as clear sky";
+    EXPECT_LE( withPainting, unpainted + 0.01 )
+         << "binding a painting added cloud to the sky, so the pattern still shifts the slider instead of "
+            "multiplying it";
 
     // AND THE PAINTING IS NOT INERT, which the assertion above cannot say on its own: a pattern that did
     // nothing at all would pass it perfectly. The stripe must actually move cloud from one half of the sky
@@ -3276,6 +3308,14 @@ TEST( CloudPlacementSpectrum, TheCloudSizesFallAsAPowerLawManySmallAndFewLarge )
 // BUSY REGIONS AND CLEAR GAPS, on 12 km blocks — the scale the owner's frame shows between 10 and 24 km
 // from the camera. The cover must vary from block to block far more than independent cells make it, some
 // blocks must be nearly clear, and the weather may only REMOVE cloud (W <= 1, WX-NUBIS), never add it.
+//
+// THE CONTROL HOLDS THE SAME AMOUNT OF CLOUD (WX-NUBIS-b). Under Coverage * W the weathered sky keeps
+// Coverage * E[W] of the cells, so the sky without weather at the SAME Coverage carries 1 / E[W] (2.8 at the
+// shipped 0.7) times the cloud, and a block-to-block spread grows with the cover itself: comparing the two
+// measured the amount of cloud, not the weather. The control is therefore the slider at Coverage * E[W] with
+// W = 1 — the same cells kept, placed by the cells alone. The copula epoch's absolute floor (a spread of 0.18
+// at Coverage 0.5) is gone with it: Coverage * W bounds a 12 km block's cover by about Coverage * std(W) =
+// 0.5 * 0.33, under the floor before a single cell is placed.
 TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndOnlyRemovesCloud )
 {
     constexpr uint32_t kSeeds       = 8u;
@@ -3284,26 +3324,90 @@ TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndO
     CloudProceduralFieldParams shipped = ShippedParams();
     shipped.Coverage                   = 0.50f;
 
+    // E[W] for W = saturate(1 - 2 s u), u uniform: 1 - s at s <= 1/2, 1 / (4 s) above.
+    const double s     = static_cast<double>( shipped.PatchStrength );
+    const double meanW = s <= 0.5 ? 1.0 - s : 1.0 / ( 4.0 * s );
+    ASSERT_GT( s, 0.0 ) << "the shipped layer has no weather, so there is nothing to measure";
+
     CloudProceduralFieldParams flat = shipped;
     flat.PatchStrength              = 0.0f;
+    flat.Coverage                   = static_cast<float>( shipped.Coverage * meanW );
+
+    CloudProceduralFieldParams slider = shipped;
+    slider.PatchStrength              = 0.0f;
 
     const Clustering weather = MeasureClustering( shipped, kSeeds, kBlockPixels );
-    const Clustering none    = MeasureClustering( flat, kSeeds, kBlockPixels );
+    const Clustering matched = MeasureClustering( flat, kSeeds, kBlockPixels );
+    const Clustering none    = MeasureClustering( slider, kSeeds, kBlockPixels );
 
-    std::printf( "[CloudPlacementSpectrum] 12 km blocks, patch strength %.2f: cover %.3f, spread %.3f, "
-                 "%.3f nearly clear\n",
-                 shipped.PatchStrength, weather.Mean, weather.Std, weather.Gaps );
-    std::printf( "[CloudPlacementSpectrum] 12 km blocks, patch strength 0.00: cover %.3f, spread %.3f, "
-                 "%.3f nearly clear\n",
-                 none.Mean, none.Std, none.Gaps );
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, patch strength %.2f at Coverage %.2f: cover %.3f, spread "
+                 "%.3f, %.3f nearly clear\n",
+                 shipped.PatchStrength, shipped.Coverage, weather.Mean, weather.Std, weather.Gaps );
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, no weather at Coverage %.3f (= Coverage * E[W]): cover "
+                 "%.3f, spread %.3f, %.3f nearly clear\n",
+                 flat.Coverage, matched.Mean, matched.Std, matched.Gaps );
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, no weather at Coverage %.2f: cover %.3f, spread %.3f\n",
+                 slider.Coverage, none.Mean, none.Std );
 
-    EXPECT_GE( weather.Std, 0.18 ) << "the shipped weather leaves every 12 km of sky about as busy as the next";
-    EXPECT_GE( weather.Std, 2.0 * none.Std )
-         << "the weather spreads the cloud between blocks no more than independent cells already do";
+    EXPECT_GE( weather.Std, 2.0 * matched.Std )
+         << "with the same amount of cloud, the weather spreads it between 12 km blocks no more than "
+            "independent cells already do";
     EXPECT_GE( weather.Gaps, 0.05 ) << "no 12 km block of the shipped sky is nearly clear, so there are no gaps";
 
     EXPECT_LT( weather.Mean, none.Mean )
          << "the weather added cloud to the sky, so W is not a presence map under one (Coverage * W)";
+}
+
+// A SOLID DECK IS A LAYER WITHOUT WEATHER, not a new field of the type (WX-NUBIS-b, decision 2). Under
+// Coverage * W the world weather empties a fraction 1 - 1/(2 s) of the sky at every Coverage, so an overcast
+// cannot come from the slider of a weathered layer; it comes from a layer whose W is one — PatchStrength 0 —
+// carrying a sheet type. This pins that the arrangement delivers: Stratus and Stratocumulus (the shipped
+// `.decloudtype` placement numbers: scale 4.00 and 0.35, anisotropy 1.00 and 1.60, profile taper 0.35) at
+// Coverage 1 and PatchStrength 0 cover the whole sky, and the same layer with the shipped weather does not.
+TEST( CloudPlacementSpectrum, ALayerWithNoWeatherAtCoverageOneIsASolidDeck )
+{
+    struct Deck
+    {
+        const char* Name;
+        float       BottomKm;
+        float       TopKm;
+        float       EdgeTop;
+        float       PlacementScale;
+        float       Anisotropy;
+    };
+
+    for ( const Deck& deck : { Deck{ "Stratus", 0.15f, 0.55f, 0.88f, 4.00f, 1.00f },
+                               Deck{ "Stratocumulus", 0.60f, 1.60f, 0.80f, 0.35f, 1.60f } } )
+    {
+        Desert::Graphic::CloudTypeShape shape = Congestus();
+        shape.BaseAltitudeKm                  = deck.BottomKm;
+        shape.TopAltitudeKm                   = deck.TopKm;
+        shape.EdgeTopFraction                 = deck.EdgeTop;
+        shape.Profile                         = Desert::Graphic::CloudProfileFromTaper( 0.35f );
+        shape.PlacementScale                  = deck.PlacementScale;
+        shape.PlacementAnisotropy             = deck.Anisotropy;
+
+        CloudProceduralFieldParams params = ShippedParams();
+        params.LayerBottomKm              = deck.BottomKm;
+        params.LayerThicknessKm           = deck.TopKm - deck.BottomKm;
+        params.Species.front().Shape      = shape;
+        params.Coverage                   = 1.0f;
+        params.PatchStrength              = 0.0f;
+
+        CloudProceduralFieldParams weathered = params;
+        weathered.PatchStrength              = 0.7f;
+
+        const double solid  = SkyCover( params );
+        const double broken = SkyCover( weathered );
+        std::printf( "[CloudPlacementSpectrum] %s at Coverage 1: %.3f of the sky with PatchStrength 0, %.3f with "
+                     "0.70\n",
+                     deck.Name, solid, broken );
+
+        EXPECT_GE( solid, 0.99 ) << deck.Name << " at Coverage 1 with no weather covers only " << solid
+                                 << " of the sky, so a solid deck cannot be authored as a layer with W = 1";
+        EXPECT_LT( broken, solid - 0.1 ) << deck.Name << ": the weather opened no gaps in the deck, so "
+                                         << "PatchStrength 0 is not what makes it solid";
+    }
 }
 
 // THE WEATHER MAP AT ITS SOURCE, OVER THE WORLD (WX-NUBIS). A cell's cover is Coverage * W with
