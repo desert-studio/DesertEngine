@@ -190,6 +190,27 @@ namespace Desert::Assets
         /// distinct turrets that each show their own shoulder above a common floor.
         constexpr float kTurretDiscAtTop = 0.75f;
 
+        /// THE CROWN GROWS IN TURRETS, NOT AS A DOME (CLOUD-SHAPE-b). The stack above is six lumps one golden
+        /// angle apart whose union, seen from the side, is still one rounded cap: the top lump is the widest
+        /// thing near the top and every other lump is under it. A cumulus crown is several SMALLER towers
+        /// standing on the body's shoulders, each with its own rounded head (Nubis 2017's "billowy towers";
+        /// UE's cumulus presets read the same way). So the stack is fitted into the band less one turret's
+        /// height and THREE turrets — a third of the crown lump wide each — stand on its shoulders, their
+        /// heads reaching the band's top. Three, because two read as ears and five fuse back into a dome at
+        /// a turret a third of the crown wide.
+        constexpr uint32_t kTurretsPerCrown = 3u;
+
+        /// A turret's width against the crown lump it stands on.
+        constexpr float kTurretRadiusOfCrown = 0.45f;
+
+        /// How far from the crown lump's axis a turret stands, in the crown lump's radius: on its shoulder,
+        /// so its lower half is inside the crown and its head is a separate bump above the cap's outline.
+        constexpr float kTurretShoulderOfCrown = 0.55f;
+
+        /// A turret is at most this share of the band tall (its full height, both halves), so a thin type's
+        /// crown stays a ripple on a sheet and a congestus's turrets stand a kilometre over the cap.
+        constexpr float kTurretShareOfBand = 0.3f;
+
         /// HOW FAR A FULL ANVIL SPREADS BEYOND THE TOWER IT CAPS, per unit of `AnvilStrength`. It is the
         /// authored meaning of that slider: at 1.0 the canopy is 1.8 times the cluster's radius.
         ///
@@ -1442,13 +1463,26 @@ namespace Desert::Assets
                                        marchFloorKm );
                     }
 
+                    // THE TURRETS' HEIGHT IS TAKEN OFF THE TOP OF THE BAND FIRST (CLOUD-SHAPE-b): the stack
+                    // ends where the turrets' centres stand, so their heads — and nothing else — reach the
+                    // band's top. See kTurretsPerCrown.
+                    const float crownRadiusKm = lumpRadiusKm[stackCount - 1];
+                    const float turretRadiusKm = std::max( kTurretRadiusOfCrown * crownRadiusKm, lumpFloorKm );
+                    const float turretVerticalKm =
+                         std::max( std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) * turretRadiusKm,
+                                             0.5f * kTurretShareOfBand * bandFullKm ),
+                                   marchFloorKm );
+                    const float stackBandKm = std::max( bandFullKm - turretVerticalKm, 0.0f );
+                    lumpVerticalKm[stackCount - 1] = std::min( lumpVerticalKm[stackCount - 1], 0.5f * stackBandKm );
+                    glm::vec3 crownCentreKm( 0.0f );
+
                     // THE BASE LUMP'S CENTRE IS ON THE CLOUD BASE (CLOUD-SHAPE), so its lower half lies
                     // under the type's condensation level and CloudProceduralCutJoin's base plane cuts it
                     // off flat: the body is a flat floor with a dome and turrets over it, not a ball
                     // standing its own radius above the base. The travel is what is left of the band once
                     // the top lump has been let in, divided by the last lump's own parameter so that its
                     // crown lands ON the top — `t` is a curve and not a fraction of the band.
-                    const float travelKm = std::max( bandFullKm - lumpVerticalKm[stackCount - 1], 0.0f ) /
+                    const float travelKm = std::max( stackBandKm - lumpVerticalKm[stackCount - 1], 0.0f ) /
                                            std::max( lumpT[stackCount - 1], 1e-4f );
 
                     for ( uint32_t step = 0; step < stackCount; ++step )
@@ -1510,7 +1544,7 @@ namespace Desert::Assets
                         // would leave nothing of it) and its crown never over the top. What hangs below the
                         // base is cut flat by CloudProceduralCutJoin — the cloud base is a PLANE at the type's
                         // condensation level, as Nubis's height gradient and every cumulus field have it.
-                        const float highKm = std::max( bandFullKm - lumpVerticalKm[step], 0.0f );
+                        const float highKm = std::max( stackBandKm - lumpVerticalKm[step], 0.0f );
                         const float upKm   = std::clamp( travelKm * t, 0.0f, highKm );
 
                         blob.CentreKm = glm::vec3( clusterXZ.x + along.x * offsetAlong + across.x * offsetAcross,
@@ -1536,6 +1570,43 @@ namespace Desert::Assets
                                                   lumpVerticalKm[step],
                                                   std::max( radius * lumpWobbleAcross[step] / stretch, floorKm ) );
 
+                        blob.RotationDeg  = glm::vec3( 0.0f, yawDeg, 0.0f );
+                        blob.Weight       = 1.0f;
+                        blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
+                        blob.DensityScale = 1.0f;
+
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ } );
+                        if ( step == stackCount - 1 )
+                            crownCentreKm = blob.CentreKm;
+                    }
+
+                    // THE TURRETS on the crown lump's shoulders, their centres at the crown's height and their
+                    // heads at the band's top (kTurretsPerCrown). Spread a third of a turn apart from a
+                    // per-body phase, each wobbled like a stack lump so no two crowns are the same.
+                    const float turretPhase = HashUnit( HashCombine( clusterSeed, 0x4u ) ) * 6.2831853f;
+                    for ( uint32_t turret = 0; turret < kTurretsPerCrown; ++turret )
+                    {
+                        const uint32_t turretSeed = HashCombine( clusterSeed, 0x200u + turret );
+                        const float    angle =
+                             turretPhase + 6.2831853f * ( static_cast<float>( turret ) +
+                                                          0.3f * HashSigned( HashCombine( turretSeed, 0x1u ) ) ) /
+                                                static_cast<float>( kTurretsPerCrown );
+                        const float reach  = kTurretShoulderOfCrown * crownRadiusKm *
+                                            ( 0.8f + 0.4f * HashUnit( HashCombine( turretSeed, 0x2u ) ) );
+                        const float wobble = 0.85f + 0.3f * HashUnit( HashCombine( turretSeed, 0x3u ) );
+
+                        const float offsetAlong  = std::cos( angle ) * reach * stretch;
+                        const float offsetAcross = std::sin( angle ) * reach / stretch;
+
+                        CloudModellingBlob blob;
+                        blob.Primitive = CloudModellingPrimitive::Ellipsoid;
+                        blob.CentreKm =
+                             glm::vec3( crownCentreKm.x + along.x * offsetAlong + across.x * offsetAcross,
+                                        shape.BaseAltitudeKm + stackBandKm,
+                                        crownCentreKm.z + along.y * offsetAlong + across.y * offsetAcross );
+                        blob.RadiiKm = glm::vec3( std::max( turretRadiusKm * wobble * stretch, lumpFloorKm ),
+                                                  turretVerticalKm,
+                                                  std::max( turretRadiusKm * wobble / stretch, lumpFloorKm ) );
                         blob.RotationDeg  = glm::vec3( 0.0f, yawDeg, 0.0f );
                         blob.Weight       = 1.0f;
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
@@ -1673,7 +1744,13 @@ namespace Desert::Assets
         const Graphic::CloudTypeShape& type   = params.Species[slot].Shape;
         const float                    bandKm = std::max( type.TopAltitudeKm - type.BaseAltitudeKm, 1e-4f );
         const float height = std::clamp( ( pointKm.y - type.BaseAltitudeKm ) / bandKm, 0.0f, 1.0f );
-        return signedNoise * ( kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height );
+        // THE CROWN ONLY GROWS (CLOUD-SHAPE-b): the carving half (positive — it adds to the distance) fades
+        // out going up, so the top is billows pushed OUT of the body and never clefts cut into it, while
+        // the growing half keeps the full profile. Over the flat floor both halves stay at half strength.
+        const float grow  = std::min( signedNoise, 0.0f );
+        const float carve = std::max( signedNoise, 0.0f );
+        return grow * ( kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height ) +
+               carve * kCloudShapeNoiseAtBase * ( 1.0f - height );
     }
 
     namespace
@@ -2233,6 +2310,41 @@ namespace Desert::Assets
                     continue;
 
                 waves.push_back( { kx, kz, kTau * HashUnit( HashCombine( waveSeed, 3u ) ) } );
+            }
+
+            // THE WORLD'S ORIGIN STANDS IN THE BUSIEST WEATHER NEAR IT (CLOUD-SHAPE-b). The type's Coverage is
+            // the share of the sky that is cloud where there is weather, and the scene is authored around its
+            // origin: a clear patch landing there (PatchStrength is the clear share, ~30 % of the sky in
+            // 15-30 km holes) emptied the whole zenith of Clouds_Demo — W 0.27 over the camera, the march
+            // taking 0.73 off every profile. The field is TRANSLATED so the lowest weather (the busy end,
+            // CloudWeatherPresence) found within two tiles of the origin lands on it: a translation is a phase
+            // shift of every wave, so the statistics (E[W] = 1 - strength, the gaps' sizes) and the GPU map's
+            // equality with this point function are untouched — both read these waves.
+            if ( !waves.empty() )
+            {
+                const double tile    = std::max( static_cast<double>( tileKm ), 1e-3 );
+                const double stepKm  = tile / 8.0;
+                const int    reach   = 16;
+                double       bestSum = std::numeric_limits<double>::max();
+                double       bestFx  = 0.0;
+                double       bestFz  = 0.0;
+                for ( int iz = -reach; iz <= reach; ++iz )
+                    for ( int ix = -reach; ix <= reach; ++ix )
+                    {
+                        const double fx  = static_cast<double>( ix ) * stepKm / period;
+                        const double fz  = static_cast<double>( iz ) * stepKm / period;
+                        double       sum = 0.0;
+                        for ( const CloudFarWeatherWave& w : waves )
+                            sum += std::cos( kTau * ( w.Kx * fx + w.Kz * fz ) + w.Phase );
+                        if ( sum < bestSum )
+                        {
+                            bestSum = sum;
+                            bestFx  = fx;
+                            bestFz  = fz;
+                        }
+                    }
+                for ( CloudFarWeatherWave& w : waves )
+                    w.Phase = std::fmod( w.Phase + kTau * ( w.Kx * bestFx + w.Kz * bestFz ), kTau );
             }
             return waves;
         }
