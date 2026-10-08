@@ -59,6 +59,9 @@ namespace Desert::Graphic
     // Weather), applied to the panorama exactly as to the screen.
     inline constexpr uint32_t kSkyBakeCloudModellingRankBinding = 14;
     inline constexpr uint32_t kSkyBakeCloudFarWeatherBinding    = 15;
+    // The painted layout's two textures (Graphic::kCloudLayoutPatternBinding's note).
+    inline constexpr uint32_t kSkyBakeCloudLayoutPatternBinding = 16;
+    inline constexpr uint32_t kSkyBakeCloudLayoutMaskBinding    = 17;
 
     // ---------------------------------------------------------------------------------------------------
     // What the cloud renderer hands over
@@ -109,6 +112,8 @@ namespace Desert::Graphic
         Image3D* Modelling                 = nullptr;
         Image3D* ModellingRank             = nullptr; // the R8 rank beside Modelling, same bake
         Image2D* FarWeather                = nullptr; // the world weather map the cut reads
+        Image2D* LayoutPattern             = nullptr; // the painted layout the cut reads (WX-PAINT)
+        Image2D* LayoutMask                = nullptr;
         Image3D* AuthoredAtlas             = nullptr; // null in every scene with no hero cloud
         Image3D* SkyOcclusionVolume        = nullptr;
 
@@ -171,6 +176,8 @@ namespace Desert::Graphic
         Image3D* Modelling                 = nullptr;
         Image3D* ModellingRank             = nullptr;
         Image2D* FarWeather                = nullptr;
+        Image2D* LayoutPattern             = nullptr;
+        Image2D* LayoutMask                = nullptr;
         Image3D* AuthoredAtlas             = nullptr;
         Image3D* SkyOcclusionVolume        = nullptr;
         Image2D* DistantSkyLight           = nullptr;

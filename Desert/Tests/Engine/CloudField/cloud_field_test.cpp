@@ -1255,7 +1255,9 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
             const float cut = CloudCoverProfile(
                  std::max( deck, tower ),
                  CLOUD_SAMPLE_MODELLING_RANK( CloudProceduralVolumeUvw( params, fraction, position ) ),
-                 CloudLocalCover( weather, vec2( position.x, position.z ) ), weather.z );
+                 CloudLocalCover( weather, params.LayoutPlace, params.LayoutStrength, tower > deck ? 1 : 0,
+                                  vec2( position.x, position.z ) ),
+                 weather.z );
             if ( std::abs( united.Profile - cut ) > 1e-5f )
                 ++unionWrong;
 
@@ -2552,8 +2554,10 @@ TEST( CloudFieldCut, TheShadersCutIsTheCoverProfileAgainstTheLocalCover )
         {
             const vec2 worldKm =
                  state.OriginKm + vec2( ( ix + 0.5f ) / side, ( iz + 0.5f ) / side ) * state.Params.RegionSizeKm;
-            const float gpuCover = CloudLocalCover( weather, worldKm );
-            const float cpuCover = Desert::Assets::CloudProceduralLocalCover( state.Params, worldKm );
+            const float gpuCover = CloudLocalCover( weather, Desert::Assets::CloudLayoutPlaceUniform( state.Params ),
+                                                    Desert::Assets::CloudLayoutStrengthUniform( state.Params ), 0,
+                                                    worldKm );
+            const float cpuCover = Desert::Assets::CloudProceduralLocalCover( state.Params, 0u, worldKm );
 
             for ( int iy = 0; iy < height; iy += 3 )
             {

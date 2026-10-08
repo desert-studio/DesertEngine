@@ -153,7 +153,7 @@ namespace
                 const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
                 const size_t    at    = static_cast<size_t>( z ) * side + x;
-                map[at] = CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalCover( params, world ) )
+                map[at] = CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalCovers( params, world ) )
                                ? 1.0f
                                : 0.0f;
             }
@@ -2977,7 +2977,7 @@ TEST( CloudPlacementSpectrum, ErasingReturnsThePatternToNothingAndTheMaskToNeutr
     CloudLayoutBrush lay;
     lay.RadiusTexels = 8.0f;
     lay.Hardness     = 1.0f;
-    lay.Ink          = 1.0f;
+    lay.Ink          = 0.0f; // a canvas starts white: the stroke carves clear sky
 
     auto canvas = MakeCloudLayoutCanvas( kSide );
     ASSERT_TRUE( canvas );
@@ -2993,16 +2993,16 @@ TEST( CloudPlacementSpectrum, ErasingReturnsThePatternToNothingAndTheMaskToNeutr
     ASSERT_TRUE( PaintCloudLayoutPolyline( surface.Mask, kSide, 0u, 1u, path, lay ) );
 
     const size_t middle = 24u * kSide + 24u;
-    ASSERT_EQ( surface.Pattern[middle * 4u], 255u );
-    ASSERT_EQ( surface.Mask[middle], 255u );
+    ASSERT_EQ( surface.Pattern[middle * 4u], 0u );
+    ASSERT_EQ( surface.Mask[middle], 0u );
 
     // AND NO GAPS: the neighbour texel along the stroke is painted too, which is what a wrong stride
     // would break and what a single-texel probe would miss.
-    ASSERT_EQ( surface.Mask[middle + 1u], 255u ) << "the stroke on the mask skipped a texel, so the plane "
+    ASSERT_EQ( surface.Mask[middle + 1u], 0u ) << "the stroke on the mask skipped a texel, so the plane "
                                                     "was walked with the wrong stride";
 
     CloudLayoutBrush erasePattern = lay;
-    erasePattern.Ink              = 0.0f;
+    erasePattern.Ink              = 1.0f;
 
     CloudLayoutBrush eraseMask = lay;
     eraseMask.Ink              = static_cast<float>( kCloudLayoutMaskNeutral ) / 255.0f;
@@ -3011,7 +3011,7 @@ TEST( CloudPlacementSpectrum, ErasingReturnsThePatternToNothingAndTheMaskToNeutr
          PaintCloudLayoutPolyline( surface.Pattern, kSide, 0u, kCloudLayoutChannels, path, erasePattern ) );
     ASSERT_TRUE( PaintCloudLayoutPolyline( surface.Mask, kSide, 0u, 1u, path, eraseMask ) );
 
-    EXPECT_EQ( surface.Pattern[middle * 4u], 0u ) << "erasing a pattern channel left cloud behind";
+    EXPECT_EQ( surface.Pattern[middle * 4u], 255u ) << "erasing a pattern channel left clear sky behind";
     EXPECT_EQ( surface.Mask[middle], kCloudLayoutMaskNeutral )
          << "erasing the mask left it at " << static_cast<int>( surface.Mask[middle] )
          << " rather than at neutral, so an erased mask still says something about the sky";
@@ -3534,7 +3534,7 @@ TEST( CloudPlacementSpectrum, TheHorizonGapsAreNotClosedByTheRegionsRepeat )
             ++crossed;
             if ( !CloudProceduralColumnKept( baked.GetValue(), static_cast<uint32_t>( side ),
                                              static_cast<uint32_t>( x ), static_cast<uint32_t>( z ),
-                                             CloudProceduralLocalCover( params, world ) ) )
+                                             CloudProceduralLocalCovers( params, world ) ) )
                 ++clear;
         }
     }

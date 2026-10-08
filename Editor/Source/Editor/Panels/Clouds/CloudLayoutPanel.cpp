@@ -1004,7 +1004,7 @@ namespace Desert::Editor
             // is a second code path doing one thing — and the rest value differs per plane, because the
             // mask is signed about neutral and a pattern channel is not.
             if ( ImGui::IsMouseDown( ImGuiMouseButton_Right ) && !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
-                stroke.Ink = paintingMask ? static_cast<float>( Assets::kCloudLayoutMaskNeutral ) / 255.0f : 0.0f;
+                stroke.Ink = paintingMask ? static_cast<float>( Assets::kCloudLayoutMaskNeutral ) / 255.0f : 1.0f;
 
             if ( Assets::ExtendCloudLayoutStroke( m_Stroke, PaintPlane(), m_LastPaintTexel, texel, stroke ) > 0u )
                 m_CanvasImageDirty = true;

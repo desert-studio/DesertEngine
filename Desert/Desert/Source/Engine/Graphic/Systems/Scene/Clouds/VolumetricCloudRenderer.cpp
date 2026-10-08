@@ -595,7 +595,7 @@ namespace Desert::Graphic::System
             m_ModellingOriginKm = m_PendingOriginKm;
             m_ModellingValid    = true;
 
-            if ( !EnsureFarWeatherMap() )
+            if ( !EnsureFarWeatherMap() || !EnsureLayoutTextures() )
             {
                 m_ModellingValid = false;
                 return false;
@@ -1012,7 +1012,9 @@ namespace Desert::Graphic::System
 
         payload = PackCloudParams( m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
                                    CloudRegionBinding{ m_ModellingOriginKm, m_ModellingParams.RegionSizeKm,
-                                                       Assets::CloudFarWeatherUniform( m_ModellingParams ) },
+                                                       Assets::CloudFarWeatherUniform( m_ModellingParams ),
+                                                       Assets::CloudLayoutPlaceUniform( m_ModellingParams ),
+                                                       Assets::CloudLayoutStrengthUniform( m_ModellingParams ) },
                                    quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
         return true;
     }
@@ -1068,6 +1070,68 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    bool VolumetricCloudRenderer::EnsureLayoutTextures()
+    {
+        // KEYED ON THE PAINTING'S CONTENT HASH, the number Assets::CloudProceduralParamsEqual compares it by;
+        // strength and placement reach the march through CloudGpuPayload, so moving them uploads nothing.
+        const Assets::CloudLayoutData* pattern = m_ModellingParams.PatternSource.get();
+        const Assets::CloudLayoutData* mask    = m_ModellingParams.MaskSource.get();
+        const bool     hasPattern  = pattern != nullptr && pattern->HasPattern();
+        const bool     hasMask     = mask != nullptr && mask->HasMask();
+        const uint32_t patternHash = hasPattern ? pattern->ContentHash : 0u;
+        const uint32_t maskHash    = hasMask ? mask->ContentHash : 0u;
+
+        if ( m_LayoutPatternTexture && m_LayoutMaskTexture && m_LayoutPatternHash == patternHash &&
+             m_LayoutMaskHash == maskHash )
+            return true;
+
+        const auto upload = []( const char* tag, uint32_t side, std::vector<unsigned char> texels )
+        {
+            const Core::Formats::Image2DSpecification spec{
+                 .Tag    = tag,
+                 .Width  = side,
+                 .Height = side,
+                 .Format = Core::Formats::ImageFormat::RGBA8,
+                 .Data   = std::move( texels ),
+                 .Usage  = Core::Formats::Image2DUsage::Image2D,
+                 // LINEAR ALWAYS and REPEAT: the CPU's BilinearWrapped is exactly this filter, and the
+                 // painting tiles the region by construction.
+                 .Properties = Core::Formats::Sample | Core::Formats::AlgorithmicLinear,
+            };
+            return Image2D::Create( spec );
+        };
+
+        // THE STAND-INS ARE THE NEUTRALS: white (the slider's own sky) and a mask at 128 (adds nothing).
+        std::vector<unsigned char> patternTexels = hasPattern ? pattern->Pattern
+                                                              : std::vector<unsigned char>{ 255u, 255u, 255u, 255u };
+        std::vector<unsigned char> maskTexels;
+        if ( hasMask )
+        {
+            maskTexels.assign( mask->Mask.size() * 4u, 0u );
+            for ( size_t i = 0; i < mask->Mask.size(); ++i )
+                maskTexels[i * 4u] = mask->Mask[i];
+        }
+        else
+            maskTexels = { Assets::kCloudLayoutMaskNeutral, 0u, 0u, 0u };
+
+        if ( m_LayoutPatternTexture || m_LayoutMaskTexture )
+            Renderer::GetInstance().WaitDeviceIdle();
+
+        m_LayoutPatternTexture =
+             upload( "CloudLayoutPattern", hasPattern ? pattern->Resolution : 1u, std::move( patternTexels ) );
+        m_LayoutMaskTexture = upload( "CloudLayoutMask", hasMask ? mask->Resolution : 1u, std::move( maskTexels ) );
+        if ( !m_LayoutPatternTexture || !m_LayoutMaskTexture )
+        {
+            LOG_ERROR( "[Clouds] The painted layout's textures could not be created on the device; the clouds "
+                       "will not render for this view." );
+            return false;
+        }
+
+        m_LayoutPatternHash = patternHash;
+        m_LayoutMaskHash    = maskHash;
+        return true;
+    }
+
     CloudEnvironmentBake VolumetricCloudRenderer::BuildEnvironmentBake()
     {
         DESERT_PROFILE_SCOPE( "Clouds: BuildEnvironmentBake" );
@@ -1101,6 +1165,8 @@ namespace Desert::Graphic::System
         bake.Modelling     = m_ModellingVolume.get();
         bake.ModellingRank = m_ModellingRank.get();
         bake.FarWeather    = m_FarWeatherMap.get();
+        bake.LayoutPattern = m_LayoutPatternTexture.get();
+        bake.LayoutMask    = m_LayoutMaskTexture.get();
         bake.AuthoredAtlas = m_AuthoredAtlas.get();
 
         // THE PREVIOUS FRAME'S VOLUME, and it can be nothing else: this runs before the frame's own
@@ -1239,6 +1305,10 @@ namespace Desert::Graphic::System
             m_ShadowMapPipeline->SetInput( kCloudShadowModellingRankBinding, m_ModellingRank.get(),
                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_ShadowMapPipeline->SetInput( kCloudShadowFarWeatherBinding, m_FarWeatherMap.get(),
+                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_ShadowMapPipeline->SetInput( kCloudShadowLayoutPatternBinding, m_LayoutPatternTexture.get(),
+                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_ShadowMapPipeline->SetInput( kCloudShadowLayoutMaskBinding, m_LayoutMaskTexture.get(),
                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
             // ALWAYS bound, fallback included — see the note at the march's own binding of it.
@@ -1955,6 +2025,11 @@ namespace Desert::Graphic::System
                                                   RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionFarWeatherBinding, m_FarWeatherMap.get(),
                                                   RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionLayoutPatternBinding,
+                                                  m_LayoutPatternTexture.get(), RDG::Access::SampledCompute,
+                                                  RDG::SubresourceRange::All() );
+                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionLayoutMaskBinding, m_LayoutMaskTexture.get(),
+                                                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionAuthoredBinding,
                                                           m_AuthoredBuffer.get() );
                 // The same buffer the march binds, and legitimately so: this dispatch is issued inside
@@ -2067,6 +2142,10 @@ namespace Desert::Graphic::System
                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_MarchPipeline->SetInput( kCloudFarWeatherBinding, m_FarWeatherMap.get(), RDG::Access::SampledCompute,
                                        RDG::SubresourceRange::All() );
+            m_MarchPipeline->SetInput( kCloudLayoutPatternBinding, m_LayoutPatternTexture.get(),
+                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_MarchPipeline->SetInput( kCloudLayoutMaskBinding, m_LayoutMaskTexture.get(),
+                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
             // ALWAYS bound, even when the payload's gate says it will not be read: a declared sampler with no
             // image is an invalid descriptor set, not an unused one, and this backend answers an invalid set
@@ -2263,6 +2342,8 @@ namespace Desert::Graphic::System
         declared.Read( m_ModellingVolume, RDG::Access::SampledCompute, "Clouds.Modelling" );
         declared.Read( m_ModellingRank, RDG::Access::SampledCompute, "Clouds.ModellingRank" );
         declared.Read( m_FarWeatherMap, RDG::Access::SampledCompute, "Clouds.FarWeather" );
+        declared.Read( m_LayoutPatternTexture, RDG::Access::SampledCompute, "Clouds.LayoutPattern" );
+        declared.Read( m_LayoutMaskTexture, RDG::Access::SampledCompute, "Clouds.LayoutMask" );
         declared.Read( m_AuthoredAtlas, RDG::Access::SampledCompute, "Clouds.AuthoredAtlas" );
         // The noise volumes: the first m_NoiseNeeded slots are the distinct images, the rest repeat slot 0
         // and are one graph resource already, so each image is declared once.

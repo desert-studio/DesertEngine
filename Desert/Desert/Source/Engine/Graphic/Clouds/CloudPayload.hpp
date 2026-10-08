@@ -137,6 +137,12 @@ namespace Desert::Graphic
         glm::vec4 SpeciesWispBase;
         glm::vec4 SpeciesWispTop;
 
+        // THE PAINTED LAYOUT'S PLACE AND STRENGTH (WX-PAINT), Assets::CloudLayoutPlaceUniform /
+        // CloudLayoutStrengthUniform: the march multiplies the cover by the painted W per column, as Unreal's
+        // Layout does, reading kCloudLayoutPatternBinding / kCloudLayoutMaskBinding through these.
+        glm::vec4 LayoutPlace;
+        glm::vec4 LayoutStrength;
+
         // A vec3 AND LAST, which is the only shape in which three values can be three values. It was a
         // vec4 whose fourth slot carried the cloud type's variance, and then briefly the domain warp's
         // amount; the warp was measured and taken out again (Common/CloudField.glslh has the numbers), and
@@ -171,7 +177,9 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudGpuPayload, Weather ) == 272 );
     static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 288 );
     static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 304 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 320 );
+    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 320 );
+    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 336 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 352 );
     // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
     // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
@@ -192,8 +200,8 @@ namespace Desert::Graphic
     // reaching the march at all; until it was paid, three of a layer's four slots could name a volume the frame
     // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
     // the smallest shape three contiguous components fit in.
-    static_assert( sizeof( CloudGpuPayload ) == 332,
-                   "Eleven vec4s, a vec4[4], five more vec4s and a vec3 — the shader reads exactly this and "
+    static_assert( sizeof( CloudGpuPayload ) == 364,
+                   "Eleven vec4s, a vec4[4], seven more vec4s and a vec3 — the shader reads exactly this and "
                    "nothing more." );
 
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
@@ -227,7 +235,7 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 2> kCloudUnreadSlots = {
+    inline constexpr std::array<CloudUnreadSlot, 4> kCloudUnreadSlots = {
          { { "u_CloudDetail", 'z',
              "held the scalar scattering albedo until the albedo became a colour and moved to "
              "u_CloudAlbedo; not reused, because a slot repurposed without a schema parameter behind it is "
@@ -235,7 +243,11 @@ namespace Desert::Graphic
            { "u_CloudAlbedo", 'w',
              "the toll std430 charges for a three-component colour: a grid of vec4s can only grow by four, "
              "and a colour needs three contiguous components, so the fourth is unreachable arithmetic "
-             "rather than a reserved field" } } };
+             "rather than a reserved field" },
+           { "u_CloudLayoutStrength", 'z',
+             "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
+             "whole, so the two strengths leave two floats nobody has a number for" },
+           { "u_CloudLayoutStrength", 'w', "as z" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
     /// claim — the layout and the exceptions — cannot be adjusted independently.
@@ -303,6 +315,13 @@ namespace Desert::Graphic
     // W in .r, sampled with REPEAT at `windPosKm.xz * Weather.w`. Bound always; a strength of 0 stops it being
     // read.
     inline constexpr uint32_t kCloudFarWeatherBinding = 16;
+    // THE PAINTED LAYOUT (WX-PAINT): the bound pattern as RGBA8, channel k species slot k, and the mask in .r
+    // of a second RGBA8 — each at its own resolution, REPEAT, linear, addressed by CloudGpuPayload::
+    // LayoutPlace. Bound always: a 1x1 white pattern and a 1x1 neutral mask when nothing is painted, and a
+    // LayoutStrength of 0 stops them being read. Its own textures, because the 48 km painting cannot ride
+    // the 997 km weather map (~2 km texels).
+    inline constexpr uint32_t kCloudLayoutPatternBinding = 17;
+    inline constexpr uint32_t kCloudLayoutMaskBinding    = 18;
 
     /**
      * @brief The FOUR noise volumes a layer can bind, by descriptor number, in the order CloudGpuPayload::
@@ -637,6 +656,10 @@ namespace Desert::Graphic
         /// parameters the bound volume was baked from, so the cover and the softness belong to the bytes
         /// they are compared with. Zero (the default) keeps nothing: no bake, no cut to make.
         glm::vec4 Weather{ 0.0f };
+        /// Assets::CloudLayoutPlaceUniform / CloudLayoutStrengthUniform of the same parameters. Zero strength
+        /// (the default) reads no painting.
+        glm::vec4 LayoutPlace{ 0.0f };
+        glm::vec4 LayoutStrength{ 0.0f };
     };
 
     /**
@@ -1003,7 +1026,9 @@ namespace Desert::Graphic
         // from the cloud component because they describe the VOLUME, and the volume belongs to the sky —
         // a second authored copy here is how the fill and the read end up disagreeing about the slice
         // mapping.
-        p.Weather = region.Weather;
+        p.Weather        = region.Weather;
+        p.LayoutPlace    = region.LayoutPlace;
+        p.LayoutStrength = region.LayoutStrength;
 
         p.Aerial = glm::vec3( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                               atmosphere.AerialPerspectiveVolume != nullptr ? 1.0f : 0.0f );

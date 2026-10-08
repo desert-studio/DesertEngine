@@ -803,6 +803,16 @@ namespace Desert::Assets
     /// (CloudProceduralRankSoftness), w 1 / kCloudFarWeatherPeriodKm.
     glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
 
+    /// WHERE THE PAINTING LIES, as the GPU block carries it (CloudGpuPayload::LayoutPlace): xy the
+    /// placement's OffsetKm, zw `(cos, sin) * Repeats / RegionSize` of its quarter turn — exact, so the
+    /// shader's `uv = (z sx - w sy, w sx + z sy)` is CloudLayoutUv bit for bit at every magnitude.
+    glm::vec4 CloudLayoutPlaceUniform( const CloudProceduralFieldParams& params );
+
+    /// HOW STRONGLY IT ACTS (CloudGpuPayload::LayoutStrength): x the PatternStrength when a pattern is
+    /// bound and 0 otherwise, y the MaskStrength when a mask is bound and 0 otherwise — the same live tests
+    /// CloudProceduralLocalCover makes. z and w are not read (Graphic::kCloudUnreadSlots).
+    glm::vec4 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params );
+
     /// How far the local cover runs past a cluster's core rank before the cluster stands at its full profile.
     inline float CloudProceduralRankSoftness( const CloudProceduralFieldParams& params )
     {
@@ -815,15 +825,17 @@ namespace Desert::Assets
     /// `max(0, 1 - 1/(2 strength))` of the sky. The shader's CloudLocalCover is the same expression.
     float CloudWeatherPresence( float strength, float weather );
 
-    /// The cover the march compares a rank against at a world column: `Coverage * W` (Nubis'
-    /// localCover), or Coverage itself when a painted pattern is the weather.
-    float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
+    /// The cover the march compares a cluster's bare rank against at a world column, for species @p slot:
+    /// `Coverage * W` (Nubis' localCover) plus the mask, where W is the slot's PAINTED W
+    /// (`1 - PatternStrength * (1 - painted)`) when a pattern is bound and the world weather's otherwise —
+    /// per column, as Unreal's Layout and the Nubis weather map multiply it (WX-PAINT). The shader's
+    /// CloudLocalCover is the same expression, its painted term read from the layout textures.
+    float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, uint32_t slot,
+                                     const glm::vec2& worldKm );
 
-    /// One cell's rank: its own hash, shifted by a bound painting by what it takes off the slider
-    /// (draw + Coverage - Coverage * W_painted), so the march's cut against Coverage is the cut against the
-    /// painted Coverage * W — the same keep and the same run the world weather's W gives (WX-NUBIS-b).
-    float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,
-                                   const glm::vec2& centreKm );
+    /// CloudProceduralLocalCover for the four species slots at once, in slot order — what
+    /// CloudProceduralColumnKept takes, because a column's cut reads the cover of the species that wins it.
+    glm::vec4 CloudProceduralLocalCovers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
 
     /// THE CUT the march makes (the CPU mirror of the shader's keep): a cluster exists when its core rank is
     /// under the local cover. Half a byte of offset so that a cover of 0 keeps nothing and 1 keeps every
@@ -861,10 +873,11 @@ namespace Desert::Assets
         return value < 0.0f ? 0.0f : ( value > 1.0f ? 1.0f : value );
     }
 
-    /// Whether column (@p x, @p z) of @p bake shows sky or cloud at @p localCover: cloud when ANY voxel of it is
-    /// kept (CloudProceduralKeep on its rank pair). What a census of the sky fraction reads.
+    /// Whether column (@p x, @p z) of @p bake shows sky or cloud at the per-slot covers @p slotCover
+    /// (CloudProceduralLocalCovers): cloud when ANY body voxel of it is kept — CloudProceduralKeep on its rank
+    /// against the cover of the species that wins the voxel, as the march decides. What a census reads.
     bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x, uint32_t z,
-                                    float localCover );
+                                    const glm::vec4& slotCover );
 
     /**
      * @brief The same bake, reporting progress and able to be abandoned.

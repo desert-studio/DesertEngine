@@ -49,6 +49,8 @@ namespace Desert::Graphic
     inline constexpr uint32_t kCloudSkyOcclusionParamsBinding        = kCloudParamsBinding;
     inline constexpr uint32_t kCloudSkyOcclusionModellingBinding     = kCloudModellingBinding;
     inline constexpr uint32_t kCloudSkyOcclusionModellingRankBinding = kCloudModellingRankBinding;
+    inline constexpr uint32_t kCloudSkyOcclusionLayoutPatternBinding = kCloudLayoutPatternBinding;
+    inline constexpr uint32_t kCloudSkyOcclusionLayoutMaskBinding    = kCloudLayoutMaskBinding;
     inline constexpr uint32_t kCloudSkyOcclusionFarWeatherBinding    = kCloudFarWeatherBinding;
     inline constexpr uint32_t kCloudSkyOcclusionAuthoredBinding      = kCloudAuthoredBinding;
     inline constexpr uint32_t kCloudSkyOcclusionAuthoredAtlasBinding = kCloudAuthoredAtlasBinding;

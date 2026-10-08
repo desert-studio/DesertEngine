@@ -233,6 +233,8 @@ Shader "CloudRaymarch"
         // Always bound, on the terms every sampler here is.
         Uniform(15) sampler3D u_CloudModellingRank;
         Uniform(16) sampler2D u_CloudFarWeather;
+        Uniform(17) sampler2D u_CloudLayoutPattern;
+        Uniform(18) sampler2D u_CloudLayoutMask;
 
         // THE SCULPTED HERO-CLOUD BODY — slot A of the seam. 128 x 64 x 128 RGBA8 of dimensional
         // profile, detail type, density scale and cutout envelope, loaded from a `.dcmv` and uploaded by
@@ -281,6 +283,8 @@ Shader "CloudRaymarch"
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
         #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
         // textureLod AND NOT texture: a compute shader has no derivatives, so the implicit level of
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.

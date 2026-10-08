@@ -531,6 +531,10 @@ namespace Desert::Tests::CloudFieldRef
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),             \
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
                                      ModellingVolume().Params.PatchTileKm )
+#define CLOUD_SAMPLE_LAYOUT_PATTERN( uv )                                                                         \
+    Desert::Assets::SampleCloudLayoutPatternTexel( ModellingVolume().Params.PatternSource.get(), ( uv ) )
+#define CLOUD_SAMPLE_LAYOUT_MASK( uv )                                                                            \
+    Desert::Assets::SampleCloudLayoutMaskUnorm( ModellingVolume().Params.MaskSource.get(), ( uv ) )
 
         // ------------------------------------------------------------------------------------------
         // SLOT A, DECLARED EMPTY — this suite drives producer P
@@ -629,6 +633,8 @@ namespace Desert::Tests::CloudFieldRef
             params.RegionOriginKm  = ModellingVolume().OriginKm;
             params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
             params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+            params.LayoutPlace     = Desert::Assets::CloudLayoutPlaceUniform( ModellingVolume().Params );
+            params.LayoutStrength  = Desert::Assets::CloudLayoutStrengthUniform( ModellingVolume().Params );
         }
 
         /**

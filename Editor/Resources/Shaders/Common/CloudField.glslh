@@ -42,6 +42,9 @@
 //     CLOUD_SAMPLE_WEATHER( vec2 uv )              ->  float, the world weather W (standard normal) at
 //                                                      uv = windPos.xz / its period, REPEAT
 //     CLOUD_SAMPLE_AUTHORED( vec3 uvw )            ->  vec4, four channels of the sculpted-body ATLAS
+//     CLOUD_SAMPLE_LAYOUT_PATTERN( vec2 uv )       ->  vec4, the painted layout's pattern, channel k species
+//                                                      slot k, 0..1, REPEAT (white where nothing is painted)
+//     CLOUD_SAMPLE_LAYOUT_MASK( vec2 uv )          ->  float, the layout's mask as unorm (raw / 255), REPEAT
 //
 // The third arrives on the same terms as the first two, and the instance list it is addressed with — plus
 // the atlas's slab count — comes from Common/CloudAuthored.glslh, which must have been included first.
@@ -135,6 +138,8 @@ struct CloudFieldParams
     // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
     // as macros; every block value arrives here through CloudUnpackFieldParams.
     vec4 Weather;
+    vec4 LayoutPlace;    // Assets::CloudLayoutPlaceUniform: xy offset km, zw (cos, sin) * repeats / region
+    vec4 LayoutStrength; // Assets::CloudLayoutStrengthUniform: x pattern, y mask (0 = not read)
 
     vec3 WindOffsetKm; // accumulated wind displacement, subtracted from the sample position
 
@@ -300,7 +305,8 @@ vec3 CloudProceduralVolumeUvw( CloudFieldParams params, float heightFraction, ve
 }
 
 #if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED ) && \
-     defined( CLOUD_SAMPLE_MODELLING_RANK ) && defined( CLOUD_SAMPLE_WEATHER )
+     defined( CLOUD_SAMPLE_MODELLING_RANK ) && defined( CLOUD_SAMPLE_WEATHER ) &&                                   \
+     defined( CLOUD_SAMPLE_LAYOUT_PATTERN ) && defined( CLOUD_SAMPLE_LAYOUT_MASK )
 
 // ---------------------------------------------------------------------------------------------------
 // THE CUT — the GPU half of Assets::CloudProceduralKeep against Assets::CloudProceduralLocalCover
@@ -320,20 +326,48 @@ float CloudNormalCdf( float x )
     return x >= 0.0f ? 0.5f * ( 1.0f + erfAbs ) : 0.5f * ( 1.0f - erfAbs );
 }
 
-// THE LOCAL COVER at a world column — Assets::CloudProceduralLocalCover, written for the GPU (WX-NUBIS):
-// Nubis' localCover = Coverage * W, W = saturate(1 - 2 s Phi(w)) the weather map with true zeros
-// (Assets::CloudWeatherPresence). A strength of 0 (none, or a painted pattern is the weather) is W = 1 here:
-// a painted W = 1 - PatternStrength * (1 - painted) reaches this cut through the baked rank instead, shifted
-// by Coverage * (1 - W) (Assets::CloudProceduralCellRank), so Coverage - rank is Coverage * W - draw exactly.
-float CloudLocalCover( vec4 weather, vec2 windPosXz )
+// THE LAYOUT'S UV at a wind-space column — Assets::CloudLayoutUv: shift by the offset, then the quarter turn
+// and the repeat as one exact 2x2 ((cos, sin) * repeats / region, Assets::CloudLayoutPlaceUniform).
+vec2 CloudLayoutUv( vec4 place, vec2 windPosXz )
 {
-    float cover    = clamp( weather.x, 0.0f, 1.0f );
-    float strength = weather.y;
-    if ( cover <= 0.0f || strength <= 1e-4f )
-        return cover;
+    float sx = windPosXz.x - place.x;
+    float sy = windPosXz.y - place.y;
+    return vec2( place.z * sx - place.w * sy, place.w * sx + place.z * sy );
+}
 
-    float w = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.w, windPosXz.y * weather.w ) );
-    return cover * clamp( 1.0f - 2.0f * strength * CloudNormalCdf( w ), 0.0f, 1.0f );
+#define CLOUD_LAYOUT_MASK_NEUTRAL 128.0f
+
+// THE LOCAL COVER at a world column for species @p slot — Assets::CloudProceduralLocalCover, written for the
+// GPU (WX-NUBIS, WX-PAINT): Nubis' localCover = Coverage * W, W the slot's PAINTED W = 1 - PatternStrength *
+// (1 - painted) when a pattern is bound (Unreal's Layout, per pixel), else the world weather map W =
+// saturate(1 - 2 s Phi(w)) with true zeros (Assets::CloudWeatherPresence); plus the mask, which adds.
+float CloudLocalCover( vec4 weather, vec4 layoutPlace, vec4 layoutStrength, int slot, vec2 windPosXz )
+{
+    float cover     = clamp( weather.x, 0.0f, 1.0f );
+    float modulated = cover;
+    vec2  uv        = CloudLayoutUv( layoutPlace, windPosXz );
+
+    if ( layoutStrength.x > 1e-4f )
+    {
+        float painted = clamp( CLOUD_SAMPLE_LAYOUT_PATTERN( uv )[slot], 0.0f, 1.0f );
+        modulated     = cover * ( 1.0f - layoutStrength.x * ( 1.0f - painted ) );
+    }
+    else if ( weather.y > 1e-4f )
+    {
+        float w   = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.w, windPosXz.y * weather.w ) );
+        modulated = cover * clamp( 1.0f - 2.0f * weather.y * CloudNormalCdf( w ), 0.0f, 1.0f );
+    }
+
+    if ( layoutStrength.y > 1e-4f )
+    {
+        // Signed about neutral, the two sides normalised separately (Assets::SampleCloudLayoutMask).
+        float centred = CLOUD_SAMPLE_LAYOUT_MASK( uv ) * 255.0f - CLOUD_LAYOUT_MASK_NEUTRAL;
+        float signedMask =
+             centred >= 0.0f ? centred / ( 255.0f - CLOUD_LAYOUT_MASK_NEUTRAL ) : centred / CLOUD_LAYOUT_MASK_NEUTRAL;
+        modulated += layoutStrength.y * signedMask;
+    }
+
+    return clamp( modulated, 0.0f, 1.0f );
 }
 
 // THE CUT ITSELF (CUT-CORE) — Assets::CloudProceduralCoverProfile, written for the GPU. The coverage remap of
@@ -415,8 +449,11 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
     // (the comparison Assets::CloudProceduralKeep makes on the CPU), decides whether that cluster exists
     // and how far into its form the remap's threshold has moved.
     vec4  weather    = params.Weather;
-    float cutProfile = CloudCoverProfile( best, CLOUD_SAMPLE_MODELLING_RANK( uvw ),
-                                          CloudLocalCover( weather, vec2( windPos.x, windPos.z ) ), weather.z );
+    float cutProfile =
+         CloudCoverProfile( best, CLOUD_SAMPLE_MODELLING_RANK( uvw ),
+                            CloudLocalCover( weather, params.LayoutPlace, params.LayoutStrength, winner,
+                                             vec2( windPos.x, windPos.z ) ),
+                            weather.z );
     if ( cutProfile <= 0.0f )
         return result;
 
@@ -979,6 +1016,6 @@ float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 po
     return accumulated * marchKm;
 }
 
-#endif // CLOUD_SAMPLE_NOISE && CLOUD_SAMPLE_MODELLING && CLOUD_SAMPLE_AUTHORED
+#endif // CLOUD_SAMPLE_NOISE && CLOUD_SAMPLE_MODELLING && CLOUD_SAMPLE_AUTHORED && CLOUD_SAMPLE_LAYOUT_*
 
 #endif // CLOUD_FIELD_GLSLH

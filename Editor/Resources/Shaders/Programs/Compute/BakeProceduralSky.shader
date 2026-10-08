@@ -116,6 +116,8 @@ Shader "BakeProceduralSky"
         // Always bound, on the terms every sampler here is.
         Uniform(14) sampler3D u_CloudModellingRank;
         Uniform(15) sampler2D u_CloudFarWeather;
+        Uniform(16) sampler2D u_CloudLayoutPattern;
+        Uniform(17) sampler2D u_CloudLayoutMask;
         Uniform(10) sampler3D u_CloudAuthoredAtlas;
 
         // The sky's DISTANT SKY LIGHT: one texel holding the average radiance of the whole sky. It is the
@@ -150,6 +152,8 @@ Shader "BakeProceduralSky"
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
         #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
 
         // Slot A's instance list, included BEFORE the seam because the seam's authored producer reads the

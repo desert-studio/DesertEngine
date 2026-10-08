@@ -123,6 +123,11 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // Before u_CloudAerial for the reason u_CloudAlbedo is.
     vec4  u_CloudSpeciesWispBase;
     vec4  u_CloudSpeciesWispTop;
+    // THE PAINTED LAYOUT (Graphic::CloudGpuPayload::LayoutPlace / LayoutStrength, WX-PAINT): xy offset km, zw
+    // (cos, sin) * repeats / region; x pattern strength, y mask strength, 0 when not bound — z and w are
+    // not read (Graphic::kCloudUnreadSlots). Before u_CloudAerial for the reason u_CloudAlbedo is.
+    vec4  u_CloudLayoutPlace;
+    vec4  u_CloudLayoutStrength;
     // x = aerial-perspective volume far extent (km), y = its read-side view-distance scale,
     // z = 1 when the volume exists and must be sampled.
     //
@@ -130,8 +135,8 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // used to be a vec4 whose fourth slot carried the cloud type's variance, and then the domain warp's
     // amount; the warp was measured and taken out (see the note in Common/CloudField.glslh), so rather
     // than leave a float nobody reads — which is where the next parameter would get stashed without a
-    // name, a range or a tooltip — the block ends in a vec3. std430 puts it at offset 320 and the block
-    // is 332 bytes; Graphic::CloudGpuPayload pins exactly that with a static_assert.
+    // name, a range or a tooltip — the block ends in a vec3. std430 puts it at offset 352 and the block
+    // is 364 bytes; Graphic::CloudGpuPayload pins exactly that with a static_assert.
     vec3  u_CloudAerial;
 };
 
@@ -178,6 +183,8 @@ CloudFieldParams CloudUnpackFieldParams()
     p.RegionOriginKm  = vec2( u_CloudRegion.x, u_CloudRegion.y );
     p.InvRegionSizeKm = u_CloudRegion.z;
     p.Weather         = u_CloudWeather;
+    p.LayoutPlace     = u_CloudLayoutPlace;
+    p.LayoutStrength  = u_CloudLayoutStrength;
 
     p.WindOffsetKm = vec3( u_CloudWind.x, u_CloudWind.y, u_CloudWind.z );
 

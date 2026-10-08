@@ -173,6 +173,16 @@ namespace Desert::Graphic
                                  ? clouds.FarWeather
                                  : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        pipeline->SetInput( kSkyBakeCloudLayoutPatternBinding,
+                            cloudsBound && clouds.LayoutPattern != nullptr
+                                 ? clouds.LayoutPattern
+                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        pipeline->SetInput( kSkyBakeCloudLayoutMaskBinding,
+                            cloudsBound && clouds.LayoutMask != nullptr
+                                 ? clouds.LayoutMask
+                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeCloudAuthoredAtlasBinding,
                             cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas : volumeFallback,
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );

@@ -373,6 +373,9 @@ namespace Desert::Graphic::System
         /// Build the world weather map for m_ModellingParams if its seed or shortest wave moved; false when
         /// the device refused the image.
         bool EnsureFarWeatherMap();
+        /// The painted layout as the march's two textures (kCloudLayoutPatternBinding), re-uploaded only when
+        /// the painting's content hash moves; neutral 1x1 stand-ins when nothing is painted.
+        bool EnsureLayoutTextures();
 
         /// The parameters this view's volume was baked from, as a pure function of the layer and the
         /// resolved species. Separated out because it is asked for twice — once to compare against what
@@ -628,6 +631,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D> m_FarWeatherMap;
         uint32_t                 m_FarWeatherSeed   = 0u;
         float                    m_FarWeatherTileKm = 0.0f;
+        std::shared_ptr<Image2D> m_LayoutPatternTexture;
+        std::shared_ptr<Image2D> m_LayoutMaskTexture;
+        uint32_t                 m_LayoutPatternHash = 0u;
+        uint32_t                 m_LayoutMaskHash    = 0u;
 
         // A BAKE IN FLIGHT, on Common::JobSystem. A future rather than a raw thread so the result is
         // collected exactly once — the same arrangement, for the same reason, that the sculpting panel's

@@ -57,6 +57,8 @@ Shader "CloudShadowMap"
         // Always bound, on the terms every sampler here is.
         Uniform(15) sampler3D u_CloudModellingRank;
         Uniform(16) sampler2D u_CloudFarWeather;
+        Uniform(17) sampler2D u_CloudLayoutPattern;
+        Uniform(18) sampler2D u_CloudLayoutMask;
 
         // The same four-way select the march declares, for the same reason and at the same cost. Repeated
         // rather than shared because Common/CloudField.glslh must stay free of samplers to remain
@@ -85,6 +87,8 @@ Shader "CloudShadowMap"
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
         #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
 
         #define CLOUD_AUTHORED_BUFFER_BINDING 8

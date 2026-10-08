@@ -289,7 +289,7 @@ namespace Desert::Assets
         constexpr uint32_t kCloudFarWeatherWaves = 96u;
 
         float CloudCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
-                                 const glm::vec2& centreKm, bool withWeather )
+                                 const glm::vec2& centreKm )
         {
             const float base = std::clamp( params.Coverage, 0.0f, 1.0f );
 
@@ -323,7 +323,7 @@ namespace Desert::Assets
                 // past its own documented range, and the caller that used to hold it is no longer the only
                 // one there is.
                 const float patchStrength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
-                if ( withWeather && patchStrength > 1e-4f )
+                if ( patchStrength > 1e-4f )
                 {
                     const float weather =
                          CloudFarWeather( CloudFarWeatherSeed( params ), centreKm, params.PatchTileKm );
@@ -1162,12 +1162,11 @@ namespace Desert::Assets
                 // is its profile, which no cover moves. KeptCells asks the cover at the cluster's centre —
                 // the march asks it per column, which differs only across a weather gradient inside one
                 // cluster (the weather's waves are tens of kilometres). A painted pattern or mask still
-                // enters HERE, by shifting the rank, because a painting is a property of the region.
-                const float cellRank = CloudProceduralCellRank( params, slot, cellSeed, centre );
-                if ( !( cellRank < 1.0f ) )
-                    continue;
+                // enters the same cut, per column, as one more term of the local cover (WX-PAINT): the rank
+                // is the bare draw, and no painting removes a cluster from the bake.
+                const float cellRank = HashUnit( cellSeed );
                 if ( set == CloudProceduralLumpSet::KeptCells &&
-                     !( cellRank < CloudProceduralLocalCover( params, centre ) ) )
+                     !( cellRank < CloudProceduralLocalCover( params, slot, centre ) ) )
                     continue;
 
                 // EDGE TOP FRACTION IS WHAT A SMALL CLUSTER LOSES. The type says how tall the smallest
@@ -1515,7 +1514,7 @@ namespace Desert::Assets
     }
 
     bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x, uint32_t z,
-                                    float localCover )
+                                    const glm::vec4& slotCover )
     {
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
         {
@@ -1524,9 +1523,18 @@ namespace Desert::Assets
             if ( voxel >= bake.Ranks.size() || at + kCloudProceduralBytesPerVoxel > bake.Voxels.size() )
                 continue;
             // A BODY voxel of a kept cluster: the rank alone also names the air beside a body.
-            const bool body = bake.Voxels[at] > 0u || bake.Voxels[at + 1u] > 0u || bake.Voxels[at + 2u] > 0u ||
-                              bake.Voxels[at + 3u] > 0u;
-            if ( body && CloudProceduralKeep( bake.Ranks[voxel], localCover ) )
+            // THE WINNER'S COVER, as the march takes it: the deepest species owns the voxel (strictly
+            // deeper, so a tie stays with the earlier slot — CloudSampleProceduralField's loop), and its
+            // slot's painted W is the one the cut reads.
+            int           winner = -1;
+            unsigned char best   = 0u;
+            for ( uint32_t slot = 0; slot < kCloudProceduralBytesPerVoxel; ++slot )
+                if ( bake.Voxels[at + slot] > best )
+                {
+                    best   = bake.Voxels[at + slot];
+                    winner = static_cast<int>( slot );
+                }
+            if ( winner >= 0 && CloudProceduralKeep( bake.Ranks[voxel], slotCover[winner] ) )
                 return true;
         }
         return false;
@@ -1932,7 +1940,7 @@ namespace Desert::Assets
     float CloudProceduralCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
                                        const glm::vec2& centreKm )
     {
-        return CloudCellCoverage( params, slot, centreKm, true );
+        return CloudCellCoverage( params, slot, centreKm );
     }
 
     uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params )
@@ -2057,6 +2065,42 @@ namespace Desert::Assets
         return glm::vec4( cover, live, CloudProceduralRankSoftness( params ), 1.0f / kCloudFarWeatherPeriodKm );
     }
 
+    glm::vec4 CloudLayoutPlaceUniform( const CloudProceduralFieldParams& params )
+    {
+        const float region = std::max( params.RegionSizeKm, 1e-3f );
+        const float k = static_cast<float>( std::max( params.LayoutPlacement.RepeatsPerRegion, 1u ) ) / region;
+        float       c = 1.0f;
+        float       s = 0.0f;
+        switch ( params.LayoutPlacement.QuarterTurns & 3u )
+        {
+            case 1:
+                c = 0.0f;
+                s = 1.0f;
+                break;
+            case 2:
+                c = -1.0f;
+                break;
+            case 3:
+                c = 0.0f;
+                s = -1.0f;
+                break;
+            default:
+                break;
+        }
+        return glm::vec4( params.LayoutPlacement.OffsetKm.x, params.LayoutPlacement.OffsetKm.y, c * k, s * k );
+    }
+
+    glm::vec4 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params )
+    {
+        const CloudLayoutData* patternSource = params.PatternSource.get();
+        const CloudLayoutData* maskSource    = params.MaskSource.get();
+        const float            pattern       = std::clamp( params.LayoutPlacement.PatternStrength, 0.0f, 1.0f );
+        const float            mask          = std::clamp( params.LayoutPlacement.MaskStrength, 0.0f, 1.0f );
+        const bool patternLive = patternSource != nullptr && patternSource->HasPattern() && pattern > 1e-4f;
+        const bool maskLive    = maskSource != nullptr && maskSource->HasMask() && mask > 1e-4f;
+        return glm::vec4( patternLive ? pattern : 0.0f, maskLive ? mask : 0.0f, 0.0f, 0.0f );
+    }
+
     float CloudWeatherPresence( float strength, float weather )
     {
         const float s = std::clamp( strength, 0.0f, 1.0f );
@@ -2067,51 +2111,24 @@ namespace Desert::Assets
         return std::clamp( 1.0f - 2.0f * s * u, 0.0f, 1.0f );
     }
 
-    float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
+    float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, uint32_t slot,
+                                     const glm::vec2& worldKm )
     {
-        const float base = std::clamp( params.Coverage, 0.0f, 1.0f );
-
-        // A PAINTED PATTERN IS THE WEATHER when one is bound — it enters the bake through the rank
-        // (CloudProceduralCellRank) — and two mechanisms deciding one number is the second path the
-        // contract forbids, so the world weather stands down exactly as it did in CloudCellCoverage.
-        const CloudLayoutData* patternSource = params.PatternSource.get();
-        if ( patternSource != nullptr && patternSource->HasPattern() &&
-             params.LayoutPlacement.PatternStrength > 1e-4f )
-            return base;
-
-        const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
-        if ( strength <= 1e-4f )
-            return base;
-
-        return base * CloudWeatherPresence( strength, CloudFarWeather( CloudFarWeatherSeed( params ), worldKm,
-                                                                       params.PatchTileKm ) );
+        // PER COLUMN, AND THE PAINTING IS ONE OF ITS TERMS (WX-PAINT) — Unreal's Layout and Nubis' weather
+        // map both multiply the coverage per PIXEL of the map, never per cloud. The painted W of this slot,
+        // or the world weather's W when nothing is painted, times Coverage, plus the mask: the one
+        // expression CloudCellCoverage states, read here at the column the march asks about. The rank it is
+        // compared with is the cluster's bare draw (the bake), so a painted edge cuts a cluster the way a
+        // weather edge does — through the column, not by deleting the cluster whole at its centre.
+        return CloudCellCoverage( params, slot, worldKm );
     }
 
-    float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,
-                                   const glm::vec2& centreKm )
+    glm::vec4 CloudProceduralLocalCovers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
     {
-        const float draw = HashUnit( cellSeed );
-
-        const CloudLayoutData* patternSource = params.PatternSource.get();
-        const CloudLayoutData* maskSource    = params.MaskSource.get();
-        const bool             painted =
-             ( patternSource != nullptr && patternSource->HasPattern() &&
-               params.LayoutPlacement.PatternStrength > 1e-4f ) ||
-             ( maskSource != nullptr && maskSource->HasMask() && params.LayoutPlacement.MaskStrength > 1e-4f );
-        if ( !painted )
-            return draw;
-
-        // THE PAINTING SHIFTS THE RANK by what it takes off the slider, so the march's cut against Coverage
-        // is the cut against Coverage * W the world weather makes, in its RUN as well as its keep:
-        // Coverage - (draw + Coverage - painted) = painted - draw. Scaling the rank instead kept the keep but
-        // stretched the run by 1 / W, so a painted cloud near a black edge stood whole where a weather cloud
-        // at the same W shows only its core. A shift past 1 is a cluster no cover keeps (Coverage <= 1); one
-        // under 0 (a mask that added cloud) is kept at every cover, which is what the mask asked for.
-        const float base      = std::clamp( params.Coverage, 0.0f, 1.0f );
-        const float paintedAt = CloudCellCoverage( params, slot, centreKm, false );
-        if ( !( paintedAt > 1e-6f ) )
-            return std::numeric_limits<float>::infinity();
-        return std::max( draw + base - paintedAt, 0.0f );
+        glm::vec4 covers( 0.0f );
+        for ( uint32_t slot = 0; slot < 4u; ++slot )
+            covers[static_cast<int>( slot )] = CloudCellCoverage( params, slot, worldKm );
+        return covers;
     }
 
     Common::ResultStr<CloudLayoutPreview> BuildCloudLayoutPreview( const CloudProceduralFieldParams& params,

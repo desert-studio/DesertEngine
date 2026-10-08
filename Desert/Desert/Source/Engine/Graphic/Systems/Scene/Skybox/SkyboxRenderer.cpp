@@ -818,6 +818,8 @@ namespace Desert::Graphic::System
         cloudBinding.Modelling          = clouds.Modelling;
         cloudBinding.ModellingRank      = clouds.ModellingRank;
         cloudBinding.FarWeather         = clouds.FarWeather;
+        cloudBinding.LayoutPattern      = clouds.LayoutPattern;
+        cloudBinding.LayoutMask         = clouds.LayoutMask;
         cloudBinding.AuthoredAtlas      = clouds.AuthoredAtlas;
         cloudBinding.SkyOcclusionVolume = clouds.SkyOcclusionVolume;
         cloudBinding.DistantSkyLight    = m_Atmosphere.DistantSkyLight;

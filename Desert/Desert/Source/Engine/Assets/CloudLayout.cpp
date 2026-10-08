@@ -221,6 +221,27 @@ namespace Desert::Assets
              } );
     }
 
+    glm::vec4 SampleCloudLayoutPatternTexel( const CloudLayoutData* data, const glm::vec2& uv )
+    {
+        if ( data == nullptr || !data->HasPattern() )
+            return glm::vec4( 1.0f );
+        return glm::vec4( SampleCloudLayoutPattern( *data, 0u, uv ), SampleCloudLayoutPattern( *data, 1u, uv ),
+                          SampleCloudLayoutPattern( *data, 2u, uv ), SampleCloudLayoutPattern( *data, 3u, uv ) );
+    }
+
+    float SampleCloudLayoutMaskUnorm( const CloudLayoutData* data, const glm::vec2& uv )
+    {
+        if ( data == nullptr || !data->HasMask() || data->Resolution == 0u )
+            return kMaskNeutral / 255.0f;
+        const uint32_t             resolution = data->Resolution;
+        const unsigned char* const pixels     = data->Mask.data();
+        return BilinearWrapped( uv, resolution,
+                                [pixels, resolution]( uint32_t x, uint32_t y ) {
+                                    return static_cast<float>( pixels[static_cast<size_t>( y ) * resolution + x] ) *
+                                           ( 1.0f / 255.0f );
+                                } );
+    }
+
     float SampleCloudLayoutMask( const CloudLayoutData& data, const glm::vec2& uv )
     {
         if ( !data.HasMask() || data.Resolution == 0u )
@@ -475,7 +496,7 @@ namespace Desert::Assets
              ( static_cast<uint32_t>( least ) + static_cast<uint32_t>( greatest ) ) / 2u );
 
         const auto painted = [&]( uint32_t x, uint32_t y )
-        { return data.Pattern[( static_cast<size_t>( y ) * n + x ) * kPatternBytesPerTexel + slot] > threshold; };
+        { return data.Pattern[( static_cast<size_t>( y ) * n + x ) * kPatternBytesPerTexel + slot] < threshold; };
 
         // uint16 because the side is capped at kCloudLayoutMaxResolution — 1024 fits, and at the ceiling
         // the two tables are 4 MiB rather than 8.
@@ -688,7 +709,9 @@ namespace Desert::Assets
 
         CloudLayoutCanvas canvas;
         canvas.Side = side;
-        canvas.Pattern.assign( static_cast<size_t>( side ) * side * kPatternBytesPerTexel, 0u );
+        // WHITE, THE NEUTRAL (WX-PAINT): the painted W is `1 - PatternStrength * (1 - painted)`, so white leaves
+        // the slider's sky as it is and the brush carves clear sky out of it — Unreal's Layout starts here too.
+        canvas.Pattern.assign( static_cast<size_t>( side ) * side * kPatternBytesPerTexel, 255u );
 
         return Common::MakeSuccess( std::move( canvas ) );
     }

@@ -760,6 +760,8 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresElevenDescriptorsInSetZero )
     EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 11u );
     EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
+    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout pattern
+    EXPECT_TRUE( HasBinding( bindings, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // layout mask
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {
@@ -815,7 +817,7 @@ TEST_F( ShaderRootFixture, TheCloudMarchDeclaresSeventeenDescriptorsInSetZero )
     // far more, so the count is pinned as the binding contract, not as a limit being approached.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 17u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 19u );
     EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
 
