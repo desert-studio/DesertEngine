@@ -452,7 +452,14 @@ jobs:
           restore-keys: |
             ccache-sanitizers-macos14-
 
+      # A STEP timeout under the job's 90, the same fix as Windows (fca6befab): when the step runs out the
+      # job is NOT being cancelled, so Save ccache below runs normally and keeps every object the build
+      # finished. At the job ceiling the runner is already tearing down — Windows run 37484896713's save
+      # printed success and no cache appeared. Run 37701712354 (int/b3, cold) built for 85 min and was
+      # cancelled at the ceiling; the steps before the build took 5 min, Save of a 2G cache needs ~2, so
+      # 78 leaves a dev push's cold build its cache and the next run its hits.
       - name: Build Debug with sanitizers
+        timeout-minutes: 78
         env:
           CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
           LDFLAGS: "-fsanitize=address,undefined"
