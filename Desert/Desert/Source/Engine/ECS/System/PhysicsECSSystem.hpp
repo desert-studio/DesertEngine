@@ -209,6 +209,7 @@ namespace Desert::ECS
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
             m_World->Step( ts.GetSeconds() );
+            m_Destructibles->WritePoses( registry );
 
             // Write the simulated pose back into the transform for moving bodies.
             for ( auto entity : bodies )

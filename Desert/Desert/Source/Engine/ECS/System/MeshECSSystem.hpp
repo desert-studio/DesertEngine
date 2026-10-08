@@ -2,6 +2,7 @@
 
 #include "System.hpp"
 #include "SystemRules.hpp"
+#include "FracturePieceDraw.hpp"
 #include "WindField.hpp"
 
 #include <Engine/ECS/Components.hpp>
@@ -49,6 +50,34 @@ namespace Desert::ECS
                  Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion();
 
             /* =========================
+               FRACTURED ENTITIES (DST-06): their pieces go out as static-mesh draws, through the same
+               instanced path below; the entities Record returns do not draw their static mesh.
+               ========================= */
+            FracturePieceDraw::Services pieceServices;
+            pieceServices.SourceSlots = []( const Assets::AssetHandle& meshHandle )
+            {
+                std::vector<Assets::AssetHandle> slots;
+                AdoptMeshMaterialSlots( slots, meshHandle );
+                return slots;
+            };
+            pieceServices.Instance = []( const Assets::AssetHandle& material )
+            { return Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance( material ); };
+            pieceServices.DefaultInstance = [this]()
+            { return DefaultInstance( Graphic::MeshVertexPath::Static ); };
+            pieceServices.MaterialByGuid = []( const Common::Content::AssetGuid& guid )
+            {
+                return Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal(
+                     Assets::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+            };
+            pieceServices.Fracture = []( const Assets::AssetHandle& fracture )
+            {
+                auto read = Runtime::ResourceRegistry::GetFractureService()->Get( fracture );
+                return read.IsSuccess() ? read.GetValue() : std::shared_ptr<const Destruction::FractureData>();
+            };
+            const auto drawnAsPieces =
+                 m_Pieces.Record( registry, renderCommandBuffer, materialsVersion, pieceServices );
+
+            /* =========================
                STATIC MESHES
                ========================= */
             {
@@ -66,6 +95,10 @@ namespace Desert::ECS
                              return;
 
                          if ( !mesh.RuntimeMesh && !mesh.Primitive.has_value() && !mesh.MeshHandle )
+                             return;
+
+                         // Its pieces stand in for it (FracturePieceDraw).
+                         if ( drawnAsPieces.contains( entity ) )
                              return;
 
                          Desert::Mesh* targetMesh = nullptr;
@@ -586,6 +619,9 @@ namespace Desert::ECS
         }
 
     private:
+        // The pieces of fractured entities, drawn as static meshes (DST-06).
+        FracturePieceDraw m_Pieces;
+
         // A component with no material slot takes its mesh asset's (static and skinned alike).
         // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered later than the mesh)
         // leaves the slots EMPTY so this retries next frame - pushing Null() handles would pass the empty()
