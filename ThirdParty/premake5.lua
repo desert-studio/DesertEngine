@@ -9,6 +9,7 @@ include( buildScripts .. "/ImGui.lua" )
 include( buildScripts .. "/ImGuiNodeEditor.lua" )
 include( buildScripts .. "/Jolt.lua" )
 include( buildScripts .. "/Lua.lua" )
+include( buildScripts .. "/Luau.lua" ) -- 0.741: VM, Compiler, CodeGen and their Ast/Bytecode/Common; see the file
 include( buildScripts .. "/Optick.lua" )
 include( buildScripts .. "/MeshOptimizer.lua" )
 include( buildScripts .. "/Voro.lua" ) -- voro++ 0.4.6, the fracture bake's Voronoi cells
