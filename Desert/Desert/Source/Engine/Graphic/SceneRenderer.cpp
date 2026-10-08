@@ -808,6 +808,16 @@ namespace Desert::Graphic
                                                    .Samples    = MotionBlurSamplesForQuality( m_Quality.As<int>(
                                                         Common::Scalability::Parameter::MotionBlurQuality ) ) };
 
+        // Depth of field (MR3): the authored lens (UE DepthOfFieldFocalDistance / Fstop / SensorWidth; the focal
+        // length follows from the frame's FOV) and the scalability ring count (PostProcess.DepthOfFieldQuality).
+        m_DepthOfFieldSettings = DepthOfFieldSettings{
+             .FocalDistanceCm = post.DepthOfFieldFocalDistance,
+             .FStop           = post.DepthOfFieldFstop,
+             .SensorWidthMm   = post.DepthOfFieldSensorWidth,
+             .MaxBokehPercent = post.DepthOfFieldMaxBokehSize,
+             .Rings =
+                  DofRingsForQuality( m_Quality.As<int>( Common::Scalability::Parameter::DepthOfFieldQuality ) ) };
+
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetParams( post.AutoExposureSpeed, post.AutoExposureMin, post.AutoExposureMax );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
@@ -1571,7 +1581,11 @@ namespace Desert::Graphic
         // combination, not a fault: they never enter this function for it.
         const bool motionBlur = MotionBlurRuns( m_MotionBlurSettings, frame ) && m_TargetFramebuffer &&
                                 m_TargetFramebuffer->GetSpecification().Samples == 1;
-        if ( !m_TargetFramebuffer || ( !spatial && !supersample && !temporal && !motionBlur ) )
+        // MR3: depth of field (View/DepthOfField.hpp) runs here too, on the resolved colour before motion blur
+        // (UE: TAA -> DOF -> MotionBlur), under the same single-sample rule.
+        const bool depthOfField = DepthOfFieldRuns( m_DepthOfFieldSettings, frame ) && m_TargetFramebuffer &&
+                                  m_TargetFramebuffer->GetSpecification().Samples == 1;
+        if ( !m_TargetFramebuffer || ( !spatial && !supersample && !temporal && !depthOfField && !motionBlur ) )
             return {};
         // Every refusal below renders the frame WITHOUT the resolve and says so by name: an invalid set, so the
         // caller post-processes the scene colour and draws the overlays into the scene target.
@@ -1646,6 +1660,19 @@ namespace Desert::Graphic
         // chain: Flatten -> TileMax -> NeighborMax -> Gather on the resolved (OutputExtent) colour, from the
         // render-extent velocity and depth. No nodes when Amount is 0, MotionBlurQuality is off or the frame has
         // no duration under a TargetFPS (MotionBlurRuns).
+        // MR3: depth of field (UE Diaphragm DOF) after the resolve and before motion blur: Setup -> TileFlatten ->
+        // TileDilate -> GatherForeground / GatherBackground -> Recombine on the resolved (OutputExtent) colour,
+        // with the CoC from the render-extent scene depth. No nodes when the focal distance is 0,
+        // DepthOfFieldQuality is off or the lens cannot focus there (DepthOfFieldRuns).
+        if ( depthOfField )
+        {
+            const Common::ResultStr<RDG::TextureRef> defocused = m_DepthOfField->AddPasses(
+                 graph, frame, m_DepthOfFieldSettings,
+                 DepthOfFieldInputs{ .SceneColor = resolvedColor, .SceneDepth = inputs.SceneDepth } );
+            if ( !defocused )
+                return withoutTemporal( defocused.GetError() );
+            resolvedColor = defocused.GetValue();
+        }
         if ( motionBlur )
         {
             const Common::ResultStr<RDG::TextureRef> blurred =

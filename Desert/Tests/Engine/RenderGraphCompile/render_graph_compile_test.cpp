@@ -2137,6 +2137,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
          // phases, which draw into its output.
          "temporal[m_TemporalUpscaler]",
+         // MR3: depth of field on the resolved colour (Setup, TileFlatten, TileDilate, GatherForeground,
+         // GatherBackground, Recombine) after the resolve and BEFORE motion blur (UE: TAA -> DOF -> MotionBlur).
+         "temporal[m_DepthOfField]",
          // MR2: motion blur on the resolved colour (Flatten, TileMax, NeighborMax, Gather), before the overlay
          // target set and the post chain.
          "temporal[m_MotionBlur]",
@@ -2202,9 +2205,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // alone on the scene colour without a temporal method, and its output is the resolved colour.
     declares( "AddFrameTemporal",
               { "constboolsupersample=frame.Split.Mode==Common::Scalability::ScaleMode::Supersample;",
-                "if(!m_TargetFramebuffer||(!spatial&&!supersample&&!temporal&&!motionBlur))",
+                "if(!m_TargetFramebuffer||(!spatial&&!supersample&&!temporal&&!depthOfField&&!motionBlur))",
                 "resolvedColor=inputs.SceneColor;", "m_SupersampleResolve.AddPasses(graph,frame,resolvedColor)",
                 "resolvedColor=downsampled.GetValue();", "returnwithoutTemporal(downsampled.GetError());" } );
+    // MR3: depth of field is decided by DepthOfFieldRuns (focal distance, DepthOfFieldQuality, a lens that can
+    // focus there), reads the resolved colour and the scene depth, and its output is the colour motion blur then
+    // reads; nothing is added when it does not run.
+    declares( "AddFrameTemporal",
+              { "constbooldepthOfField=DepthOfFieldRuns(m_DepthOfFieldSettings,frame)", "if(depthOfField)",
+                "m_DepthOfField->AddPasses(graph,frame,m_DepthOfFieldSettings,",
+                ".SceneColor=resolvedColor,.SceneDepth=inputs.SceneDepth}", "resolvedColor=defocused.GetValue();",
+                "returnwithoutTemporal(defocused.GetError());" } );
     // MR2: motion blur is decided by MotionBlurRuns (Amount, MotionBlurQuality, TargetFPS duration), reads the
     // resolve's inputs (scene depth, velocity) and the resolved colour, and its output is the resolved colour the
     // overlay set is built on; nothing is added when it does not run.

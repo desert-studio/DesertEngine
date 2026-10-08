@@ -37,6 +37,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/View/DepthOfField.hpp>
 #include <Engine/Graphic/View/MotionBlur.hpp>
 #include <Engine/Graphic/View/SpatialUpscale.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
@@ -3227,6 +3228,29 @@ TEST( ShaderCacheKey, MotionBlurLayoutsMatchTheShippedShadersReflection )
     for ( const auto& kernel : kernels )
     {
         const auto path = ShaderPath( ( std::string( "MotionBlur/" ) + kernel.Name + ".shader" ).c_str() );
+        ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( path, {} ), kernel.Name ),
+                          *kernel.Layout, kernel.Name );
+    }
+}
+
+// MR3. The six depth of field layouts (View/DepthOfField.cpp) are hand-written like the motion blur ones: each is
+// pinned to its shader's reflection, so a slot renamed, retyped, added or dropped on either side goes red here.
+TEST( ShaderCacheKey, DepthOfFieldLayoutsMatchTheShippedShadersReflection )
+{
+    using Desert::Graphic::API::Vulkan::MakeShaderBindingLayout;
+    const struct
+    {
+        const char*                                                             Name;
+        const std::shared_ptr<const Desert::Graphic::RDG::ShaderBindingLayout>& Layout;
+    } kernels[] = { { "DepthOfFieldSetup", Desert::Graphic::DofSetupLayout() },
+                    { "DepthOfFieldTileFlatten", Desert::Graphic::DofTileFlattenLayout() },
+                    { "DepthOfFieldTileDilate", Desert::Graphic::DofTileDilateLayout() },
+                    { "DepthOfFieldGatherForeground", Desert::Graphic::DofGatherForegroundLayout() },
+                    { "DepthOfFieldGatherBackground", Desert::Graphic::DofGatherBackgroundLayout() },
+                    { "DepthOfFieldRecombine", Desert::Graphic::DofRecombineLayout() } };
+    for ( const auto& kernel : kernels )
+    {
+        const auto path = ShaderPath( ( std::string( "DepthOfField/" ) + kernel.Name + ".shader" ).c_str() );
         ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( path, {} ), kernel.Name ),
                           *kernel.Layout, kernel.Name );
     }
