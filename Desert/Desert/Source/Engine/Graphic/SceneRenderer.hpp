@@ -20,6 +20,7 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -480,6 +481,16 @@ namespace Desert::Graphic
         // TAA1 step 3 — THE one previous-frame source of this view (UE: FSceneViewState): every AddFrame* that
         // reads a matrix, a camera position or a previous-frame value takes the ViewFrame BeginFrame returned.
         SceneViewState m_ViewState;
+        // TAA1-B 5c — the temporal resolve of this view's frames: the implementation of the frame's
+        // TemporalMethod (CreateTemporalUpscaler), null for None. Re-created only when the method changes
+        // (EnsureTemporalUpscaler), so its lazily built pipelines survive frames; it outlives every graph that
+        // recorded its node (the graph executes inside OnUpdate). Handed to SceneViewState::BeginFrame.
+        std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
+        // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
+        // compute pipeline, so it lives with the view rather than in a static that would outlive the device.
+        SupersampleResolve m_SupersampleResolve;
+        // ViewInputs::Quality: SCAL1 AntiAliasing.TemporalQuality, read with the rest of the quality (BeginScene).
+        TemporalAAQuality m_TemporalAAQuality = TemporalAAQuality::Medium;
         // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's
         // CurrentViewFrameScope so no exit path leaves it pointing at a finished frame.
         const ViewFrame* m_CurrentViewFrame = nullptr;
@@ -543,8 +554,25 @@ namespace Desert::Graphic
         // order; consecutive passes on one framebuffer share one render pass (CLEAR iff @p clearFirst).
         // @p samples are graph images those passes sample (the UI samples the backdrop pyramid); each render
         // pass group's opener declares them, so their barriers land before the render pass begins.
+        // @p sceneColor: when valid, the colour the passes drawing on the scene target draw into instead of that
+        // target's colour 0 (same format and extent, the other attachments unchanged: the render pass stays the
+        // one their pipelines were built against) - the temporal output for the overlay phases after the
+        // temporal pass.
         void AddGraphPhasePasses( RDG::Builder& graph, FrameTextures& textures, bool ( *selects )( RenderPhaseID ),
-                                  bool clearFirst );
+                                  bool clearFirst, RDG::TextureRef sceneColor = {} );
+        // Makes m_TemporalUpscaler the implementation of @p method (kept when it already is; null for None).
+        void EnsureTemporalUpscaler( TemporalMethod method );
+        // The frame's temporal resolve, after the Transparency phase: registers the view's histories and adds
+        // the upscaler's node on the scene colour, the scene depth, the resolved velocity and @p exposure (last
+        // frame's adapted luminance). Returns the temporal output - the colour every later node reads and the
+        // overlay phases draw into; invalid when the frame has no temporal method or the node was refused
+        // (logged with the reason), and the frame then continues on the scene colour.
+        RDG::TextureRef AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                          RDG::TextureRef exposure );
+        // AutoExposure's build-time step (Prepare advances its ping-pong), taken before the temporal node so that
+        // node and the exposure nodes agree on which image is last frame's: returns the imported previous
+        // adapted luminance ("AutoExposure.Previous"); invalid when no exposure runs this frame.
+        RDG::TextureRef PrepareFrameAutoExposure( FrameTextures& textures );
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
         // and the Transparency-phase passes — the one point in the frame where the scene depth is finished in
         // BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its apply
@@ -615,8 +643,9 @@ namespace Desert::Graphic
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
+        // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
-                                   const std::vector<RDG::TextureRef>& sceneColor );
+                                   const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
         void AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                             const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
@@ -625,7 +654,8 @@ namespace Desert::Graphic
         void AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<FrameValues>& values );
-        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures );
+        // @p source: the colour the post chain reads (the temporal output, or the scene colour without one).
+        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source );
         void AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures );
         // The backdrop pyramid the UI samples (invalid when the blur is not recorded this frame).

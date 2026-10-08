@@ -652,14 +652,11 @@ namespace Desert::Graphic
         const Common::Scalability::PathAntiAliasing aa = Common::Scalability::ResolveAntiAliasingForPath(
              quality, Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) );
         m_AAMode = aa.PostProcess;
-        // What the frame renders, handed to SceneViewState::BeginFrame: this build has no temporal pass, so the
-        // method is MSAA or the post-process filter (TAA resolves to PostProcess None -> no temporal method) at
-        // 100 % scale with no upscaler. TAA1-B step 5 replaces this with the resolved method and upscaler when it
-        // adds the ITemporalUpscaler pass.
-        m_RenderedAntiAliasing        = aa;
-        m_RenderedAntiAliasing.Method = aa.Method == Common::Scalability::AntiAliasingMethod::MSAA
-                                             ? Common::Scalability::AntiAliasingMethod::MSAA
-                                             : aa.PostProcess;
+        // What the frame renders, handed to SceneViewState::BeginFrame as resolved: TAA stays TAA (its
+        // PostProcess is None, so no FXAA/SMAA runs after it and the tonemap output is the final image).
+        m_RenderedAntiAliasing = aa;
+        m_TemporalAAQuality =
+             static_cast<TemporalAAQuality>( quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
@@ -889,8 +886,14 @@ namespace Desert::Graphic
         inputs.RenderScalePercent                = 100;
         inputs.AntiAliasing                      = m_RenderedAntiAliasing;
         inputs.Upscaler                          = Common::Scalability::Upscaler::None;
+        inputs.Quality                           = m_TemporalAAQuality;
         inputs.TimeSeconds                       = m_SceneTimeSeconds;
-        const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, nullptr );
+        // The implementation of the frame's temporal method; a split or method BeginFrame refuses leaves it
+        // unchanged and BeginFrame reports that error.
+        if ( const auto split = MakeResolutionSplit( inputs.Output, inputs.RenderScalePercent ) )
+            if ( const auto method = SelectTemporalMethod( inputs.AntiAliasing, split.GetValue(), inputs.Upscaler ) )
+                EnsureTemporalUpscaler( method.GetValue() );
+        const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
             LOG_ERROR( "[SceneRenderer] {}: the view refused this frame: {}", m_ViewResources.GetName(),
@@ -1054,30 +1057,41 @@ namespace Desert::Graphic
         }
 #endif // DESERT_DEV_INSTRUMENTS
 
+        // After the last node that draws the scene geometry's velocity into the scene target (the Transparency
+        // phase), before its one reader, the temporal node. The overlays and post nodes below never write velocity
+        // (their fragment shaders do not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
+        AddFrameGraphColorResolves( graph, textures );
+
+        // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlay phases draw into
+        // it - never into the history, never into the pre-resolve scene colour. Overlays (debug lines, grid,
+        // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
+        // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
+        // colour, as before.
+        const RDG::TextureRef exposurePrevious = PrepareFrameAutoExposure( textures );
+        const RDG::TextureRef temporal         = AddFrameTemporal( graph, textures, frame, exposurePrevious );
+        const std::vector<RDG::TextureRef> postInput =
+             temporal.IsValid() ? std::vector<RDG::TextureRef>{ temporal } : sceneColor();
+
         AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false );
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false, temporal );
 
         // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
         // through ExternalPassSpecification::Declare), and the graph orders it after the blur.
         if ( m_BackdropBlurNeeded )
-            AddFrameBackdropBlur( graph, textures, sceneColor() );
+            AddFrameBackdropBlur( graph, textures, postInput );
 
         AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
-        // After the last node that draws the scene geometry's velocity into the scene target, before any reader
-        // of the resolved velocity (TAA). The post nodes below never write velocity (their fragment shaders do
-        // not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
-        AddFrameGraphColorResolves( graph, textures );
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false, temporal );
 
         AddFrameJumpFlood( graph, textures );
-        AddFrameAutoExposure( graph, textures, sceneColor() );
+        AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
         if ( m_BloomEnabled )
         {
-            AddFrameBloom( graph, textures, sceneColor() );
+            AddFrameBloom( graph, textures, postInput );
         }
-        AddFrameLightShafts( graph, textures, sceneColor(), values );
-        AddFrameLensFlare( graph, textures, sceneColor(), values );
-        AddFrameTonemap( graph, textures );
+        AddFrameLightShafts( graph, textures, postInput, values );
+        AddFrameLensFlare( graph, textures, postInput, values );
+        AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 
         if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
         {
@@ -1474,6 +1488,37 @@ namespace Desert::Graphic
     uint32_t SceneRenderer::GetShadowCascadeCount()
     {
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetCascadeCount();
+    }
+
+    void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )
+    {
+        const TemporalMethod held = m_TemporalUpscaler ? m_TemporalUpscaler->Method() : TemporalMethod::None;
+        if ( held != method )
+            m_TemporalUpscaler = CreateTemporalUpscaler( method );
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
+                                                     const ViewFrame& frame, const RDG::TextureRef exposure )
+    {
+        if ( frame.Method == TemporalMethod::None || !m_TemporalUpscaler || !m_TargetFramebuffer )
+            return {};
+        // Registered every frame the method runs: EndFrame reads which Current a fault lost.
+        const std::vector<HistoryRefs> histories = m_ViewState.History().Register( graph );
+        const TemporalUpscalerInputs   inputs{
+               .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+               .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+               .Velocity   = textures.Transients.Velocity,
+               // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
+               .Exposure = exposure.IsValid() ? exposure : textures.System.White,
+               .History  = histories };
+        const Common::ResultStr<TemporalUpscalerOutputs> added = m_TemporalUpscaler->AddPasses( graph, frame, inputs );
+        if ( !added )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the temporal resolve was not added; the frame continues unresolved: {}",
+                       m_ViewResources.GetName(), added.GetError() );
+            return {};
+        }
+        return added.GetValue().SceneColor;
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()

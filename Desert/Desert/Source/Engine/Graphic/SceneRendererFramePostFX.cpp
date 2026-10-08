@@ -113,23 +113,32 @@ namespace Desert::Graphic
              [jfa]( RDG::PassContext& context ) -> Common::BoolResultStr { return jfa->RecordFinal( context ); } );
     }
 
-    void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
-                                              const std::vector<RDG::TextureRef>& sceneColor )
+    RDG::TextureRef SceneRenderer::PrepareFrameAutoExposure( FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-        if ( autoExp == nullptr || sceneColor.empty() )
-            return;
+        if ( autoExp == nullptr )
+            return {};
         // Prepare picks which 1x1 image this frame writes, which the graph must know to import it and the tonemap
-        // to sample it: a build-time decision.
+        // to sample it: a build-time decision. After it, GetPreviousLuminanceImage() is last frame's adapted
+        // luminance - what the temporal node weights its samples with and what this frame adapts from.
         if ( !autoExp->Prepare() )
-            return;
+            return {};
         // The tonemap samples the luminance this frame writes; that image is known when the graph is built.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetAutoExposureImage( autoExp->GetAdaptedLuminanceImage() );
-        const RDG::TextureRef previous =
-             textures.Import( autoExp->GetPreviousLuminanceImage(), "AutoExposure.Previous" );
+        return textures.Import( autoExp->GetPreviousLuminanceImage(), "AutoExposure.Previous" );
+    }
+
+    void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
+                                              const std::vector<RDG::TextureRef>& sceneColor,
+                                              const RDG::TextureRef               previous )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
+        if ( autoExp == nullptr || sceneColor.empty() || !previous.IsValid() )
+            return;
         const RDG::TextureRef adapted =
              textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" );
         // Next frame adapts from this luminance: if a fault removes its writer, the next adaptation snaps.
@@ -317,14 +326,14 @@ namespace Desert::Graphic
         textures.Transients.LensFlare = image;
     }
 
-    void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures,
+                                         const RDG::TextureRef source )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         if ( tonemap == nullptr )
             return;
         const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
-        const RDG::TextureRef                 source = textures.Import( inputs.Source, "Tonemap.Source" );
         // Without an auto-exposure node the shader's u_AvgLuminance reads System.White; the manual exposure is
         // used then (the auto flag is off), so the value is never read as a measurement.
         const RDG::TextureRef adapted      = textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" );

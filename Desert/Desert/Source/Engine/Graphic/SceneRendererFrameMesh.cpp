@@ -78,7 +78,8 @@ namespace Desert::Graphic
     } // namespace
 
     void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
-                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst )
+                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst,
+                                             const RDG::TextureRef sceneColor )
     {
         // Every registered pass of the selected phases (engine systems and the editor's external passes), in the
         // phase graph's order, is a raster node: its targets are its framebuffer WHOLE (TargetsOf: every colour,
@@ -100,9 +101,13 @@ namespace Desert::Graphic
             const bool                          clears = clearFirst && target != previous;
             previous                                   = target;
 
-            const auto targets = TargetsOf( textures, target, spec.DebugName, pass.Name );
+            auto targets = TargetsOf( textures, target, spec.DebugName, pass.Name );
             if ( !targets )
                 continue;
+            // After the temporal pass the scene target's colour 0 is the pre-resolve scene: the overlay draws
+            // into the temporal output instead (velocity and depth slots unchanged).
+            if ( sceneColor.IsValid() && target == m_TargetFramebuffer && !targets->Colors.empty() )
+                targets->Colors[0] = sceneColor;
             RenderPassDeclaration declared;
             if ( pass.Declare )
                 pass.Declare( declared, textures.GraphRefs() );
