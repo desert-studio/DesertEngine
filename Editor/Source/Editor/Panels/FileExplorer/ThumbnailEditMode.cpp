@@ -17,6 +17,7 @@
 #include <Engine/Graphic/Image.hpp>    // Image2D::ReadPixelsRGBA8
 #include <Engine/Graphic/Renderer.hpp> // WaitDeviceIdle before readback
 #include <Common/Core/Logger.hpp>
+#include <ImGui/imgui_internal.h> // SetItemUsingMouseWheel
 
 // STB_IMAGE_WRITE_IMPLEMENTATION lives in Desert.lib; just declare for the capture PNG write.
 #include <stb_image/stb_image_write.h>
