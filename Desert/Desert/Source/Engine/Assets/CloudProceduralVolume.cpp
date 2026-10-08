@@ -65,6 +65,18 @@ namespace Desert::Assets
         /// linearly between: see CloudProceduralShapeNoise.
         constexpr float kCloudShapeNoiseAtBase = 0.5f;
 
+        /// THE CAULIFLOWER OCTAVE (CLOUD-SHAPE-c): a second, finer billow lattice of this share of the
+        /// silhouette noise's cell — 0.48 km at the shipped 3 km placement cell, two and a half voxels of
+        /// the shipped volume — that only GROWS the body, round heads pushed out of its surface where the
+        /// Alligator billow is above its median. One octave of 1.2 km bumps over a 4 km body leaves it a
+        /// lumpy ball; the heads on the heads are what make it read as cumulus.
+        constexpr float kCloudShapeBillowCellOfShape = 0.4f;
+
+        /// The cauliflower octave's growth at the type's top, in the lump's shape reach; it falls to zero at
+        /// the base, so the floor stays flat and calm and the crown boils. The sum with the coarse octave
+        /// is clamped to [-1, 1], the range the bake's boxes are grown by.
+        constexpr float kCloudShapeBillowAtTop = 0.6f;
+
         /// How many blend radii past the nearest lump a lump may be before it is dropped from the join.
         ///
         /// FOURTEEN, AND THE NUMBER IS A QUANTISATION ARGUMENT rather than a feel. A dropped lump's term
@@ -200,11 +212,27 @@ namespace Desert::Assets
         /// a turret a third of the crown wide.
         constexpr uint32_t kTurretsPerCrown = 3u;
 
+        /// THE CROWN'S TURRET COUNT VARIES PER BODY (CLOUD-SHAPE-c): `kTurretsPerCrown` plus or minus one, so
+        /// one body is a twin-headed tower and its neighbour a cauliflower of four — the varied silhouettes a
+        /// cumulus field has, rather than one crown repeated.
+        constexpr uint32_t kTurretsSpreadPerCrown = 1u;
+
+        /// THE BILLOWS ON A TURRET (CLOUD-SHAPE-c): every turret carries this many smaller heads on its own
+        /// outer flank, half its size, so the crown is a head of heads — the cauliflower of a growing cumulus
+        /// (Nubis 2017's "billowy" crown) at the scale the volume can hold, the detail noise carrying the
+        /// finer ones. Each stands on the turret's surface and never above its top, so the band still bounds it.
+        constexpr uint32_t kBillowsPerTurret = 2u;
+
+        /// A billow's size against the turret it grows from.
+        constexpr float kBillowOfTurret = 0.55f;
+
         /// A turret's width against the crown lump it stands on.
         constexpr float kTurretRadiusOfCrown = 0.45f;
 
-        /// How far from the crown lump's axis a turret stands, in the crown lump's radius: on its shoulder,
-        /// so its lower half is inside the crown and its head is a separate bump above the cap's outline.
+        /// How far from the crown lump's axis a turret stands, in the crown lump's radius: on its shoulder.
+        /// ITS CENTRE IS ON THE CROWN'S SURFACE THERE (CLOUD-SHAPE-c), so its lower half is always inside
+        /// the crown and its head grows out of it; at the crown's top height (CLOUD-SHAPE-b) a turret thinner
+        /// than the cap's fall-off over its shoulder floated as a separate dot above the body.
         constexpr float kTurretShoulderOfCrown = 0.55f;
 
         /// A turret is at most this share of the band tall (its full height, both halves), so a thin type's
@@ -1476,6 +1504,7 @@ namespace Desert::Assets
                     lumpVerticalKm[stackCount - 1] =
                          std::min( lumpVerticalKm[stackCount - 1], 0.5f * stackBandKm );
                     glm::vec3 crownCentreKm( 0.0f );
+                    glm::vec3 crownRadiiKm( 1.0f );
 
                     // THE BASE LUMP'S CENTRE IS ON THE CLOUD BASE (CLOUD-SHAPE), so its lower half lies
                     // under the type's condensation level and CloudProceduralCutJoin's base plane cuts it
@@ -1578,21 +1607,57 @@ namespace Desert::Assets
 
                         blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ } );
                         if ( step == stackCount - 1 )
+                        {
                             crownCentreKm = blob.CentreKm;
+                            crownRadiiKm  = blob.RadiiKm;
+                        }
                     }
 
-                    // THE TURRETS on the crown lump's shoulders, their centres at the crown's height and their
-                    // heads at the band's top (kTurretsPerCrown). Spread a third of a turn apart from a
-                    // per-body phase, each wobbled like a stack lump so no two crowns are the same.
-                    const float turretPhase = HashUnit( HashCombine( clusterSeed, 0x4u ) ) * 6.2831853f;
-                    for ( uint32_t turret = 0; turret < kTurretsPerCrown; ++turret )
+                    // THE TURRETS on the crown lump's shoulders, each centred ON the crown's surface above its
+                    // footprint (CLOUD-SHAPE-c) so it grows out of the body and its head stays under the band's
+                    // top (the stack was fitted a turret lower). Spread round the crown from a per-body phase,
+                    // their count varied per body (kTurretsSpreadPerCrown), each wobbled like a stack lump.
+                    // Every turret carries kBillowsPerTurret smaller heads on its outer flank.
+                    const float    turretPhase = HashUnit( HashCombine( clusterSeed, 0x4u ) ) * 6.2831853f;
+                    const uint32_t turretCount =
+                         kTurretsPerCrown - kTurretsSpreadPerCrown +
+                         std::min( static_cast<uint32_t>( HashUnit( HashCombine( clusterSeed, 0x5u ) ) *
+                                                          static_cast<float>( 2u * kTurretsSpreadPerCrown + 1u ) ),
+                                   2u * kTurretsSpreadPerCrown );
+                    const auto pushLump = [&]( const glm::vec3& centreKm, const glm::vec3& radiiKm )
+                    {
+                        CloudModellingBlob blob;
+                        blob.Primitive    = CloudModellingPrimitive::Ellipsoid;
+                        blob.CentreKm     = centreKm;
+                        blob.RadiiKm      = radiiKm;
+                        blob.RotationDeg  = glm::vec3( 0.0f, yawDeg, 0.0f );
+                        blob.Weight       = 1.0f;
+                        blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
+                        blob.DensityScale = 1.0f;
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ } );
+                    };
+                    // The height of an ellipsoid's upper surface over its centre at a horizontal offset given
+                    // in its own frame (along, across) — 0 past its rim.
+                    const auto capHeight = []( const glm::vec3& radiiKm, float along, float across )
+                    {
+                        const float a = along / std::max( radiiKm.x, 1e-6f );
+                        const float c = across / std::max( radiiKm.z, 1e-6f );
+                        return radiiKm.y * std::sqrt( std::max( 1.0f - a * a - c * c, 0.0f ) );
+                    };
+                    const auto worldOf =
+                         [&]( const glm::vec3& originKm, float offsetAlong, float offsetAcross, float yKm )
+                    {
+                        return glm::vec3( originKm.x + along.x * offsetAlong + across.x * offsetAcross, yKm,
+                                          originKm.z + along.y * offsetAlong + across.y * offsetAcross );
+                    };
+                    for ( uint32_t turret = 0; turret < turretCount; ++turret )
                     {
                         const uint32_t turretSeed = HashCombine( clusterSeed, 0x200u + turret );
                         const float    angle =
                              turretPhase + 6.2831853f *
                                                 ( static_cast<float>( turret ) +
                                                   0.3f * HashSigned( HashCombine( turretSeed, 0x1u ) ) ) /
-                                                static_cast<float>( kTurretsPerCrown );
+                                                static_cast<float>( turretCount );
                         const float reach = kTurretShoulderOfCrown * crownRadiusKm *
                                             ( 0.8f + 0.4f * HashUnit( HashCombine( turretSeed, 0x2u ) ) );
                         const float wobble = 0.85f + 0.3f * HashUnit( HashCombine( turretSeed, 0x3u ) );
@@ -1600,21 +1665,44 @@ namespace Desert::Assets
                         const float offsetAlong  = std::cos( angle ) * reach * stretch;
                         const float offsetAcross = std::sin( angle ) * reach / stretch;
 
-                        CloudModellingBlob blob;
-                        blob.Primitive = CloudModellingPrimitive::Ellipsoid;
-                        blob.CentreKm =
-                             glm::vec3( crownCentreKm.x + along.x * offsetAlong + across.x * offsetAcross,
-                                        shape.BaseAltitudeKm + stackBandKm,
-                                        crownCentreKm.z + along.y * offsetAlong + across.y * offsetAcross );
-                        blob.RadiiKm      = glm::vec3( std::max( turretRadiusKm * wobble * stretch, lumpFloorKm ),
-                                                       turretVerticalKm,
-                                                       std::max( turretRadiusKm * wobble / stretch, lumpFloorKm ) );
-                        blob.RotationDeg  = glm::vec3( 0.0f, yawDeg, 0.0f );
-                        blob.Weight       = 1.0f;
-                        blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
-                        blob.DensityScale = 1.0f;
+                        const glm::vec3 turretRadii( std::max( turretRadiusKm * wobble * stretch, lumpFloorKm ),
+                                                     turretVerticalKm,
+                                                     std::max( turretRadiusKm * wobble / stretch, lumpFloorKm ) );
+                        const float     turretY =
+                             crownCentreKm.y + capHeight( crownRadiiKm, offsetAlong, offsetAcross );
+                        const glm::vec3 turretCentre =
+                             worldOf( crownCentreKm, offsetAlong, offsetAcross, turretY );
+                        pushLump( turretCentre, turretRadii );
 
-                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ } );
+                        // ITS BILLOWS, on the turret's outer flank: a billow's centre is on the turret's surface
+                        // at the height where the billow's own top meets the turret's, so it widens the head
+                        // without raising it out of the band.
+                        const float billowRadiusKm = std::max( kBillowOfTurret * turretRadiusKm, lumpFloorKm );
+                        const float billowVerticalKm =
+                             std::max( kBillowOfTurret * turretVerticalKm, marchFloorKm );
+                        const float rise = std::max( turretVerticalKm - billowVerticalKm, 0.0f );
+                        const float out =
+                             turretRadiusKm * wobble *
+                             std::sqrt( std::max(
+                                  1.0f - ( rise * rise ) / std::max( turretVerticalKm * turretVerticalKm, 1e-12f ),
+                                  0.0f ) );
+                        for ( uint32_t billow = 0; billow < kBillowsPerTurret; ++billow )
+                        {
+                            const uint32_t billowSeed = HashCombine( turretSeed, 0x10u + billow );
+                            const float    side       = ( static_cast<float>( billow ) + 0.5f ) /
+                                                    static_cast<float>( kBillowsPerTurret ) -
+                                               0.5f;
+                            const float billowAngle =
+                                 angle + 1.6f * side + 0.4f * HashSigned( HashCombine( billowSeed, 0x1u ) );
+                            const float billowWobble = 0.8f + 0.4f * HashUnit( HashCombine( billowSeed, 0x2u ) );
+                            const float bAlong       = std::cos( billowAngle ) * out * stretch;
+                            const float bAcross      = std::sin( billowAngle ) * out / stretch;
+                            pushLump(
+                                 worldOf( turretCentre, bAlong, bAcross, turretY + rise ),
+                                 glm::vec3( std::max( billowRadiusKm * billowWobble * stretch, lumpFloorKm ),
+                                            billowVerticalKm,
+                                            std::max( billowRadiusKm * billowWobble / stretch, lumpFloorKm ) ) );
+                        }
                     }
 
                     // THE ANVIL, and it is the shape no vertical curve could express: a lobe of cloud at the
@@ -1751,8 +1839,17 @@ namespace Desert::Assets
         // the growing half keeps the full profile. Over the flat floor both halves stay at half strength.
         const float grow  = std::min( signedNoise, 0.0f );
         const float carve = std::max( signedNoise, 0.0f );
-        return grow * ( kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height ) +
-               carve * kCloudShapeNoiseAtBase * ( 1.0f - height );
+        const float coarse = grow * ( kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height ) +
+                             carve * kCloudShapeNoiseAtBase * ( 1.0f - height );
+
+        // THE CAULIFLOWER OCTAVE, growth only and rising from nothing at the base to its full share at the
+        // top (kCloudShapeBillowCellOfShape).
+        const float billowCells =
+             std::max( std::round( params.RegionSizeKm / ( kCloudShapeBillowCellOfShape * cellKm ) ), 1.0f );
+        const float heads = CloudShapeNoiseGlsl::CloudAlligator01( pointKm * ( billowCells / params.RegionSizeKm ),
+                                                                   billowCells, HashCombine( seed, 0x2u ) );
+        const float headGrowth = std::clamp( ( heads - 0.5f ) / 0.5f, 0.0f, 1.0f );
+        return std::clamp( coarse - kCloudShapeBillowAtTop * height * headGrowth, -1.0f, 1.0f );
     }
 
     namespace
