@@ -2122,7 +2122,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
            "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
            // The one resolution function, the render set resized to the frame's split, the velocity at it.
-           "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),std::nullopt,",
+           "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView.ScreenPercentage,",
            "ResizeRenderTargets(frame.Split.Render);",
            "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
     // The overlay phases draw into the overlay set: every scene-target attachment replaced, no resolves.
