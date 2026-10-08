@@ -43,11 +43,14 @@ namespace Desert::Destruction
                                                            const FractureViewSettings&      view );
 
     /// Generate (UE's Fracture button): bakes @p source with @p settings into the fracture that replaces
-    /// @p current. The identity (GUID), the source mesh and the interior material are @p current's: a re-bake
-    /// changes the pieces, never what the asset is or what its interior draws with.
-    [[nodiscard]] Common::ResultStr<FractureData> GenerateFracture( const Geometry::DynamicMesh3& source,
-                                                                    const FractureData&           current,
-                                                                    const FractureSettings&       settings );
+    /// @p current. The fracture records @p sourceMesh, the GUID of the static mesh asset @p source was read
+    /// from, as its source - on the first Generate of a new `.dfrac` as on a re-bake of another mesh (UE: the
+    /// collection remembers the mesh it was made from). The identity (GUID) and the interior material are
+    /// @p current's: a re-bake changes the pieces, never what the asset is or what its interior draws with.
+    [[nodiscard]] Common::ResultStr<FractureData> GenerateFracture( const Geometry::DynamicMesh3&     source,
+                                                                    const Common::Content::AssetGuid& sourceMesh,
+                                                                    const FractureData&               current,
+                                                                    const FractureSettings&           settings );
 
     /// The deepest level the fracture has (0 for an unfractured root): the range of the view's level list.
     [[nodiscard]] uint32_t DeepestLevel( const std::vector<FractureNode>& nodes );

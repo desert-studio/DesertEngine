@@ -253,6 +253,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Fracture/FractureTool.cpp", -- DST-02b: the Fracture mode state (FractureTool suite)
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Foliage/FoliagePalette.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp",

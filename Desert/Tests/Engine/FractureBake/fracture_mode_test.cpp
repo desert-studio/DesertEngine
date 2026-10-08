@@ -146,9 +146,9 @@ namespace
 // and a different seed gives different pieces. Red when Generate stops being a function of (source, settings).
 TEST( FractureMode, GenerateWithASeedIsDeterministicInCountAndBounds )
 {
-    const auto a = GenerateFracture( Cube(), Current(), Settings( 7, { Uniform( 8 ) } ) );
-    const auto b = GenerateFracture( Cube(), Current(), Settings( 7, { Uniform( 8 ) } ) );
-    const auto c = GenerateFracture( Cube(), Current(), Settings( 8, { Uniform( 8 ) } ) );
+    const auto a = GenerateFracture( Cube(), Current().SourceMesh, Current(), Settings( 7, { Uniform( 8 ) } ) );
+    const auto b = GenerateFracture( Cube(), Current().SourceMesh, Current(), Settings( 7, { Uniform( 8 ) } ) );
+    const auto c = GenerateFracture( Cube(), Current().SourceMesh, Current(), Settings( 8, { Uniform( 8 ) } ) );
     ASSERT_TRUE( a && b && c );
 
     size_t     leavesA = 0, leavesB = 0, leavesC = 0;
@@ -167,7 +167,7 @@ TEST( FractureMode, GenerateWithASeedIsDeterministicInCountAndBounds )
     EXPECT_EQ( EncodeFracturePayload( a.GetValue() ), EncodeFracturePayload( b.GetValue() ) );
     EXPECT_NE( EncodeFracturePayload( a.GetValue() ), EncodeFracturePayload( c.GetValue() ) );
 
-    // Generate keeps what the asset IS: its source mesh and interior material are the current fracture's.
+    // Generate records the mesh it cut; the interior material is the current fracture's.
     EXPECT_EQ( a.GetValue().SourceMesh, Current().SourceMesh );
     EXPECT_EQ( a.GetValue().InteriorMaterial, Current().InteriorMaterial );
 }
@@ -175,7 +175,8 @@ TEST( FractureMode, GenerateWithASeedIsDeterministicInCountAndBounds )
 // The level list nests: every level-2 piece hangs under a level-1 piece, and there are more of them.
 TEST( FractureMode, LevelsNestUnderThePreviousLevel )
 {
-    const auto r = GenerateFracture( Cube(), Current(), Settings( 3, { Uniform( 4 ), Uniform( 3 ) } ) );
+    const auto r = GenerateFracture( Cube(), Current().SourceMesh, Current(),
+                                     Settings( 3, { Uniform( 4 ), Uniform( 3 ) } ) );
     ASSERT_TRUE( r );
     const FractureData& d = r.GetValue();
     EXPECT_EQ( DeepestLevel( d.Nodes ), 2u );
@@ -197,7 +198,7 @@ TEST( FractureMode, LevelsNestUnderThePreviousLevel )
 // The interior material is written to the asset and read back (format v2), and it changes the file.
 TEST( FractureMode, InteriorMaterialIsWrittenToTheAssetAndReadBack )
 {
-    auto generated = GenerateFracture( Cube(), Current(), Settings( 5, { Uniform( 4 ) } ) );
+    auto generated = GenerateFracture( Cube(), Current().SourceMesh, Current(), Settings( 5, { Uniform( 4 ) } ) );
     ASSERT_TRUE( generated );
     FractureData data = generated.GetValue();
 
@@ -221,14 +222,14 @@ TEST( FractureMode, UndoOfGenerateRestoresThePreviousCollection )
     using Desert::Assets::FractureAsset;
     const auto file = ScratchFile( "Undo.dfrac" );
 
-    auto first = GenerateFracture( Cube(), Current(), Settings( 11, { Uniform( 5 ) } ) );
+    auto first = GenerateFracture( Cube(), Current().SourceMesh, Current(), Settings( 11, { Uniform( 5 ) } ) );
     ASSERT_TRUE( first );
     const auto step1 = FractureAsset::WriteStep( file, first.GetValue() );
     ASSERT_TRUE( step1 );
     EXPECT_TRUE( step1.GetValue().Before.empty() );
     const FractureData previous = ReadBack( file );
 
-    auto second = GenerateFracture( Cube(), previous, Settings( 12, { Uniform( 9 ) } ) );
+    auto second = GenerateFracture( Cube(), Current().SourceMesh, previous, Settings( 12, { Uniform( 9 ) } ) );
     ASSERT_TRUE( second );
     const auto step2 = FractureAsset::WriteStep( file, second.GetValue() );
     ASSERT_TRUE( step2 );
@@ -262,7 +263,8 @@ TEST( FractureMode, TheExplodeSliderIsPreviewStateNotSerialized )
         EXPECT_EQ( text.find( "ViewLevel" ), std::string::npos ) << path << " serializes the preview";
     }
 
-    auto r = GenerateFracture( Cube(), Current(), Settings( 3, { Uniform( 4 ), Uniform( 3 ) } ) );
+    auto r = GenerateFracture( Cube(), Current().SourceMesh, Current(),
+                               Settings( 3, { Uniform( 4 ), Uniform( 3 ) } ) );
     ASSERT_TRUE( r );
     const FractureData& d      = r.GetValue();
     const auto          before = EncodeFracturePayload( d );
@@ -294,4 +296,25 @@ TEST( FractureMode, TheExplodeSliderIsPreviewStateNotSerialized )
 
     // Exploding changed nothing that is saved.
     EXPECT_EQ( EncodeFracturePayload( d ), before );
+}
+
+// The first Generate of a NEW .dfrac (nothing on disk: the current fracture is empty, its source null) records
+// the mesh it cut, and a re-bake of another mesh records that one. Red when Generate copies the source from the
+// current fracture (a new asset then names no mesh) or ignores the mesh it was given.
+TEST( FractureMode, FirstGenerateRecordsTheMeshItCutAsTheSource )
+{
+    const Desert::Common::Content::AssetGuid mesh{ 0x5717Cull, 0xAE5Bull };
+    const auto first = GenerateFracture( Cube(), mesh, FractureData{}, Settings( 21, { Uniform( 4 ) } ) );
+    ASSERT_TRUE( first ) << ( first ? "" : first.GetError() );
+    EXPECT_EQ( first.GetValue().SourceMesh, mesh );
+    EXPECT_FALSE( first.GetValue().SourceMesh.IsNull() );
+
+    const auto file = ScratchFile( "FirstGenerate.dfrac" );
+    ASSERT_TRUE( Desert::Assets::FractureAsset::WriteStep( file, first.GetValue() ) );
+    EXPECT_EQ( ReadBack( file ).SourceMesh, mesh );
+
+    const Desert::Common::Content::AssetGuid other{ 0x07E2ull, 0x0B1Eull };
+    const auto rebake = GenerateFracture( Cube(), other, ReadBack( file ), Settings( 21, { Uniform( 4 ) } ) );
+    ASSERT_TRUE( rebake );
+    EXPECT_EQ( rebake.GetValue().SourceMesh, other );
 }
