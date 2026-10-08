@@ -103,7 +103,7 @@ namespace
 } // namespace
 
 // ---------------------------------------------------------------------------------------------------
-// SkyAtmosphereData — 47 fields: the 24 artistic-gradient fields in their original order, then the 23
+// SkyAtmosphereData — 42 fields: the 19 artistic-gradient fields in their original order, then the 23
 // physical-atmosphere fields (UE parameter names and grouping, Docs/Sky/UE_SKYATMOSPHERE_RESEARCH.md
 // section 1.7, plus Aerial Perspective Distance, which UE keeps as an engine cvar and this engine has
 // to author per scene — see the field's own comment), appended so the migration counters and the
@@ -127,11 +127,6 @@ TEST( SkyAtmosphereReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
          "SunsetColor",
          "SunsetIntensity",
          "StarIntensity",
-         "DriveSunFromTimeOfDay",
-         "TimeOfDay",
-         "DayLengthSeconds",
-         "Latitude",
-         "NorthOffset",
          "AutoRebakeEnvironment",
          "RebakeSunAngleThreshold",
          "EnvironmentResolution",
@@ -320,16 +315,33 @@ TEST( SkyAtmosphereReflection, PresetAndResolutionAreEnumsWithEveryEnumerator )
     EXPECT_EQ( model->EnumValues.front().Name, "ArtisticGradient" );
 }
 
-TEST( SkyAtmosphereReflection, TimeOfDayRowsAreGatedByTheirOwnSwitch )
+TEST( SkyAtmosphereReflection, RebakeAngleIsGatedByAutoRebake )
 {
     const TypeInfo& sky = Type( "SkyAtmosphereData" );
+    EXPECT_EQ( Find( sky, "RebakeSunAngleThreshold" )->Meta.EditCondition, "AutoRebakeEnvironment" );
+}
+
+// TOD-SPLIT: the clock is its own component (UE's SunSky), and its rows are gated by its own switch.
+TEST( TimeOfDayReflection, TimeOfDayRowsAreGatedByTheirOwnSwitch )
+{
+    const TypeInfo& clock = Type( "TimeOfDayData" );
+    ASSERT_NE( Find( clock, "DriveSunFromTimeOfDay" ), nullptr );
     for ( const char* name : { "TimeOfDay", "DayLengthSeconds", "Latitude", "NorthOffset" } )
     {
-        const FieldInfo* f = Find( sky, name );
+        const FieldInfo* f = Find( clock, name );
         ASSERT_NE( f, nullptr ) << name;
         EXPECT_EQ( f->Meta.EditCondition, "DriveSunFromTimeOfDay" ) << name;
     }
-    EXPECT_EQ( Find( sky, "RebakeSunAngleThreshold" )->Meta.EditCondition, "AutoRebakeEnvironment" );
+}
+
+// TOD-SPLIT: none of the clock's five fields is left on the sky - a second copy would be a second clock
+// that the driver does not read.
+TEST( SkyAtmosphereReflection, TheSkyCarriesNoTimeOfDayField )
+{
+    const TypeInfo& sky = Type( "SkyAtmosphereData" );
+    for ( const char* name :
+          { "DriveSunFromTimeOfDay", "TimeOfDay", "DayLengthSeconds", "Latitude", "NorthOffset" } )
+        EXPECT_EQ( Find( sky, name ), nullptr ) << "SkyAtmosphereData still declares " << name;
 }
 
 // SKY-35: the sky's sun numbers and the light's sun numbers are different physical quantities, and each

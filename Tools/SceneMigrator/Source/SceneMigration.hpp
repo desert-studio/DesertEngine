@@ -184,7 +184,16 @@ namespace Desert::Migration
     //       the keys and gains no record (a source is the level's, not a prefab's); prefab overrides lose them.
     inline constexpr int kSceneVersionWindSource = 42;
 
-    static_assert( kSceneVersionWindSource == kSceneVersion,
+    //  43 - TIME OF DAY IS ITS OWN COMPONENT (TOD-SPLIT), as UE's SunPosition / SunSky is its own actor. The
+    //       five clock keys a SkyAtmosphere block stated (DriveSunFromTimeOfDay, TimeOfDay, DayLengthSeconds,
+    //       Latitude, NorthOffset) leave the sky and become a TimeOfDay block on the SAME record
+    //       (MigrateTimeOfDayComponentV42ToV43); a sky that stated none of them gets no clock, which is what
+    //       it had (the old default did not drive the sun). A prefab override that states one of them on a
+    //       SkyAtmosphere is refused by name: the override restates part of a block that no longer holds the
+    //       key. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionTimeOfDayComponent = 43;
+
+    static_assert( kSceneVersionTimeOfDayComponent == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -297,6 +306,19 @@ namespace Desert::Migration
     // Lifts every record's v40 UIAnim block into the v41 {Sequence, Loop, AutoPlay} form under the rule
     // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateTimeOfDayComponentV42ToV43 did to one file.
+    struct TimeOfDayComponentReport
+    {
+        std::size_t              Clocks    = 0; // TimeOfDay blocks created from a sky's clock keys
+        std::size_t              KeysMoved = 0; // clock keys taken out of SkyAtmosphere blocks
+        std::vector<std::string> Refused;       // one line per record or override that could not move
+    };
+
+    // Moves the five clock keys of every record's SkyAtmosphere block into a TimeOfDay block on the same
+    // record under the rule kSceneVersionTimeOfDayComponent states; refuses a clock key in a prefab
+    // override. PURE.
+    TimeOfDayComponentReport MigrateTimeOfDayComponentV42ToV43( std::vector<Assets::EntityData>& entities );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -492,6 +514,8 @@ namespace Desert::Migration
 
         bool             WindSourceRaised = false; // below kSceneVersionWindSource
         WindSourceReport WindSource;
+        bool                     TimeOfDayComponentRaised = false; // below kSceneVersionTimeOfDayComponent
+        TimeOfDayComponentReport TimeOfDayComponent;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -502,7 +526,8 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || UIAnimationTimelinesRaised || WindSourceRaised;
+                   UIAnimationsRaised || UIAnimationTimelinesRaised || WindSourceRaised ||
+                   TimeOfDayComponentRaised;
         }
     };
 

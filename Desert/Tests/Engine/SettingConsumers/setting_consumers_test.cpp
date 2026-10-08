@@ -113,13 +113,6 @@ namespace
          { "SunsetIntensity", kSkySettings },
          { "StarIntensity", kSkySettings },
 
-         // The time-of-day driver turns these five into the sun's transform.
-         { "DriveSunFromTimeOfDay", kTimeOfDay },
-         { "TimeOfDay", kTimeOfDay },
-         { "DayLengthSeconds", kTimeOfDay },
-         { "Latitude", kTimeOfDay },
-         { "NorthOffset", kTimeOfDay },
-
          // Environment-bake policy and size, carried in the same settings block.
          { "AutoRebakeEnvironment", kSkySettings },
          { "RebakeSunAngleThreshold", kSkySettings },
@@ -180,6 +173,13 @@ namespace
     constexpr const char* kFogPayload = "Desert/Desert/Source/Engine/Graphic/Fog/FogPayload.hpp";
     constexpr const char* kFogRenderer =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp";
+
+    // The scene's clock (TOD-SPLIT): the time-of-day driver turns these five into the sun's transform.
+    constexpr Row kTimeOfDayRows[] = {
+         { "DriveSunFromTimeOfDay", kTimeOfDay }, { "TimeOfDay", kTimeOfDay },
+         { "DayLengthSeconds", kTimeOfDay },      { "Latitude", kTimeOfDay },
+         { "NorthOffset", kTimeOfDay },
+    };
 
     constexpr Row kFogRows[] = {
          { "Enabled", kFogRenderer }, // the zero-cost gate: off means no allocation and no dispatch
@@ -1006,7 +1006,7 @@ namespace
     };
 
     // ------------------------------------------------------------------------------------------------
-    // THE CENSUS. Thirty-nine reflected types, thirty-nine entries; adding a fortieth fails
+    // THE CENSUS. Forty-one reflected types, forty-one entries; adding a forty-second fails
     // `EveryReflectedTypeIsUnderThisCensus` before it can reach a Details panel with no reader.
     // ------------------------------------------------------------------------------------------------
 
@@ -1015,6 +1015,7 @@ namespace
     constexpr Census kCensus[] = {
          { "SceneSettings", nullptr, "GetSettings", CENSUS_ROWS( kSceneSettingsRows ) },
          { "SkyAtmosphereData", "SkyAtmosphereComponent", nullptr, CENSUS_ROWS( kSkyRows ) },
+         { "TimeOfDayData", "TimeOfDayComponent", nullptr, CENSUS_ROWS( kTimeOfDayRows ) },
          { "ExponentialHeightFogData", "ExponentialHeightFogComponent", nullptr, CENSUS_ROWS( kFogRows ) },
          { "PostProcessVolumeData", "PostProcessVolumeComponent", nullptr, CENSUS_ROWS( kPostProcessVolumeRows ) },
          { "PostProcessSettings", nullptr, nullptr, CENSUS_ROWS( kPostProcessSettingsRows ) },
@@ -1716,4 +1717,20 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
 
     const std::string query = ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/WindField.hpp" );
     EXPECT_NE( query.find( "WindAtFromSources(" ), std::string::npos ) << "ECS::WindAt must run the one pure core";
+}
+
+// TOD-SPLIT: the driver reads the clock from its own component and never from the sky. A driver that still
+// fetched SkyAtmosphereComponent would compile against a sky with no clock fields only by reading some other
+// sky value as the hour; this pins the source of the clock, comments and literals stripped.
+TEST( SettingConsumers, TheSunIsDrivenFromTheTimeOfDayComponentNotTheSky )
+{
+    const std::string text = StripCommentsAndLiterals(
+         ReadFile( RepoRoot() + "Desert/Desert/Source/Engine/ECS/System/TimeOfDayECSSystem.hpp" ) );
+    ASSERT_FALSE( text.empty() );
+    EXPECT_NE( text.find( "registry.view<ECS::TimeOfDayComponent>" ), std::string::npos )
+         << "TimeOfDayECSSystem does not view TimeOfDayComponent";
+    EXPECT_NE( text.find( "DirectionLightComponent" ), std::string::npos )
+         << "TimeOfDayECSSystem no longer drives the directional light";
+    EXPECT_EQ( text.find( "SkyAtmosphere" ), std::string::npos )
+         << "TimeOfDayECSSystem reads the sky: the clock is TimeOfDayComponent alone";
 }

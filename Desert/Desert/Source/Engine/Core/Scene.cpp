@@ -744,6 +744,7 @@ namespace Desert::Core
         r.prepare<ECS::SpotLightComponent>();
         r.prepare<ECS::SkyboxComponent>();
         r.prepare<ECS::SkyAtmosphereComponent>();
+        r.prepare<ECS::TimeOfDayComponent>();
         r.prepare<ECS::ExponentialHeightFogComponent>();
         r.prepare<ECS::PostProcessVolumeComponent>();
         r.prepare<ECS::VolumetricCloudComponent>();

@@ -63,16 +63,11 @@ namespace
                              [&name]( const char* p ) { return name == p; } ) != std::end( kPaletteFields );
     }
 
-    // Everything a preset must leave alone: the time-of-day block, the environment-bake knobs, the planet
-    // radius, the master switch and the preset label itself.
+    // Everything a preset must leave alone: the environment-bake knobs, the planet radius, the master
+    // switch and the preset label itself.
     struct AuthoredState
     {
         bool                     Enabled;
-        bool                     DriveSunFromTimeOfDay;
-        float                    TimeOfDay;
-        float                    DayLengthSeconds;
-        float                    Latitude;
-        float                    NorthOffset;
         bool                     AutoRebakeEnvironment;
         float                    RebakeSunAngleThreshold;
         SkyEnvironmentResolution EnvironmentResolution;
@@ -84,17 +79,9 @@ namespace
 
     AuthoredState CaptureAuthored( const SkyAtmosphereData& d )
     {
-        return AuthoredState{ d.Enabled,
-                              d.DriveSunFromTimeOfDay,
-                              d.TimeOfDay,
-                              d.DayLengthSeconds,
-                              d.Latitude,
-                              d.NorthOffset,
-                              d.AutoRebakeEnvironment,
-                              d.RebakeSunAngleThreshold,
-                              d.EnvironmentResolution,
-                              d.ActivePreset,
-                              d.PlanetRadius };
+        return AuthoredState{
+             d.Enabled,      d.AutoRebakeEnvironment, d.RebakeSunAngleThreshold, d.EnvironmentResolution,
+             d.ActivePreset, d.PlanetRadius };
     }
 
     // A value the field has not got, so "did this edit register?" never depends on luck.
@@ -221,11 +208,6 @@ TEST( SkyPresets, ApplyingAPresetTouchesNothingOutsideThePalette )
     {
         SkyAtmosphereData d{};
         d.Enabled                 = false;
-        d.DriveSunFromTimeOfDay   = true;
-        d.TimeOfDay               = 5.25f;
-        d.DayLengthSeconds        = 1234.0f;
-        d.Latitude                = -12.5f;
-        d.NorthOffset             = 200.0f;
         d.AutoRebakeEnvironment   = false;
         d.RebakeSunAngleThreshold = 17.0f;
         d.EnvironmentResolution   = SkyEnvironmentResolution::High;

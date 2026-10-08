@@ -120,6 +120,7 @@ namespace Desert::Core::Serialize
         // Skybox reflects WHOLE (RA3): it carries the HDR path only, the procedural sky is SkyAtmosphere.
         visit( ReflectedWholeBlock<SkyboxComponent>{ "Skybox", "SkyboxComponent", R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<SkyAtmosphereComponent, SkyAtmosphereData>{ "SkyAtmosphere", "SkyAtmosphereData", &SkyAtmosphereComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<TimeOfDayComponent, TimeOfDayData>{ "TimeOfDay", "TimeOfDayData", &TimeOfDayComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<ExponentialHeightFogComponent, ExponentialHeightFogData>{ "ExponentialHeightFog", "ExponentialHeightFogData", &ExponentialHeightFogComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<PostProcessVolumeComponent, PostProcessVolumeData>{ "PostProcessVolume", "PostProcessVolumeData", &PostProcessVolumeComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<VolumetricCloudComponent, VolumetricCloudData>{ "VolumetricCloud", "VolumetricCloudData", &VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
