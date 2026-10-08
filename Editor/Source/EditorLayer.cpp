@@ -311,11 +311,13 @@ namespace Desert::Editor
         m_LevelCommands.RegisterProviders();
         // THE TOOLS, in View-menu order (DockLayout.hpp, EditorPanels.cpp — UE: RegisterTabSpawner).
         {
+            m_ThumbnailPool = std::make_unique<AssetThumbnailPool>( m_AssetManager.get() );
+            m_Startup.AttachThumbnailPool( m_ThumbnailPool.get() );
             const EditorPanelHandles handles = RegisterEditorPanels( m_Panels, m_Workspace, m_Play, m_Documents,
-                                                                     m_AssetManager, m_AnimationLibrary );
+                                                                     m_AssetManager, m_AnimationLibrary,
+                                                                     *m_ThumbnailPool );
             m_FileExplorerPanel              = handles.FileExplorer;
             m_WorldPartitionPanel            = handles.WorldPartition;
-            m_Startup.AttachFileExplorer( m_FileExplorerPanel );
         }
 
         // ── WHICH EDITOR OPENS WHICH KIND OF SUBJECT, AND HOW A PATH BECOMES ONE OF THEM ──────────────────
@@ -766,7 +768,9 @@ namespace Desert::Editor
         // it today" is the weakest guarantee in this audit, because it is about the code that exists
         // rather than about the code. A8-2.
         m_FileExplorerPanel = nullptr;
-        m_Startup.AttachFileExplorer( nullptr );
+        // The pool the browser drew from goes right after the browser, at the moment it went before (C1).
+        m_Startup.AttachThumbnailPool( nullptr );
+        m_ThumbnailPool.reset();
         m_WorldPartitionPanel = nullptr;
         // Reported and not returned even though OnDetach has a channel: everything below this line still
         // has to run, and an early return would leave the extra documents and their render slots alive.

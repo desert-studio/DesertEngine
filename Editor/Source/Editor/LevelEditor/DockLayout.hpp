@@ -42,6 +42,7 @@ namespace Desert::Editor
     class SceneWorkspace;
     class SceneFiles;
     class PlaySession;
+    class AssetThumbnailPool;
     class FileExplorerPanel;
     class WorldPartitionPanel;
 
@@ -148,5 +149,6 @@ namespace Desert::Editor
     [[nodiscard]] EditorPanelHandles
     RegisterEditorPanels( PanelRegistry& panels, SceneWorkspace& workspace, PlaySession& play,
                           DocumentHost& documents, std::shared_ptr<Assets::AssetManager>& assetManager,
-                          const std::unique_ptr<Animation::AnimationLibrary>& animationLibrary );
+                          const std::unique_ptr<Animation::AnimationLibrary>& animationLibrary,
+                          AssetThumbnailPool&                                 thumbnailPool );
 } // namespace Desert::Editor

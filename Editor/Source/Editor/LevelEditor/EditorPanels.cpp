@@ -43,7 +43,8 @@ namespace Desert::Editor
     EditorPanelHandles RegisterEditorPanels( PanelRegistry& panels, SceneWorkspace& workspace, PlaySession& play,
                                              DocumentHost&                                       documents,
                                              std::shared_ptr<Assets::AssetManager>&              assetManager,
-                                             const std::unique_ptr<Animation::AnimationLibrary>& animationLibrary )
+                                             const std::unique_ptr<Animation::AnimationLibrary>& animationLibrary,
+                                             AssetThumbnailPool&                                 thumbnailPool )
     {
         EditorPanelHandles handles;
         panels.Add<Editor::SceneHierarchyPanel>( workspace.ActiveScene(), assetManager );
@@ -58,7 +59,7 @@ namespace Desert::Editor
         }
         {
             auto fileExplorer = std::make_unique<Editor::FileExplorerPanel>(
-                 Common::Constants::Path::ASSETS_PATH, &documents.SubjectEditors(), assetManager.get(),
+                 Common::Constants::Path::ASSETS_PATH, &documents.SubjectEditors(), thumbnailPool, assetManager.get(),
                  workspace.ActiveScene() );
             handles.FileExplorer = fileExplorer.get();
             panels.Adopt( std::move( fileExplorer ) );

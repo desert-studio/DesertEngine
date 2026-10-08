@@ -31,6 +31,7 @@
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/DockLayout.hpp"
 #include "Editor/LevelEditor/EditorImGuiHost.hpp"
+#include "Editor/Panels/FileExplorer/AssetThumbnailPool.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
 #include <chrono>
@@ -114,6 +115,11 @@ namespace Desert::Editor
         // The mesh cook after the reveal and the .demat/.shader live reload (UE: FAssetCompilingManager). See
         // Editor/LevelEditor/AssetCompiling.hpp.
         AssetCompiling m_AssetCompiling{ m_AssetManager, m_AnimationLibrary, m_ImportManager };
+        // THE EDITOR'S THUMBNAIL POOL (UE: FAssetThumbnailPool belongs to the editor; the Content Browser only
+        // draws from it — AssetThumbnail.cpp). Built in OnAttach before the panels and released in OnDetach
+        // right after m_Panels.Clear(); declared BEFORE m_Panels, so even ~EditorLayer destroys the panel that
+        // draws from it first. EditorStartup drives it directly for the splash's warm-up and upload passes.
+        std::unique_ptr<AssetThumbnailPool> m_ThumbnailPool;
 
         FileExplorerPanel* m_FileExplorerPanel = nullptr; // non-owning (lives in m_Panels)
         // Non-owning (lives in m_Panels). Kept because the command palette offers the panel's Convert

@@ -389,7 +389,7 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
          layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
          std::string::npos )
          << "the per-frame thumbnail pump no longer runs the splash upload pass";
-    EXPECT_NE( layer.find( "m_FileExplorer->UploadPrefetchedThumbnails()" ), std::string::npos );
+    EXPECT_NE( layer.find( "m_ThumbnailPool->UploadPrefetchedThumbnails()" ), std::string::npos );
     EXPECT_NE( layer.find( "            ThumbnailService::TickDiskAndDecode();\n        return true;\n" ),
                std::string::npos )
          << "the startup stages no longer tick the worker decode";

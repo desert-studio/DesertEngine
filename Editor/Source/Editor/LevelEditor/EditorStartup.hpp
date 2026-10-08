@@ -45,7 +45,7 @@ namespace Desert::Engine
 namespace Desert::Editor
 {
     class AssetCompiling;
-    class FileExplorerPanel;
+    class AssetThumbnailPool;
     class ImportManager;
     class SceneFiles;
     class SceneWorkspace;
@@ -64,11 +64,12 @@ namespace Desert::Editor
                        SceneFiles& sceneFiles, AssetCompiling& assetCompiling, const bool& realFrameDrawn,
                        std::unique_ptr<Splash::SplashScreen> splash );
 
-        // The asset browser the hand-over's thumbnails go through; null until OnAttach builds it and after
-        // OnDetach.
-        void AttachFileExplorer( FileExplorerPanel* fileExplorer )
+        // The editor's thumbnail pool the hand-over's pictures go through (UE: the editor's
+        // FAssetThumbnailPool, which the Content Browser only draws from); null until OnAttach builds it and
+        // after OnDetach releases it.
+        void AttachThumbnailPool( AssetThumbnailPool* thumbnailPool )
         {
-            m_FileExplorer = fileExplorer;
+            m_ThumbnailPool = thumbnailPool;
         }
 
         [[nodiscard]] bool StartupLoading() const
@@ -168,7 +169,7 @@ namespace Desert::Editor
         SceneFiles&                                   m_SceneFiles;
         AssetCompiling&                               m_AssetCompiling;
         const bool&                                   m_RealFrameDrawn;
-        FileExplorerPanel*                            m_FileExplorer = nullptr; // non-owning (lives in the panels)
+        AssetThumbnailPool*                           m_ThumbnailPool = nullptr; // non-owning (EditorLayer owns it)
 
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext = 0;

@@ -88,6 +88,7 @@ namespace Desert::Editor
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
                                           const SubjectEditorRegistry*         subjectEditors,
+                                          AssetThumbnailPool&                  thumbnailPool,
                                           Assets::AssetManager*                assetManager,
                                           std::weak_ptr<::Desert::Core::Scene> viewportScene )
          // IN DECLARATION ORDER. Members are constructed in the order they are DECLARED whatever this list
@@ -119,7 +120,7 @@ namespace Desert::Editor
                           .OnBackgroundContextMenu = [this] { DrawBackgroundContextMenu(); },
                           .OnClearSelection        = [this] { m_Selection.Deselect(); } } ),
            m_Model( rootPath.string() ), m_AssetManager( assetManager ), m_SubjectEditors( subjectEditors ),
-           m_ThumbnailPool( assetManager ), m_TileThumbnail( m_ThumbnailPool, assetManager ),
+           m_ThumbnailPool( thumbnailPool ), m_TileThumbnail( m_ThumbnailPool, assetManager ),
            m_ViewportScene( std::move( viewportScene ) ),
            m_ThumbnailEdit(
                 m_AssetManager, m_ViewportScene,
@@ -205,32 +206,6 @@ namespace Desert::Editor
     {
         if ( m_CurrentDir != nullptr )
             m_ThumbnailPool.PrefetchFolder( *m_CurrentDir );
-    }
-
-    std::size_t FileExplorerPanel::WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
-                                                          const std::vector<ThumbnailWarmup::WarmItem>& project )
-    {
-        return m_ThumbnailPool.WarmProjectThumbnails( scene, project );
-    }
-
-    void FileExplorerPanel::RequestProjectPictures()
-    {
-        m_ThumbnailPool.RequestProjectPictures();
-    }
-
-    std::size_t FileExplorerPanel::ResidentThumbnails() const
-    {
-        return m_ThumbnailPool.ResidentThumbnails();
-    }
-
-    std::size_t FileExplorerPanel::TickWarmMeshes()
-    {
-        return m_ThumbnailPool.TickWarmMeshes();
-    }
-
-    std::size_t FileExplorerPanel::UploadPrefetchedThumbnails()
-    {
-        return m_ThumbnailPool.UploadPrefetchedThumbnails();
     }
 
     bool FileExplorerPanel::NavigateToPath( const std::string& path )

@@ -16,7 +16,7 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Core/Application.hpp>
 #include <filesystem>
-#include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
+#include "Editor/Panels/FileExplorer/AssetThumbnailPool.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Widgets/ThumbnailService.hpp"
 #include "Editor/Widgets/ThumbnailWarmup.hpp"
@@ -382,8 +382,8 @@ namespace Desert::Editor
         // THE ONE CAPTURE THE SPLASH MAY RUN (THUMB3, THM1m, THM1n-13): the open scene's subjects, then every
         // uncaptured picture of the project, queued by WarmSplashScene. A warmed mesh still being read when
         // the window appears keeps being asked for after it (TickWarmMeshes), first in the queue once queued.
-        if ( m_Revealed && m_FileExplorer != nullptr )
-            (void)m_FileExplorer->TickWarmMeshes();
+        if ( m_Revealed && m_ThumbnailPool != nullptr )
+            (void)m_ThumbnailPool->TickWarmMeshes();
         if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
             ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );
         else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&
@@ -454,9 +454,9 @@ namespace Desert::Editor
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
         LOG_INFO( "[Startup] reveal: the scene's content has settled and the editor window is shown" );
-        if ( m_FileExplorer != nullptr )
+        if ( m_ThumbnailPool != nullptr )
             LOG_INFO( "[Thumbnails] {} thumbnails resident, {} captured on splash",
-                      m_FileExplorer->ResidentThumbnails(), m_SplashWarmTotal );
+                      m_ThumbnailPool->ResidentThumbnails(), m_SplashWarmTotal );
         m_AssetCompiling.StartBackgroundCook();
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
@@ -482,7 +482,7 @@ namespace Desert::Editor
 
     void EditorStartup::UploadSplashThumbnails()
     {
-        if ( m_Splash == nullptr || m_Revealed || m_FileExplorer == nullptr )
+        if ( m_Splash == nullptr || m_Revealed || m_ThumbnailPool == nullptr )
         {
             m_ThumbnailsHoldReveal = false;
             return;
@@ -490,18 +490,18 @@ namespace Desert::Editor
         WarmSplashScene();
         // A cold mesh still being read counts too: it is a capture that has not been queued YET (THM1m).
         const std::size_t warmPending =
-             ThumbnailService::Get().SceneWarmPending() + m_FileExplorer->TickWarmMeshes();
+             ThumbnailService::Get().SceneWarmPending() + m_ThumbnailPool->TickWarmMeshes();
         m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
         // THE CAPTURES' PICTURES ARE UPLOADED TOO (THM1n-13): once every splash capture has landed, the PNGs they
         // wrote are asked of the workers like the rest, so the window never opens on a picture still on disk.
         if ( m_SplashWarmStarted && warmPending == 0 && !m_SplashPicturesReasked )
         {
             m_SplashPicturesReasked = true;
-            m_FileExplorer->RequestProjectPictures();
+            m_ThumbnailPool->RequestProjectPictures();
         }
         // An upload of pixels a worker already decoded from the disk cache: no renderer slot and no capture,
         // which is why it may run before the hand-over while ThumbnailCaptureAllowed is still false.
-        const std::size_t pending = m_FileExplorer->UploadPrefetchedThumbnails();
+        const std::size_t pending = m_ThumbnailPool->UploadPrefetchedThumbnails();
         if ( warmPending != m_SplashWarmShown )
         {
             // The splash says what it is waiting on, as every other stage does.
@@ -558,7 +558,7 @@ namespace Desert::Editor
                  "[Thumbnails] {} {} file(s) get no picture on the splash: the kind has no thumbnail producer "
                  "yet ({})",
                  gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
-        m_SplashWarmTotal = m_FileExplorer->WarmProjectThumbnails( scene, project );
+        m_SplashWarmTotal = m_ThumbnailPool->WarmProjectThumbnails( scene, project );
         LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
                   "picture(s) to capture before the hand-over, the rest decode from the disk cache",
                   scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );

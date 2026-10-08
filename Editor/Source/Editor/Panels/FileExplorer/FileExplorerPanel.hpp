@@ -20,7 +20,6 @@
 #include <Editor/Panels/FileExplorer/ThumbnailEditMode.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
-#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -66,43 +65,17 @@ namespace Desert::Editor
         // @p subjectEditors is what a double-click asks "does anything open this file?". Required, and
         // not defaulted to null: without it every double-click on a document would silently do nothing,
         // which is the exact symptom this panel's own comments say is impossible to diagnose.
+        // @p thumbnailPool is the editor's (EditorLayer owns it — UE: the Content Browser uses the editor's
+        // FAssetThumbnailPool); the panel draws from it and must not outlive it.
         explicit FileExplorerPanel( const std::filesystem::path&         rootPath,
                                     const SubjectEditorRegistry*         subjectEditors,
+                                    AssetThumbnailPool&                  thumbnailPool,
                                     Assets::AssetManager*                assetManager  = nullptr,
                                     std::weak_ptr<::Desert::Core::Scene> viewportScene = {} );
         ~FileExplorerPanel() override;
         void OnUIRender() override;
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
         bool OnWindowFileDropped( Common::EventWindowFileDrop& drop );
-
-        /// THE SPLASH'S UPLOAD PASS (THUMB2, THM1n-13). Every picture this panel asked a worker for — the
-        /// opening folder's and the whole project's (WarmProjectThumbnails) — that a worker has finished goes
-        /// through ThumbnailCache::Get now, the same call the tile makes, so after the hand-over every tile of
-        /// every folder finds its picture resident. Nothing is captured or rendered. Returns how many of those
-        /// pictures are still waiting for or on a worker.
-        std::size_t UploadPrefetchedThumbnails();
-
-        /// WHAT THE SPLASH MAKES RESIDENT (THUMB3, THM1m, THM1n-13). @p scene = ThumbnailWarmup::SceneWarmList,
-        /// the open scene's materials and meshes; @p project = ThumbnailWarmup::ProjectWarmList, every picture
-        /// of the project from the content registry. Every picture on disk is handed to the prefetch workers
-        /// (and uploaded by UploadPrefetchedThumbnails); every one missing or stale is resolved (a mesh on a
-        /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh / WarmPose / WarmPainted, scene
-        /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
-        /// captures it queued or is still resolving.
-        std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
-                                           const std::vector<ThumbnailWarmup::WarmItem>& project );
-
-        /// The splash's captures have landed: hand the project's pictures that are not resident yet — the PNGs
-        /// those captures just wrote — to the workers again, so they are uploaded before the hand-over too.
-        void RequestProjectPictures();
-
-        /// How many pictures the browser holds on the GPU (ThumbnailCache::ResidentCount).
-        [[nodiscard]] std::size_t ResidentThumbnails() const;
-
-        /// Meshes WarmProjectThumbnails found cold (read in flight on a worker): asked again each frame until
-        /// each is resident and queued, or refused. Returns how many are still being read — they hold the
-        /// hand-over like a queued capture does, within the same budget.
-        std::size_t TickWarmMeshes();
 
         // One entry of the open folder as a tile (@p gridView) or a list row — the asset view's OnDrawTile.
         ContentBrowserAssetView::TileResult RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
@@ -208,9 +181,10 @@ namespace Desert::Editor
         // `else if` per format that used to live in this file is registered there now, beside the editors.
         const SubjectEditorRegistry*             m_SubjectEditors = nullptr;
         // THE PICTURES (F5; UE FAssetThumbnailPool + SAssetThumbnail): the pool holds the resident pictures,
-        // the workers' lists and the per-path answers; the drawer draws a tile, its tooltip and a drag's
-        // preview from it. The splash's passes above forward to the pool.
-        AssetThumbnailPool m_ThumbnailPool;
+        // the workers' lists and the per-path answers, and is the EDITOR's — EditorLayer owns it and the
+        // splash (EditorStartup) drives it directly; the drawer draws a tile, its tooltip and a drag's
+        // preview from it.
+        AssetThumbnailPool& m_ThumbnailPool;
         AssetTileThumbnail m_TileThumbnail;
 
         // The constructor's own navigations are not the user's and are not remembered.
