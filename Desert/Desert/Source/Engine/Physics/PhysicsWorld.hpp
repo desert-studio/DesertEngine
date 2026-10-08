@@ -43,6 +43,18 @@ namespace Desert::Physics
         Z,
     };
 
+    /**
+     * @brief The kinds of body a trigger reports an overlap with — UE's overlap responses per object type
+     * (WorldStatic, WorldDynamic, PhysicsBody, Pawn), reduced to the kinds this world has.
+     */
+    struct OverlapFilter
+    {
+        bool Static     = false; ///< BodyType::Static bodies (and heightfields): the ground, the walls.
+        bool Kinematic  = true;  ///< BodyType::Kinematic bodies.
+        bool Dynamic    = true;  ///< BodyType::Dynamic bodies.
+        bool Characters = true;  ///< Character controllers (their capsule's inner body).
+    };
+
     struct BodyDesc
     {
         ShapeType Shape       = ShapeType::Box;
@@ -61,6 +73,13 @@ namespace Desert::Physics
         float     Friction    = 0.5f;
         float     Restitution = 0.1f;
 
+        /// A trigger volume (UE ATriggerVolume / a primitive with only overlap responses): a Jolt sensor that
+        /// pushes nothing and reports Begin/End overlaps with the kinds of body @c Overlaps names. A Static
+        /// trigger is made a Kinematic sensor, the only kind Jolt lets see sleeping bodies; a Dynamic one
+        /// still falls.
+        bool          IsTrigger = false;
+        OverlapFilter Overlaps;
+
         glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
     };
@@ -68,6 +87,23 @@ namespace Desert::Physics
     // Opaque handle wrapping a JPH::BodyID (its index+sequence uint32). kInvalidBody == not created.
     using BodyHandle = uint32_t;
     constexpr BodyHandle kInvalidBody = 0xFFFFFFFFu;
+
+    enum class OverlapPhase
+    {
+        Begin, ///< The other body's shape started touching the trigger (UE OnComponentBeginOverlap).
+        End,   ///< It stopped touching it, or one of the two bodies was removed (UE OnComponentEndOverlap).
+    };
+
+    /// One overlap change between a trigger body and another body.
+    struct OverlapEvent
+    {
+        OverlapPhase Phase   = OverlapPhase::Begin;
+        BodyHandle   Trigger = kInvalidBody;
+        BodyHandle   Other   = kInvalidBody;
+    };
+
+    using OverlapCallback     = std::function<void( const OverlapEvent& )>;
+    using OverlapSubscription = uint32_t;
 
     // ---- Character controller (Jolt CharacterVirtual: a kinematic capsule that walks slopes/steps, is
     // blocked by world geometry, and reports ground contact — the basis for the playable player). ----
@@ -198,6 +234,18 @@ namespace Desert::Physics
         /// The contacts of the last fixed step on bodies that asked for them (ReportContactImpulses).
         [[nodiscard]] std::span<const ContactImpulse> GetStepContactImpulses() const;
 
+        /**
+         * @brief Calls @p callback with every overlap Begin / End of a trigger body (BodyDesc::IsTrigger).
+         *
+         * Jolt finds sensor contacts on its worker threads; they are queued there and turned into events
+         * after each fixed step, on the thread that calls Step — a subscriber never runs on a physics thread.
+         * A pair touching through several sub-shapes is one overlap: one Begin when the first touches, one End
+         * when the last lets go. A body removed while it overlaps (RemoveBody, RemoveCharacter) ends its
+         * overlaps at the next fixed step.
+         */
+        OverlapSubscription SubscribeOverlaps( OverlapCallback callback );
+        void                UnsubscribeOverlaps( OverlapSubscription subscription );
+
         /// Refused by name: a Mesh on a dynamic body, a Mesh or ConvexHull without points, an index out of
         /// range, a shape Jolt cannot cook. Mesh and ConvexHull shapes are cooked once per content (the points,
         /// the indices, the kind) and shared by every body built from the same data.
@@ -261,6 +309,9 @@ namespace Desert::Physics
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         bool            IsCharacterOnGround( CharacterHandle handle ) const;
         void            SetCharacterPosition( CharacterHandle handle, const glm::vec3& position );
+        /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body): what a
+        /// trigger sees of it, and the handle its overlap events carry. kInvalidBody for no character.
+        [[nodiscard]] BodyHandle GetCharacterBody( CharacterHandle handle ) const;
 
     private:
         struct Impl;
