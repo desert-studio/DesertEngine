@@ -20,6 +20,7 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/View/SpatialUpscale.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
@@ -497,6 +498,10 @@ namespace Desert::Graphic
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
         // compute pipeline, so it lives with the view rather than in a static that would outlive the device.
         SupersampleResolve m_SupersampleResolve;
+        // SCAL-SPATIAL1: the spatial upscale of a frame below 100 % without a temporal method, and the post
+        // sharpen after any resolve (View/SpatialUpscale.hpp). Each owns its compute pipeline, like the above.
+        SpatialUpscale m_SpatialUpscale;
+        Sharpen        m_Sharpen;
         // ViewInputs::Quality: SCAL1 AntiAliasing.TemporalQuality, read with the rest of the quality (BeginScene).
         TemporalAAQuality m_TemporalAAQuality = TemporalAAQuality::Medium;
         // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's

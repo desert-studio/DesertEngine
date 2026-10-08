@@ -1551,7 +1551,10 @@ namespace Desert::Graphic
                                                                    const ViewFrame&      frame,
                                                                    const RDG::TextureRef exposure )
     {
-        if ( frame.Method == TemporalMethod::None || !m_TemporalUpscaler || !m_TargetFramebuffer )
+        // The resolve of this frame: the temporal method's, or the spatial upscale (below 100 % without one).
+        const bool spatial = IsSpatialUpscale( frame );
+        if ( !m_TargetFramebuffer ||
+             ( !spatial && ( frame.Method == TemporalMethod::None || !m_TemporalUpscaler ) ) )
             return {};
         // Every refusal below renders the frame WITHOUT the resolve and says so by name: an invalid set, so the
         // caller post-processes the scene colour and draws the overlays into the scene target.
@@ -1570,24 +1573,49 @@ namespace Desert::Graphic
             m_PopulateSceneDepth = std::make_unique<System::PopulateSceneDepthRenderer>();
         if ( const Common::BoolResultStr prepared = m_PopulateSceneDepth->Prepare(); !prepared )
             return withoutTemporal( prepared.GetError() );
-        // Registered every frame the method runs: EndFrame reads which Current a fault lost.
-        const std::vector<HistoryRefs> histories = m_ViewState.History().Register( graph );
-        const TemporalUpscalerInputs   inputs{
-               .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
-               .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
-               .Velocity   = textures.Transients.Velocity,
+        // Registered every frame the method runs: EndFrame reads which Current a fault lost. The spatial upscale
+        // has no history.
+        const std::vector<HistoryRefs> histories =
+             spatial ? std::vector<HistoryRefs>{} : m_ViewState.History().Register( graph );
+        const TemporalUpscalerInputs inputs{
+             .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+             .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             .Velocity   = textures.Transients.Velocity,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
-               .Exposure = exposure.IsValid() ? exposure : textures.System.White,
-               .History  = histories };
-        const Common::ResultStr<TemporalUpscalerOutputs> added =
-             m_TemporalUpscaler->AddPasses( graph, frame, inputs );
-        if ( !added )
-            return withoutTemporal( added.GetError() );
+             .Exposure = exposure.IsValid() ? exposure : textures.System.White,
+             .History  = histories };
+        RDG::TextureRef resolvedColor;
+        if ( spatial )
+        {
+            const Common::ResultStr<RDG::TextureRef> upscaled =
+                 m_SpatialUpscale.AddPasses( graph, frame, inputs.SceneColor );
+            if ( !upscaled )
+                return withoutTemporal( upscaled.GetError() );
+            resolvedColor = upscaled.GetValue();
+        }
+        else
+        {
+            const Common::ResultStr<TemporalUpscalerOutputs> added =
+                 m_TemporalUpscaler->AddPasses( graph, frame, inputs );
+            if ( !added )
+                return withoutTemporal( added.GetError() );
+            resolvedColor = added.GetValue().SceneColor;
+        }
+        // The post sharpen (Resolution.Sharpness) on the resolved colour, outside the history.
+        const int sharpness = m_Quality.As<int>( Common::Scalability::Parameter::UpscalerSharpness );
+        if ( SharpenRuns( frame, sharpness ) )
+        {
+            const Common::ResultStr<RDG::TextureRef> sharpened =
+                 m_Sharpen.AddPasses( graph, frame, resolvedColor, sharpness );
+            if ( !sharpened )
+                return withoutTemporal( sharpened.GetError() );
+            resolvedColor = sharpened.GetValue();
+        }
 
         // THE OVERLAY TARGET SET (ViewTargetSet::Output): the resolved colour, and a velocity and a depth at the
         // output extent; "Scene: PopulateSceneDepth" fills the depth from the render-extent scene depth.
         OverlayTargets overlay;
-        overlay.Color = added.GetValue().SceneColor;
+        overlay.Color = resolvedColor;
         RDG::TextureDesc desc;
         desc.Size        = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
         desc.Format      = ViewTargetFormats::kVelocity;

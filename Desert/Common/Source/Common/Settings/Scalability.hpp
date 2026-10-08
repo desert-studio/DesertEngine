@@ -304,12 +304,12 @@ namespace Common::Scalability
     [[nodiscard]] bool IsTemporalAntiAliasing( AntiAliasingMethod method );
 
     // THE coupling rule of Resolve step 5, the one place the upscaler follows from (AA method, render scale):
-    // below 100 % a temporal method upscales (@p vendorOverride kept, None -> TAAU); at or above 100 % nothing
-    // upscales (None). Below 100 % without a temporal method there is no upscaler (no spatial one exists):
-    // std::nullopt, and the caller keeps 100 % and says why. Shared by Resolve (the game setting) and the
-    // renderer's per-view resolution (an editor viewport's Screen Percentage), so the two cannot disagree.
-    [[nodiscard]] std::optional<Upscaler> UpscalerForScale( AntiAliasingMethod method, int percent,
-                                                            Upscaler vendorOverride );
+    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> TAAU), and a
+    // method without history (None / FXAA / SMAA / MSAA) is upscaled by Spatial whatever the override; at or
+    // above 100 % nothing upscales (None). Total: every (method, percent) has an upscaler. Shared by Resolve (the
+    // game setting) and the renderer's per-view resolution (an editor viewport's Screen Percentage), so the two
+    // cannot disagree.
+    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride );
 
     // Per-path AA: what the scene framebuffer and the post pass run on a path that can / cannot multisample.
     struct PathAntiAliasing

@@ -4,6 +4,7 @@
 #include <Engine/Graphic/RDG/RDGBackend.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
+#include <Engine/Graphic/View/SpatialUpscale.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 
@@ -168,17 +169,24 @@ namespace TemporalUpscalerTest
         EXPECT_EQ( resolved.GetValue().Upscaler, ::Common::Scalability::Upscaler::None );
     }
 
-    // Below 100 % with no temporal method nothing can upscale (no spatial upscaler): 100 %, said - Resolve's rule.
-    TEST( TemporalUpscalerResolution, BelowNativeWithoutTemporalAAIsClampedToNativeByName )
+    // SCAL-SPATIAL1: below 100 % with no temporal method the spatial upscaler brings the view to the output -
+    // Resolve's rule. Mutation: the old 100 % clamp keeps the render set full; a temporal method here is red.
+    TEST( TemporalUpscalerResolution, AtFiftyPercentFxaaSplitsAndUpscalesSpatially )
     {
+        const ::Common::Scalability::PathAntiAliasing fxaa{
+             .Method      = ::Common::Scalability::AntiAliasingMethod::FXAA,
+             .Samples     = 1,
+             .PostProcess = ::Common::Scalability::AntiAliasingMethod::FXAA };
         const auto resolved =
-             ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, ::Common::Scalability::PathAntiAliasing{},
-                                    ::Common::Scalability::Upscaler::None,
+             ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, fxaa, ::Common::Scalability::Upscaler::None,
                                     []( TemporalMethod ) -> const ITemporalUpscaler* { return nullptr; } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
-        EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 1920, 1080 } ) );
-        EXPECT_NE( resolved.GetValue().Clamped.find( "no spatial upscaler" ), std::string::npos )
-             << resolved.GetValue().Clamped;
+        EXPECT_EQ( resolved.GetValue().Split.Mode, ScaleMode::Upscale );
+        EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 960, 540 } ) );
+        EXPECT_EQ( resolved.GetValue().Split.Output, ( ViewExtent{ 1920, 1080 } ) );
+        EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::None );
+        EXPECT_EQ( resolved.GetValue().Upscaler, ::Common::Scalability::Upscaler::Spatial );
+        EXPECT_TRUE( resolved.GetValue().Clamped.empty() ) << resolved.GetValue().Clamped;
     }
 } // namespace TemporalUpscalerTest
 
@@ -295,4 +303,92 @@ TEST( TemporalUpscaler, ParamsCarryTheUnjitteredMatricesAndTheResetFlag )
     EXPECT_EQ( params.HistoryValid, 1.0f );
     view.HistoryReset = HistoryResetReason::FirstFrame;
     EXPECT_EQ( MakeTemporalAAParams( view, Extent3D{ 64, 32, 1 } ).HistoryValid, 0.0f );
+}
+
+// SCAL-SPATIAL1: which frames sharpen and upscale spatially. Mutation: SharpenRuns ignoring the percent, or
+// sharpening a native FXAA frame (nothing resolved it), or IsSpatialUpscale true under TAAU -> red.
+TEST( SpatialUpscale, SharpenFollowsAResolveAndSpatialIsUpscaleWithoutATemporalMethod )
+{
+    ViewFrame spatial;
+    spatial.Split  = kUpscale;
+    spatial.Method = TemporalMethod::None;
+    ViewFrame taau = spatial;
+    taau.Method    = TemporalMethod::TAAU;
+    ViewFrame nativeFxaa;
+    nativeFxaa.Split    = kNative;
+    ViewFrame nativeTaa = nativeFxaa;
+    nativeTaa.Method    = TemporalMethod::TAA;
+    EXPECT_TRUE( IsSpatialUpscale( spatial ) );
+    EXPECT_FALSE( IsSpatialUpscale( taau ) );
+    EXPECT_FALSE( IsSpatialUpscale( nativeFxaa ) );
+    EXPECT_TRUE( SharpenRuns( spatial, 20 ) );
+    EXPECT_TRUE( SharpenRuns( taau, 20 ) );
+    EXPECT_TRUE( SharpenRuns( nativeTaa, 1 ) );
+    EXPECT_FALSE( SharpenRuns( nativeFxaa, 100 ) );
+    EXPECT_FALSE( SharpenRuns( taau, 0 ) );
+}
+
+// SCAL-SPATIAL1 graph census: the spatial upscale is one compute node reading the render-extent scene colour and
+// writing an output-extent transient; the sharpen is one compute node reading that and writing its own.
+// Mutation: either node sized at the render extent, a missing sampled read or storage write, or a node name
+// other than the one SceneRenderer's census and the profiler read -> red.
+TEST( SpatialUpscale, TheNodesReadTheResolvedColourAndWriteTheOutputExtent )
+{
+    ExternalTexture black{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+    ExternalTexture white{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+    ExternalTexture blackCube{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+    ExternalTexture postOut{ Tex2D( kUpscale.Output.Width, kUpscale.Output.Height, ImageFormat::RGBA16F ),
+                             Access::None };
+    Builder         graph{ "spatial-upscale" };
+    RegisterSystemTextures( graph, black, white, blackCube );
+    const TextureRef scene = graph.CreateTexture(
+         Tex2D( kUpscale.Render.Width, kUpscale.Render.Height, ImageFormat::RGBA16F ), "SceneColor" );
+    graph.AddPass(
+         "Scene", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, scene, LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ); },
+         []( PassContext& ) -> ::Common::BoolResultStr { return BOOLSUCCESS; } );
+    ViewFrame view;
+    view.Split  = kUpscale;
+    view.Method = TemporalMethod::None;
+
+    const SpatialUpscale spatial;
+    const Sharpen        sharpen;
+    const auto           upscaled = spatial.AddPasses( graph, view, scene );
+    ASSERT_TRUE( upscaled.IsSuccess() ) << upscaled.GetError();
+    const auto sharpened = sharpen.AddPasses( graph, view, upscaled.GetValue(), 50 );
+    ASSERT_TRUE( sharpened.IsSuccess() ) << sharpened.GetError();
+    for ( const TextureRef ref : { upscaled.GetValue(), sharpened.GetValue() } )
+    {
+        const auto desc = graph.GetTextureDesc( ref );
+        ASSERT_TRUE( desc.IsSuccess() );
+        EXPECT_EQ( desc.GetValue().Size, ( Extent3D{ kUpscale.Output.Width, kUpscale.Output.Height, 1 } ) );
+    }
+    graph.Extract( sharpened.GetValue(), postOut, Access::SampledCompute );
+
+    const auto compiled = graph.Compile( FlatMemory{} );
+    ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+    const CompileResult& result = compiled.GetValue();
+    EXPECT_TRUE( result.Faults.empty() ) << result.Faults.front().PassName << ": " << result.Faults.front().Reason;
+    const auto accessOf = [&]( const char* passName, TextureRef resource )
+    {
+        uint32_t mask = MemoryAccess_None;
+        if ( const CompiledPass* pass = result.FindPass( passName ) )
+            for ( const Barrier& barrier : pass->Barriers )
+                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                    mask |= barrier.After.Memory;
+        return mask;
+    };
+    ASSERT_NE( result.FindPass( "SpatialUpscale" ), nullptr );
+    ASSERT_NE( result.FindPass( "Sharpen" ), nullptr );
+    EXPECT_TRUE( accessOf( "SpatialUpscale", scene ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( accessOf( "SpatialUpscale", upscaled.GetValue() ) & MemoryAccess_ShaderStorageWrite );
+    EXPECT_TRUE( accessOf( "Sharpen", upscaled.GetValue() ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( accessOf( "Sharpen", sharpened.GetValue() ) & MemoryAccess_ShaderStorageWrite );
+
+    // Not a spatial frame (a temporal method resolves it): the upscale refuses by name.
+    ViewFrame taau     = view;
+    taau.Method        = TemporalMethod::TAAU;
+    const auto refused = spatial.AddPasses( graph, taau, scene );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "not a spatial upscale" ), std::string::npos ) << refused.GetError();
 }

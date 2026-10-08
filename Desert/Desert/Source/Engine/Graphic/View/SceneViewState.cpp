@@ -294,9 +294,12 @@ namespace Desert::Graphic
         f.PrevTimeSeconds = isReset ? inputs.TimeSeconds : m_Committed.TimeSeconds;
         f.DeltaSeconds    = static_cast<float>( f.TimeSeconds - f.PrevTimeSeconds );
 
+        // Only a TEMPORAL upscale reconstructs output-pixel detail from the jittered samples; the spatial
+        // upscale has one sample per render pixel, and a negative bias there only aliases (UE applies the
+        // screen-percentage mip bias under temporal upsampling only).
         f.MaterialMipBias = 0.0f;
-        if ( f.Split.Mode == Common::Scalability::ScaleMode::Upscale && f.Split.Render.Width != 0 &&
-             f.Split.Output.Width != 0 )
+        if ( f.Split.Mode == Common::Scalability::ScaleMode::Upscale && f.Method != TemporalMethod::None &&
+             f.Split.Render.Width != 0 && f.Split.Output.Width != 0 )
             f.MaterialMipBias = std::log2( static_cast<float>( f.Split.Render.Width ) /
                                            static_cast<float>( f.Split.Output.Width ) );
 

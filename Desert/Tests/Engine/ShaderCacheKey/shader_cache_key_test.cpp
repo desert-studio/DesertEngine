@@ -37,6 +37,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/View/SpatialUpscale.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
@@ -3199,6 +3200,14 @@ TEST( ShaderCacheKey, TemporalUpscalerLayoutsMatchTheShippedShadersReflection )
     const auto resolve = ShaderPath( "TemporalAA/SupersampleResolve.shader" );
     ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( resolve, {} ), "SupersampleResolve" ),
                       *Desert::Graphic::SupersampleResolveLayout(), "SupersampleResolve" );
+
+    // SCAL-SPATIAL1: the spatial upscale (EASU) and the post sharpen (RCAS).
+    const auto spatial = ShaderPath( "TemporalAA/SpatialUpscale.shader" );
+    ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( spatial, {} ), "SpatialUpscale" ),
+                      *Desert::Graphic::SpatialUpscaleLayout(), "SpatialUpscale" );
+    const auto sharpen = ShaderPath( "TemporalAA/Sharpen.shader" );
+    ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( sharpen, {} ), "Sharpen" ),
+                      *Desert::Graphic::SharpenLayout(), "Sharpen" );
 }
 
 namespace
