@@ -1415,7 +1415,10 @@ namespace Desert::Core::Preprocess
             }
             else
                 code.Content =
-                     std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                     // Only a stage that evaluates the surface fetches material textures: it alone declares the
+                     // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
+                     std::format( "{}#define {} 1\n#include <{}>\n#line {}\n{}\n#include <{}>\n", defines,
+                                  kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
                                   SurfacePassInclude( pass, blend ) );
             return AssembleStage( stage, code, include, autoDecls );

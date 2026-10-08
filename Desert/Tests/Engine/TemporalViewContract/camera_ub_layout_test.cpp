@@ -292,3 +292,54 @@ TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
          << "the terrain pushes the unjittered camera matrix; push the view's JitteredViewProjection";
     EXPECT_NE( terrain.find( "->JitteredViewProjection" ), std::string::npos );
 }
+
+// MATERIAL TEXTURES ARE FETCHED WITH THE VIEW'S MIP BIAS (TAA1-B plan decision 4). Under TAAU at 50 % the
+// render target is half the output, so an implicit-level fetch picks a mip one level blurrier than the output
+// would; SceneViewState sets MaterialMipBias = log2(render / output) (UpscaleBiasesMaterialMipsByTheScale) and
+// the ONE material fetch, SurfaceTypes.glslh SurfaceSampleMaterial, passes it. Every surface template reads its
+// material textures through it, and a surface graph's TextureSample emits it.
+TEST( CameraUBLayout, MaterialTexturesAreFetchedWithTheViewMipBias )
+{
+    namespace fs           = std::filesystem;
+    const fs::path root    = Desert::TestSupport::RepositoryRoot();
+    const fs::path shaders = root / "Editor" / "Resources" / "Shaders";
+    const auto     compact = []( const std::string& text )
+    {
+        std::string out;
+        for ( const char c : text )
+            if ( c != ' ' && c != '\t' && c != '\r' && c != '\n' )
+                out.push_back( c );
+        return out;
+    };
+    const std::string types =
+         compact( CameraUBLayoutTest::ReadText( shaders / "Mesh" / "Surface" / "SurfaceTypes.glslh" ) );
+    EXPECT_NE(
+         types.find( "vec4SurfaceSampleMaterial(sampler2DmaterialTexture,vec2uv){returntexture(materialTexture,uv,"
+                     "cameraUB.MaterialMipBias);}" ),
+         std::string::npos )
+         << "SurfaceSampleMaterial does not pass cameraUB.MaterialMipBias as the texture() bias";
+    EXPECT_NE( types.find( "DecodeTangentNormal(SurfaceSampleMaterial(normalMap,uv).rg)" ), std::string::npos )
+         << "a material normal map is not fetched through SurfaceSampleMaterial";
+
+    std::size_t templates = 0;
+    for ( const auto& entry : fs::directory_iterator( shaders / "Programs" / "Surface" ) )
+    {
+        if ( entry.path().extension() != ".shader" )
+            continue;
+        ++templates;
+        const std::string body = compact( CameraUBLayoutTest::ReadText( entry.path() ) );
+        // A material sampler is u_<Name>Texture; textureSize( ..., 0 ) is a size query, not a fetch.
+        static const std::regex direct( R"(texture(Lod)?\(u_\w+Texture,)" );
+        EXPECT_FALSE( std::regex_search( body, direct ) )
+             << entry.path().filename().string()
+             << " fetches a material texture directly instead of through SurfaceSampleMaterial";
+    }
+    EXPECT_GE( templates, 3u );
+
+    const std::string graph = compact( CameraUBLayoutTest::ReadText(
+         root / "Editor" / "Source" / "Editor" / "Panels" / "NodeGraph" / "ShaderGraph.cpp" ) );
+    EXPECT_NE(
+         graph.find( "doc.DomainEnum()==Domain::Surface?std::format(\"vec4{}=SurfaceSampleMaterial({},{});\"" ),
+         std::string::npos )
+         << "a surface graph's TextureSample does not fetch through SurfaceSampleMaterial";
+}

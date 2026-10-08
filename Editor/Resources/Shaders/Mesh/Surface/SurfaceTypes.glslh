@@ -16,6 +16,27 @@
 #include <Common/TangentNormal.glslh>
 #include <Common/SurfaceInputs.glslh>
 
+// THE MATERIAL TEXTURE FETCH, in one place for every surface template and every graph surface. Only a stage
+// that evaluates the surface defines DESERT_SURFACE_SAMPLES_MATERIAL (DShaderParser): a bias argument is a
+// fragment-stage form, and an opaque depth cell declares no camera block. MaterialMipBias is the view's
+// log2(render / output width) under an upscaler, 0 otherwise (SceneViewState::BeginFrame): a TAAU frame at
+// 50 % samples material textures one level sharper, as the output resolution would. Only MATERIAL textures:
+// G-buffer, post and screen-space reads are at the render resolution and keep the implicit level.
+#ifdef DESERT_SURFACE_SAMPLES_MATERIAL
+#include <Common/CameraUB.glslh>
+
+vec4 SurfaceSampleMaterial( sampler2D materialTexture, vec2 uv )
+{
+    return texture( materialTexture, uv, cameraUB.MaterialMipBias );
+}
+
+// A material's normal map: the biased fetch, decoded as Common/TangentNormal.glslh decodes any normal map.
+vec3 SurfaceSampleTangentNormal( sampler2D normalMap, vec2 uv )
+{
+    return DecodeTangentNormal( SurfaceSampleMaterial( normalMap, uv ).rg );
+}
+#endif
+
 struct SurfaceInput
 {
     vec3 WorldPosition;

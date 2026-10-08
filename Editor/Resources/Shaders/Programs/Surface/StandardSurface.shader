@@ -109,20 +109,20 @@ Shader "StandardSurface"
             if ( tiling.y <= 0.0 ) tiling.y = 1.0;
             const vec2 uv = SurfaceTransformUV( SurfaceSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
                                             u_Material.UVRotation );
-            const float mask = texture( u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
+            const float mask = SurfaceSampleMaterial( u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
             if ( u_Material.AlphaCutoff > 0.0 && mask < u_Material.AlphaCutoff )
                 discard;
             s.BaseColor = SurfaceBaseColor( u_Material.AlbedoColor.rgb,
-                                        pow( texture( u_AlbedoTexture, uv ).rgb, vec3( 2.2 ) ), vec3( 1.0 ) );
+                                        pow( SurfaceSampleMaterial( u_AlbedoTexture, uv ).rgb, vec3( 2.2 ) ), vec3( 1.0 ) );
             const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
-                s.Normal = SurfaceScaleTangentNormal( SampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
-            const vec3 orm = SurfaceResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.OcclusionStrength,
+                s.Normal = SurfaceScaleTangentNormal( SurfaceSampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
+            const vec3 orm = SurfaceResolveORM( SurfaceSampleMaterial( u_ORMTexture, uv ).rgb, u_Material.OcclusionStrength,
                                             u_Material.RoughnessFactor, u_Material.MetallicFactor );
             s.Metallic          = orm.z;
             s.Roughness         = orm.y;
             s.AmbientOcclusion  = u_Material.AOStrength * orm.x;
-            s.Emissive          = SurfaceEmission( pow( texture( u_EmissiveTexture, uv ).rgb, vec3( 2.2 ) ),
+            s.Emissive          = SurfaceEmission( pow( SurfaceSampleMaterial( u_EmissiveTexture, uv ).rgb, vec3( 2.2 ) ),
                                                u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = u_Material.ReceiveSunShadows;
