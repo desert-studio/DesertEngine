@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace Desert::Runtime
@@ -87,5 +88,81 @@ namespace Desert::Runtime
         mutable std::mutex m_Mutex;
         std::deque<Item>   m_Items;
         uint64_t           m_PendingBytes = 0;
+    };
+
+    /**
+     * HOW MANY COOKS MAY HOLD DECODED PIXELS AT ONCE (SHOT-SETTLE-c). A cook occupies a slot from the moment it
+     * is handed to a worker until the frame loop takes its result off the upload queue; everything asked for
+     * beyond the capacity waits here as a key, which costs nothing, instead of on a worker, which costs the
+     * whole decoded texture.
+     *
+     * Measured on Bistro night_street_a: 398 platform-data reads were admitted in 15 s while the main thread
+     * sat in one long splash frame, every decoded result (22 MB for a 2k RGBA8 with mips) waited in the upload
+     * queue, and Malloc Large reached 1.8 GB in 10 s and the footprint 5.3 GB before a single upload ran. The
+     * upload budget bounds the GPU side per frame; nothing bounded the CPU side between the worker and the
+     * frame. UE's pattern: the streamer keeps a bounded number of requests in flight
+     * (FRenderAssetStreamingManager's pending-request limit) and leaves the rest as wanted, not loaded.
+     *
+     * Main thread only: the slots are taken and returned where the queue is pumped.
+     */
+    template <typename Key>
+    class CookAdmission
+    {
+    public:
+        explicit CookAdmission( const std::size_t capacity ) : m_Capacity( capacity )
+        {
+        }
+
+        /// True: start the cook now (a slot is taken). False: @p key waits for `NextToStart`. A capacity of zero
+        /// admits nothing.
+        bool TryAdmit( const Key& key )
+        {
+            if ( m_Running < m_Capacity )
+            {
+                ++m_Running;
+                return true;
+            }
+            m_Waiting.push_back( key );
+            return false;
+        }
+
+        /// One cook's result was taken off the upload queue (built, failed or stale alike): its slot is free.
+        void Release()
+        {
+            if ( m_Running > 0 )
+                --m_Running;
+        }
+
+        /// The oldest waiting key, with a slot taken for it; empty when nothing waits or no slot is free.
+        std::optional<Key> NextToStart()
+        {
+            if ( m_Waiting.empty() || m_Running >= m_Capacity )
+                return std::nullopt;
+            ++m_Running;
+            Key key = m_Waiting.front();
+            m_Waiting.pop_front();
+            return key;
+        }
+
+        /// Forget the waiting keys; the running cooks keep their slots until their results are taken.
+        void DropWaiting()
+        {
+            m_Waiting.clear();
+        }
+
+        std::size_t Running() const
+        {
+            return m_Running;
+        }
+
+        std::size_t Waiting() const
+        {
+            return m_Waiting.size();
+        }
+
+    private:
+        std::size_t     m_Capacity = 0;
+        std::size_t     m_Running  = 0;
+        std::deque<Key> m_Waiting;
     };
 } // namespace Desert::Runtime
