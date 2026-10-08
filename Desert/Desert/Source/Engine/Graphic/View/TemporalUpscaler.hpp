@@ -5,7 +5,10 @@
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
+#include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -78,6 +81,38 @@ namespace Desert::Graphic
     // The implementations this build has, one per TemporalMethod other than None. Null for None. The objects are
     // stateless (all state is in SceneViewState), so one instance per SceneRenderer is enough.
     [[nodiscard]] std::unique_ptr<ITemporalUpscaler> CreateTemporalUpscaler( TemporalMethod method );
+
+    // TWO EXTENTS PER VIEW (TAA1-B step 6). Every view target follows one of them: the RENDER set is what the
+    // scene draws into before the temporal resolve (scene target, G-buffer, velocity, depth resolve, silhouette
+    // mask, overdraw, outline) and is ResolutionSplit::Render; the OUTPUT set is what the post chain writes after
+    // it (tonemap, FXAA, SMAA, the final image, the overlay target) and is ResolutionSplit::Output.
+    enum class ViewTargetSet
+    {
+        Render,
+        Output,
+    };
+    [[nodiscard]] ViewExtent ViewTargetSetExtent( ViewTargetSet set, const ResolutionSplit& split );
+
+    // What one view renders this frame: the split and the temporal method that resolves it.
+    struct ViewResolution
+    {
+        ResolutionSplit Split;
+        TemporalMethod  Method = TemporalMethod::None;
+        // Not empty when the requested scale was clamped to one the method's upscaler supports: why (the caller
+        // logs it; this function is pure).
+        std::string Clamped;
+    };
+
+    // THE ONE PER-VIEW RESOLUTION FUNCTION: the resolved setting's percent, replaced by the editor viewport's
+    // override when it has one (@p viewportOverridePercent), split against @p output, the method chosen for it
+    // (SelectTemporalMethod: its refusal is this function's error), then clamped by the upscaler that implements
+    // that method (@p upscalerFor: the view's object for a method, null for None): a split the upscaler does not
+    // Support falls back to native scale (100 %) when that is supported, else the named error.
+    [[nodiscard]] Common::ResultStr<ViewResolution>
+    ResolveViewResolution( ViewExtent output, int settingPercent, std::optional<int> viewportOverridePercent,
+                           const Common::Scalability::PathAntiAliasing&                     antiAliasing,
+                           Common::Scalability::Upscaler                                    upscaler,
+                           const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor );
 
     // The fixed SSAA downsample (Split.Mode == Supersample): RenderExtent -> OutputExtent, a separable Catmull-Rom
     // (bicubic, B=0 C=0.5) reconstruction — not a box: at a non-integer ratio (150 %) a box filter aliases the

@@ -145,4 +145,49 @@ namespace Desert::Graphic
              addAxis( "SupersampleResolve.Horizontal", sceneColor, render, horizontal, 0 );
         return Common::MakeSuccess( addAxis( "SupersampleResolve.Output", halfway, horizontal, output, 1 ) );
     }
+    ViewExtent ViewTargetSetExtent( const ViewTargetSet set, const ResolutionSplit& split )
+    {
+        return set == ViewTargetSet::Render ? split.Render : split.Output;
+    }
+
+    Common::ResultStr<ViewResolution> ResolveViewResolution(
+         const ViewExtent output, const int settingPercent, const std::optional<int> viewportOverridePercent,
+         const Common::Scalability::PathAntiAliasing& antiAliasing, const Common::Scalability::Upscaler upscaler,
+         const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor )
+    {
+        const int  requested = viewportOverridePercent.value_or( settingPercent );
+        const auto choose    = [&]( const int percent ) -> Common::ResultStr<ViewResolution>
+        {
+            const auto split = MakeResolutionSplit( output, percent );
+            if ( !split )
+                return Common::MakeFormattedError<ViewResolution>( "{}", split.GetError() );
+            const auto method = SelectTemporalMethod( antiAliasing, split.GetValue(), upscaler );
+            if ( !method )
+                return Common::MakeFormattedError<ViewResolution>( "{}", method.GetError() );
+            return Common::MakeSuccess( ViewResolution{ .Split = split.GetValue(), .Method = method.GetValue() } );
+        };
+        auto chosen = choose( requested );
+        if ( !chosen )
+            return chosen;
+        const ITemporalUpscaler* implementation = upscalerFor ? upscalerFor( chosen.GetValue().Method ) : nullptr;
+        if ( implementation == nullptr || implementation->Supports( chosen.GetValue().Split ) )
+            return chosen;
+        const std::string refused = std::format( "{} does not resolve {} % of {}x{}", implementation->DebugName(),
+                                                 requested, output.Width, output.Height );
+        if ( requested == 100 )
+            return Common::MakeFormattedError<ViewResolution>( "ResolveViewResolution: {}", refused );
+        auto native = choose( 100 );
+        if ( !native )
+            return Common::MakeFormattedError<ViewResolution>( "ResolveViewResolution: {}; at 100 %: {}", refused,
+                                                               native.GetError() );
+        const ITemporalUpscaler* nativeImplementation = upscalerFor( native.GetValue().Method );
+        if ( nativeImplementation != nullptr && !nativeImplementation->Supports( native.GetValue().Split ) )
+            return Common::MakeFormattedError<ViewResolution>(
+                 "ResolveViewResolution: {}; nor does {} resolve 100 %", refused,
+                 nativeImplementation->DebugName() );
+        ViewResolution clamped = native.GetValue();
+        clamped.Clamped        = refused + ": clamped to 100 %";
+        return Common::MakeSuccess( clamped );
+    }
+
 } // namespace Desert::Graphic

@@ -114,6 +114,41 @@ namespace TemporalUpscalerTest
             return static_cast<MemoryAccessFlags>( mask );
         }
     };
+    // TAA1-B step 6: the one per-view resolution function and the two target sets it sizes.
+    TEST( TemporalUpscalerResolution, AtFiftyPercentTheRenderSetIsHalfAndTheOutputSetFull )
+    {
+        const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
+        const auto resolved = ResolveViewResolution(
+             ViewExtent{ 1920, 1080 }, 50, std::nullopt, ::Common::Scalability::PathAntiAliasing{},
+             ::Common::Scalability::Upscaler::TAAU, [&]( TemporalMethod ) { return taau.get(); } );
+        ASSERT_TRUE( resolved ) << resolved.GetError();
+        EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAAU );
+        EXPECT_TRUE( resolved.GetValue().Clamped.empty() );
+        EXPECT_EQ( ViewTargetSetExtent( ViewTargetSet::Render, resolved.GetValue().Split ),
+                   ( ViewExtent{ 960, 540 } ) );
+        EXPECT_EQ( ViewTargetSetExtent( ViewTargetSet::Output, resolved.GetValue().Split ),
+                   ( ViewExtent{ 1920, 1080 } ) );
+    }
+
+    TEST( TemporalUpscalerResolution, TheViewportOverrideReplacesTheSetting )
+    {
+        const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
+        const auto resolved = ResolveViewResolution(
+             ViewExtent{ 1000, 1000 }, 100, 50, ::Common::Scalability::PathAntiAliasing{},
+             ::Common::Scalability::Upscaler::TAAU, [&]( TemporalMethod ) { return taau.get(); } );
+        ASSERT_TRUE( resolved ) << resolved.GetError();
+        EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 500, 500 } ) );
+    }
+
+    TEST( TemporalUpscalerResolution, BelowNativeWithoutAnUpscalerIsTheNamedError )
+    {
+        const auto resolved = ResolveViewResolution(
+             ViewExtent{ 1920, 1080 }, 50, std::nullopt, ::Common::Scalability::PathAntiAliasing{},
+             ::Common::Scalability::Upscaler::None,
+             []( TemporalMethod ) -> const ITemporalUpscaler* { return nullptr; } );
+        ASSERT_FALSE( resolved );
+        EXPECT_NE( resolved.GetError().find( "Upscaler None" ), std::string::npos ) << resolved.GetError();
+    }
 } // namespace TemporalUpscalerTest
 
 using namespace TemporalUpscalerTest;
