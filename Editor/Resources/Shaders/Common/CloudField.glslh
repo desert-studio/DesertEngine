@@ -201,6 +201,20 @@ struct CloudFieldParams
 #define CLOUD_DETAIL_FREQ_Z 1.333f // 40 / 30
 
 // ---------------------------------------------------------------------------------------------------
+// THE EROSION'S SECOND OCTAVE — how much finer it reads the same volume, and how much of the cut is its.
+// ---------------------------------------------------------------------------------------------------
+//
+// Nubis Cubed reads its erosion twice: the tile and a high-frequency octave of it. One octave whose period
+// is a kilometre carves lobes the size of the modelling volume's own lumps, so it moves a body's outline
+// without breaking it — the cumulus stays a cotton ball. FOUR times finer puts the second octave at
+// 250 m on the shipped 1 km tile: above the march's finest resolvable chord, below the smallest lump.
+// A WHOLE NUMBER because the volume repeats on the tile; a fraction would seam at every tile boundary.
+// The weight is the share of the composite the fine octave carries — the coarse one still decides where
+// a body's big lobes are, the fine one only breaks their surfaces.
+#define CLOUD_DETAIL_HF_RATIO  4.0f
+#define CLOUD_DETAIL_HF_WEIGHT 0.5f
+
+// ---------------------------------------------------------------------------------------------------
 // THE EDGE SHARPENING — the exponent the eroded density is raised to (Nubis Cubed, SIGGRAPH 2023, the
 // up-rez's last line: `pow(density, lerp(0.3, 0.6, density_scale^4))`).
 // ---------------------------------------------------------------------------------------------------
@@ -890,6 +904,11 @@ CloudFieldSample SampleCloudField( CloudFieldParams params, float heightFraction
 // ---------------------------------------------------------------------------------------------------
 // THE EXTINCTION WAS TAKEN AS THAT NEXT TASK AND MEASURED TO THE FRAME. IT DOES NOT PAY. Task Р18,
 // 2026-09-03.
+//
+// SUPERSEDED 2026-10-09 (CLOUD-SHAPE-e, lead decision over D-32): the sweep below measured what extinction
+// does to the EROSION'S reach; what it does to the EDGE is the larger effect. At 8/km a 100 m chord of
+// saturated cloud still passes 45 % of the light, so every edge reads translucent over ~300 m — the
+// cotton ball. The shipped value is now the physical 75/km and the stored materials were rewritten to it.
 // ---------------------------------------------------------------------------------------------------
 //
 // THE SWEEP THE PARAGRAPH ABOVE ASKS FOR, taken with this file's own instrument — Desert/Tests/Engine/

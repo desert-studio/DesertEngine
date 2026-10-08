@@ -1415,12 +1415,18 @@ namespace
         // THE SAMPLE'S OWN SLOT, so the mirror reads whichever of the layer's volumes the winning species
         // named — the same argument the seam passes. A mirror hardwired to slot 0 would agree with a
         // shader that ignored the slot entirely, which is precisely the defect phase NV removed.
-        const vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos );
+        const vec4 noise     = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos );
+        const vec4 fineNoise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * CLOUD_DETAIL_HF_RATIO );
 
-        const float wispy   = glm::mix( noise.x, noise.y, field.Profile );
-        const float billowy = glm::mix( noise.z, noise.w, std::pow( field.Profile, 0.25f ) );
-
-        return glm::clamp( glm::mix( wispy, billowy, glm::clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f, 1.0f );
+        // BOTH OCTAVES through the one composite, then the shader's own blend of the two.
+        const auto composite = [&]( const vec4& n )
+        {
+            const float wispy   = glm::mix( n.x, n.y, field.Profile );
+            const float billowy = glm::mix( n.z, n.w, std::pow( field.Profile, 0.25f ) );
+            return glm::clamp( glm::mix( wispy, billowy, glm::clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f,
+                               1.0f );
+        };
+        return glm::mix( composite( noise ), composite( fineNoise ), CLOUD_DETAIL_HF_WEIGHT );
     }
 
     /// The eroded density from the pair, at an EFFECTIVE depth t = clamp(strength * the type's factor).

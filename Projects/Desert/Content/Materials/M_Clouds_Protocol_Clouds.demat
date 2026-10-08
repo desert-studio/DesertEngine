@@ -82,7 +82,7 @@
         },
         {
             "Name": "ExtinctionScale",
-            "Value": [8.0, 0.0, 0.0, 0.0]
+            "Value": [75.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "ScatteringAlbedo",

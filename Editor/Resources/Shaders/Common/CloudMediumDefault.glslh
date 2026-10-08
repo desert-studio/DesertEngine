@@ -68,6 +68,24 @@ int CloudNoiseSlotOf( float slot )
     return int( clamp( floor( slot + 0.5f ), 0.0f, float( CLOUD_SPECIES_SLOTS - 1 ) ) );
 }
 
+// THE DECK'S OWN COMPOSITE (p.122) of one read of an erosion volume, and it uses all four channels.
+//
+// Each character of erosion is a blend of ITS OWN pair across frequency, and the blend is driven by the
+// profile — deep inside the body the coarse octave, out at the edge the fine one, which is the
+// frequency-follows-depth relation the deck states on p.101 and p.105. The wispy end blends linearly;
+// the billowy end blends on the fourth root, so a billowy cloud reaches its fine octave much earlier
+// and its edge breaks into lobes rather than fading into one smooth frequency.
+//
+// Only THEN do the two characters mix, on DetailType. Written the other way round — pick a channel by
+// type and never blend by depth — the erosion has one frequency everywhere inside a cloud, which is
+// what the two-channel version this replaces did.
+float CloudDefaultErosionComposite( CloudFieldSample field, vec4 noise )
+{
+    float wispy   = mix( noise.x, noise.y, field.Profile );
+    float billowy = mix( noise.z, noise.w, pow( field.Profile, 0.25f ) );
+    return clamp( mix( wispy, billowy, clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f, 1.0f );
+}
+
 // The up-rez: turn the low-frequency profile into something with a cloud's edge.
 //
 // The erosion is a REMAP, not a subtraction (deck p.120, `ValueErosion`). The difference shows at the
@@ -91,21 +109,17 @@ float CloudDefaultDensity( CloudFieldParams params, CloudFieldSample field, vec3
     // the last recorded debt of the cloud programme, and a dead setting in three of a layer's four slots.
     vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos );
 
-    // THE DECK'S OWN COMPOSITE (p.122), and it uses all four channels rather than two of them.
-    //
-    // Each character of erosion is a blend of ITS OWN pair across frequency, and the blend is driven by the
-    // profile — deep inside the body the coarse octave, out at the edge the fine one, which is the
-    // frequency-follows-depth relation the deck states on p.101 and p.105. The wispy end blends linearly;
-    // the billowy end blends on the fourth root, so a billowy cloud reaches its fine octave much earlier
-    // and its edge breaks into lobes rather than fading into one smooth frequency.
-    //
-    // Only THEN do the two characters mix, on DetailType. Written the other way round — pick a channel by
-    // type and never blend by depth — the erosion has one frequency everywhere inside a cloud, which is
-    // what the two-channel version this replaces did.
-    float wispy   = mix( noise.x, noise.y, field.Profile );
-    float billowy = mix( noise.z, noise.w, pow( field.Profile, 0.25f ) );
+    // A SECOND, FINER READ OF THE SAME VOLUME (Nubis Cubed's high-frequency octave). The tile's period is
+    // chosen against a body, so its lobes are the size of the lumps the modelling volume already placed —
+    // it scales a body instead of breaking its surface into smaller lobes, and every cumulus stayed a
+    // smooth ball (CLOUD-SHAPE-d). The same composite read CLOUD_DETAIL_HF_RATIO times finer puts billows
+    // on the billows. It is the same volume and not a second texture, so a cloud type's `.dcnv` still
+    // decides the character of both octaves, and the wispy-at-the-base / billowy-at-the-crown relation
+    // carries over through DetailType unchanged.
+    vec4 fineNoise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * CLOUD_DETAIL_HF_RATIO );
 
-    float detailField = clamp( mix( wispy, billowy, clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f, 1.0f );
+    float detailField = mix( CloudDefaultErosionComposite( field, noise ),
+                             CloudDefaultErosionComposite( field, fineNoise ), CLOUD_DETAIL_HF_WEIGHT );
 
     // THE EROSION IS THE DECK'S VALUE EROSION, UNWEIGHTED (Nubis Cubed p.120: `remap(profile, erosion, 1,
     // 0, 1)`). The remap is what protects the core — a profile already near one stays near one whatever is

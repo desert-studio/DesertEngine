@@ -96,7 +96,7 @@ namespace Desert::Graphic
         float DetailTileSize  = 100000.0f; // cm; 1 km
         float DetailStrength  = 0.40f;
         float DensityScale    = 1.0f;
-        float ExtinctionScale = 8.0f; // per km
+        float ExtinctionScale = 75.0f; // per km — a real cumulus, D-32 superseded (CLOUD-SHAPE-e)
 
         // ---- Lighting -------------------------------------------------------------------------------
         // PER COLOUR since the Volume domain's output contract was implemented (O1_DESIGN §3.3, §9 п.2).
