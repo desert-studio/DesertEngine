@@ -6,6 +6,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <cmath>
+#include <filesystem>
 #include <format>
 
 namespace Desert::VFX
@@ -204,6 +205,39 @@ namespace Desert::VFX
         return Register( *asset );
     }
 
+    Common::BoolResultStr VFXDataChannels::Use( const std::string_view name, Assets::AssetManager& assets )
+    {
+        const auto path = Assets::VFXDataChannelAsset::PathForName( name );
+        if ( !path.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "{}", path.GetError() );
+
+        Assets::Asset<Assets::VFXDataChannelAsset> named;
+        for ( const auto& [handle, held] : assets.FindAllByType<Assets::VFXDataChannelAsset>() )
+        {
+            if ( held->ChannelName() != name )
+                continue;
+            if ( named )
+                return Common::MakeFormattedError<bool>(
+                     "two VFX data channel assets are named '{}' ({} and {}); a script names one channel",
+                     std::string( name ), named->GetMetadata().Filepath.generic_string(),
+                     held->GetMetadata().Filepath.generic_string() );
+            named = held;
+        }
+        if ( !named )
+        {
+            std::error_code ec;
+            if ( !std::filesystem::is_regular_file( path.GetValue(), ec ) )
+                return Common::MakeFormattedError<bool>( "no VFX data channel asset is named '{}' (looked in the "
+                                                         "asset manager and for {})",
+                                                         std::string( name ), path.GetValue().generic_string() );
+            named = assets.CreateAsset<Assets::VFXDataChannelAsset>( path.GetValue() );
+            if ( !named )
+                return Common::MakeFormattedError<bool>( "VFX data channel asset '{}' did not load ({})",
+                                                         std::string( name ), path.GetValue().generic_string() );
+        }
+        return Register( *named );
+    }
+
     const VFXDataChannel* VFXDataChannels::Find( const std::string_view name ) const
     {
         const auto it = m_Channels.find( name );
@@ -255,6 +289,8 @@ namespace Desert::VFX
                   CheckField( layout, module.LifetimeField, "Lifetime", true, S::VFXDataChannelFieldType::Float );
              !r )
             return r;
+        if ( auto r = CheckField( layout, module.SizeField, "Size", true, S::VFXDataChannelFieldType::Float ); !r )
+            return r;
         if ( module.MaxDistance > 0.0f && module.PositionField.empty() )
             return Common::MakeFormattedError<bool>( "MaxDistance {} cm has no Position field to measure",
                                                      module.MaxDistance );
@@ -287,6 +323,7 @@ namespace Desert::VFX
         const int   filter        = offsetOf( module.FilterField );
         const int   color         = offsetOf( module.ColorField );
         const int   lifetime      = offsetOf( module.LifetimeField );
+        const int   size          = offsetOf( module.SizeField );
         const float maxDistanceSq = module.MaxDistance * module.MaxDistance;
 
         const std::size_t count = channel->EntryCount();
@@ -319,6 +356,11 @@ namespace Desert::VFX
             {
                 request.HasLifetime = true;
                 request.Lifetime    = entry[static_cast<std::size_t>( lifetime )];
+            }
+            if ( size >= 0 )
+            {
+                request.HasSize = true;
+                request.Size    = entry[static_cast<std::size_t>( size )];
             }
             if ( module.MaxDistance > 0.0f )
             {

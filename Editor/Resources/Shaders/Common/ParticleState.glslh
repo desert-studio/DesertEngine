@@ -36,6 +36,9 @@ struct Particle
     vec4 Age;
     // rgba multiplier of the colour over life, fixed at spawn: a Spawn from Channel colour (VFX-10b), else 1.
     vec4 Tint;
+    // x = base-size scale fixed at spawn: a Spawn from Channel Size (VFX-10c), else 1; Shade multiplies the size
+    // over life by it. yzw = 0 (the member is a vec4 so the std430 array stride stays a multiple of 16 B).
+    vec4 SizeScale;
 };
 
 #endif // PARTICLE_STATE_GLSLH

@@ -2009,6 +2009,29 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
     EXPECT_NE( state.find( "vec4 Tint;" ), std::string::npos ) << "struct Particle lost its Tint";
 }
 
+// VFX-10c: a bound channel Size scales the particle's base size - the upload packs it into the record's Scalars.y
+// (1 when unbound), the spawn keeps it in Particle.SizeScale and Shade multiplies the size over life by it every
+// step. Particle grew a sixth vec4, so the stride the engine allocates is 96 B.
+TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
+{
+    const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
+    EXPECT_NE( simulate.find( "p.PosSize.w = mix( u_Sizes.x, u_Sizes.y, st ) * p.SizeScale.x;" ),
+               std::string::npos )
+         << "Shade no longer scales the size over life by the particle's SizeScale";
+    EXPECT_NE( simulate.find( "p.SizeScale    = vec4( channel.Scalars.y, 0.0, 0.0, 0.0 );" ), std::string::npos )
+         << "the spawn no longer keeps the channel size scale in the particle";
+    EXPECT_NE( simulate.find( "channel.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
+         << "a particle not from a channel no longer gets size scale 1";
+    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
+    EXPECT_NE( state.find( "vec4 SizeScale;" ), std::string::npos ) << "struct Particle lost its SizeScale";
+    EXPECT_EQ( Desert::Graphic::System::kParticleStride, 96u )
+         << "struct Particle is six vec4s (PosSize, Color, VelLife, Age, Tint, SizeScale)";
+    const std::string upload = ReadFile( s_RepoRoot / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
+                                         "Systems" / "Scene" / "Particles" / "ParticleWorldGpu.cpp" );
+    EXPECT_NE( upload.find( "r.HasSize ? r.Size : 1.0f" ), std::string::npos )
+         << "the channel record no longer carries the bound size (or 1) in Scalars.y";
+}
+
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothStages )
 {
     // WHY THE EQUALITY ABOVE IS NOT ENOUGH. Two independent declarations that happen to be the same size

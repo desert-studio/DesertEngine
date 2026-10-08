@@ -130,6 +130,11 @@ namespace Desert::VFX
         /// What C++ gameplay calls (UE: a UNiagaraDataChannelAsset reference): the channel asset @p handle names
         /// in @p assets; refused when no ready VFXDataChannelAsset has that handle.
         Common::BoolResultStr Register( const Common::AssetHandle& handle, const Assets::AssetManager& assets );
+        /// What a script calls (Lua VFX.useChannel): the channel ASSET named @p name, resolved through @p assets -
+        /// the one place assets are loaded. A channel asset the manager already holds is matched by its name (file
+        /// stem, any folder); otherwise the manager loads `<VFX root>/<name>.dfxch` (PathForName). Refused by name
+        /// when no channel asset has that name, when two held assets share it, or when the name is a path.
+        Common::BoolResultStr Use( std::string_view name, Assets::AssetManager& assets );
 
         [[nodiscard]] const VFXDataChannel* Find( std::string_view name ) const;
 
@@ -172,6 +177,7 @@ namespace Desert::VFX
         std::string        FilterField;    ///< a Float or Int field; empty = no predicate
         std::string        ColorField;     ///< a Color field -> the particle's Tint (multiplies colour over life)
         std::string        LifetimeField;  ///< a Float or Int field -> the particle's lifetime in seconds
+        std::string SizeField; ///< a Float or Int field -> the particle's base-size scale (x size over life)
         VFXChannelFilterOp FilterOp    = VFXChannelFilterOp::Greater;
         float              FilterValue = 0.0f;
 
@@ -191,6 +197,8 @@ namespace Desert::VFX
         glm::vec4     Color        = glm::vec4( 1.0f ); ///< linear rgba
         bool          HasLifetime  = false;
         float         Lifetime     = 0.0f; ///< seconds
+        bool          HasSize      = false;
+        float         Size         = 1.0f; ///< scale of the emitter's size over life (1 = the emitter's size)
     };
 
     /// What one tick did with a channel's entries for one emitter. Read = Spawned + Filtered + Overflow.

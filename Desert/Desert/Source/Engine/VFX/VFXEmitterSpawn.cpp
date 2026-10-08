@@ -106,11 +106,11 @@ namespace Desert::VFX
                                                                    const std::string&     where )
         {
             using Result                                             = VFXChannelSpawnModule;
-            static constexpr std::array<std::string_view, 11> kInputs = {
+            static constexpr std::array<std::string_view, 12> kInputs = {
                  "Channel",     "ParticlesPerEntry", "MaxEntriesPerFrame",
                  "MaxDistance", "Position",          "Direction",
                  "Color",       "Lifetime",          "Filter",
-                 "FilterOp",    "FilterValue" };
+                 "FilterOp",    "FilterValue",       "Size" };
             for ( const S::VFXModuleInput& in : use.Inputs )
                 if ( std::find( kInputs.begin(), kInputs.end(), in.Name ) == kInputs.end() )
                     return Common::MakeFormattedError<Result>( "{} input '{}': the module declares no such input",
@@ -180,7 +180,8 @@ namespace Desert::VFX
             const auto filter    = field( "Filter", S::VFXValueType::Float );
             const auto color     = field( "Color", S::VFXValueType::Vec4 );
             const auto lifetime  = field( "Lifetime", S::VFXValueType::Float );
-            for ( const auto* r : { &position, &direction, &filter, &color, &lifetime } )
+            const auto size      = field( "Size", S::VFXValueType::Float );
+            for ( const auto* r : { &position, &direction, &filter, &color, &lifetime, &size } )
                 if ( !r->IsSuccess() )
                     return Common::MakeError<Result>( r->GetError() );
             m.PositionField  = position.GetValue();
@@ -188,6 +189,7 @@ namespace Desert::VFX
             m.FilterField    = filter.GetValue();
             m.ColorField     = color.GetValue();
             m.LifetimeField  = lifetime.GetValue();
+            m.SizeField      = size.GetValue();
 
             const bool hasOp    = FindInput( use, "FilterOp" ) != nullptr;
             const bool hasBound = FindInput( use, "FilterValue" ) != nullptr;

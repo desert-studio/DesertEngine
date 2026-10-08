@@ -4,11 +4,16 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
+
+#include "../../TestSupport/scratch_dir.hpp"
 
 #include <Common/Core/Constants.hpp>
 
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
@@ -361,4 +366,115 @@ TEST( VFXDataChannel, AChannelIsNamedByItsAssetNotByAPath )
     ASSERT_NE( channel, nullptr ) << "the channel is not named by the asset's file stem";
     EXPECT_EQ( channel->Layout().Fields, ImpactChannel().Fields );
     fs::remove_all( dir );
+}
+
+// VFX-10c: a Float (or Int) field bound to Size scales the particle's base size: the request carries it, an
+// unbound size is the emitter's (scale 1), a Color field is refused as a size, and the module's Size input is
+// read.
+TEST( VFXDataChannel, AFloatFieldBindsTheParticleSize )
+{
+    VFX::VFXDataChannels channels;
+    ASSERT_TRUE( channels.Register( "Impacts", ImpactChannel() ) );
+    {
+        auto writer = channels.Write( "Impacts", 1 );
+        ASSERT_TRUE( writer.IsSuccess() ) << writer.GetError();
+        ASSERT_TRUE( writer.GetValue().WriteFloat( 0, "Strength", 2.5f ) );
+        ASSERT_TRUE( writer.GetValue().WriteInt( 0, "Team", 3 ) );
+    }
+    VFX::VFXChannelSpawnModule m = Module( 1, 4 );
+    m.SizeField                  = "Strength";
+    auto batch                   = VFX::GatherChannelSpawns( m, channels.Find( "Impacts" ), glm::vec3( 0.0f ) );
+    ASSERT_EQ( batch.Requests.size(), 1u );
+    EXPECT_TRUE( batch.Requests[0].HasSize );
+    EXPECT_EQ( batch.Requests[0].Size, 2.5f );
+    m.SizeField = "Team";
+    batch       = VFX::GatherChannelSpawns( m, channels.Find( "Impacts" ), glm::vec3( 0.0f ) );
+    ASSERT_EQ( batch.Requests.size(), 1u );
+    EXPECT_EQ( batch.Requests[0].Size, 3.0f ) << "an Int field does not bind the size";
+
+    batch = VFX::GatherChannelSpawns( Module( 1, 4 ), channels.Find( "Impacts" ), glm::vec3( 0.0f ) );
+    ASSERT_EQ( batch.Requests.size(), 1u );
+    EXPECT_FALSE( batch.Requests[0].HasSize );
+    EXPECT_EQ( batch.Requests[0].Size, 1.0f ) << "an unbound size must be the emitter's (scale 1)";
+
+    VFX::VFXChannelSpawnModule bad = Module( 1, 4 );
+    bad.SizeField                  = "Tint";
+    EXPECT_FALSE( VFX::BindChannelSpawn( bad, VFX::VFXDataChannelLayout::From( ImpactChannel() ) ) )
+         << "a Color field accepted as the size";
+
+    S::VFXSystemData  system;
+    S::VFXEmitterData emitter;
+    emitter.Name                   = "Sparks";
+    emitter.Lifecycle.LoopDuration = 1.0f;
+    S::VFXModuleUse use;
+    use.Module = std::string( VFX::kVFXSpawnFromChannelModule );
+    use.Inputs = { Bound( "Channel", S::VFXValueType::Int, "DataChannel.Impacts" ),
+                   Value( "ParticlesPerEntry", S::VFXValueType::Int, 1.0f ),
+                   Value( "MaxEntriesPerFrame", S::VFXValueType::Int, 4.0f ),
+                   Bound( "Size", S::VFXValueType::Float, "DataChannel.Impacts.Strength" ) };
+    emitter.Stack.EmitterUpdate.push_back( use );
+    system.Emitters.push_back( emitter );
+    auto plan = VFX::CompileSpawnPlan( system, 0 );
+    ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
+    ASSERT_TRUE( plan.GetValue().Channel.has_value() );
+    EXPECT_EQ( plan.GetValue().Channel->SizeField, "Strength" );
+}
+
+// VFX-10c: what Lua VFX.useChannel calls - the NAME is resolved by the AssetManager (a held channel asset in any
+// folder, matched by its stem); an unknown name, a path, or two held assets sharing a name are refused by name.
+TEST( VFXDataChannel, AScriptNameIsResolvedThroughTheAssetManager )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "VFX10cUseChannel";
+    fs::remove_all( dir );
+    fs::create_directories( dir / "Sub" );
+    fs::create_directories( dir / "Other" );
+    const fs::path file = dir / "Sub" / "VFX10cSparks.dfxch";
+    ASSERT_TRUE( Assets::VFXDataChannelAsset::Save( file, ImpactChannel() ) );
+
+    Assets::AssetManager assets;
+    VFX::VFXDataChannels channels;
+    EXPECT_FALSE( channels.Use( "VFX10cSparks", assets ) ) << "a name the manager does not hold was resolved";
+    ASSERT_TRUE( assets.CreateAsset<Assets::VFXDataChannelAsset>( file ) );
+    const auto used = channels.Use( "VFX10cSparks", assets );
+    ASSERT_TRUE( used ) << used.GetError();
+    const VFX::VFXDataChannel* channel = channels.Find( "VFX10cSparks" );
+    ASSERT_NE( channel, nullptr ) << "the held asset (in a subfolder) was not the channel the name resolved to";
+    EXPECT_EQ( channel->Layout().Fields, ImpactChannel().Fields );
+
+    const auto unknown = channels.Use( "VFX10cNoSuchChannel", assets );
+    ASSERT_FALSE( unknown );
+    EXPECT_NE( unknown.GetError().find( "VFX10cNoSuchChannel" ), std::string::npos )
+         << "an unknown channel is not refused by its name: " << unknown.GetError();
+    EXPECT_FALSE( channels.Use( "Sub/VFX10cSparks", assets ) ) << "a path accepted as a channel name";
+
+    const fs::path twin = dir / "Other" / "VFX10cSparks.dfxch";
+    ASSERT_TRUE( Assets::VFXDataChannelAsset::Save( twin, ImpactChannel() ) );
+    ASSERT_TRUE( assets.CreateAsset<Assets::VFXDataChannelAsset>( twin ) );
+    EXPECT_FALSE( channels.Use( "VFX10cSparks", assets ) ) << "two channel assets with one name: one was picked";
+    fs::remove_all( dir );
+}
+
+// VFX-10c census: Lua VFX.useChannel goes through VFXDataChannels::Use (the AssetManager), never reads the file
+// itself - no asset constructed, no LoadFromFile, no PathForName, no stream in its body.
+TEST( VFXDataChannel, LuaUseChannelDoesNotReadTheFileItself )
+{
+    std::ifstream in( TestSupport::RepositoryRoot() / "Desert" / "Desert" / "Source" / "Engine" / "Scripting" /
+                      "VFXBindings.cpp" );
+    ASSERT_TRUE( in ) << "VFXBindings.cpp not found under the repository root";
+    std::stringstream text;
+    text << in.rdbuf();
+    const std::string source = text.str();
+    const auto        begin  = source.find( "vfx[\"useChannel\"]" );
+    const auto        end    = source.find( "vfx[\"writeChannel\"]" );
+    ASSERT_NE( begin, std::string::npos );
+    ASSERT_NE( end, std::string::npos );
+    ASSERT_LT( begin, end );
+    const std::string body = source.substr( begin, end - begin );
+    for ( const char* forbidden :
+          { "LoadFromFile", "PathForName", "VFXDataChannelAsset", "ifstream", "std::filesystem", "Load(" } )
+        EXPECT_EQ( body.find( forbidden ), std::string::npos )
+             << "VFX.useChannel reads the channel itself ('" << forbidden << "') instead of the AssetManager";
+    EXPECT_NE( body.find( ".Use( name, *impl->Assets )" ), std::string::npos )
+         << "VFX.useChannel no longer resolves the name through VFXDataChannels::Use and the AssetManager";
 }

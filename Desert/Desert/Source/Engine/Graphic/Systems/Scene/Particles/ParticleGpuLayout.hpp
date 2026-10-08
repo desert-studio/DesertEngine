@@ -16,12 +16,13 @@ namespace Desert::Graphic::System
     // count. Neither may be written in terms of the other.
 
     // The size of one element of the particle state storage, in bytes: Common/ParticleState.glslh's
-    // `struct Particle`, which is five vec4s in a std430 array. ParticleRenderer allocates the storage
+    // `struct Particle`, which is six vec4s in a std430 array. ParticleRenderer allocates the storage
     // as MaxParticles * this and zeroes it with a buffer of the same size, so a member appended to the
     // GLSL and not to this number gives the simulation and the draw a different idea of where particle
     // i begins — visible only as an emitter that has come apart.
     // VFX-10b: + Tint (the Spawn from Channel colour, rgba multiplier of the colour over life) - 4 -> 5 vec4s.
-    constexpr std::uint32_t kParticleStride = 80;
+    // VFX-10c: + SizeScale (x = the Spawn from Channel base-size scale, multiplies the size over life) - 6 vec4s.
+    constexpr std::uint32_t kParticleStride = 96;
 
     // The x of ParticleSimulate's LocalSize, which is the number the dispatch divides MaxParticles by
     // to get its group count. Too large here and the tail of every emitter is never simulated (those

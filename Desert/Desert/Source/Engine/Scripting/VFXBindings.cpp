@@ -1,11 +1,8 @@
 #include "Internal/ScriptRuntime.hpp"
 
-#include <Engine/Assets/VFXDataChannelAsset.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 
 #include <Common/Core/Logger.hpp>
-
-#include <filesystem>
 
 namespace Desert::Scripting
 {
@@ -22,26 +19,23 @@ namespace Desert::Scripting
         auto*      impl = &implRef;
         sol::table vfx  = implRef.Lua.create_named_table( "VFX" );
 
+        // The name is resolved by the scene's AssetManager (VFXDataChannels::Use), never by reading the file here:
+        // the manager is the one place assets are loaded, so a channel the editor holds (any folder) is the one a
+        // script gets, and an unknown name is refused by name.
         vfx["useChannel"] = [impl]( const std::string& name ) -> bool
         {
             if ( impl->Scene == nullptr )
                 return false;
-            const auto path = Assets::VFXDataChannelAsset::PathForName( name );
-            if ( !path.IsSuccess() )
+            if ( impl->Assets == nullptr )
             {
-                LOG_ERROR( "[Lua] VFX.useChannel: {}", path.GetError() );
+                LOG_ERROR( "[Lua] VFX.useChannel('{}'): no AssetManager bound to resolve the channel through",
+                           name );
                 return false;
             }
-            Assets::VFXDataChannelAsset asset( path.GetValue() );
-            if ( const auto loaded = asset.LoadFromFile(); !loaded )
-            {
-                LOG_ERROR( "[Lua] VFX.useChannel('{}'): {}", name, loaded.GetError() );
-                return false;
-            }
-            const auto registered = impl->Scene->GetVFXWorld().GetDataChannels().Register( asset );
-            if ( !registered )
-                LOG_ERROR( "[Lua] VFX.useChannel: {}", registered.GetError() );
-            return static_cast<bool>( registered );
+            const auto used = impl->Scene->GetVFXWorld().GetDataChannels().Use( name, *impl->Assets );
+            if ( !used )
+                LOG_ERROR( "[Lua] VFX.useChannel('{}'): {}", name, used.GetError() );
+            return static_cast<bool>( used );
         };
 
         vfx["writeChannel"] = [impl]( const std::string& name, const sol::table& entries ) -> bool

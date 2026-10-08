@@ -149,11 +149,12 @@ namespace Desert::Graphic::System
                  std::vector<ParticleChannelSpawnGpu> channel;
                  for ( const VFX::VFXChannelSpawnRequest& r : instance->ChannelSpawns )
                      for ( uint32_t k = 0; k < r.Count; ++k )
-                         channel.push_back( { glm::vec4( r.Position, r.HasPosition ? 1.0f : 0.0f ),
-                                              glm::vec4( r.Direction, r.HasDirection ? 1.0f : 0.0f ),
-                                              r.HasColor ? r.Color : glm::vec4( 1.0f ),
-                                              glm::vec4( r.Lifetime, 0.0f, r.HasColor ? 1.0f : 0.0f,
-                                                         r.HasLifetime ? 1.0f : 0.0f ) } );
+                         channel.push_back(
+                              { glm::vec4( r.Position, r.HasPosition ? 1.0f : 0.0f ),
+                                glm::vec4( r.Direction, r.HasDirection ? 1.0f : 0.0f ),
+                                r.HasColor ? r.Color : glm::vec4( 1.0f ),
+                                glm::vec4( r.Lifetime, r.HasSize ? r.Size : 1.0f, r.HasColor ? 1.0f : 0.0f,
+                                           r.HasLifetime ? 1.0f : 0.0f ) } );
                  if ( stepCount > 0 && !channel.empty() )
                  {
                      const auto needed = static_cast<uint32_t>( channel.size() );
