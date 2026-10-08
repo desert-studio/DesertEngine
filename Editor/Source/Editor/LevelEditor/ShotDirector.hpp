@@ -66,8 +66,8 @@ namespace Desert::Editor
         // A record the layer keeps for the capture (the --flight CSV) failed: the capture fails with it.
         // THE END OF A FRAME OF THE CAPTURE: the --flight sample, then CountRenderedFrame; on the last frame the
         // profiler dump and the --flight CSV are written and the capture's status comes back to close with.
-        [[nodiscard]] std::optional<int32_t> EndFrame( bool recordedFrame, bool startupLoading, bool contentSettling,
-                                                       ProfilerWindow& profiler );
+        [[nodiscard]] std::optional<int32_t> EndFrame( bool recordedFrame, bool startupLoading,
+                                                       bool contentSettling, ProfilerWindow& profiler );
         void MarkFailed()
         {
             m_ShotFailed = true;

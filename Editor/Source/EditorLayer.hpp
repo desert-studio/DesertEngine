@@ -80,7 +80,6 @@ namespace Desert::Editor
         void OnFramePresented() override;
 
     private:
-
         // ===== Popups =====
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
