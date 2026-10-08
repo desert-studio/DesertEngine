@@ -4,7 +4,9 @@
 #include "FractureTool.hpp"
 
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
+#include <Engine/Core/Scene.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -23,6 +25,27 @@ namespace Desert::Editor
            ,
            m_Scene( scene )
     {
+    }
+
+    void FracturePanel::SetScene( const std::shared_ptr<Desert::Core::Scene>& scene )
+    {
+        if ( const auto previous = m_Scene.lock(); previous && previous != scene )
+            SyncFracturePreview( previous->GetRegistry(), entt::null, nullptr, {} );
+        m_Scene = scene;
+    }
+
+    void FracturePanel::OnPreUpdate()
+    {
+        const auto scene = m_Scene.lock();
+        if ( !scene )
+            return;
+        FractureTool& tool     = FractureTool::Get();
+        entt::entity  selected = entt::null;
+        if ( const auto& id = Core::SelectionManager::GetSelected(); id.has_value() )
+            if ( const auto ref = scene->FindEntityByID( *id ) )
+                selected = ref->get().GetHandle();
+        const bool open = Core::ViewportMode::Get() == Core::EditorMode::Fracture && tool.Loaded();
+        SyncFracturePreview( scene->GetRegistry(), selected, open ? tool.SharedFracture() : nullptr, tool.View );
     }
 
     bool FracturePanel::IsRelevant() const

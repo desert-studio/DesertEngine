@@ -98,6 +98,7 @@ namespace Desert::Graphic
         struct RenderSubmissionExtra
         {
             uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
+            uint32_t               MotionPart = 0;   // a stable part of the owner (MotionRecord::Part), 0 = none
             std::vector<glm::mat4> BoneMatrices; // optional
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)

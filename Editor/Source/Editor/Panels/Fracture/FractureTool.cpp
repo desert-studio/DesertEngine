@@ -1,5 +1,7 @@
 #include "FractureTool.hpp"
 
+#include <Engine/ECS/FracturePreviewComponent.hpp>
+
 #include <Editor/Core/CommandHistory.hpp>
 
 #include <Engine/Assets/FractureAsset.hpp>
@@ -119,10 +121,30 @@ namespace Desert::Editor
         return true;
     }
 
+    void SyncFracturePreview( entt::registry& registry, const entt::entity selected,
+                              const std::shared_ptr<const Destruction::FractureData>& fracture,
+                              const Destruction::FractureViewSettings&                view )
+    {
+        const bool                shown = fracture && selected != entt::null && registry.valid( selected );
+        std::vector<entt::entity> stale;
+        for ( const auto entity : registry.view<ECS::FracturePreviewComponent>() )
+            if ( !shown || entity != selected )
+                stale.push_back( entity );
+        for ( const auto entity : stale )
+            registry.remove<ECS::FracturePreviewComponent>( entity );
+        if ( !shown )
+            return;
+        ECS::FracturePreviewComponent preview;
+        preview.Fracture = fracture;
+        preview.View     = view;
+        registry.emplace_or_replace<ECS::FracturePreviewComponent>( selected, std::move( preview ) );
+    }
+
     void FractureTool::Adopt( const std::filesystem::path& file, const std::vector<unsigned char>& bytes )
     {
         m_ReadFile  = file;
         m_ReadBytes = bytes;
+        m_Shared.reset();
         if ( bytes.empty() )
         {
             m_Fracture = {};
@@ -141,6 +163,7 @@ namespace Desert::Editor
         m_Fracture = decoded.GetValue();
         Settings   = m_Fracture.Settings;
         m_Loaded   = true;
+        m_Shared   = std::make_shared<const Destruction::FractureData>( m_Fracture );
         m_Status.clear();
     }
 

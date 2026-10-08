@@ -185,3 +185,38 @@ TEST( FracturePieces, PiecesAreStaticMeshDrawsNotASecondRenderer )
         EXPECT_EQ( name.find( "Destruct" ), std::string::npos ) << entry.path();
     }
 }
+
+// Mutation: drop Scene::PrepareComponentPools' FracturePreviewComponent line (the parallel collector then creates
+// the pool and races EnTT's pool vector), ask the FractureService from another parallel collector, make a serial
+// system that asks it parallel, emit pieces without their own motion part, or free piece vertex buffers outside
+// the allocator's ring -> red.
+TEST( FracturePieces, ThePieceDrawIsRaceFreeAndEachPieceHasItsOwnMotionKey )
+{
+    const std::string scene = ReadText( "Desert/Desert/Source/Engine/Core/Scene.cpp" );
+    EXPECT_NE( scene.find( "r.prepare<ECS::FracturePreviewComponent>();" ), std::string::npos );
+    EXPECT_NE( scene.find( "r.prepare<ECS::DestructibleComponent>();" ), std::string::npos );
+
+    const std::string systemDir = "Desert/Desert/Source/Engine/ECS/System/";
+    size_t            askers    = 0;
+    for ( const auto& entry : std::filesystem::directory_iterator( RepoRoot() + systemDir ) )
+    {
+        const std::string name = entry.path().filename().string();
+        if ( entry.path().extension() != ".hpp" || name == "MeshECSSystem.hpp" )
+            continue;
+        const std::string text = ReadText( systemDir + name );
+        if ( text.find( "GetFractureService" ) == std::string::npos )
+            continue;
+        ++askers;
+        EXPECT_EQ( text.find( "CanRunParallel" ), std::string::npos )
+             << name << " asks the FractureService and may run in a parallel group with MeshECSSystem";
+    }
+    EXPECT_GE( askers, 1u ) << "PhysicsECSSystem no longer found asking the FractureService: re-check the census";
+
+    const std::string draw = ReadText( systemDir + "FracturePieceDraw.cpp" );
+    EXPECT_NE( draw.find( "/*motionPart*/ static_cast<uint32_t>( instance.Node ) + 1u" ), std::string::npos )
+         << "every piece draws with its own MotionHistory key";
+
+    const std::string vertex = ReadText( "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanVertexBuffer.cpp" );
+    EXPECT_NE( vertex.find( "RT_DestroyBuffer" ), std::string::npos );
+    EXPECT_EQ( vertex.find( "vmaDestroyBuffer" ), std::string::npos ) << "a buffer freed under a frame in flight";
+}

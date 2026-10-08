@@ -173,7 +173,8 @@ namespace Desert::ECS
                      static_cast<uint32_t>( entity ), meshes->Pieces[at->second].Mesh.get(),
                      pieces.Bindings[at->second], instance.Transform, outlined, /*hidden*/ 0ull, /*forcedLOD*/ -1,
                      /*lodBias*/ 0,
-                     /*castShadows*/ true, /*receiveShadows*/ true, /*sortPriority*/ 0 );
+                     /*castShadows*/ true, /*receiveShadows*/ true, /*sortPriority*/ 0,
+                     /*motionPart*/ static_cast<uint32_t>( instance.Node ) + 1u );
             }
             drawn.insert( entity );
         };
@@ -197,7 +198,15 @@ namespace Desert::ECS
             record( entity, services.Fracture( destructible.Data.Fracture ), destructible.RuntimeNodeWorld, {} );
         }
 
-        // Forget entities and fractures nothing draws any more.
+        // Forget entities and fractures nothing draws any more. Lifetime: a dropped fracture's meshes were not
+        // drawn this frame (its FractureData expired before Record), so no command of this frame names them; their
+        // vertex/index buffers go through VulkanAllocator::RT_DestroyBuffer's frame-stamped ring, freed only once
+        // the frames in flight that drew them retired.
+        // Threads: this runs inside MeshECSSystem's parallel group. Its pools are prepared before the group
+        // (Scene::PrepareComponentPools: FracturePreviewComponent, DestructibleComponent); the FractureService is
+        // asked from no other parallel collector and from the serial PhysicsECSSystem, never at the same time; the
+        // piece meshes upload here as MeshService::Get uploads the static meshes this same collector draws
+        // (census FracturePieces.ThePieceDrawIsRaceFreeAndEachPieceHasItsOwnMotionKey).
         std::erase_if( m_Entities, [&]( const auto& entry ) { return !drawn.contains( entry.first ); } );
         std::erase_if( m_Meshes, []( const auto& entry ) { return entry.second.Data.expired(); } );
         return drawn;

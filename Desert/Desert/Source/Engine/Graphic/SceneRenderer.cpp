@@ -1386,6 +1386,7 @@ namespace Desert::Graphic
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitMesh( { .Entity                   = extra.Entity,
+                             .MotionPart               = extra.MotionPart,
                              .Mesh                     = drawnMesh,
                              .Transform                = transform,
                              .MaterialSlots            = materialSlots,

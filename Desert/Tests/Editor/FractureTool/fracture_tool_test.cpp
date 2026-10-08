@@ -5,6 +5,7 @@
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Panels/Fracture/FractureTool.hpp>
+#include <Engine/ECS/FracturePreviewComponent.hpp>
 
 #include <Engine/Destruction/FractureFormat.hpp>
 #include <Engine/Geometry/MeshCore/VectorUtil.hpp>
@@ -198,4 +199,29 @@ TEST( FractureTool, TheModeIsDrivenFromThePaletteAndPlanarPlanesAreEditable )
     EXPECT_NE( panel.find( "&plane.Normal.x" ), std::string::npos );
     EXPECT_NE( panel.find( "&plane.Point.x" ), std::string::npos );
     EXPECT_NE( panel.find( "\"Add Plane\"" ), std::string::npos );
+}
+
+// Mutation: leave the preview on the entity selected before, keep it once the mode closes, or hand the entity a
+// copy of the fracture rather than the tool's one object (the piece meshes are cached per FractureData) -> red.
+TEST( FractureTool, ThePreviewIsOnTheSelectedEntityOnlyWhileTheModeIsOpen )
+{
+    using namespace Desert;
+    entt::registry                    registry;
+    const entt::entity                a        = registry.create();
+    const entt::entity                b        = registry.create();
+    const auto                        fracture = std::make_shared<const Destruction::FractureData>();
+    Destruction::FractureViewSettings view;
+
+    Editor::SyncFracturePreview( registry, a, fracture, view );
+    ASSERT_TRUE( registry.has<ECS::FracturePreviewComponent>( a ) );
+    EXPECT_FALSE( registry.has<ECS::FracturePreviewComponent>( b ) );
+
+    Editor::SyncFracturePreview( registry, b, fracture, view );
+    EXPECT_FALSE( registry.has<ECS::FracturePreviewComponent>( a ) ) << "the old selection keeps no preview";
+    ASSERT_TRUE( registry.has<ECS::FracturePreviewComponent>( b ) );
+    EXPECT_EQ( registry.get<ECS::FracturePreviewComponent>( b ).Fracture.get(), fracture.get() );
+
+    Editor::SyncFracturePreview( registry, b, nullptr, view ); // the mode closed
+    EXPECT_FALSE( registry.has<ECS::FracturePreviewComponent>( a ) );
+    EXPECT_FALSE( registry.has<ECS::FracturePreviewComponent>( b ) ) << "the closed mode leaves no preview";
 }

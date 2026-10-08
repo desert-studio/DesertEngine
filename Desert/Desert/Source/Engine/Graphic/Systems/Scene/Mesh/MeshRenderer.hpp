@@ -132,6 +132,7 @@ namespace Desert::Graphic::System
     {
         // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
         uint32_t    Entity = 0;
+        uint32_t    MotionPart = 0; // a stable part of the entity (MotionRecord::Part), 0 = by submission
         class Mesh* Mesh;
         glm::mat4   Transform;
 
@@ -160,6 +161,7 @@ namespace Desert::Graphic::System
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
             uint32_t Entity = 0;
+            uint32_t MotionPart = 0; // a stable part of the entity (MotionRecord::Part), 0 = by submission
             // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
             uint32_t                  MotionRow = 0;
