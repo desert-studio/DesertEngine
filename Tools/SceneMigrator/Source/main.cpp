@@ -3,6 +3,7 @@
 // compiled and driven by Tests/Tools/SceneMigratorWritePath the way the pure migrations already are.
 // The one thing main() owns is turning argv into strings and the return into the process exit code.
 
+#include <ToolEngineDir.hpp>
 #include <ToolMain.hpp>
 
 #include <Common/Core/CrashHandler.hpp>
@@ -25,6 +26,14 @@ static int RunTool( int argc, char** argv )
     if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions ); !installed.IsSuccess() )
     {
         std::cerr << "SceneMigrator: crash handler: " << installed.GetError() << '\n';
+        return 1;
+    }
+
+    // Engine shaders resolve off the engine directory beside the tool (ENG-ROOT): a material's shader locator
+    // follows its GUID to where that engine shader lives now (FollowShaderLocator), never to the cwd.
+    if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( {} ); !refused.empty() )
+    {
+        std::cerr << "SceneMigrator: no engine directory: " << refused << '\n';
         return 1;
     }
 
