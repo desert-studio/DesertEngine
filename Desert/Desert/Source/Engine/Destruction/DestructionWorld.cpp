@@ -168,8 +168,8 @@ namespace Desert::Destruction
                     object.Nodes[leaves[b]].Neighbours.push_back( leaves[a] );
                 }
 
-        object.Data                = std::move( data );
-        const auto objectIndex     = static_cast<uint32_t>( m_Objects.size() );
+        object.Data            = std::move( data );
+        const auto objectIndex = static_cast<uint32_t>( m_Objects.size() );
         m_Objects.push_back( std::move( object ) );
 
         auto spawned = SpawnBody( objectIndex, { 0 }, desc.Position, desc.Rotation, glm::vec3( 0.0f ),

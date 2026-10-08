@@ -317,7 +317,7 @@ namespace Desert::Destruction
                 const float x = r.F32();
                 const float y = r.F32();
                 const float z = r.F32();
-                v = { x, y, z };
+                v             = { x, y, z };
             }
             n.HullFaces.resize( r.Count( 4 ) );
             for ( std::vector<int>& f : n.HullFaces )

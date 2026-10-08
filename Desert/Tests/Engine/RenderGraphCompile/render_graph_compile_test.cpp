@@ -4148,7 +4148,7 @@ TEST( RenderGraphCompile, FaultThatLeavesAFrameFatalExternalUnwrittenIsAFrameFau
     RecordingBackend backend;
     GlassFrame       frame( FaultDefault::None, ExternalFaultPolicy::FrameFatal );
     frame.graph.Extract( frame.back, frame.backbuffer, Access::Present );
-    const CompileResult result = CompileOrFail( frame.graph );
+    const CompileResult result     = CompileOrFail( frame.graph );
     const auto&         frameFault = result.Frame;
     if ( !frameFault.has_value() )
         FAIL() << "the compile reports no frame fault";
@@ -4161,7 +4161,7 @@ TEST( RenderGraphCompile, FaultThatLeavesAFrameFatalExternalUnwrittenIsAFrameFau
     EXPECT_TRUE( backend.Calls.empty() ); // nothing recorded: the caller clears the backbuffer and presents
     EXPECT_TRUE( frame.ran.empty() );
     EXPECT_EQ( backend.FaultLines.size(), 1u ); // the frame fault is reported through the same reporter
-    const ExecuteReport& report = frame.graph.GetExecuteReport();
+    const ExecuteReport& report        = frame.graph.GetExecuteReport();
     const auto&          reportedFault = report.Frame;
     if ( !reportedFault.has_value() )
         FAIL() << "the execute report carries no frame fault";

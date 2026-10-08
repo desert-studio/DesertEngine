@@ -207,16 +207,16 @@ namespace Desert::Destruction
                         material->SetValue( tid, interiorMaterial );
 
                     // Box projection: drop the dominant axis of the face normal.
-                    const glm::dvec3 an    = glm::abs( n );
-                    const int        drop  = [&an]
+                    const glm::dvec3 an   = glm::abs( n );
+                    const int        drop = [&an]
                     {
                         if ( an.x >= an.y && an.x >= an.z )
                             return 0;
                         return an.y >= an.z ? 1 : 2;
                     }();
-                    const int        uAxis      = ( drop + 1 ) % 3;
-                    const int        vAxis      = ( drop + 2 ) % 3;
-                    const int        corners[3] = { a, b, c };
+                    const int uAxis      = ( drop + 1 ) % 3;
+                    const int vAxis      = ( drop + 2 ) % 3;
+                    const int corners[3] = { a, b, c };
 
                     for ( int layer = 0; layer < attributes.NumUVLayers(); ++layer )
                     {

@@ -500,7 +500,7 @@ namespace Desert::Physics
                 return JPH::EMotionType::Kinematic;
             return JPH::EMotionType::Static;
         }();
-        const JPH::ObjectLayer    layer  = desc.Type == BodyType::Static ? Layers::NON_MOVING : Layers::MOVING;
+        const JPH::ObjectLayer    layer = desc.Type == BodyType::Static ? Layers::NON_MOVING : Layers::MOVING;
         JPH::BodyCreationSettings settings( result.Get(),
                                             JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
                                             ToJolt( desc.Rotation ), motion, layer );

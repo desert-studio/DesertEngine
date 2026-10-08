@@ -138,9 +138,9 @@ namespace Desert::Graphic::API::Vulkan
                 return Fail( std::format( "the catalog says AnyStage timing but timestampPeriod is {}",
                                           caps.TimestampPeriodNs ) );
 
-            auto&          device = dynamic_cast<VulkanLogicalDevice&>( engineDevice );
-            VkDevice       vk     = device.GetVulkanLogicalDevice();
-            Cleanup        cleanup;
+            auto&    device = dynamic_cast<VulkanLogicalDevice&>( engineDevice );
+            VkDevice vk     = device.GetVulkanLogicalDevice();
+            Cleanup  cleanup;
 
             // ---- Buffers: two device-local storage buffers --------------------------------------------------
             VmaAllocator&                vma = VulkanAllocator::GetVMAAllocator();

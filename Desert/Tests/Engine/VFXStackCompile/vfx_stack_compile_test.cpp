@@ -190,9 +190,9 @@ namespace
 
 TEST( VFXStackCompile, AnEngineModuleParsesIntoDeclarationsAndBody )
 {
-    const auto         path = VFX::EngineModuleDir() / "Gravity.shader";
+    const auto          path = VFX::EngineModuleDir() / "Gravity.shader";
     const std::ifstream in( path );
-    std::ostringstream text;
+    std::ostringstream  text;
     text << in.rdbuf();
     const auto module = VFX::ParseParticleModule( text.str(), path.string() );
     ASSERT_TRUE( module.IsSuccess() ) << module.GetError();
@@ -402,8 +402,8 @@ TEST( VFXStackCompile, ACurveInputIsALUTRowAndItsKeysAreNotInTheText )
     auto& updateCurve = system.Emitters[0].Stack.ParticleUpdate[0].Inputs[0].Curve;
     if ( !updateCurve.has_value() )
         FAIL() << "the update input carries no curve";
-    updateCurve->at( 2 ).at( 1 ).Value                                                = -5.0f;
-    const auto after                                                                  = Compile( system );
+    updateCurve->at( 2 ).at( 1 ).Value = -5.0f;
+    const auto after                   = Compile( system );
     EXPECT_EQ( after.ShaderText, before.ShaderText );
     EXPECT_EQ( after.Key, before.Key );
     EXPECT_NE( Compile( Sparks() ).Key, before.Key );
@@ -458,7 +458,7 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
     for ( const auto& path : paths )
     {
         const std::ifstream in( path );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << in.rdbuf();
         const auto module = VFX::ParseParticleModule( text.str(), path.string() );
         ASSERT_TRUE( module.IsSuccess() ) << module.GetError();
@@ -523,9 +523,9 @@ TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
          { "SolveForcesAndVelocity", { { "PhysicsDrag", T::Float }, { "PhysicsRotationalDrag", T::Float } } } };
     for ( const Row& row : rows )
     {
-        const auto         path = VFX::EngineModuleDir() / std::format( "{}.shader", row.Module );
+        const auto          path = VFX::EngineModuleDir() / std::format( "{}.shader", row.Module );
         const std::ifstream in( path );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << in.rdbuf();
         const auto module = VFX::ParseParticleModule( text.str(), path.string() );
         ASSERT_TRUE( module.IsSuccess() ) << row.Module << ": " << module.GetError();

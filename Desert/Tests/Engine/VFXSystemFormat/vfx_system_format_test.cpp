@@ -82,7 +82,7 @@ TEST( VFXSystemFormat, RoundTripKeepsEveryField )
 {
     auto parsed = ParseVFXSystem( WriteVFXSystem( Campfire() ), Register() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    VFXSystemData read = parsed.GetValue();
+    VFXSystemData read   = parsed.GetValue();
     const auto&   header = read.Header;
     if ( !header.has_value() )
         FAIL() << "the read file carries no header";
@@ -131,7 +131,7 @@ TEST( VFXSystemFormat, RefusesWhatNoStageCouldHonour )
     d.Emitters[0].Stack.ParticleSpawn[0].Inputs[1].Curve = std::vector<std::vector<VFXCurveKey>>{};
     EXPECT_NE( Refusal( d ), "<accepted>" ) << "two sources on one input";
 
-    d = Campfire();
+    d                 = Campfire();
     auto& updateCurve = d.Emitters[0].Stack.ParticleUpdate[0].Inputs[0].Curve;
     if ( !updateCurve.has_value() )
         FAIL() << "Campfire's scale input carries no curve";

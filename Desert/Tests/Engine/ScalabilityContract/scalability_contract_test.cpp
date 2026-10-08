@@ -723,7 +723,7 @@ TEST( ScalabilityContract, AnUntimedDeviceTakesTheDeviceClassFallback )
 TEST( ScalabilityContract, TheCacheIsValidOnlyForTheSameDeviceDriverAndTable )
 {
     const BenchmarkCacheKey key{ 0x10DE, 0x2482, 0x93C00000u, "NVIDIA GeForce RTX 3070 Ti", 1 };
-    RecommendedQuality cached;
+    RecommendedQuality      cached;
     cached.Key = key;
     EXPECT_FALSE( CacheValid( std::nullopt, key ) );
     EXPECT_TRUE( CacheValid( cached, key ) );

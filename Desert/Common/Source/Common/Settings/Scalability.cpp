@@ -248,8 +248,8 @@ namespace Common::Scalability
                          errors.Add( groupNode, "unknown group '{}'", groupKey );
                          return;
                      }
-                     const auto g        = static_cast<std::size_t>( *group );
-                     seen[g]             = true;
+                     const auto g = static_cast<std::size_t>( *group );
+                     seen[g]      = true;
                      if ( !GroupHasParameters( *group ) )
                      {
                          errors.Add( groupNode, "group '{}' has no parameters; levels for it would move nothing",
@@ -268,8 +268,8 @@ namespace Common::Scalability
                                   errors.Add( levelNode, "{}: unknown level '{}'", groupKey, levelKey );
                                   return;
                               }
-                              const auto l        = static_cast<std::size_t>( *level );
-                              levelSeen[l]        = true;
+                              const auto l = static_cast<std::size_t>( *level );
+                              levelSeen[l] = true;
                               if ( !ExpectObject( levelNode, levelKey, errors ) )
                                   return;
                               std::array<bool, kParameterCount> set{};
@@ -290,8 +290,8 @@ namespace Common::Scalability
                                                        levelKey, key, GroupKey( spec->Owner ) );
                                            return;
                                        }
-                                       const auto p        = static_cast<std::size_t>( spec->Id );
-                                       set[p]              = true;
+                                       const auto p = static_cast<std::size_t>( spec->Id );
+                                       set[p]       = true;
                                        if ( const auto value = ParseValue( *spec, valueNode, errors ) )
                                        {
                                            table.Values[g][l][p] = *value;
@@ -334,9 +334,9 @@ namespace Common::Scalability
                          errors.Add( list, "Recommend.{}: '{}' is not a group with parameters", section, key );
                          return;
                      }
-                     const auto g        = static_cast<std::size_t>( *group );
-                     seen[g]             = true;
-                     std::size_t count   = 0;
+                     const auto g      = static_cast<std::size_t>( *group );
+                     seen[g]           = true;
+                     std::size_t count = 0;
                      list.ForEachElement(
                           [&]( std::size_t i, const Json::Node& element )
                           {
