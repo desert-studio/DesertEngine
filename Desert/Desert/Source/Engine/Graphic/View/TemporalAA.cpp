@@ -109,8 +109,7 @@ namespace Desert::Graphic
     {
         const std::string_view name    = DebugName();
         const auto             missing = [&]( const char* what ) -> Common::ResultStr<TemporalUpscalerOutputs> {
-            return Common::MakeError(
-                 std::format( "{}: the input {} is not a texture of this graph", name, what ) );
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}", std::format( "{}: the input {} is not a texture of this graph", name, what ) );
         };
         if ( !inputs.SceneColor.IsValid() )
             return missing( "SceneColor" );
@@ -121,8 +120,7 @@ namespace Desert::Graphic
         if ( !inputs.Exposure.IsValid() )
             return missing( "Exposure" );
         if ( inputs.History.size() != 1 )
-            return Common::MakeError(
-                 std::format( "{}: {} histories given, HistoryDescs declares 1", name, inputs.History.size() ) );
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}", std::format( "{}: {} histories given, HistoryDescs declares 1", name, inputs.History.size() ) );
         const HistoryRefs history = inputs.History[0];
         if ( !history.Previous.IsValid() || !history.Current.IsValid() )
             return missing( !history.Previous.IsValid() ? kPreviousName : kHistoryName );
