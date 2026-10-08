@@ -190,8 +190,8 @@ namespace Desert::Destruction
                 for ( size_t k = 1; k + 1 < face.size(); ++k )
                 {
                     const int  a = face[0];
-                    const int  b = face[k];
-                    const int  c = face[k + 1];
+                    int        b = face[k];
+                    int        c = face[k + 1];
                     glm::dvec3 n =
                          Geometry::VectorUtil::Normal( cell.Vertices[a], cell.Vertices[b], cell.Vertices[c] );
                     if ( glm::dot( n, outward ) < 0.0 )
