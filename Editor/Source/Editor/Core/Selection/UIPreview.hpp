@@ -34,7 +34,7 @@ namespace Desert::Editor::Core
         // which frame the click was in.
         bool                        RightDown = false;
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
-        std::vector<UI::UIKeyEvent> Keys;              // key presses this frame, in order (UIInput::Keys)
+        std::vector<::Desert::UI::UIKeyEvent> Keys;              // key presses this frame, in order (UIInput::Keys)
         std::string TypedText; // UTF-8 chars typed this frame (drives the focused InputField)
 
         entt::entity Focused = entt::null; // persisted keyboard focus across frames

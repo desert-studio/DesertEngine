@@ -1610,15 +1610,15 @@ namespace Desert::Editor
                 pv.Keys.clear();
                 {
                     const ImGuiIO& io   = ImGui::GetIO();
-                    UI::UIKeyMods  mods = UI::UIKeyMods::None;
+                    ::Desert::UI::UIKeyMods  mods = ::Desert::UI::UIKeyMods::None;
                     if ( io.KeyShift )
-                        mods = mods | UI::UIKeyMods::Shift;
+                        mods = mods | ::Desert::UI::UIKeyMods::Shift;
                     if ( io.KeyCtrl )
-                        mods = mods | UI::UIKeyMods::Ctrl;
+                        mods = mods | ::Desert::UI::UIKeyMods::Ctrl;
                     if ( io.KeyAlt )
-                        mods = mods | UI::UIKeyMods::Alt;
+                        mods = mods | ::Desert::UI::UIKeyMods::Alt;
                     if ( io.KeySuper )
-                        mods = mods | UI::UIKeyMods::Super;
+                        mods = mods | ::Desert::UI::UIKeyMods::Super;
                     using Common::KeyCode;
                     static constexpr std::pair<ImGuiKey, KeyCode> kUIKeys[] = {
                          { ImGuiKey_Tab, KeyCode::Tab },
