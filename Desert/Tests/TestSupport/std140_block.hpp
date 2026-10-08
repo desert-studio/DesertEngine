@@ -112,7 +112,7 @@ namespace Desert::TestSupport::Std140
         Block             block;
         const std::string code = StripComments( shaderText );
         std::smatch       open;
-        if ( !std::regex_search( code, open, std::regex( std::format( "\\b{}\\s*\\{{", blockName ) ) ) )
+        if ( !std::regex_search( code, open, std::regex( std::format( R"(\b{}\s*\{{)", blockName ) ) ) )
         {
             ADD_FAILURE() << "uniform block " << blockName << " not found";
             return block;

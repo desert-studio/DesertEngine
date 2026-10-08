@@ -822,7 +822,7 @@ TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
 {
     using VelocityTargetTest::ReadFile;
     const auto                  root = Desert::TestSupport::RepositoryRoot();
-    const std::filesystem::path E    = "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
+    const std::filesystem::path E    = root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
     // file -> how many pipelines in it draw into a view target (scene target or G-buffer)
     const std::map<std::filesystem::path, int> sites = {
          { E / "Skybox/SkyboxRenderer.cpp", 2 },
@@ -993,8 +993,8 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
     // The includer resolves `#include <...>` against ShaderDir(), derived from the engine directory.
     Common::Constants::Path::SetEngineDir( root / "Editor" );
 
-    const std::filesystem::path E  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
-    const std::filesystem::path Ed = "Editor/Source/Editor/RenderSystems/Passes";
+    const std::filesystem::path E  = root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
+    const std::filesystem::path Ed = root / "Editor/Source/Editor/RenderSystems/Passes";
     // shader name -> the site that builds its scene-target pipeline; the comment is why it owes no velocity.
     const std::vector<std::pair<std::string, std::filesystem::path>> mustNotWrite = {
          { "Skybox", E / "Skybox/SkyboxRenderer.cpp" },                       // sky
