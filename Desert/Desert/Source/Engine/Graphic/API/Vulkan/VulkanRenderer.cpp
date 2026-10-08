@@ -607,6 +607,35 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRendererAPI::DrawProceduralIndirect( const RDG::PassBindings& bindings,
+                                                                     const GraphicsPipeline&  pipeline,
+                                                                     const MaterialExecutor*  material,
+                                                                     const RDG::BufferRef     args,
+                                                                     const uint64_t           offset )
+    {
+        const RDG::PassContext& context = bindings.GetContext();
+        if ( offset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: indirect arguments at byte {}, not a multiple of four",
+                                               context.GetPassName(), offset );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               declared.GetError() );
+        if ( offset + sizeof( VkDrawIndirectCommand ) > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError( "{}: indirect arguments at byte {} past the end of '{}' ({} bytes)",
+                                               context.GetPassName(), offset, declared.GetValue().Name,
+                                               declared.GetValue().Desc->Bytes );
+        const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !buffer )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               buffer.GetError() );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+            return bound;
+        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), offset, 1,
+                           static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::DrawIndexed( const RDG::PassBindings& bindings,
                                                           const GraphicsPipeline&  pipeline,
                                                           const MaterialExecutor*  material,

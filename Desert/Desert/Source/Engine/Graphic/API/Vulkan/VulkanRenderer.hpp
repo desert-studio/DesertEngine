@@ -60,6 +60,10 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                               const MaterialExecutor* material, uint32_t vertexCount,
                                               uint32_t instanceCount ) override;
+        Common::BoolResultStr DrawProceduralIndirect( const RDG::PassBindings& bindings,
+                                                      const GraphicsPipeline&  pipeline,
+                                                      const MaterialExecutor* material, RDG::BufferRef args,
+                                                      uint64_t offset ) override;
         Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                            const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                            IndexBuffer& indexBuffer, uint32_t indexCount,

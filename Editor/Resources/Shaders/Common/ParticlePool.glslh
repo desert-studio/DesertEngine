@@ -1,0 +1,23 @@
+#ifndef PARTICLE_POOL_GLSLH
+#define PARTICLE_POOL_GLSLH
+
+// One slot of an emitter's Counters buffer (ParticleGpuLayout.hpp kParticleDrawSlotStride = 32, two slots per
+// emitter). The first four uints ARE a VkDrawIndirectCommand: the billboard draw reads the last compact's slot as
+// its indirect arguments. VertexCount is 6 x the particles the compact found alive (it is the alive counter, added
+// to by six), FirstVertex is 6 x the emitter's pool base, so the billboard's gl_VertexIndex / 6 is the alive-list
+// entry (Base + k). FreeCount counts the free-list entries. ParticleCompact of compact c fills slot (c & 1) and
+// resets slot ((c + 1) & 1) for the next compact; ParticleSimulate of step s reads slot (s & 1), the one compact s
+// filled before it.
+struct ParticleDrawSlot
+{
+    uint VertexCount;
+    uint InstanceCount;
+    uint FirstVertex;
+    uint FirstInstance;
+    uint FreeCount;
+    uint Pad0;
+    uint Pad1;
+    uint Pad2;
+};
+
+#endif // PARTICLE_POOL_GLSLH

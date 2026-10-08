@@ -28,8 +28,16 @@ namespace Desert::Graphic::System
     // dispatch runs threads past the end, which the shader's own bound check discards.
     constexpr std::uint32_t kParticleLocalSize = 64;
 
-    // The size of one element of ParticleSimulate's step table (binding 1, `struct VFXStep`: four
-    // uints). ParticleRenderer uploads the frame's steps as an array of this stride and the shader
-    // indexes it by the step number in the push constant.
-    constexpr std::uint32_t kParticleStepStride = 16;
+    // The size of one element of ParticleSimulate's step table (binding 1, `struct VFXStep`: three
+    // uints - id base, seed, budget). ParticleRenderer uploads the frame's steps as an array of this stride
+    // and the shader indexes it by the step number in the push constant.
+    constexpr std::uint32_t kParticleStepStride = 12;
+
+    // The size of one element of an emitter's Counters buffer (Common/ParticlePool.glslh `struct
+    // ParticleDrawSlot`: a VkDrawIndirectCommand - vertex count = 6 x alive, instance count 1, first vertex =
+    // 6 x the emitter's pool base, first instance 0 - then the free count and three pad uints). ParticleCompact
+    // writes slot (compact index & 1); the billboard draw reads the last compact's slot as its indirect
+    // arguments at slot x this offset. Two slots per emitter.
+    constexpr std::uint32_t kParticleDrawSlotStride = 32;
+    constexpr std::uint32_t kParticleDrawSlots      = 2;
 } // namespace Desert::Graphic::System

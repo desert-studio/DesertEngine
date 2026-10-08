@@ -112,6 +112,13 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                         const MaterialExecutor* material, uint32_t vertexCount, uint32_t instanceCount ) = 0;
+        // The same draw with its vertex / instance counts read on the GPU (UE DrawPrimitiveIndirect): one
+        // VkDrawIndirectCommand at byte @p offset of @p args, a buffer of this graph the pass declared
+        // Access::IndirectArgs (RenderPassDeclaration::Read). Refused for an undeclared buffer or an offset not a
+        // multiple of four.
+        [[nodiscard]] virtual Common::BoolResultStr
+        DrawProceduralIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                const MaterialExecutor* material, RDG::BufferRef args, uint64_t offset ) = 0;
         // The PassBindings indexed draw: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.

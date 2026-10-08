@@ -2180,7 +2180,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 
     const std::vector<std::string> frameOrder = {
          "ClearMainFramebuffer",
-         "Particles: Simulate {}",
+         // VFX-07: the world particle pool - compact 0, then per fixed step Spawn+Update and the next compact.
+         "Particles: Compact 0",
+         "Particles: Spawn+Update {}",
+         "Particles: Compact {}",
          "compute[clouds->DeclareShadowMapNodes()]",
          // ARCH1b-4: the opaque raster of the systems by explicit calls, in the order the phase walk drew it:
          // the shadow cascades (each clearing its cascade, 0 first), then ONE clearing sequence on the scene
@@ -3111,107 +3114,133 @@ TEST( RenderGraphCompile, AFailedBufferStateWriteBackFailsExecuteNamingTheBuffer
     EXPECT_NE( executed.GetError().find( "buffer gone" ), std::string::npos ) << executed.GetError();
 }
 
-TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
+namespace
 {
+    std::string SqueezedSource( const fs::path& root, const char* relative );
+} // namespace
+
+TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
+{
+    // VFX-07. The frame build: compact 0, then per step Spawn+Update and the next compact, Compute and NOT
+    // NeverCull (a node is live because it writes the imported pool; with no emitter it declares nothing).
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameAtmosphere.cpp" );
-    ASSERT_TRUE( file );
-    std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
-    text.erase(
-         std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-         text.end() );
-    const size_t begin = text.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
+    const std::string frame =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameAtmosphere.cpp" );
+    const size_t begin = frame.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
-    const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    // One node per fixed VFX step of the frame (VFXWorld), so step s+1 reads step s across a graph barrier.
+    const std::string body = frame.substr( begin, frame.find( "voidSceneRenderer::", begin + 1 ) - begin );
     EXPECT_NE(
-         body.find( "for(uint32_tstep=0;step<steps;++step)graph.AddPass(std::format(\"Particles:Simulate{}\","
-                    "step),RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
+         body.find(
+              "particles->ImportSimulationBuffers(graph);constuint32_tsteps=particles->SimulationStepCount();"
+              "graph.AddPass(\"Particles:Compact0\",RDG::PassFlags::Compute," ),
          std::string::npos );
-    EXPECT_NE( body.find( "constuint32_tsteps=particles->SimulationStepCount();" ), std::string::npos );
-
-    // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite by
-    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter running the
-    // step).
-    EXPECT_NE( body.find( "particles->ImportSimulationBuffers(graph)" ), std::string::npos )
-         << "the simulation node does not import the emitters' buffers";
     EXPECT_NE(
-         body.find( "[particles,step](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass,step);}" ),
-         std::string::npos )
-         << "the simulation node does not declare its writes in its setup";
-    EXPECT_EQ( body.find( "[](RDG::PassBuilder&){}" ), std::string::npos )
-         << "the simulation node declares nothing";
+         body.find( "for(uint32_tstep=0;step<steps;++step){graph.AddPass(std::format(\"Particles:Spawn+Update{}\","
+                    "step),RDG::PassFlags::Compute," ),
+         std::string::npos );
+    EXPECT_NE( body.find( "graph.AddPass(std::format(\"Particles:Compact{}\",step+1),RDG::PassFlags::Compute," ),
+               std::string::npos );
+    EXPECT_EQ( body.find( "NeverCull" ), std::string::npos ) << "a particle node outlives its emitters";
 
-    std::ifstream particleFile(
-         root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    ASSERT_TRUE( particleFile );
-    std::string particleText( ( std::istreambuf_iterator<char>( particleFile ) ),
-                              std::istreambuf_iterator<char>() );
-    particleText.erase( std::remove_if( particleText.begin(), particleText.end(),
-                                        []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-                        particleText.end() );
-    const size_t importAt = particleText.find( "ParticleRenderer::ImportSimulationBuffers(RDG::Builder&graph)" );
-    ASSERT_NE( importAt, std::string::npos );
-    const std::string importBody =
-         particleText.substr( importAt, particleText.find( "voidParticleRenderer::", importAt ) - importAt );
-    EXPECT_NE( importBody.find( "Renderer::ImportBuffer(fe.Gpu->Particles,fe.ParticlesImport)" ),
+    // The declarations: compact writes the pool, both lists and the emitter's Counters; Spawn+Update writes the
+    // pool and reads the step table, the lists and the Counters; the draw reads the pool and the alive list and
+    // the Counters as IndirectArgs, and draws indirect from the last compact's slot.
+    const std::string particles = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"Counters\",fe.CountersRef,RDG::Access::StorageWrite)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(CompactPush)))" ),
                std::string::npos );
-    EXPECT_NE( importBody.find( "Renderer::ImportBuffer(fe.Gpu->Steps,fe.StepsImport)" ), std::string::npos );
-    // An emitter the graph was not told about is not dispatched.
-    const size_t simulateAt = particleText.find( "ParticleRenderer::Simulate(constRDG::PassContext&context," );
-    ASSERT_NE( simulateAt, std::string::npos );
-    EXPECT_NE( particleText.find( "if(!RunsStep(fe,step))continue;", simulateAt ), std::string::npos );
-    EXPECT_NE( particleText.find( "returnfe.Declared&&step<fe.StepCount;" ), std::string::npos );
-    // The setup declares one block per imported emitter: this frame's graph handles of both buffers by their
-    // shader names, StorageWrite, and the push bytes; the exec opens the n-th declared emitter's block n and
-    // dispatches through DispatchCompute (no pipeline setter carries a graph buffer, no name is bound in it).
-    const size_t declareAt = particleText.find(
-         "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass,constuint32_tstep)const" );
-    ASSERT_NE( declareAt, std::string::npos );
-    const std::string declareBody =
-         particleText.substr( declareAt, particleText.find( "ParticleRenderer::", declareAt + 5 ) - declareAt );
-    EXPECT_NE( declareBody.find( "if(!RunsStep(fe,step))continue;" ), std::string::npos )
-         << "the setup declares an emitter Simulate skips: the block numbering drifts";
-    EXPECT_NE( declareBody.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
-                                 ".Storage(\"StepTable\",fe.StepsRef,RDG::Access::StorageWrite)"
-                                 ".PushConstantBytes(static_cast<uint32_t>(sizeof(SimPush)))" ),
+    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"StepTable\",fe.StepsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
+                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageRead)"
+                               ".Storage(\"Counters\",fe.CountersRef,RDG::Access::StorageRead)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(SimPush)))" ),
                std::string::npos );
-    const std::string simulateBody = particleText.substr(
-         simulateAt, particleText.find( "ParticleRenderer::ImportSimulationBuffers(", simulateAt ) - simulateAt );
-    EXPECT_NE( simulateBody.find( "RDG::PassBindingsbindings(context,context.GetBindingBlock(block++));" ),
+    EXPECT_NE( particles.find(
+                    "Renderer::DrawProceduralIndirect(bindings,*pipeline,fe.Gpu->Material->GetMaterialExecutor(),"
+                    "fe.CountersRef,slot)" ),
                std::string::npos );
-    EXPECT_EQ( simulateBody.find( ".Storage(" ), std::string::npos ) << "Simulate binds a buffer by name";
-    EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ),
+    EXPECT_NE( particles.find( "constuint64_tslot=(fe.StepCount&1u)*kParticleDrawSlotStride;" ),
                std::string::npos );
-    EXPECT_EQ( simulateBody.find( "SetStorageBuffer" ), std::string::npos );
-    EXPECT_NE( importBody.find( "fe.StepsRef=graph.RegisterExternal(fe.StepsImport," ), std::string::npos );
-    EXPECT_NE( importBody.find( "fe.Declared=true;" ), std::string::npos );
+    EXPECT_EQ( particles.find( "DrawProcedural(" ), std::string::npos ) << "the billboards draw a fixed count";
+    EXPECT_NE( particles.find( "returnfe.Declared&&compact<=fe.StepCount;" ), std::string::npos );
+    EXPECT_NE( particles.find( "returnfe.Declared&&step<fe.StepCount;" ), std::string::npos );
+}
 
-    // The same shape in a graph: two frames of a persistent buffer written by the node. The second frame's
-    // write waits on the first's, from the state the first graph wrote back.
-    ExternalBuffer state( BufferDesc{ 4096 }, Access::None );
-    int            runs = 0;
-    for ( int frame = 0; frame < 2; ++frame )
+TEST( RenderGraphCompile, ParticlePoolNodesOrderAndCullWithNoEmitter )
+{
+    // The node shape in a graph: compact 0, Spawn+Update 0, compact 1 over an external pool, lists and counters,
+    // and the draw reading the counters IndirectArgs into an external target. Every node is live and in call
+    // order, the draw waits on the last compact; with no emitter (the setups declare nothing) every particle node
+    // is culled.
+    for ( const bool emitter : { true, false } )
     {
-        Builder         graph( "particles" );
-        const BufferRef ref = graph.RegisterExternal( state, "ParticleState0" );
+        ExternalBuffer  pool( BufferDesc{ 64 * 64 }, Access::None );
+        ExternalBuffer  freeList( BufferDesc{ 4 * 64 }, Access::None );
+        ExternalBuffer  aliveList( BufferDesc{ 4 * 64 }, Access::None );
+        ExternalBuffer  counters( BufferDesc{ 64 }, Access::None );
+        ExternalBuffer  target( BufferDesc{ 16 }, Access::None );
+        Builder         graph( "particle pool" );
+        const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticlePool" );
+        const BufferRef freeRef     = graph.RegisterExternal( freeList, "ParticleFreeList" );
+        const BufferRef aliveRef    = graph.RegisterExternal( aliveList, "ParticleAliveList" );
+        const BufferRef countersRef = graph.RegisterExternal( counters, "ParticleCounters0" );
+        const BufferRef targetRef   = graph.RegisterExternal( target, "SceneColor" );
+        const auto      compact     = [&]( PassBuilder& pass )
+        {
+            if ( !emitter )
+                return;
+            pass.Write( poolRef, Access::StorageWrite );
+            pass.Write( freeRef, Access::StorageWrite );
+            pass.Write( aliveRef, Access::StorageWrite );
+            pass.Write( countersRef, Access::StorageWrite );
+        };
+        const auto none = []( PassContext& ) { return Common::MakeSuccess( true ); };
+        graph.AddPass( "Particles: Compact 0", PassFlags::Compute, compact, none );
         graph.AddPass(
-             "Particles: Simulate", PassFlags::Compute | PassFlags::NeverCull,
-             [&]( PassBuilder& pass ) { pass.Write( ref, Access::StorageWrite ); },
-             [&runs]( PassContext& )
+             "Particles: Spawn+Update 0", PassFlags::Compute,
+             [&]( PassBuilder& pass )
              {
-                 ++runs;
-                 return Common::MakeSuccess( true );
-             } );
-        const CompileResult        result   = CompileOrFail( graph );
-        const std::vector<Barrier> barriers = BarriersOn( result.FindPass( "Particles: Simulate" ), ref.Index );
-        EXPECT_EQ( barriers.size(), frame == 0 ? 0u : 1u ) << "frame " << frame;
-        RecordingBackend backend;
-        ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+                 if ( !emitter )
+                     return;
+                 pass.Write( poolRef, Access::StorageWrite );
+                 pass.Read( freeRef, Access::StorageRead );
+                 pass.Read( aliveRef, Access::StorageRead );
+                 pass.Read( countersRef, Access::StorageRead );
+             },
+             none );
+        graph.AddPass( "Particles: Compact 1", PassFlags::Compute, compact, none );
+        graph.AddPass(
+             "ParticlePass", PassFlags::Compute,
+             [&]( PassBuilder& pass )
+             {
+                 pass.Write( targetRef, Access::StorageWrite );
+                 if ( !emitter )
+                     return;
+                 pass.Read( poolRef, Access::StorageRead );
+                 pass.Read( aliveRef, Access::StorageRead );
+                 pass.Read( countersRef, Access::IndirectArgs );
+             },
+             none );
+        const CompileResult result = CompileOrFail( graph );
+        if ( emitter )
+        {
+            EXPECT_TRUE( result.CulledPassNames.empty() );
+            EXPECT_EQ( BarriersOn( result.FindPass( "ParticlePass" ), countersRef.Index ).size(), 1u )
+                 << "the indirect draw does not wait on the last compact's counters";
+        }
+        else
+        {
+            EXPECT_EQ( result.CulledPassNames,
+                       ( std::vector<std::string>{ "Particles: Compact 0", "Particles: Spawn+Update 0",
+                                                   "Particles: Compact 1" } ) );
+        }
     }
-    EXPECT_EQ( runs, 2 );
-    EXPECT_EQ( state.State, GetAccessState( Access::StorageWrite ) );
 }
 
 namespace
@@ -3395,7 +3424,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "Forward),&view);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
-           ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageRead)" },
+           ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
@@ -3924,7 +3953,9 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
     EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
-    EXPECT_NE( declaration.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageRead)" ),
+    EXPECT_NE( declaration.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)"
+                                 ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageRead);"
+                                 "declared.Read(fe.CountersRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
     // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
     EXPECT_NE( exec.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );

@@ -11,6 +11,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include "ParticleGpuLayout.hpp"
+#include "ParticlePool.hpp"
 
 #include <glm/glm.hpp>
 
@@ -32,12 +33,13 @@ namespace Desert::Graphic::RDG
 
 namespace Desert::Graphic::System
 {
-    // GPU particle system. Per emitter: a PERSISTENT storage buffer of particle state that a compute shader
-    // (ParticleSimulate) integrates + respawns each frame, drawn as camera-facing billboards (ParticleBillboard)
-    // in the Transparency phase. The flow is: PrepareFrame snapshots emitters (CPU) in
-    // BeginScene, Simulate dispatches the compute from the frame graph's "Particles: Simulate" node (its
-    // PassContext, the emitters' buffers bound by shader name), and the registered Transparency pass draws the
-    // result.
+    // GPU particle system (VFX-07: the world's particle pool). Every emitter of the scene owns a range of ONE
+    // persistent pool (ParticlePoolRanges); its free and alive lists live in the same range of two pool-sized
+    // index lists. Per frame: PrepareFrame snapshots the emitters and their VFXWorld steps (CPU); the frame build
+    // adds "Particles: Compact 0", then per fixed step "Particles: Spawn+Update {s}" and "Particles: Compact
+    // {s+1}" (Compute nodes declaring the pool, the lists and each emitter's Counters); the billboard draw
+    // (DrawPass, translucency) reads the alive list and draws INDIRECT from the last compact's slot of the
+    // emitter's Counters - six vertices per particle the compact found alive, none for the dead.
     class ParticleRenderer final : public RenderSystem
     {
     public:
@@ -68,29 +70,30 @@ namespace Desert::Graphic::System
         // simulation's time is the VFXWorld's fixed step; this system reads no clock and no frame timestep.
         void PrepareFrame( const ::Desert::Core::Scene& scene );
 
-        // How many fixed steps this frame simulates: the most any declared emitter runs. SceneRenderer adds
-        // one "Particles: Simulate" node per step, so step s+1 reads what step s wrote across a graph barrier.
+        // How many fixed steps this frame simulates: the most any declared emitter runs. SceneRenderer adds, after
+        // "Particles: Compact 0", one "Particles: Spawn+Update {s}" and one "Particles: Compact {s+1}" per step.
         [[nodiscard]] uint32_t SimulationStepCount() const;
 
-        // Records step @p step: one DispatchCompute per declared emitter that runs that step, on @p context's
-        // command buffer, from that emitter's binding block (DeclareSimulateBindings with the same step, the
-        // same emitters in the same order: block n is the n-th such emitter) plus its push constants with
-        // Counts.y = @p step; the first refused dispatch is returned, naming the pass and the slot.
+        // Compact @p compact (0..SimulationStepCount()): one ParticleCompact dispatch per declared emitter that
+        // runs it (compacts 0..its StepCount), rebuilding the emitter's free and alive lists and its Counters slot
+        // (compact & 1) - the indirect draw arguments. Compact 0 of an emitter that needs a reset kills its range
+        // first. Block n is the n-th such emitter (DeclareCompactBindings walks them by the same RunsCompact).
+        [[nodiscard]] Common::BoolResultStr Compact( const RDG::PassContext& context, uint32_t compact );
+        void DeclareCompactBindings( RDG::PassBuilder& pass, uint32_t compact ) const;
+
+        // Spawn+Update of step @p step: one ParticleSimulate dispatch per declared emitter that runs the step,
+        // reading the lists compact @p step built; block n = the n-th such emitter (DeclareSimulateBindings).
         [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, uint32_t step );
 
-        // Imports every emitter of this frame's particle-state and step-table buffers into @p graph
-        // (Renderer::ImportBuffer) and keeps their handles in the frame emitters, which the step nodes declare
-        // through DeclareSimulateBindings: the graph then places the barrier against the previous step's (or
-        // the previous graph's) write of the same buffer. An emitter whose buffers cannot be imported is logged
-        // and sits the frame out: Simulate dispatches only emitters whose writes the graph was told about. Call
-        // once per frame graph, after PrepareFrame. The ExternalBuffers live in m_FrameEmitters, which the
-        // graph points at until its Execute ends; only the next PrepareFrame refills it.
+        // Imports the world pool (particles, free list, alive list) once and every emitter's step table and
+        // Counters into @p graph (Renderer::ImportBuffer + RegisterExternal); an emitter whose buffers cannot be
+        // imported is logged and sits the frame out, and with no pool no emitter is declared. With no declared
+        // emitter the particle nodes declare nothing and the graph culls them. Call once per frame graph, after
+        // PrepareFrame.
         void ImportSimulationBuffers( RDG::Builder& graph );
 
-        // The setup of step @p step's node: one binding block per imported emitter that runs the step (block
-        // n = the n-th, in m_FrameEmitters order, the order Simulate walks), against ParticleSimulate's layout
-        // - Particles and StepTable StorageWrite (each entry is the declaration of its access) and the SimPush
-        // bytes. With no simulation pipeline it declares nothing and Simulate dispatches nothing.
+        // The setup of step @p step's Spawn+Update node: per emitter running it, Particles StorageWrite, StepTable
+        // / FreeList / AliveList / Counters StorageRead, and the SimPush bytes.
         void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step ) const;
 
     private:
@@ -104,50 +107,79 @@ namespace Desert::Graphic::System
             glm::vec4  StartColor; // rgb + start alpha
             glm::vec4  EndColor;   // rgb + end alpha
             glm::vec4  Sizes;      // startSize, endSize, 0, 0
-            glm::uvec4 Counts;     // maxParticles, step index into the step table, 0, local-space
+            glm::uvec4 Counts;     // range count, step index into the step table, range pool base, local-space
+        };
+
+        // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = reset.
+        struct CompactPush
+        {
+            glm::uvec4 Range;
         };
 
         // One element of ParticleSimulate's step table (binding 1, `struct VFXStep`).
         struct StepGpu
         {
-            uint32_t SpawnCount = 0; // zeroed by the upload, consumed atomically by the step
-            uint32_t IdBase     = 0;
-            uint32_t Seed       = 0;
-            uint32_t Budget     = 0;
+            uint32_t IdBase = 0;
+            uint32_t Seed   = 0;
+            uint32_t Budget = 0;
         };
         static_assert( sizeof( StepGpu ) == kParticleStepStride );
 
-        // One emitter's persistent GPU state, cached across frames by entity id.
+        // One slot of an emitter's Counters (Common/ParticlePool.glslh ParticleDrawSlot); the first four members
+        // are the VkDrawIndirectCommand the billboard draw reads.
+        struct DrawSlotGpu
+        {
+            uint32_t VertexCount   = 0;
+            uint32_t InstanceCount = 1;
+            uint32_t FirstVertex   = 0;
+            uint32_t FirstInstance = 0;
+            uint32_t FreeCount     = 0;
+            uint32_t Pad[3]        = {};
+        };
+        static_assert( sizeof( DrawSlotGpu ) == kParticleDrawSlotStride );
+
+        // One emitter's GPU state, cached across frames by entity id. Its particles are Range of the world pool.
         struct EmitterGpu
         {
-            std::shared_ptr<ShaderResources::StorageBuffer> Particles; // persistent particle state
-            std::shared_ptr<ShaderResources::StorageBuffer> Steps;     // this frame's step table
+            std::shared_ptr<ShaderResources::StorageBuffer> Steps;    // this frame's step table
+            std::shared_ptr<ShaderResources::StorageBuffer> Counters; // two draw slots, uploaded zeroed per frame
 
-            // The billboard material is PER EMITTER, never shared across them: the particle SSBO is a
-            // descriptor, a descriptor set belongs to the material, and the set is written at most once
-            // per frame before its first bind — with one shared material every emitter after the first
-            // drew the FIRST one's buffer, silently (the rebind was swallowed by the per-frame stamp).
-            // Same arrangement as JumpFloodOutlineRenderer's per-step materials.
+            // The billboard material is PER EMITTER (its camera block per draw), never shared across them.
             std::unique_ptr<MaterialParticleBillboard> Material;
 
-            int      MaxParticles = 0;
-            uint32_t StepCapacity = 0;
-            uint64_t Generation   = 0; // the VFXWorld instance generation this state belongs to; 0 = fresh
+            ParticlePoolRange Range;
+            uint32_t          StepCapacity = 0;
+            uint64_t          Generation   = 0;  // the VFXWorld instance generation this state belongs to
+            bool              NeedsReset = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
         };
 
-        // This frame's active emitters (built by PrepareFrame, consumed by Simulate + the draw pass).
+        // The world pool: one persistent buffer of particles and two of indices, sized to the ranges' End.
+        struct WorldPool
+        {
+            std::shared_ptr<ShaderResources::StorageBuffer> Particles;
+            std::shared_ptr<ShaderResources::StorageBuffer> FreeList;
+            std::shared_ptr<ShaderResources::StorageBuffer> AliveList;
+            uint32_t                                        Capacity = 0;
+            RDG::ExternalBuffer                             ParticlesImport;
+            RDG::ExternalBuffer                             FreeImport;
+            RDG::ExternalBuffer                             AliveImport;
+            RDG::BufferRef                                  ParticlesRef;
+            RDG::BufferRef                                  FreeRef;
+            RDG::BufferRef                                  AliveRef;
+            bool                                            Declared = false;
+        };
+
+        // This frame's active emitters (built by PrepareFrame, consumed by the nodes and the draw pass).
         struct FrameEmitter
         {
-            EmitterGpu* Gpu = nullptr;
-            SimPush     Push;
-            bool        Additive  = true;
-            uint32_t    StepCount = 0; // fixed steps to run this frame
-            // This frame's graph imports of Gpu->Particles and Gpu->Steps (ImportSimulationBuffers), and
-            // whether both were imported: Simulate dispatches only a declared emitter.
-            RDG::ExternalBuffer ParticlesImport;
+            EmitterGpu*         Gpu = nullptr;
+            SimPush             Push;
+            bool                Additive  = true;
+            uint32_t            StepCount = 0; // fixed steps to run this frame; compacts 0..StepCount
             RDG::ExternalBuffer StepsImport;
-            RDG::BufferRef      ParticlesRef; // this frame's graph handle of ParticlesImport, read by ParticlePass
-            RDG::BufferRef      StepsRef;     // this frame's graph handle of StepsImport, consumed by the steps
+            RDG::ExternalBuffer CountersImport;
+            RDG::BufferRef      StepsRef;
+            RDG::BufferRef      CountersRef; // read by ParticlePass as IndirectArgs
             bool                Declared = false;
         };
 
@@ -158,19 +190,27 @@ namespace Desert::Graphic::System
         // Whether step @p step's node dispatches @p fe - the one condition DeclareSimulateBindings and Simulate
         // both walk the emitters by.
         static bool RunsStep( const FrameEmitter& fe, uint32_t step );
+        // Whether compact @p compact's node dispatches @p fe (compacts 0..StepCount of a declared emitter).
+        static bool RunsCompact( const FrameEmitter& fe, uint32_t compact );
+        // Grows the world pool to hold @p particles (recreating it: every emitter restarts); false when it failed.
+        bool EnsurePoolCapacity( uint32_t particles );
         // The billboard pipeline of @p fe's blend (null when that pipeline failed to build).
         GraphicsPipeline* BillboardPipeline( const FrameEmitter& fe ) const;
-        EmitterGpu&       GetOrCreate( uint32_t entityId, int maxParticles, uint32_t stepCapacity );
+        EmitterGpu&       GetOrCreate( uint32_t entityId, uint32_t stepCapacity );
 
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
+        std::shared_ptr<ComputePipeline>  m_CompactPipeline;
         std::shared_ptr<GraphicsPipeline> m_AddPipeline;   // additive blend
         std::shared_ptr<GraphicsPipeline> m_AlphaPipeline; // alpha blend
         // The three shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         mutable ShaderBindingLayoutCache m_SimLayout;
+        mutable ShaderBindingLayoutCache m_CompactLayout;
         mutable ShaderBindingLayoutCache m_AddLayout;
         mutable ShaderBindingLayoutCache m_AlphaLayout;
 
         std::unordered_map<uint32_t, EmitterGpu> m_Emitters;
         std::vector<FrameEmitter>                m_FrameEmitters;
+        ParticlePoolRanges                       m_Ranges;
+        WorldPool                                m_Pool;
     };
 } // namespace Desert::Graphic::System

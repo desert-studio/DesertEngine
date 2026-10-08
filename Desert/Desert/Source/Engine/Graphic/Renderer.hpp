@@ -86,6 +86,12 @@ namespace Desert::Graphic
                                                                    const GraphicsPipeline&  pipeline,
                                                                    const MaterialExecutor*  material,
                                                                    uint32_t vertexCount, uint32_t instanceCount );
+        // DrawProcedural with its counts in a graph buffer (RendererAPI::DrawProceduralIndirect): the particle
+        // billboards, whose vertex count is six per particle the compact found alive.
+        [[nodiscard]] static Common::BoolResultStr DrawProceduralIndirect( const RDG::PassBindings& bindings,
+                                                                           const GraphicsPipeline&  pipeline,
+                                                                           const MaterialExecutor*  material,
+                                                                           RDG::BufferRef args, uint64_t offset );
         // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
         // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
