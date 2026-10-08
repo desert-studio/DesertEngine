@@ -16,7 +16,7 @@ namespace Desert::Physics
      * @brief What one body does with another of a given channel (UE ECollisionResponse). Ordered: the
      * response of a PAIR is the lesser of the two bodies' responses to each other's channel, as in UE.
      */
-    enum class CollisionResponse : uint8_t
+    enum class CollisionResponse
     {
         Ignore,  ///< No contact at all — the pair is never handed to the narrow phase.
         Overlap, ///< Contacts are found and not solved: the bodies pass through each other (a sensor contact).
@@ -24,7 +24,7 @@ namespace Desert::Physics
     };
 
     /// Which halves of collision a profile takes part in (UE ECollisionEnabled).
-    enum class CollisionEnabled : uint8_t
+    enum class CollisionEnabled
     {
         NoCollision,     ///< Neither simulated against nor found by a query.
         QueryOnly,       ///< Found by ray casts; never simulated against.
