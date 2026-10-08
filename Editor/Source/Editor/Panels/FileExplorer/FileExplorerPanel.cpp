@@ -91,8 +91,29 @@ namespace Desert::Editor
                                           std::weak_ptr<::Desert::Core::Scene> viewportScene )
          // IN DECLARATION ORDER. Members are constructed in the order they are DECLARED whatever this list
          // says, so a list in a different order is a reader being told the wrong sequence.
-         : IPanel( "Assets" ), m_Model( rootPath.string() ), m_AssetManager( assetManager ),
-           m_SubjectEditors( subjectEditors ), m_ViewportScene( std::move( viewportScene ) )
+         : IPanel( "Assets" ),
+           m_PathView( { .OnFolderSelected    = [this]( DirectoryInformation* dir ) { ChangeDirectory( dir ); },
+                         .OnFavouriteSelected = [this]( const std::string& path ) { NavigateToPath( path ); } } ),
+           m_Toolbar( { .OnFolderSelected    = [this]( DirectoryInformation* dir ) { ChangeDirectory( dir ); },
+                        .OnFavouriteSelected = [this]( const std::string& path ) { NavigateToPath( path ); },
+                        .OnBack              = [this] { GoBack(); },
+                        .OnForward           = [this] { GoForward(); },
+                        .OnRefresh           = [this] { QueueRefresh(); },
+                        .OnNewFolder         = [this] { CreateNewFolder(); },
+                        .OnImport            = [this] { ImportExternalTexture(); } } ),
+           m_AssetView(
+                { .OnDrawTile = [this]( int dirIndex, bool folder, int shownIndex, bool gridView )
+                  { return RenderFile( dirIndex, folder, shownIndex, gridView ); },
+                  .IsSelected = [this]( const DirectoryInformation* entry ) { return IsSelected( entry ); },
+                  .OnBackgroundContextMenu = [this] { DrawBackgroundContextMenu(); },
+                  .OnClearSelection =
+                       [this]
+                  {
+                      m_Selection.clear();
+                      m_CurrentSelected = nullptr;
+                  } } ),
+           m_Model( rootPath.string() ), m_AssetManager( assetManager ), m_SubjectEditors( subjectEditors ),
+           m_ViewportScene( std::move( viewportScene ) )
     {
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
@@ -155,8 +176,8 @@ namespace Desert::Editor
             return;
         LeaveThumbnailEdit(); // the edited tile is not in the folder being opened
 
-        m_CurrentDir           = directory;
-        m_UpdateNavigationPath = true;
+        m_CurrentDir = directory;
+        m_Toolbar.InvalidateBreadcrumbs();
         m_Model.Open( m_CurrentDir );
 
         PrefetchCurrentFolderThumbnails();
@@ -742,101 +763,6 @@ namespace Desert::Editor
         ImGui::ProgressBar( m_CloudBakeProgress.load(), ImVec2( -1.0f, 0.0f ) );
     }
 
-    void FileExplorerPanel::DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen )
-    {
-        ImGuiTreeNodeFlags nodeFlags = ( ( dirInfo == m_CurrentDir ) ? ImGuiTreeNodeFlags_Selected : 0 );
-        nodeFlags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-
-        if ( dirInfo->Parent == nullptr )
-            nodeFlags |= ImGuiTreeNodeFlags_Framed;
-
-        const ImColor TreeLineColor = ImColor( 128, 128, 128, 128 );
-        const float   SmallOffsetX  = 6.0f; // * Application::Get().GetWindowDPI();
-        ImDrawList*   drawList      = ImGui::GetWindowDrawList();
-
-        if ( !dirInfo->IsFile )
-        {
-            if ( dirInfo->Leaf )
-                nodeFlags |= ImGuiTreeNodeFlags_Leaf;
-
-            if ( defaultOpen )
-                nodeFlags |= ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Leaf;
-
-            nodeFlags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-
-            bool isOpen = ImGui::TreeNodeEx( (void*)(intptr_t)( dirInfo ), nodeFlags, "" );
-            if ( ImGui::IsItemClicked() )
-            {
-                ChangeDirectory( dirInfo );
-            }
-
-            const char* folderIcon = ( ( isOpen && !dirInfo->Leaf ) || m_CurrentDir == dirInfo )
-                                          ? ICON_MDI_FOLDER_OPEN
-                                          : ICON_MDI_FOLDER;
-            ImGui::SameLine();
-            ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 1.0f, 1.0f, 1.0f, 1.0f ) ); // Replace with actual color
-            ImGui::TextUnformatted( folderIcon );
-            ImGui::PopStyleColor();
-            ImGui::SameLine();
-
-            std::string fileName = std::filesystem::path( dirInfo->AssetPath ).filename().string();
-            ImGui::TextUnformatted( fileName.c_str() );
-
-            ImVec2 verticalLineStart = ImGui::GetCursorScreenPos();
-
-            if ( isOpen && !dirInfo->Leaf )
-            {
-                verticalLineStart.x += SmallOffsetX; // to nicely line up with the arrow symbol
-                ImVec2 verticalLineEnd = verticalLineStart;
-
-                for ( size_t i = 0; i < dirInfo->Children.size(); i++ )
-                {
-                    if ( !m_Model.ShowsHiddenFiles() && dirInfo->Children[i]->Hidden )
-                    {
-                        continue;
-                    }
-
-                    if ( !dirInfo->Children[i]->IsFile )
-                    {
-                        auto currentPos = ImGui::GetCursorScreenPos();
-
-                        ImGui::Indent( 10.0f );
-
-                        float HorizontalTreeLineSize =
-                             16.0f; // * Application::Get().GetWindowDPI(); // chosen arbitrarily
-
-                        if ( !dirInfo->Children[i]->Leaf )
-                            HorizontalTreeLineSize *= 0.5f;
-                        DrawFolder( dirInfo->Children[i] );
-
-                        const ImRect childRect =
-                             ImRect( currentPos, currentPos + ImVec2( 0.0f, ImGui::GetFontSize() ) );
-
-                        const float midpoint = ( childRect.Min.y + childRect.Max.y ) * 0.5f;
-                        drawList->AddLine( ImVec2( verticalLineStart.x, midpoint ),
-                                           ImVec2( verticalLineStart.x + HorizontalTreeLineSize, midpoint ),
-                                           TreeLineColor );
-                        verticalLineEnd.y = midpoint;
-
-                        ImGui::Unindent( 10.0f );
-                    }
-                }
-
-                drawList->AddLine( verticalLineStart, verticalLineEnd, TreeLineColor );
-
-                ImGui::TreePop();
-            }
-
-            if ( isOpen && dirInfo->Leaf )
-                ImGui::TreePop();
-        }
-
-        if ( m_IsDragging && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenBlockedByActiveItem ) )
-        {
-            m_MovePath = dirInfo->AssetPath;
-        }
-    }
-
     ImVec2 GetAspectCorrectedSize( const ImVec2& originalSize, float maxSize )
     {
         float aspect = originalSize.x / originalSize.y;
@@ -848,7 +774,60 @@ namespace Desert::Editor
 
     void FileExplorerPanel::OnUIRender()
     {
-        // Keyboard shortcuts on the selected item (panel focused, no text field active): F2 rename, Del delete.
+        HandleSelectionShortcuts();
+
+        // File-op modals (rename / delete) + last error line.
+        DrawFileOpsPopups();
+        DrawFileOpStatus();
+        DrawCloudAssetBakeStatus();
+        ApplyPendingRefresh();
+
+        // ── Content Browser (UE SContentBrowser): two panes split by a draggable vertical splitter. LEFT = the
+        //    path view (pinned Favorites + the project folder tree); RIGHT = the toolbar with its breadcrumbs,
+        //    then the asset view. ──
+        constexpr float kMinTreeWidth    = 120.0f;
+        constexpr float kMinContentWidth = 220.0f;
+        constexpr float kSplitterW       = 6.0f;
+        const float     totalAvail       = ImGui::GetContentRegionAvail().x;
+        m_TreeWidth                      = std::clamp( m_TreeWidth, kMinTreeWidth,
+                                                       std::max( kMinTreeWidth, totalAvail - kMinContentWidth - kSplitterW ) );
+
+        m_PathView.Draw( m_Model, m_CurrentDir, m_TreeWidth );
+
+        // SPLITTER — a thin invisible handle the user drags to resize the tree pane.
+        ImGui::SameLine( 0.0f, 0.0f );
+        // GetContentRegionAvail().y can be 0 on a first/zero-height frame; InvisibleButton asserts on a
+        // zero size, so floor the height at 1px (harmless — the handle is invisible anyway).
+        const float cbSplitterH = ImGui::GetContentRegionAvail().y;
+        ImGui::InvisibleButton( "##cb_splitter", ImVec2( kSplitterW, cbSplitterH > 0.0f ? cbSplitterH : 1.0f ) );
+        if ( ImGui::IsItemActive() )
+            m_TreeWidth += ImGui::GetIO().MouseDelta.x;
+        if ( ImGui::IsItemHovered() || ImGui::IsItemActive() )
+            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
+        {
+            const ImVec2 mn  = ImGui::GetItemRectMin();
+            const ImVec2 mx  = ImGui::GetItemRectMax();
+            const bool   hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                 ImVec2( ( mn.x + mx.x ) * 0.5f - 1.0f, mn.y ), ImVec2( ( mn.x + mx.x ) * 0.5f + 1.0f, mx.y ),
+                 ImGui::GetColorU32( hot ? ImGuiCol_SeparatorActive : ImGuiCol_Separator ) );
+        }
+        ImGui::SameLine( 0.0f, 0.0f );
+
+        // RIGHT PANE.
+        ImGui::BeginChild( "##cb_right", ImVec2( 0.0f, 0.0f ), false );
+        m_Toolbar.Draw( m_ViewState, m_History, m_CurrentDir, m_Model.Root() );
+        if ( m_CurrentDir )
+            m_AssetView.Draw( *m_CurrentDir, m_ViewState, m_Model.ShowsHiddenFiles() );
+        ImGui::EndChild(); // ##cb_right
+
+        m_PathView.AcceptMoveDropOnLastItem();
+    }
+
+    // Keyboard shortcuts on the selected item (panel focused, no text field active): F2 rename, Del delete,
+    // Ctrl/Cmd + C / X / V.
+    void FileExplorerPanel::HandleSelectionShortcuts()
+    {
         if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) && m_CurrentSelected &&
              !ImGui::GetIO().WantTextInput )
         {
@@ -877,591 +856,139 @@ namespace Desert::Editor
             if ( mod && ImGui::IsKeyPressed( ImGuiKey_V, false ) )
                 PasteClipboard();
         }
+    }
 
-        // File-op modals (rename / delete) + last error line.
-        DrawFileOpsPopups();
-        if ( !m_FileOpStatus.empty() )
+    void FileExplorerPanel::DrawFileOpStatus()
+    {
+        if ( m_FileOpStatus.empty() )
+            return;
+        ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.4f, 1.0f ), "%s", m_FileOpStatus.c_str() );
+        ImGui::SameLine();
+        if ( ImGui::SmallButton( "x##clearFileOp" ) )
+            m_FileOpStatus.clear();
+    }
+
+    void FileExplorerPanel::ApplyPendingRefresh()
+    {
+        if ( m_Refresh )
         {
-            ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.4f, 1.0f ), "%s", m_FileOpStatus.c_str() );
-            ImGui::SameLine();
-            if ( ImGui::SmallButton( "x##clearFileOp" ) )
-                m_FileOpStatus.clear();
+            RefreshCurrentDirectory(); // in-place: keeps navigation (watcher / import / rebuild)
+            m_Refresh = false;
+            if ( !m_SelectAfterRefresh.empty() )
+            {
+                if ( const auto selected = SelectEntry( std::exchange( m_SelectAfterRefresh, {} ) ); !selected )
+                    LOG_ERROR( "[Content] the new asset was created but not selected: {}", selected.GetError() );
+            }
         }
-        DrawCloudAssetBakeStatus();
+    }
 
-        // Advance the material-thumbnail capture state machine once per frame (renders + reads back the
-        // pending material; see AssetThumbnailRenderer).
-        // Thumbnail capture is driven editor-wide by EditorLayer via ThumbnailService.
+    void FileExplorerPanel::CreateNewFolder()
+    {
+        std::string fullPath = m_CurrentDir->AssetPath + "/NewFolder";
+        std::filesystem::create_directory( fullPath );
+        QueueRefresh();
+    }
+
+    void FileExplorerPanel::DrawBackgroundContextMenu()
+    {
+        if ( !m_Clipboard.empty() && ImGui::Selectable( m_ClipboardCut ? "Paste (move)" : "Paste (copy)" ) )
         {
-            if ( m_Refresh )
+            PasteClipboard();
+        }
+
+        ImGui::Separator();
+
+        if ( ImGui::Selectable( "Import Texture..." ) )
+        {
+            ImportExternalTexture();
+        }
+
+        if ( ImGui::Selectable( "Refresh" ) )
+        {
+            QueueRefresh();
+        }
+
+        if ( ImGui::Selectable( "New folder" ) )
+            CreateNewFolder();
+
+        if ( ImGui::Selectable( "New Material" ) )
+            CreateNewMaterial();
+
+        if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
+            if ( const auto created = CreateNewLevelSequence(); !created )
+                LOG_ERROR( "[Content] {}", created.GetError() );
+
+        // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
+        // it decides the output node, vertex contract and palette of the new graph.
+        if ( ImGui::BeginMenu( "New Shader Graph" ) )
+        {
+            auto createGraph = [&]( ShaderGraph::Domain domain )
             {
-                RefreshCurrentDirectory(); // in-place: keeps navigation (watcher / import / rebuild)
-                m_Refresh = false;
-                if ( !m_SelectAfterRefresh.empty() )
+                const auto path = NodeGraphPanel::CreateNewGraphFile( m_CurrentDir->AssetPath, domain );
+                if ( path.empty() ) // not written — nothing to open, nothing new to list
+                    return;
+                // Through the SAME opener the double-click uses, so a graph created
+                // here and a graph opened from the tile reach one window by one route.
+                if ( RequestShaderGraphDocument( m_AssetManager, path ) != ShaderGraphDocumentRequest::Requested )
                 {
-                    if ( const auto selected = SelectEntry( std::exchange( m_SelectAfterRefresh, {} ) );
-                         !selected )
-                        LOG_ERROR( "[Content] the new asset was created but not selected: {}",
-                                   selected.GetError() );
+                    LOG_ERROR( "[ShaderGraph] '{}' was created but would not open.", path );
                 }
-            }
+                QueueRefresh();
+            };
+            if ( ImGui::MenuItem( "Surface" ) )
+                createGraph( ShaderGraph::Domain::Surface );
+            if ( ImGui::MenuItem( "Post Process" ) )
+                createGraph( ShaderGraph::Domain::PostProcess );
+            // The cloud medium. Named for what an artist is authoring rather than
+            // for the engine's domain token: "Volume" is the word in the `.shader`
+            // and in ShaderDomain, and it means nothing beside "Surface" and "Post
+            // Process" until you already know what it is.
+            if ( ImGui::MenuItem( "Cloud Medium" ) )
+                createGraph( ShaderGraph::Domain::Volume );
+            ImGui::EndMenu();
+        }
 
-            // ── Content Browser: two panes split by a draggable vertical splitter. LEFT = pinned Favorites
-            //    + the project folder tree; RIGHT = toolbar / breadcrumb / asset grid / preview strip. ──
-            constexpr float kMinTreeWidth    = 120.0f;
-            constexpr float kMinContentWidth = 220.0f;
-            constexpr float kSplitterW       = 6.0f;
-            const float     totalAvail       = ImGui::GetContentRegionAvail().x;
-            m_TreeWidth                      = std::clamp( m_TreeWidth, kMinTreeWidth,
-                                                           std::max( kMinTreeWidth, totalAvail - kMinContentWidth - kSplitterW ) );
+        // THE FOUR CLOUD FORMATS. Until this menu existed not one of them could be
+        // created: all four editors are contextual documents keyed on an asset handle,
+        // so the double-click seam had nothing to open and an artist could edit the
+        // twenty-one shipped assets and author none of their own.
+        //
+        // A submenu for the reason "New Shader Graph" is one — four more top-level
+        // items would be half the menu.
+        if ( ImGui::BeginMenu( "New Cloud Asset" ) )
+        {
+            // Disabled while a volume is being generated: only one creation is tracked
+            // at a time, and a second click would detach the first bake's thread.
+            ImGui::BeginDisabled( m_CloudBakeRunning );
 
-            // LEFT PANE.
-            ImGui::BeginChild( "##cb_left", ImVec2( m_TreeWidth, 0.0f ), true );
-            {
-                // The pins OF THE OPEN PROJECT, asked for where they are drawn. A second project's
-                // folders used to appear here, because the retired file had one list for every project
-                // this user had ever opened (К5).
-                const std::vector<std::string> favourites = EditorPreferences::CurrentFavouriteFolders();
-                if ( !favourites.empty() )
-                {
-                    ImGui::TextDisabled( ICON_MDI_STAR " FAVORITES" );
-                    for ( const auto& fav : favourites )
-                    {
-                        const std::string label = std::filesystem::path( fav ).filename().string();
-                        ImGui::PushID( fav.c_str() );
-                        if ( ImGui::Selectable(
-                                  ( std::string( "  " ) + ICON_MDI_FOLDER " " + ( label.empty() ? fav : label ) )
-                                       .c_str() ) )
-                            NavigateToPath( fav );
-                        if ( ImGui::BeginPopupContextItem( "##favctx" ) )
-                        {
-                            if ( ImGui::MenuItem( "Remove from Favorites" ) )
-                                EditorPreferences::ToggleFavouriteFolder( fav );
-                            ImGui::EndPopup();
-                        }
-                        ImGui::PopID();
-                    }
-                    ImGui::Separator();
-                }
-                ImGui::TextDisabled( ICON_MDI_FOLDER_MULTIPLE " CONTENT" );
-                DrawFolder( m_Model.Root(), true );
-            }
-            ImGui::EndChild();
+            if ( ImGui::MenuItem( "Cloud Type" ) )
+                CreateNewCloudAsset( CloudAssetKind::Type );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "A kind of cloud: altitudes, silhouette curve, "
+                                   "density. Starts from the built-in congestus." );
 
-            // The folder tree is a move-drop target: drag an asset onto a folder to move it there (the hovered
-            // folder sets m_MovePath inside DrawFolder).
-            if ( ImGui::BeginDragDropTarget() )
-            {
-                if ( auto data = ImGui::AcceptDragDropPayload( "selectable",
-                                                               ImGuiDragDropFlags_AcceptNoDrawDefaultRect ) )
-                {
-                    std::string* file = (std::string*)data->Data;
-                    ContentBrowserUtils::MoveFileTo( *file, m_MovePath );
-                    m_IsDragging = false;
-                }
-                ImGui::EndDragDropTarget();
-            }
+            if ( ImGui::MenuItem( "Cloud Layout" ) )
+                CreateNewCloudAsset( CloudAssetKind::Layout );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "A blank 512x512 painting of where clouds are. "
+                                   "Draw on it in the layout document." );
 
-            // SPLITTER — a thin invisible handle the user drags to resize the tree pane.
-            ImGui::SameLine( 0.0f, 0.0f );
-            // GetContentRegionAvail().y can be 0 on a first/zero-height frame; InvisibleButton asserts on a
-            // zero size, so floor the height at 1px (harmless — the handle is invisible anyway).
-            const float cbSplitterH = ImGui::GetContentRegionAvail().y;
-            ImGui::InvisibleButton( "##cb_splitter",
-                                    ImVec2( kSplitterW, cbSplitterH > 0.0f ? cbSplitterH : 1.0f ) );
-            if ( ImGui::IsItemActive() )
-                m_TreeWidth += ImGui::GetIO().MouseDelta.x;
-            if ( ImGui::IsItemHovered() || ImGui::IsItemActive() )
-                ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
-            {
-                const ImVec2 mn  = ImGui::GetItemRectMin();
-                const ImVec2 mx  = ImGui::GetItemRectMax();
-                const bool   hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
-                ImGui::GetWindowDrawList()->AddRectFilled(
-                     ImVec2( ( mn.x + mx.x ) * 0.5f - 1.0f, mn.y ), ImVec2( ( mn.x + mx.x ) * 0.5f + 1.0f, mx.y ),
-                     ImGui::GetColorU32( hot ? ImGuiCol_SeparatorActive : ImGuiCol_Separator ) );
-            }
-            ImGui::SameLine( 0.0f, 0.0f );
+            if ( ImGui::MenuItem( "Cloud Noise Volume" ) )
+                CreateNewCloudAsset( CloudAssetKind::NoiseVolume );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "The 3D noise cloud edges are eroded with, 128^3 "
+                                   "RGBA8. Generated in the background - it takes "
+                                   "several seconds and a progress bar appears above." );
 
-            // RIGHT PANE.
-            ImGui::BeginChild( "##cb_right", ImVec2( 0.0f, 0.0f ), false );
+            if ( ImGui::MenuItem( "Cloud Modelling Volume" ) )
+                CreateNewCloudAsset( CloudAssetKind::ModellingVolume );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "A hero cloud's sculpted body, 128x64x128. Starts "
+                                   "from the shipped congestus and is baked in the "
+                                   "background." );
 
-            // Toolbar strip (settings / search / sort / filter / nav / import + breadcrumb) inside the right pane.
-            {
-                {
-                    ImGui::BeginChild( "##cb_toolbar", ImVec2( 0.0f, ImGui::GetFrameHeightWithSpacing() * 2.0f ),
-                                       false, ImGuiWindowFlags_NoScrollbar );
-
-                    ImGui::AlignTextToFramePadding();
-                    // Button for advanced settings
-                    {
-                        // Replace with actual style color
-                        if ( ImGui::Button( ICON_MDI_COGS ) )
-                            ImGui::OpenPopup( "SettingsPopup" );
-                    }
-                    if ( ImGui::BeginPopup( "SettingsPopup" ) )
-                    {
-                        if ( m_IsInListView )
-                        {
-                            if ( ImGui::Button( ICON_MDI_VIEW_LIST " Switch to Grid View" ) )
-                            {
-                                m_IsInListView = !m_IsInListView;
-                            }
-                        }
-                        else
-                        {
-                            if ( ImGui::Button( ICON_MDI_VIEW_GRID " Switch to List View" ) )
-                            {
-                                m_IsInListView = !m_IsInListView;
-                            }
-                        }
-
-                        if ( ImGui::Selectable( "Refresh" ) )
-                        {
-                            QueueRefresh();
-                        }
-
-                        if ( ImGui::Selectable( "New folder" ) )
-                        {
-                            std::string fullPath = m_CurrentDir->AssetPath + "/NewFolder";
-                            std::filesystem::create_directory( fullPath );
-                            QueueRefresh();
-                        }
-
-                        if ( !m_IsInListView )
-                        {
-                            ImGui::SliderFloat( "##GridSize", &m_GridSize, 40.0f, 400.0f );
-                        }
-
-                        ImGui::EndPopup();
-                    }
-                    ImGui::SameLine();
-
-                    ImGui::TextUnformatted( ICON_MDI_MAGNIFY );
-                    ImGui::SameLine();
-
-                    // Name filter — substring match against filenames (see BuildDisplayOrder).
-                    ImGui::SetNextItemWidth( 180.0f );
-                    ImGui::InputTextWithHint( "##AssetSearch", "Filter by name...", m_SearchBuf,
-                                              sizeof( m_SearchBuf ) );
-                    ImGui::SameLine();
-
-                    // Sort mode + ascending/descending toggle.
-                    ImGui::SetNextItemWidth( 130.0f );
-                    const char* const sortNames[] = { "Name", "Date Modified", "Type", "Size" };
-                    int               sortIdx     = static_cast<int>( m_SortMode );
-                    if ( ImGui::Combo( "##AssetSort", &sortIdx, sortNames, IM_ARRAYSIZE( sortNames ) ) )
-                        m_SortMode = static_cast<SortMode>( sortIdx );
-                    ImGui::SameLine();
-                    if ( ImGui::Button( m_SortDescending ? ICON_MDI_SORT_DESCENDING : ICON_MDI_SORT_ASCENDING ) )
-                        m_SortDescending = !m_SortDescending;
-                    if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( m_SortDescending ? "Descending" : "Ascending" );
-                    ImGui::SameLine();
-
-                    // Type filter — show only one asset kind (folders always stay visible).
-                    ImGui::SetNextItemWidth( 130.0f );
-                    static const struct
-                    {
-                        const char* Label;
-                        int         Type;
-                    } kTypeFilters[] = {
-                         { "All Types", -1 },
-                         { "Scenes", static_cast<int>( FileType::Scene ) },
-                         { "Prefabs", static_cast<int>( FileType::Prefab ) },
-                         { "Scripts", static_cast<int>( FileType::Script ) },
-                         { "Textures", static_cast<int>( FileType::Texture ) },
-                         { "Materials", static_cast<int>( FileType::Material ) },
-                         { "Models", static_cast<int>( FileType::Model ) },
-                         { "Shader Graphs", static_cast<int>( FileType::ShaderGraph ) },
-                         { "Audio", static_cast<int>( FileType::Audio ) },
-                         { "Clouds", static_cast<int>( FileType::Cloud ) },
-                         { "Skeletal Meshes", static_cast<int>( FileType::SkinnedMesh ) },
-                         { "Skeletons", static_cast<int>( FileType::Skeleton ) },
-                         { "Animations", static_cast<int>( FileType::Animation ) },
-                         { "Foliage Types", static_cast<int>( FileType::FoliageType ) },
-                         { "Level Sequences", static_cast<int>( FileType::LevelSequence ) },
-                         { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
-                         { "Fractures", static_cast<int>( FileType::Fracture ) },
-                    };
-                    const char* currentFilter = "All Types";
-                    for ( const auto& f : kTypeFilters )
-                        if ( f.Type == m_TypeFilter )
-                            currentFilter = f.Label;
-                    if ( ImGui::BeginCombo( "##AssetTypeFilter", currentFilter ) )
-                    {
-                        for ( const auto& f : kTypeFilters )
-                            if ( ImGui::Selectable( f.Label, f.Type == m_TypeFilter ) )
-                                m_TypeFilter = f.Type;
-                        ImGui::EndCombo();
-                    }
-                    ImGui::SameLine();
-
-                    // Back / Forward / Up navigation.
-                    ImGui::BeginDisabled( !m_History.CanGoBack() );
-                    if ( ImGui::Button( ICON_MDI_ARROW_LEFT ) )
-                        GoBack();
-                    ImGui::EndDisabled();
-                    if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( "Back" );
-                    ImGui::SameLine();
-
-                    ImGui::BeginDisabled( !m_History.CanGoForward() );
-                    if ( ImGui::Button( ICON_MDI_ARROW_RIGHT ) )
-                        GoForward();
-                    ImGui::EndDisabled();
-                    if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( "Forward" );
-                    ImGui::SameLine();
-
-                    ImGui::BeginDisabled( !m_CurrentDir || m_CurrentDir == m_Model.Root() );
-                    if ( ImGui::Button( ICON_MDI_ARROW_UP_BOLD ) && m_CurrentDir )
-                        ChangeDirectory( m_CurrentDir->Parent );
-                    ImGui::EndDisabled();
-                    if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( "Up" );
-                    ImGui::SameLine();
-
-                    // Favorites: jump to a pinned folder (added via a folder's right-click menu).
-                    if ( ImGui::Button( ICON_MDI_STAR ) )
-                        ImGui::OpenPopup( "##favMenu" );
-                    if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( "Favorite folders" );
-                    if ( ImGui::BeginPopup( "##favMenu" ) )
-                    {
-                        const std::vector<std::string> favourites = EditorPreferences::CurrentFavouriteFolders();
-                        if ( favourites.empty() )
-                            ImGui::TextDisabled( "No favorites — right-click a folder -> Add to Favorites." );
-                        for ( const auto& fav : favourites )
-                        {
-                            const std::string label = std::filesystem::path( fav ).filename().string();
-                            if ( ImGui::MenuItem( ( label.empty() ? fav : label ).c_str() ) )
-                                NavigateToPath( fav );
-                        }
-                        ImGui::EndPopup();
-                    }
-                    ImGui::SameLine();
-                    if ( ImGui::Button( ICON_MDI_FILE_IMPORT " Import" ) )
-                    {
-                        ImportExternalTexture();
-                    }
-                    ImGui::SameLine();
-
-                    if ( m_UpdateNavigationPath )
-                    {
-                        m_BreadCrumbData.clear();
-                        auto current = m_CurrentDir;
-                        while ( current )
-                        {
-                            if ( current->Parent != nullptr )
-                            {
-                                m_BreadCrumbData.push_back( current );
-                                current = current->Parent;
-                            }
-                            else
-                            {
-                                m_BreadCrumbData.push_back( m_Model.Root() );
-                                current = nullptr;
-                            }
-                        }
-
-                        for ( size_t i = 0; i < m_BreadCrumbData.size() / 2; i++ )
-                        {
-                            std::swap( m_BreadCrumbData[i], m_BreadCrumbData[m_BreadCrumbData.size() - i - 1] );
-                        }
-
-                        m_UpdateNavigationPath = false;
-                    }
-                    {
-                        int newPwdLastSecIdx = -1;
-                        ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.1f, 0.2f, 0.7f, 0.0f ) );
-
-                        for ( size_t i = 0; i < m_BreadCrumbData.size(); ++i )
-                        {
-                            auto*       directory = m_BreadCrumbData[i];
-                            std::string fileName =
-                                 std::filesystem::path( directory->AssetPath ).filename().string();
-
-                            ImGui::PushID( directory );
-                            if ( ImGui::SmallButton( fileName.c_str() ) )
-                                ChangeDirectory( directory );
-                            ImGui::PopID();
-                            ImGui::SameLine();
-
-                            if ( i + 1 < m_BreadCrumbData.size() )
-                            {
-                                ImGui::TextDisabled( ">" );
-                                ImGui::SameLine();
-                            }
-                        }
-                        ImGui::PopStyleColor();
-
-                        if ( newPwdLastSecIdx >= 0 )
-                        {
-                            // Implementation for path navigation
-                        }
-
-                        ImGui::SameLine();
-                    }
-                    ImGui::EndChild();
-                }
-
-                {
-                    // The grid takes the whole body: asset details live in the hover tooltip
-                    // (DrawAssetTooltip), not in a strip that a selection carves out of the panel.
-                    ImGui::BeginChild( "##assetBodyRegion", ImVec2( 0.0f, 0.0f ), false );
-
-                    int shownIndex = 0;
-
-                    float xAvail = ImGui::GetContentRegionAvail().x;
-
-                    constexpr float padding              = 4.0f;
-                    const float     scaledThumbnailSize  = m_GridSize; // * ImGui::GetIO().FontGlobalScale;
-                    const float     scaledThumbnailSizeX = scaledThumbnailSize * 0.55f;
-                    // Column stride MUST match the cell RenderFile actually draws (m_GridSize wide: centered
-                    // icon + wrapped label + the ~6px card padding). The old value used the thumbnail-only
-                    // 0.55*grid width, which packed ~1.6x too many columns -> cards overlapped and labels
-                    // shifted into the next column.
-                    // Card outsets in RenderFile (±2px horizontal, 8px above / 6px below the content) plus
-                    // breathing room so neighbouring cards and their shadow tiles never touch.
-                    const float cardPadX = 8.0f;
-                    const float cardPadY = 14.0f;
-                    const float cellSize = m_GridSize + 4.0f + cardPadX * 2.0f + ImGui::GetStyle().ItemSpacing.x;
-
-                    const ImVec2 backgroundThumbnailSize = { scaledThumbnailSizeX + padding * 2,
-                                                             scaledThumbnailSize + padding * 2 };
-
-                    const float panelWidth  = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
-                    int         columnCount = static_cast<int>( panelWidth / cellSize );
-                    if ( columnCount < 1 )
-                        columnCount = 1;
-
-                    int flags = ImGuiTableFlags_ContextMenuInBody | ImGuiTableFlags_ScrollY;
-
-                    if ( m_IsInListView )
-                    {
-                        ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, { 0, 0 } );
-                        columnCount = 1;
-                        flags |= ImGuiTableFlags_RowBg | ImGuiTableFlags_NoPadOuterX |
-                                 ImGuiTableFlags_NoPadInnerX | ImGuiTableFlags_SizingStretchSame;
-                    }
-                    else
-                    {
-                        ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, { cardPadX, cardPadY } );
-                        flags |= ImGuiTableFlags_PadOuterX | ImGuiTableFlags_SizingFixedFit;
-                    }
-
-                    ImVec2       cursorPos = ImGui::GetCursorPos();
-                    const ImVec2 region    = ImGui::GetContentRegionAvail();
-                    // Skip the drop-target background when the body has no area (a zero size asserts inside
-                    // InvisibleButton) — there is nothing to drop onto in a collapsed/zero-size panel.
-                    if ( region.x > 0.0f && region.y > 0.0f )
-                        ImGui::InvisibleButton( "##DragDropTargetAssetPanelBody", region );
-
-                    ImGui::SetCursorPos( cursorPos );
-
-                    // Tile-hover tracking for the empty-click deselect below: the ScrollY table is its own
-                    // child window, so a backdrop item in THIS window never sees hover — RenderFile flags
-                    // hovered tiles instead.
-                    m_TileHovered = false;
-
-                    if ( ImGui::BeginTable( "BodyTable", columnCount, flags ) )
-                    {
-                        // Grid: pin every column to the card's real width. SizingFixedFit alone sizes a
-                        // column to its CONTENT (icon/label), which can be narrower than the m_GridSize-wide
-                        // card RenderFile paints — neighbouring cards then overlapped horizontally.
-                        if ( !m_IsInListView )
-                            for ( int ci = 0; ci < columnCount; ++ci )
-                                ImGui::TableSetupColumn( nullptr, ImGuiTableColumnFlags_WidthFixed,
-                                                         m_GridSize + 4.0f );
-
-                        m_GridItemsPerRow =
-                             (int)floor( xAvail / ( m_GridSize + ImGui::GetStyle().ItemSpacing.x ) );
-                        m_GridItemsPerRow = std::max( 1, m_GridItemsPerRow );
-
-                        // ImGuiUtilities::PushID();
-
-                        // Filtered (search) + sorted (name/date/type/size) display order; both views share it.
-                        const std::vector<size_t> displayOrder = BuildDisplayOrder();
-                        for ( size_t idx : displayOrder )
-                        {
-                            ImGui::TableNextColumn();
-                            // ONLY WHAT IS ON SCREEN IS DRAWN (THUMB3), as UE's tile view only builds the
-                            // widgets in view: a tile scrolled away is a Dummy of the last drawn tile's
-                            // height — no thumbnail lookup, no capture request, no file probe. The selected
-                            // tile is always drawn, so keyboard navigation can scroll to it.
-                            float&      cellHeight = m_CellHeight[m_IsInListView ? 1 : 0];
-                            const float cellWidth  = ImGui::GetContentRegionAvail().x;
-                            if ( cellHeight > 0.0f && !ImGui::IsRectVisible( ImVec2( cellWidth, cellHeight ) ) &&
-                                 !IsSelected( m_CurrentDir->Children[idx] ) )
-                            {
-                                ImGui::Dummy( ImVec2( cellWidth, cellHeight ) );
-                                shownIndex++;
-                                continue;
-                            }
-                            const float cellTop = ImGui::GetCursorPosY();
-                            const bool  doubleClicked =
-                                 RenderFile( static_cast<int>( idx ), !m_CurrentDir->Children[idx]->IsFile,
-                                             shownIndex, !m_IsInListView );
-                            cellHeight = std::max( cellHeight, ImGui::GetCursorPosY() - cellTop );
-                            if ( doubleClicked )
-                                break;
-                            shownIndex++;
-                        }
-
-                        // ImGuiUtilities::PopID();
-
-                        if ( ImGui::BeginPopupContextWindow( "AssetPanelHierarchyContextWindow",
-                                                             ImGuiPopupFlags_MouseButtonRight |
-                                                                  ImGuiPopupFlags_NoOpenOverItems ) )
-                        {
-                            if ( !m_Clipboard.empty() &&
-                                 ImGui::Selectable( m_ClipboardCut ? "Paste (move)" : "Paste (copy)" ) )
-                            {
-                                PasteClipboard();
-                            }
-
-                            ImGui::Separator();
-
-                            if ( ImGui::Selectable( "Import Texture..." ) )
-                            {
-                                ImportExternalTexture();
-                            }
-
-                            if ( ImGui::Selectable( "Refresh" ) )
-                            {
-                                QueueRefresh();
-                            }
-
-                            if ( ImGui::Selectable( "New folder" ) )
-                            {
-                                std::string fullPath = m_CurrentDir->AssetPath + "/NewFolder";
-                                std::filesystem::create_directory( fullPath );
-                                QueueRefresh();
-                            }
-
-                            if ( ImGui::Selectable( "New Material" ) )
-                                CreateNewMaterial();
-
-                            if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
-                                if ( const auto created = CreateNewLevelSequence(); !created )
-                                    LOG_ERROR( "[Content] {}", created.GetError() );
-
-                            // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
-                            // it decides the output node, vertex contract and palette of the new graph.
-                            if ( ImGui::BeginMenu( "New Shader Graph" ) )
-                            {
-                                auto createGraph = [&]( ShaderGraph::Domain domain )
-                                {
-                                    const auto path =
-                                         NodeGraphPanel::CreateNewGraphFile( m_CurrentDir->AssetPath, domain );
-                                    if ( path.empty() ) // not written — nothing to open, nothing new to list
-                                        return;
-                                    // Through the SAME opener the double-click uses, so a graph created
-                                    // here and a graph opened from the tile reach one window by one route.
-                                    if ( RequestShaderGraphDocument( m_AssetManager, path ) !=
-                                         ShaderGraphDocumentRequest::Requested )
-                                    {
-                                        LOG_ERROR( "[ShaderGraph] '{}' was created but would not open.", path );
-                                    }
-                                    QueueRefresh();
-                                };
-                                if ( ImGui::MenuItem( "Surface" ) )
-                                    createGraph( ShaderGraph::Domain::Surface );
-                                if ( ImGui::MenuItem( "Post Process" ) )
-                                    createGraph( ShaderGraph::Domain::PostProcess );
-                                // The cloud medium. Named for what an artist is authoring rather than
-                                // for the engine's domain token: "Volume" is the word in the `.shader`
-                                // and in ShaderDomain, and it means nothing beside "Surface" and "Post
-                                // Process" until you already know what it is.
-                                if ( ImGui::MenuItem( "Cloud Medium" ) )
-                                    createGraph( ShaderGraph::Domain::Volume );
-                                ImGui::EndMenu();
-                            }
-
-                            // THE FOUR CLOUD FORMATS. Until this menu existed not one of them could be
-                            // created: all four editors are contextual documents keyed on an asset handle,
-                            // so the double-click seam had nothing to open and an artist could edit the
-                            // twenty-one shipped assets and author none of their own.
-                            //
-                            // A submenu for the reason "New Shader Graph" is one — four more top-level
-                            // items would be half the menu.
-                            if ( ImGui::BeginMenu( "New Cloud Asset" ) )
-                            {
-                                // Disabled while a volume is being generated: only one creation is tracked
-                                // at a time, and a second click would detach the first bake's thread.
-                                ImGui::BeginDisabled( m_CloudBakeRunning );
-
-                                if ( ImGui::MenuItem( "Cloud Type" ) )
-                                    CreateNewCloudAsset( CloudAssetKind::Type );
-                                if ( ImGui::IsItemHovered() )
-                                    ImGui::SetTooltip( "A kind of cloud: altitudes, silhouette curve, "
-                                                       "density. Starts from the built-in congestus." );
-
-                                if ( ImGui::MenuItem( "Cloud Layout" ) )
-                                    CreateNewCloudAsset( CloudAssetKind::Layout );
-                                if ( ImGui::IsItemHovered() )
-                                    ImGui::SetTooltip( "A blank 512x512 painting of where clouds are. "
-                                                       "Draw on it in the layout document." );
-
-                                if ( ImGui::MenuItem( "Cloud Noise Volume" ) )
-                                    CreateNewCloudAsset( CloudAssetKind::NoiseVolume );
-                                if ( ImGui::IsItemHovered() )
-                                    ImGui::SetTooltip( "The 3D noise cloud edges are eroded with, 128^3 "
-                                                       "RGBA8. Generated in the background - it takes "
-                                                       "several seconds and a progress bar appears above." );
-
-                                if ( ImGui::MenuItem( "Cloud Modelling Volume" ) )
-                                    CreateNewCloudAsset( CloudAssetKind::ModellingVolume );
-                                if ( ImGui::IsItemHovered() )
-                                    ImGui::SetTooltip( "A hero cloud's sculpted body, 128x64x128. Starts "
-                                                       "from the shipped congestus and is baked in the "
-                                                       "background." );
-
-                                ImGui::EndDisabled();
-                                ImGui::EndMenu();
-                            }
-
-                            if ( !m_IsInListView )
-                            {
-                                ImGui::SliderFloat( "##GridSize", &m_GridSize, m_MinGridSize, m_MaxGridSize );
-                            }
-                            ImGui::EndPopup();
-                        }
-
-                        ImGui::EndTable();
-                    }
-                    ImGui::PopStyleVar();
-
-                    // Left-click anywhere in the body that is NOT over a tile clears the selection (and
-                    // folds the preview pane). Hover is checked window-wide including the table's child.
-                    if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && !m_TileHovered &&
-                         ImGui::IsWindowHovered( ImGuiHoveredFlags_ChildWindows ) )
-                    {
-                        m_Selection.clear();
-                        m_CurrentSelected = nullptr;
-                    }
-
-                    ImGui::EndChild();
-                }
-            }
-            ImGui::EndChild(); // ##cb_right
-
-            if ( ImGui::BeginDragDropTarget() )
-            {
-                auto data =
-                     ImGui::AcceptDragDropPayload( "selectable", ImGuiDragDropFlags_AcceptNoDrawDefaultRect );
-                if ( data )
-                {
-                    std::string* a = (std::string*)data->Data;
-                    if ( ContentBrowserUtils::MoveFileTo( *a, m_MovePath ) )
-                    {
-                        // LINFO("Moved File: %s to %s", a->c_str(), m_MovePath.c_str());
-                    }
-                    m_IsDragging = false;
-                }
-                ImGui::EndDragDropTarget();
-            }
+            ImGui::EndDisabled();
+            ImGui::EndMenu();
         }
     }
 
@@ -1951,76 +1478,6 @@ namespace Desert::Editor
         return true;
     }
 
-    std::vector<size_t> FileExplorerPanel::BuildDisplayOrder() const
-    {
-        std::vector<size_t> order;
-        if ( !m_CurrentDir )
-            return order;
-        const auto& children = m_CurrentDir->Children;
-        order.reserve( children.size() );
-
-        const std::string search = ContentBrowserUtils::ToLowerCopy( m_SearchBuf );
-        for ( size_t i = 0; i < children.size(); ++i )
-        {
-            const auto* c = children[i];
-            if ( !m_Model.ShowsHiddenFiles() && c->Hidden )
-                continue;
-            // Type filter (folders always shown so you can still navigate).
-            if ( m_TypeFilter >= 0 && c->IsFile && static_cast<int>( c->Type ) != m_TypeFilter )
-                continue;
-            if ( !search.empty() )
-            {
-                const std::string name =
-                     ContentBrowserUtils::ToLowerCopy( std::filesystem::path( c->AssetPath ).filename().string() );
-                if ( name.find( search ) == std::string::npos )
-                    continue;
-            }
-            order.push_back( i );
-        }
-
-        const SortMode mode = m_SortMode;
-        const bool     desc = m_SortDescending;
-        // THE SORT KEY IS MADE ONCE PER ENTRY, not twice per comparison: this runs every frame, and building a
-        // path and a lower-cased copy inside the comparator was ~n log n allocations a frame — 18 % of the
-        // editor thread in a folder of 240 materials once the tiles themselves were cheap (THUMB3, sampled).
-        std::vector<std::string> names( children.size() );
-        for ( const size_t i : order )
-            names[i] = ContentBrowserUtils::ToLowerCopy(
-                 std::filesystem::path( children[i]->AssetPath ).filename().string() );
-        std::sort( order.begin(), order.end(),
-                   [&]( size_t a, size_t b )
-                   {
-                       const auto* ca = children[a];
-                       const auto* cb = children[b];
-                       if ( ca->IsFile != cb->IsFile )
-                           return !ca->IsFile; // folders always first, regardless of sort
-                       int cmp = 0;
-                       switch ( mode )
-                       {
-                           case SortMode::DateModified:
-                               cmp = static_cast<int>( ca->LastWriteTime > cb->LastWriteTime ) -
-                                     static_cast<int>( ca->LastWriteTime < cb->LastWriteTime );
-                               break;
-                           case SortMode::Type:
-                               cmp = static_cast<int>( ca->Type ) - static_cast<int>( cb->Type );
-                               break;
-                           case SortMode::Size:
-                               cmp = static_cast<int>( ca->FileSize > cb->FileSize ) -
-                                     static_cast<int>( ca->FileSize < cb->FileSize );
-                               break;
-                           case SortMode::Name:
-                           default:
-                               break;
-                       }
-                       if ( cmp == 0 ) // Name mode + tiebreak: case-insensitive filename
-                       {
-                           cmp = names[a].compare( names[b] );
-                       }
-                       return desc ? cmp > 0 : cmp < 0;
-                   } );
-        return order;
-    }
-
     void FileExplorerPanel::DrawItemContextMenu( DirectoryInformation& entry )
     {
         if ( !ImGui::BeginPopupContextItem( "##ItemContext" ) )
@@ -2276,7 +1733,7 @@ namespace Desert::Editor
         ImGuiIO& io = ImGui::GetIO();
         if ( io.KeyShift && m_SelectionAnchorShown >= 0 && m_CurrentDir )
         {
-            const auto order = BuildDisplayOrder();
+            const auto order = BuildDisplayOrder( m_CurrentDir, m_ViewState, m_Model.ShowsHiddenFiles() );
             const int  lo    = m_SelectionAnchorShown < shownIndex ? m_SelectionAnchorShown : shownIndex;
             const int  hi    = m_SelectionAnchorShown < shownIndex ? shownIndex : m_SelectionAnchorShown;
             m_Selection.clear();
@@ -2761,10 +2218,12 @@ namespace Desert::Editor
             LeaveThumbnailEdit();
     }
 
-    bool FileExplorerPanel::RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView )
+    ContentBrowserAssetView::TileResult FileExplorerPanel::RenderFile( int dirIndex, bool folder, int shownIndex,
+                                                                       bool gridView )
     {
         DirectoryInformation* entry         = m_CurrentDir->Children[dirIndex];
         bool                  doubleClicked = false;
+        bool                  hovered       = false;
 
         const std::string fileName = std::filesystem::path( entry->AssetPath ).filename().string();
         const char*       icon     = folder ? ICON_MDI_FOLDER : FileTypeInfoOf( entry->Type ).Icon;
@@ -2773,8 +2232,8 @@ namespace Desert::Editor
 
         if ( gridView )
         {
-            const float thumb  = m_GridSize * 0.66f;
-            const float cellW  = m_GridSize;
+            const float thumb  = m_ViewState.GridSize * 0.66f;
+            const float cellW  = m_ViewState.GridSize;
             const float indent = ( cellW - thumb ) * 0.5f; // center the icon/thumbnail in the cell
 
             // Content is emitted on the TOP draw-list channel; the card + thumbnail tile go on the BOTTOM
@@ -2877,7 +2336,7 @@ namespace Desert::Editor
             const bool   sel   = IsSelected( entry );
             const bool   hover = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect( cmin, cmax );
             if ( hover )
-                m_TileHovered = true; // consumed by the empty-click deselect in the body loop
+                hovered = true; // consumed by the asset view's empty-click deselect
             ImU32 bg = IM_COL32( 255, 255, 255, 10 );
             if ( sel )
                 bg = IM_COL32( 52, 92, 160, 150 );
@@ -2902,7 +2361,7 @@ namespace Desert::Editor
                     doubleClicked = true;
             }
             if ( ImGui::IsItemHovered() )
-                m_TileHovered = true;
+                hovered = true;
             EmitAssetDragSource( *entry );
             DrawItemContextMenu( *entry );
         }
@@ -2946,7 +2405,7 @@ namespace Desert::Editor
         }
 
         ImGui::PopID();
-        return doubleClicked;
+        return { .DoubleClicked = doubleClicked, .Hovered = hovered };
     }
 
     void FileExplorerPanel::RefreshCurrentDirectory()
@@ -2966,7 +2425,7 @@ namespace Desert::Editor
 
         // Re-scan the current directory in place — navigation (m_CurrentDir / the tree) is preserved.
         m_Model.Rescan( m_CurrentDir );
-        m_UpdateNavigationPath = true;
+        m_Toolbar.InvalidateBreadcrumbs();
 
         if ( !selectedPath.empty() )
             m_CurrentSelected = m_Model.Find( selectedPath );

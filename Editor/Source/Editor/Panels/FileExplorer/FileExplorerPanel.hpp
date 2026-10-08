@@ -3,8 +3,12 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Panels/FileExplorer/AssetViewState.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserAssetView.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserHistory.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserPathView.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserToolbar.hpp>
 #include <Editor/Panels/FileExplorer/ContentDirectoryModel.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
 #include <Editor/Panels/FileExplorer/FileType.hpp>
@@ -94,7 +98,8 @@ namespace Desert::Editor
         /// hand-over like a queued capture does, within the same budget.
         std::size_t TickWarmMeshes();
 
-        bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
+        // One entry of the open folder as a tile (@p gridView) or a list row — the asset view's OnDrawTile.
+        ContentBrowserAssetView::TileResult RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
         void DrawItemContextMenu( DirectoryInformation& entry );
         // Modal dialogs for the cross-platform file ops (rename / delete-with-reference-warning).
@@ -104,10 +109,6 @@ namespace Desert::Editor
         bool IsSelected( const DirectoryInformation* entry ) const;
         // Drag source with a thumbnail/big-icon preview (needs the thumbnail cache, hence a member).
         void EmitAssetDragSource( const DirectoryInformation& entry );
-
-        // True while any tile (card rect / list row) is hovered this frame — clicking elsewhere in the
-        // body clears the selection (the ScrollY table is a child window, so an item-based check can't work).
-        bool m_TileHovered = false;
 
         // Paths of the current multi-selection; falls back to m_CurrentSelected when empty.
         std::vector<std::string> SelectionPaths() const;
@@ -156,9 +157,6 @@ namespace Desert::Editor
         // hash its judge compares (ThumbnailProducers::CaptureKeyOf -> ThumbnailService::PictureKey), so the
         // service does not re-shoot over it. Lets the user frame the asset in the scene and use that view.
         Common::BoolResultStr CaptureThumbnailFromViewport( const DirectoryInformation& entry );
-        // Filtered (m_SearchBuf) + sorted (m_SortMode) child indices for the current directory.
-        std::vector<size_t> BuildDisplayOrder() const;
-        void DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen = false );
 
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before
@@ -258,45 +256,34 @@ namespace Desert::Editor
         void DrawCloudAssetBakeStatus();
 
     private:
-        float       m_MinGridSize = 40.0f;
-        float       m_MaxGridSize = 400.0f;
-        std::string m_MovePath;
-
-        bool  m_IsDragging   = false;
-        bool  m_IsInListView = false;
-        int   m_GridItemsPerRow;
-        float m_GridSize = 120.0f;
+        // OnUIRender's pieces that are not views: the selection's keyboard shortcuts, the last file-op error
+        // line, the queued re-listing, and the body's background menu (the asset view's OnBackgroundContextMenu).
+        void HandleSelectionShortcuts();
+        void DrawFileOpStatus();
+        void ApplyPendingRefresh();
+        void DrawBackgroundContextMenu();
+        // "New folder" (toolbar settings, background menu): `NewFolder` in the open folder, then re-listed.
+        void CreateNewFolder();
 
         // Content-Browser left pane (folder tree + favorites) width; dragged via the splitter, remembered
         // for the session. Clamped to [kMinTreeWidth, avail - kMinContentWidth] each frame.
         float m_TreeWidth = 240.0f;
 
-        // Asset filtering + sorting (toolbar).
-        enum class SortMode
-        {
-            Name = 0,
-            DateModified,
-            Type,
-            Size
-        };
-        char     m_SearchBuf[128] = { 0 };
-        SortMode m_SortMode        = SortMode::Name;
-        bool     m_SortDescending  = false;
-
-        ImGuiTextFilter m_Filter;
+        // THE THREE VIEWS (F7; UE SPathView / SNavigationBar / SAssetView) and the one state they share.
+        AssetViewState          m_ViewState;
+        ContentBrowserPathView  m_PathView;
+        ContentBrowserToolbar   m_Toolbar;
+        ContentBrowserAssetView m_AssetView;
 
         bool m_Refresh = false;
         // A file this panel just created, selected by the refresh that lists it (the entry does not exist
         // before that re-listing, so it cannot be selected at creation).
         std::string m_SelectAfterRefresh;
 
-        bool m_UpdateNavigationPath = true;
-
         // THE TREE (F3): every node of the browser, owned here; the raw views below point into it.
         ContentDirectoryModel m_Model;
         // The folder on screen; null only before the model's root was listed.
-        DirectoryInformation*              m_CurrentDir = nullptr;
-        std::vector<DirectoryInformation*> m_BreadCrumbData;
+        DirectoryInformation* m_CurrentDir = nullptr;
 
         DirectoryInformation* m_CurrentSelected = nullptr;
 
@@ -317,7 +304,6 @@ namespace Desert::Editor
         bool                            m_ClipboardCut = false; // true = move on paste, false = copy
 
         // Phase-3 navigation/UX.
-        int                   m_TypeFilter = -1; // FileType value to show, or -1 for "All"
         ContentBrowserHistory m_History;         // visited folder paths (back/forward)
 
         Assets::AssetManager*           m_AssetManager = nullptr;
@@ -343,8 +329,6 @@ namespace Desert::Editor
         const std::string&                           ThumbnailPngFor( const std::string& assetPath );
         std::unordered_map<std::string, std::string> m_ThumbnailPngOf;
         std::unordered_map<std::string, ImVec4>      m_CaptureAsked; // asset path -> its placeholder swatch
-        // Height of one grid tile / list row as last drawn: an off-screen one is a Dummy of this size.
-        float m_CellHeight[2] = { 0.0f, 0.0f };
         // The constructor's own navigations are not the user's and are not remembered.
         bool m_RestoringFolder = true;
 
