@@ -216,16 +216,26 @@ namespace Desert::Editor::Tools
         const std::string name =
              e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag : sel->ToString();
         Common::ResultStr<uint64_t> key = Common::MakeError<uint64_t>( "it has no StaticMeshComponent" );
+        std::shared_ptr<const Geometry::DynamicMesh3> mesh;
         if ( e.HasComponent<ECS::StaticMeshComponent>() )
         {
             auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
-            key         = target.IsSuccess() ? Common::MakeSuccess( MeshKeyOf( *target.GetValue().Mesh ) )
-                                             : Common::MakeError<uint64_t>( target.GetError() );
+            if ( target.IsSuccess() )
+                mesh = target.GetValue().Mesh;
+            key = target.IsSuccess() ? Common::MakeSuccess( MeshKeyOf( *target.GetValue().Mesh ) )
+                                     : Common::MakeError<uint64_t>( target.GetError() );
         }
-        const auto* saved  = e.HasComponent<ECS::CubeGridBlockoutComponent>()
-                                  ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
-                                  : nullptr;
-        auto        opened = ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+        const auto* saved = e.HasComponent<ECS::CubeGridBlockoutComponent>()
+                                 ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
+                                 : nullptr;
+        // No voxels carried: the blocks are recovered from the mesh itself (BlockoutSession.hpp, RecoverBlockout).
+        auto open = [&]() -> Common::ResultStr<ReopenedBlockout>
+        {
+            if ( saved == nullptr && mesh )
+                return RecoverBlockout( name, *mesh, e.GetWorldTransform(), Core::ModelingState::MinCellSize );
+            return ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+        };
+        auto opened = open();
         if ( !opened.IsSuccess() )
         {
             refuse( opened.GetError() );
@@ -294,12 +304,14 @@ namespace Desert::Editor::Tools
 
         bool        changed = false;
         // Requested Block Size in world units (= centimetres, see Common::Units).
-        // UE: opening the tool with a mesh selected takes that mesh as the target - here, a blockout that
-        // carries its voxels. The palette's "Edit selected blockout" asks the same explicitly.
+        // UE: opening the tool with a mesh selected takes that mesh as the target - a blockout that carries its
+        // voxels, or any static mesh, whose blocks are recovered from its faces (refused, by reason, when it is
+        // not made of blocks). The palette's "Edit selected blockout" asks the same explicitly.
         if ( toolActive && !m_WasActive && m_Entity == Common::UUID::Null() )
             if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
                 if ( auto ref = scene.FindEntityByID( *sel );
-                     ref && ref->get().HasComponent<ECS::CubeGridBlockoutComponent>() )
+                     ref && ( ref->get().HasComponent<ECS::CubeGridBlockoutComponent>() ||
+                              ref->get().HasComponent<ECS::StaticMeshComponent>() ) )
                     ms.ReqCubeGridEditSelected = true;
         m_WasActive = toolActive;
         if ( ms.ReqCubeGridEditSelected )
