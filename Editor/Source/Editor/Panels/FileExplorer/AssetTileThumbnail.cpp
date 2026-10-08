@@ -93,7 +93,7 @@ namespace Desert::Editor
         ImGui::TextUnformatted( std::filesystem::path( assetPath ).filename().string().c_str() );
     }
 
-    bool AssetTileThumbnail::Draw( DirectoryInformation* entry, const ImVec2& size )
+    bool AssetTileThumbnail::DrawThumbnail( DirectoryInformation* entry, const ImVec2& size )
     {
         using ThumbnailProducers::Producer;
         const std::optional<Producer> producer = ThumbnailProducers::ProducerOf( entry->Type );
@@ -441,7 +441,7 @@ namespace Desert::Editor
         ImGui::SetNextWindowSize( ImVec2( placed.Width, placed.Height ) );
         ImGui::BeginTooltip();
 
-        const bool drewThumb = Draw( entry, thumbSize );
+        const bool drewThumb = DrawThumbnail( entry, thumbSize );
         if ( !drewThumb )
         {
             const char*  icon   = FileTypeInfoOf( entry->Type ).Icon;

@@ -107,12 +107,12 @@ namespace
            "beside it was supposed to have been copying. It HOLDS the loaded asset, so it asks through the "
            "loaded-material entry (THM1f), which carries the same route and PreviewMesh as the path form" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::DrawRenderedMaterialThumbnail", Role::Shows, "RequestMaterial",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "AssetTileThumbnail::DrawRenderedMaterialThumbnail", Role::Shows, "RequestMaterial",
            "the asset browser's material grid" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::DrawRenderedMeshThumbnail", Role::Shows, "RequestMesh",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "AssetTileThumbnail::DrawRenderedMeshThumbnail", Role::Shows, "RequestMesh",
            "the asset browser's mesh grid" },
 
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
@@ -121,8 +121,8 @@ namespace
            "mesh had a picture in the browser and an icon beside its own slot; now the .skmesh's bind-pose "
            "picture, asked through the same service the browser tile asks" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::DrawRenderedPoseThumbnail", Role::Shows, "RequestPose",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "AssetTileThumbnail::DrawRenderedPoseThumbnail", Role::Shows, "RequestPose",
            "the asset browser's SKINNED mesh tile: the figure in its bind pose (or its clip's middle "
            "frame), photographed from the cooked asset like the static mesh grid beside it" },
 
@@ -132,30 +132,30 @@ namespace
          { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "ThumbnailOf", Role::Shows, "RequestMesh",
            "the Foliage palette's type tiles: each shows its type's mesh (FO-UI1)" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::DrawPaintedThumbnail", Role::Shows, "RequestPainted",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "AssetTileThumbnail::DrawPaintedThumbnail", Role::Shows, "RequestPainted",
            "the asset browser's tile for the four CLOUD formats, whose picture is PAINTED from the "
            "file's own bytes on a JobSystem worker rather than photographed by the renderer. It owes a "
            "request for exactly the same reason the two grids above it do — the difference between a "
            "capture and a paint is which queue it lands in, not whether the slot has to ask" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::DrawTextureThumbnail", Role::DecodesSource, "",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "AssetTileThumbnail::DrawTextureThumbnail", Role::DecodesSource, "",
            "the asset browser's texture tile. It decodes the IMAGE FILE ITSELF — not a cached render — "
            "so there is nothing for it to queue: spending an offscreen capture here would produce a "
            "picture of the picture we started with. It is deliberately independent of the cook pipeline "
            "so that EVERY image previews, not only the already-cooked ones" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::UploadPrefetchedThumbnails", Role::Rereads, "",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp",
+           "AssetThumbnailPool::UploadPrefetchedThumbnails", Role::Rereads, "",
            "the splash's upload pass (THUMB2). It uploads only pictures a worker already decoded from the "
            "disk cache for the tiles of the folder the browser opens on, before the window is shown; it "
            "never asks for a capture because none may run before the hand-over, and the tiles' own draws "
            "(DrawRenderedMaterialThumbnail / DrawRenderedMeshThumbnail, this file) queue any picture that "
            "is missing on the first frame after it" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::EmitAssetDragSource", Role::Rereads, "",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "AssetTileThumbnail::DrawDragPreview", Role::Rereads, "",
            "the drag ghost. It shows the picture of the tile being dragged, and a tile cannot be dragged "
            "without having been drawn — DrawRenderedMaterialThumbnail / DrawRenderedMeshThumbnail queued "
            "it one call earlier, in this same file, this same frame. It is a re-read of a decided "
@@ -179,7 +179,7 @@ namespace
            "request and key as the Content Browser sky tile. The drawer is the registration lambda, so the "
            "row names the macro whose first body it is" },
 
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", "FileExplorerPanel::DrawThumbnailFor",
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp", "AssetTileThumbnail::DrawThumbnail",
            Role::Shows, "RequestSkybox",
            "the asset browser's tile dispatch; its RenderedSky case draws the skybox tile inline and asks "
            "ThumbnailService::RequestSkybox itself (the other producers go to their own Draw* rows)" },
@@ -599,8 +599,8 @@ TEST( ThumbnailRequesters, TheOnlyExceptionIsBackedByTheSiteThatQueuesForIt )
     // no capture may be asked for before the window exists, Splash::ThumbnailCaptureAllowed) and Edit
     // Thumbnail's live preview (DEV-CIFIX, 09-30 — it re-reads what its own function just requested).
     // A new Rereads row fails here until its name is added deliberately.
-    const std::set<std::string> kDecidedExceptions = { "FileExplorerPanel::EmitAssetDragSource",
-                                                       "FileExplorerPanel::UploadPrefetchedThumbnails",
+    const std::set<std::string> kDecidedExceptions = { "AssetTileThumbnail::DrawDragPreview",
+                                                       "AssetThumbnailPool::UploadPrefetchedThumbnails",
                                                        "FileExplorerPanel::DrawThumbnailEdit" };
     std::set<std::string>       excused;
     for ( const Site& site : kSites )
@@ -782,12 +782,12 @@ TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
            "SkinnedMeshComponentWidget::DrawMeshThumbnail", false },
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp",
            "StaticMeshComponentWidget::DrawMeshThumbnail", false },
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::DrawRenderedPoseThumbnail", false },
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "bool FileExplorerPanel::DrawRenderedMeshThumbnail", false },
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::WarmProjectThumbnails", true },
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "AssetTileThumbnail::DrawRenderedPoseThumbnail", false },
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
+           "bool AssetTileThumbnail::DrawRenderedMeshThumbnail", false },
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp",
+           "AssetThumbnailPool::WarmProjectThumbnails", true },
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard", false },
          { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "const void* ThumbnailOf(", false } };
     for ( const auto& [file, function, otherPictures] : showers )

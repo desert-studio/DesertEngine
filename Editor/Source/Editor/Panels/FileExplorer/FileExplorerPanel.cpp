@@ -536,7 +536,7 @@ namespace Desert::Editor
 
             // Texture/material/model -> live thumbnail; everything else -> a big coloured type icon. The
             // thumbnail/icon IS the hoverable/selectable/draggable item.
-            const bool drewThumb = entry->IsFile && m_TileThumbnail.Draw( entry, ImVec2( thumb, thumb ) );
+            const bool drewThumb = entry->IsFile && m_TileThumbnail.DrawThumbnail( entry, ImVec2( thumb, thumb ) );
             if ( !drewThumb )
             {
                 const ImVec4 col = entry->IsFile ? entry->FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );

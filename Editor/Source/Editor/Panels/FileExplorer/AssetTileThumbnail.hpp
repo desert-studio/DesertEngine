@@ -33,7 +33,7 @@ namespace Desert::Editor
         AssetTileThumbnail& operator=( const AssetTileThumbnail& ) = delete;
 
         // The tile's and the tooltip's picture. False = draw the type icon (no picture yet, or none by design).
-        bool Draw( DirectoryInformation* entry, const ImVec2& size );
+        bool DrawThumbnail( DirectoryInformation* entry, const ImVec2& size );
 
         // UE-style hover tooltip for a tile: picture, name, type/size, path. Shown after the cursor has
         // rested AssetTooltipLayout::kHoverDelaySeconds on the same tile; size and placement from
