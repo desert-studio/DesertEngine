@@ -114,6 +114,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, uint32_t step );
         void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step ) const;
 
+        // VFX-08: this view's back-to-front sort of every translucent / additive emitter (ParticleSortGraph.hpp),
+        // one Compute node per stage, after the simulation and before ParticlePass. Every view adds its own (the
+        // key is the view depth), whether or not it claimed the simulation. Call after ImportFrameBuffers.
+        void AddSortPasses( RDG::Builder& graph );
+
     private:
         // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor
         // sets from the cell's reflection; the camera block and the Materials rows are written once per frame,
@@ -166,6 +171,7 @@ namespace Desert::Graphic::System
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
             bool                        Declared = false;
+            bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
         };
 
         bool CreatePipelines();
@@ -186,6 +192,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<ComputePipeline>  m_CompactPipeline;
         std::shared_ptr<ComputePipeline>  m_ArgsPipeline;
+        std::shared_ptr<ComputePipeline>  m_SortPipeline;
+        mutable ShaderBindingLayoutCache  m_SortLayout;
+        RDG::BufferRef                    m_SortKeysRef;
+        RDG::BufferRef                    m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         mutable ShaderBindingLayoutCache m_SimLayout;
         mutable ShaderBindingLayoutCache m_CompactLayout;

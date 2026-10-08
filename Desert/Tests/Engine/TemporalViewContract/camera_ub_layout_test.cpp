@@ -255,7 +255,6 @@ TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
     };
     const std::regex unjittered(
          R"(gl_Position\s*=\s*cameraUB\s*\.\s*(Projection\s*\*\s*cameraUB\s*\.\s*View|ViewProjection)\b)" );
-    const std::regex particleOffset( R"(gl_Position\s*\.\s*xy\s*\+=\s*cameraUB\s*\.\s*JitterNdc)" );
 
     size_t scanned = 0, jittered = 0;
     for ( const auto& entry : fs::recursive_directory_iterator( shaders ) )
@@ -271,13 +270,6 @@ TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
             ++jittered;
         if ( postTemporal.count( rel ) != 0 )
             continue;
-        if ( rel == "Programs/Particles/ParticleBillboard.shader" )
-        {
-            // View-space billboard: Projection * viewPos, then the jitter added in clip space (ApplyJitter).
-            EXPECT_TRUE( std::regex_search( source, particleOffset ) )
-                 << rel << " projects its billboards without adding cameraUB.JitterNdc";
-            continue;
-        }
         EXPECT_FALSE( std::regex_search( source, unjittered ) )
              << rel << " rasterises with the unjittered camera matrix; scene raster uses "
              << "cameraUB.JitteredViewProjection (only post-temporal overlays are exempt, listed in this test)";

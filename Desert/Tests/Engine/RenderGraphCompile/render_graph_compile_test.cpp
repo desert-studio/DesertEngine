@@ -6,6 +6,7 @@
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleSortGraph.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
@@ -357,6 +358,111 @@ TEST( RenderGraphCompile, TheParticleRendererNamesNoSpriteShaderButTheDefaultTem
     EXPECT_NE( source.find( "\"ParticleSpriteDefault\"" ), std::string::npos );
     EXPECT_FALSE( fs::exists( engine / "Materials/Particles/MaterialParticleBillboard.hpp" ) );
     EXPECT_FALSE( fs::exists( root / "Editor/Resources/Shaders/Programs/Particles/ParticleBillboard.shader" ) );
+}
+
+// VFX-08f. The translucent sprite sort, built from the declarations ParticleRenderer::AddSortPasses makes
+// (PlanParticleSort + DeclareParticleSortStage) between a stand-in for the last Compact (writes the pool, the
+// alive list and the draw slots) and a stand-in for ParticlePass (reads the sorted list for the sorted emitter and
+// the alive list for the opaque one). Red if an opaque / masked emitter gets sort nodes, a translucent / additive
+// one gets none or a stage count other than ParticleSortStages, a stage leaves a slot of the shader's layout
+// undeclared (Validation fault), or any sort node can run before the compact or after the draw.
+TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForBlendedEmittersOnly )
+{
+    using Desert::Core::Formats::SurfaceBlendMode;
+    namespace Sys = Desert::Graphic::System;
+
+    const std::vector<Sys::ParticleSortEmitter> emitters = {
+         { 0, SurfaceBlendMode::Opaque, 300, 0, 0 },
+         { 1, SurfaceBlendMode::Translucent, 3000, 2 * 300, 0 },
+         { 2, SurfaceBlendMode::Masked, 64, 2 * 3300 + 64, 1 },
+         { 3, SurfaceBlendMode::Additive, 16, 2 * 3364 + 16, 1 },
+    };
+    const Sys::ParticleSortPlan plan = Sys::PlanParticleSort( emitters );
+    ASSERT_EQ( plan.Ranges.size(), 2u );
+    EXPECT_EQ( plan.Ranges[0].Emitter, 1u );
+    EXPECT_EQ( plan.Ranges[1].Emitter, 3u );
+    EXPECT_EQ( plan.Ranges[0].Length, 4096u );
+    EXPECT_EQ( plan.Ranges[1].KeyBase, 4096u );
+    EXPECT_EQ( plan.KeyCount, 4096u + 16u );
+
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "particle sort" );
+    const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 3380u * 64u }, "ParticlePool" );
+    const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
+    const BufferRef  counters  = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
+    const TextureRef back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Particles: Compact 1", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Write( particles, Access::StorageWrite );
+             pass.Write( alive, Access::StorageWrite );
+             pass.Write( counters, Access::StorageWrite );
+         },
+         Ok );
+
+    const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 3380u * 4u );
+    const auto layout         = std::make_shared<const ShaderBindingLayout>(
+         ShaderBindingLayout{ "ParticleSort",
+                                      { { "Particles", ShaderResourceKind::StorageBuffer },
+                                        { "AliveList", ShaderResourceKind::StorageBuffer },
+                                        { "Counters", ShaderResourceKind::StorageBuffer },
+                                        { "SortKeys", ShaderResourceKind::StorageBuffer },
+                                        { "SortedAlive", ShaderResourceKind::StorageBuffer } },
+                              Sys::kParticleSortPushBytes } );
+    const Sys::ParticleSortBuffers buffers{ particles, alive, counters, keys, sorted };
+    std::vector<std::string>       sortNames;
+    for ( const Sys::ParticleSortRange& range : plan.Ranges )
+    {
+        const auto stages = Sys::ParticleSortStages( range.Length );
+        for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
+        {
+            const Sys::ParticleSortStageKind kind = stages[s].Kind;
+            sortNames.push_back( Sys::ParticleSortPassName( range.Emitter, s ) );
+            graph.AddPass(
+                 sortNames.back(), PassFlags::Compute, [&, kind]( PassBuilder& pass )
+                 { Sys::DeclareParticleSortStage( pass, layout, {}, buffers, kind ); }, Ok );
+        }
+    }
+    graph.AddPass(
+         "ParticlePass", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( particles, Access::StorageRead );
+             pass.Read( alive, Access::StorageRead );  // the opaque / masked emitters
+             pass.Read( sorted, Access::StorageRead ); // the translucent / additive ones
+             pass.Read( counters, Access::IndirectArgs );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    // 4096 keys: Keys, Local, (Global j=1024, Merge) for k = 2048 and (Global j=2048, Global j=1024, Merge) for
+    // k = 4096, Write; 16 keys: Keys, Local, Write.
+    EXPECT_EQ( sortNames.size(), Sys::ParticleSortStages( 4096 ).size() + 3u );
+    for ( const uint32_t unsorted : { 0u, 2u } )
+        EXPECT_EQ( result.FindPass( Sys::ParticleSortPassName( unsorted, 0 ) ), nullptr )
+             << "an opaque / masked emitter is drawn unsorted and has no sort node";
+
+    auto position = [&]( const std::string& name )
+    {
+        const auto it = std::find_if( result.Passes.begin(), result.Passes.end(),
+                                      [&]( const auto& pass ) { return pass.Name == name; } );
+        return it == result.Passes.end() ? -1 : static_cast<int>( it - result.Passes.begin() );
+    };
+    const int compact = position( "Particles: Compact 1" );
+    const int draw    = position( "ParticlePass" );
+    ASSERT_GE( compact, 0 );
+    ASSERT_GE( draw, 0 );
+    int previous = compact;
+    for ( const std::string& name : sortNames )
+    {
+        const int at = position( name );
+        EXPECT_GT( at, previous ) << name << " is culled or runs out of its stage order / before the compact";
+        EXPECT_LT( at, draw ) << name << " runs after the draw that reads its sorted list";
+        previous = at;
+    }
 }
 
 // ── Vulkan-free ─────────────────────────────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 
 #include "ParticleEmitterRetire.hpp"
 #include "ParticleGpuLayout.hpp"
+#include "ParticleSortGraph.hpp"
 
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
@@ -28,6 +29,19 @@
 
 namespace Desert::Graphic::System
 {
+    namespace
+    {
+        // ParticleSort.shader's PushConstants, field for field.
+        struct ParticleSortPush
+        {
+            glm::uvec4 Range; // x = alive offset, y = draw slot, z = key base, w = N
+            glm::uvec4 Step;  // x = stage, y = k, z = j
+            glm::vec4  ViewOrigin;
+            glm::vec4  ViewForward;
+        };
+        static_assert( sizeof( ParticleSortPush ) == kParticleSortPushBytes );
+    } // namespace
+
     ParticleRenderer::~ParticleRenderer() = default;
 
     Common::BoolResultStr ParticleRenderer::Initialize()
@@ -53,10 +67,12 @@ namespace Desert::Graphic::System
         if ( !shaderService )
             return false;
 
-        // The three compute programs of the simulation: Spawn+Update, Compact and Dispatch Args.
+        // The three compute programs of the simulation (Spawn+Update, Compact, Dispatch Args) and the per-view
+        // translucent sort.
         for ( const auto& [name, into] : { std::pair{ "ParticleSimulate", &m_SimPipeline },
                                            std::pair{ "ParticleCompact", &m_CompactPipeline },
-                                           std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline } } )
+                                           std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
+                                           std::pair{ "ParticleSort", &m_SortPipeline } } )
         {
             auto shader = shaderService->GetByName( name );
             if ( !shader )
@@ -274,7 +290,10 @@ namespace Desert::Graphic::System
     {
         m_Pool.Declared = false;
         for ( ViewEmitter& ve : m_ViewEmitters )
+        {
             ve.Declared = false;
+            ve.Sorted   = false;
+        }
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Particles )
             return;
         const ParticlePoolBuffers& pool = m_World->Pool();
@@ -325,6 +344,68 @@ namespace Desert::Graphic::System
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.Declared    = true;
+        }
+    }
+
+    void ParticleRenderer::AddSortPasses( RDG::Builder& graph )
+    {
+        if ( !m_Pool.Declared || !m_SortPipeline || m_World == nullptr || m_SceneRenderer == nullptr )
+            return;
+        const ViewFrame* view = m_SceneRenderer->GetViewFrame();
+        if ( view == nullptr )
+            return; // ParticlePass draws nothing either
+
+        // The drawn half is the one the last compact (index StepCount) filled: alive half h = StepCount & 1 at
+        // [2 Base + h Count, 2 Base + (h + 1) Count), draw slot h.
+        std::vector<ParticleSortEmitter> emitters;
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
+        {
+            const ViewEmitter& ve = m_ViewEmitters[i];
+            if ( !IsDrawn( ve ) )
+                continue;
+            const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
+            const uint32_t            half = ve.Frame->StepCount & 1u;
+            emitters.push_back(
+                 { i, ve.Sprite->Blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
+        }
+        const ParticleSortPlan plan = PlanParticleSort( emitters );
+        if ( plan.Ranges.empty() )
+            return;
+
+        const uint64_t aliveBytes              = uint64_t{ 2 } * m_World->Pool().Capacity * sizeof( uint32_t );
+        std::tie( m_SortKeysRef, m_SortedRef ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
+        // The view depth is along the camera's forward axis (-Z of the view basis), from its position (cm).
+        const glm::vec4 origin( glm::vec3( view->InvView[3] ), 0.0f );
+        const glm::vec4 forward( -glm::normalize( glm::vec3( view->InvView[2] ) ), 0.0f );
+        for ( const ParticleSortRange& range : plan.Ranges )
+        {
+            ViewEmitter& ve = m_ViewEmitters[range.Emitter];
+            ve.Sorted       = true;
+            const ParticleSortBuffers buffers{ m_Pool.ParticlesRef, m_Pool.AliveRef, ve.CountersRef, m_SortKeysRef,
+                                               m_SortedRef };
+            const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length );
+            for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
+            {
+                const ParticleSortStage stage = stages[s];
+                const ParticleSortPush  push{
+                     glm::uvec4( range.AliveOffset, range.Slot, range.KeyBase, range.Length ),
+                     glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, 0u ), origin, forward };
+                graph.AddPass(
+                     ParticleSortPassName( range.Emitter, s ), RDG::PassFlags::Compute,
+                     [this, buffers, stage]( RDG::PassBuilder& pass )
+                     {
+                         DeclareParticleSortStage(
+                              pass, m_SortLayout.Get( m_SortPipeline->GetSpecification().Shader ),
+                              Renderer::GetPipelineRouteFill( *m_SortPipeline ), buffers, stage.Kind );
+                     },
+                     [this, push, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         bindings.PushConstants( &push, sizeof( push ) );
+                         return Renderer::GetInstance().DispatchCompute( bindings, *m_SortPipeline, stage.Groups,
+                                                                         1, 1 );
+                     } );
+            }
         }
     }
 
@@ -491,15 +572,17 @@ namespace Desert::Graphic::System
             {
                 if ( !IsDrawn( ve ) )
                     continue;
-                const RDG::ShaderBindingLayout& layout =
-                     ve.Sprite->Layout.Get( ve.Sprite->Pipeline->GetSpecification().Shader );
-                auto& block =
+                const auto& layout = ve.Sprite->Layout.Get( ve.Sprite->Pipeline->GetSpecification().Shader );
+                // A translucent / additive emitter reads its alive half back to front from this view's SortedAlive
+                // (AddSortPasses), at the same offset; an opaque / masked one reads AliveList unsorted.
+                auto block =
                      declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
                           .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageRead )
-                          .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead );
-                if ( SceneViewDetail::LayoutSamples( layout, "u_SceneDepth" ) && depth )
+                          .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
+                                    RDG::Access::StorageRead );
+                if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
                     block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
-                                   RDG::SamplerDesc::LinearRepeat(), "SceneDepth.Compute" );
+                                   RDG::SamplerDesc::PointClamp(), "SceneDepth.Compute" );
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };

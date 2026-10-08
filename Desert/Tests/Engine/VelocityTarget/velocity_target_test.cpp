@@ -1004,7 +1004,7 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
          { "SSRComposite", E + "Deferred/SSRRenderer.hpp" },                  // reflection composite
          { "DebugLine", E + "Mesh/MeshRendererDebug.cpp" },                   // debug lines
          { "OverdrawResolve", E + "Mesh/MeshRendererDebug.cpp" },             // debug view
-         { "ParticleBillboard", E + "Particles/ParticleRenderer.cpp" },       // translucent particles
+         { "ParticleSpriteDefault", E + "Particles/ParticleRenderer.cpp" },   // translucent particles
          { "Grid", Ed + "EditorGridPass.cpp" },                               // editor overlay
          { "DebugLine", Ed + "EditorColliderPass.cpp" },                      // editor overlay
          { "CubemapSphere", Ed + "EditorCubemapPreviewPass.cpp" },            // editor overlay
