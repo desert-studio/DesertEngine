@@ -30,7 +30,7 @@ namespace Desert::Graphic::System
                               {
                                   const auto entity = static_cast<entt::entity>( entry.first );
                                   return !registry.valid( entity ) ||
-                                         !registry.all_of<ECS::ParticleEmitterComponent>( entity );
+                                         !registry.has<ECS::ParticleEmitterComponent>( entity );
                               } );
     }
 } // namespace Desert::Graphic::System
