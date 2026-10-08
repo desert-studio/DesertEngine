@@ -63,6 +63,9 @@ namespace Desert::Editor
         /// A fracture (`.dfrac`, UE UGeometryCollection): its own type so the browser can colour it, give it
         /// an icon and filter by it; its picture is the class icon until a producer renders the pieces.
         Fracture,
+        /// A VFX data channel (`.dfxch`, UE UNiagaraDataChannel): its own type so the browser can colour it, give
+        /// it an icon and filter by it; a layout of fields has no picture, so it shows the class icon as UE does.
+        VFXDataChannel,
 
         /// An import settings sidecar (`.deimport`) written beside a source file by the importer: it states
         /// HOW the source is brought in, so the browser names it instead of calling it Unknown.
@@ -158,6 +161,7 @@ namespace Desert::Editor
          { "dseq", FileType::LevelSequence },
          { "dfx", FileType::VFXSystem },
          { "dfrac", FileType::Fracture },
+         { "dfxch", FileType::VFXDataChannel },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

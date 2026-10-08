@@ -4,6 +4,11 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
+#include <Engine/Assets/VFXDataChannelAsset.hpp>
+
+#include <Common/Core/Constants.hpp>
+
+#include <filesystem>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
@@ -261,4 +266,99 @@ TEST( VFXDataChannel, CompileSpawnPlanReadsSpawnFromChannel )
     system.Emitters[0].Stack.EmitterUpdate[0].Inputs.erase(
          system.Emitters[0].Stack.EmitterUpdate[0].Inputs.begin() + 6 );
     EXPECT_FALSE( VFX::CompileSpawnPlan( system, 0 ).IsSuccess() );
+}
+
+// VFX-10b: the Color, Float and Int payload reach the particle. Color -> the particle's Tint, a Float or Int field
+// -> its lifetime (seconds); the request carries them to ParticleWorldGpu's record (Color, Scalars).
+TEST( VFXDataChannel, TheColorAndScalarPayloadReachTheSpawnRequest )
+{
+    VFX::VFXDataChannels channels;
+    ASSERT_TRUE( channels.Register( "Impacts", ImpactChannel() ) );
+    {
+        auto writer = channels.Write( "Impacts", 1 );
+        ASSERT_TRUE( writer.IsSuccess() ) << writer.GetError();
+        VFX::VFXDataChannelWriter& w = writer.GetValue();
+        ASSERT_TRUE( w.WritePosition( 0, "Pos", glm::vec3( 10.0f, 0.0f, 0.0f ) ) );
+        ASSERT_TRUE( w.WriteColor( 0, "Tint", glm::vec4( 1.0f, 0.5f, 0.25f, 0.75f ) ) );
+        ASSERT_TRUE( w.WriteFloat( 0, "Strength", 2.5f ) );
+        ASSERT_TRUE( w.WriteInt( 0, "Team", 3 ) );
+    }
+    VFX::VFXChannelSpawnModule m = Module( 1, 4 );
+    m.ColorField                 = "Tint";
+    m.LifetimeField              = "Strength";
+    auto batch                   = VFX::GatherChannelSpawns( m, channels.Find( "Impacts" ), glm::vec3( 0.0f ) );
+    ASSERT_EQ( batch.Requests.size(), 1u );
+    EXPECT_TRUE( batch.Requests[0].HasColor );
+    EXPECT_EQ( batch.Requests[0].Color, glm::vec4( 1.0f, 0.5f, 0.25f, 0.75f ) );
+    EXPECT_TRUE( batch.Requests[0].HasLifetime );
+    EXPECT_EQ( batch.Requests[0].Lifetime, 2.5f );
+
+    // An Int field binds the lifetime too (whole seconds, stored exactly).
+    m.LifetimeField = "Team";
+    batch           = VFX::GatherChannelSpawns( m, channels.Find( "Impacts" ), glm::vec3( 0.0f ) );
+    ASSERT_EQ( batch.Requests.size(), 1u );
+    EXPECT_EQ( batch.Requests[0].Lifetime, 3.0f );
+
+    // Unbound: no colour, no lifetime - the emitter's own.
+    batch = VFX::GatherChannelSpawns( Module( 1, 4 ), channels.Find( "Impacts" ), glm::vec3( 0.0f ) );
+    ASSERT_EQ( batch.Requests.size(), 1u );
+    EXPECT_FALSE( batch.Requests[0].HasColor );
+    EXPECT_FALSE( batch.Requests[0].HasLifetime );
+
+    // A role bound to a field of the wrong type is refused.
+    const VFX::VFXDataChannelLayout layout = VFX::VFXDataChannelLayout::From( ImpactChannel() );
+    VFX::VFXChannelSpawnModule      bad    = Module( 1, 4 );
+    bad.ColorField                         = "Strength";
+    EXPECT_FALSE( VFX::BindChannelSpawn( bad, layout ) ) << "a Float field accepted as the colour";
+    bad               = Module( 1, 4 );
+    bad.LifetimeField = "Tint";
+    EXPECT_FALSE( VFX::BindChannelSpawn( bad, layout ) ) << "a Color field accepted as the lifetime";
+
+    // The module's Color (Vec4) and Lifetime (Float) inputs are read from the stack.
+    S::VFXSystemData  system;
+    S::VFXEmitterData emitter;
+    emitter.Name                   = "Sparks";
+    emitter.Lifecycle.LoopDuration = 1.0f;
+    S::VFXModuleUse use;
+    use.Module = std::string( VFX::kVFXSpawnFromChannelModule );
+    use.Inputs = { Bound( "Channel", S::VFXValueType::Int, "DataChannel.Impacts" ),
+                   Value( "ParticlesPerEntry", S::VFXValueType::Int, 1.0f ),
+                   Value( "MaxEntriesPerFrame", S::VFXValueType::Int, 4.0f ),
+                   Bound( "Color", S::VFXValueType::Vec4, "DataChannel.Impacts.Tint" ),
+                   Bound( "Lifetime", S::VFXValueType::Float, "DataChannel.Impacts.Team" ) };
+    emitter.Stack.EmitterUpdate.push_back( use );
+    system.Emitters.push_back( emitter );
+    auto plan = VFX::CompileSpawnPlan( system, 0 );
+    ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
+    ASSERT_TRUE( plan.GetValue().Channel.has_value() );
+    EXPECT_EQ( plan.GetValue().Channel->ColorField, "Tint" );
+    EXPECT_EQ( plan.GetValue().Channel->LifetimeField, "Team" );
+}
+
+// VFX-10b: a script names a channel by its asset name (as IA_Jump), never by a path; C++ registers the asset (or
+// its handle) and the channel is named by the file stem.
+TEST( VFXDataChannel, AChannelIsNamedByItsAssetNotByAPath )
+{
+    const auto path = Assets::VFXDataChannelAsset::PathForName( "Impacts" );
+    ASSERT_TRUE( path.IsSuccess() ) << path.GetError();
+    EXPECT_EQ( path.GetValue(), Common::Constants::Path::VFX_PATH / "Impacts.dfxch" );
+    EXPECT_FALSE( Assets::VFXDataChannelAsset::PathForName( "VFX/Impacts.dfxch" ).IsSuccess() );
+    EXPECT_FALSE( Assets::VFXDataChannelAsset::PathForName( "Impacts.dfxch" ).IsSuccess() );
+    EXPECT_FALSE( Assets::VFXDataChannelAsset::PathForName( "" ).IsSuccess() );
+
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "VFX10bChannelByAsset";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path file = dir / "Impacts.dfxch";
+    ASSERT_TRUE( Assets::VFXDataChannelAsset::Save( file, ImpactChannel() ) );
+    Assets::VFXDataChannelAsset asset( file );
+    VFX::VFXDataChannels        channels;
+    EXPECT_FALSE( channels.Register( asset ) ) << "an asset not yet loaded was registered";
+    ASSERT_TRUE( asset.LoadFromFile() );
+    ASSERT_TRUE( channels.Register( asset ) );
+    const VFX::VFXDataChannel* channel = channels.Find( "Impacts" );
+    ASSERT_NE( channel, nullptr ) << "the channel is not named by the asset's file stem";
+    EXPECT_EQ( channel->Layout().Fields, ImpactChannel().Fields );
+    fs::remove_all( dir );
 }

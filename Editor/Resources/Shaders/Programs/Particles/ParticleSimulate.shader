@@ -59,6 +59,8 @@ Shader "ParticleSimulate"
         {
             vec4 Position;  // xyz world cm, w = 1 when the module binds a Position field
             vec4 Direction; // xyz start velocity direction, w = 1 when bound
+            vec4 Color;     // linear rgba -> the particle's Tint when Scalars.z = 1
+            vec4 Scalars;   // x = lifetime seconds, z = 1 when the colour is bound, w = 1 when the lifetime is
         };
 
         ReadBuffer(5) ChannelSpawns
@@ -83,7 +85,7 @@ Shader "ParticleSimulate"
             float t     = ( p.VelLife.w > 0.0 ) ? clamp( p.Age.x / p.VelLife.w, 0.0, 1.0 ) : 0.0;
             float st    = pow( t, u_Sizes.z > 0.0 ? u_Sizes.z : 1.0 ); // size-over-life ease curve
             p.PosSize.w = mix( u_Sizes.x, u_Sizes.y, st );
-            p.Color     = mix( u_StartColor, u_EndColor, t );
+            p.Color     = mix( u_StartColor, u_EndColor, t ) * p.Tint;
             if ( p.VelLife.w <= 0.0 )
                 p.Color.a = 0.0; // dead => invisible
             return p;
@@ -148,6 +150,8 @@ Shader "ParticleSimulate"
                 VFXChannelSpawn channel;
                 channel.Position  = vec4( 0.0 );
                 channel.Direction = vec4( 0.0 );
+                channel.Color     = vec4( 1.0 );
+                channel.Scalars   = vec4( 0.0 );
                 if ( fromChannel )
                     channel = u_ChannelSpawns[u_Steps[step].ChannelFirst + t];
                 if ( channel.Direction.w > 0.5 && dot( channel.Direction.xyz, channel.Direction.xyz ) > 1e-12 )
@@ -155,12 +159,15 @@ Shader "ParticleSimulate"
 
                 float speed = u_Params.x * ( 1.0 - u_Params.y * r.z );
                 float life  = u_Params.z * ( 1.0 - u_Params.w * r.w );
+                if ( channel.Scalars.w > 0.5 )
+                    life = channel.Scalars.x;
 
                 Particle p;
                 p.PosSize      = vec4( u_EmitterPos.xyz, u_Sizes.x );
                 p.VelLife      = vec4( dir * speed, max( life, 0.01 ) );
                 p.Age          = vec4( 0.0 );
                 p.Color        = vec4( 0.0 );
+                p.Tint         = channel.Scalars.z > 0.5 ? channel.Color : vec4( 1.0 );
                 if ( channel.Position.w > 0.5 )
                 {
                     p.PosSize.xyz = channel.Position.xyz;

@@ -1,5 +1,8 @@
 #include "VFXDataChannel.hpp"
 
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/VFXDataChannelAsset.hpp>
+
 #include <Common/Core/Logger.hpp>
 
 #include <cmath>
@@ -183,6 +186,24 @@ namespace Desert::VFX
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr VFXDataChannels::Register( const Assets::VFXDataChannelAsset& asset )
+    {
+        if ( !asset.IsReadyForUse() )
+            return Common::MakeFormattedError<bool>( "data channel asset '{}' is not loaded",
+                                                     asset.GetMetadata().Filepath.string() );
+        return Register( asset.ChannelName(), asset.GetData() );
+    }
+
+    Common::BoolResultStr VFXDataChannels::Register( const Common::AssetHandle&  handle,
+                                                     const Assets::AssetManager& assets )
+    {
+        const auto asset = assets.FindByHandle<Assets::VFXDataChannelAsset>( handle );
+        if ( !asset )
+            return Common::MakeFormattedError<bool>( "no VFX data channel asset has handle {}",
+                                                     static_cast<std::uint64_t>( handle ) );
+        return Register( *asset );
+    }
+
     const VFXDataChannel* VFXDataChannels::Find( const std::string_view name ) const
     {
         const auto it = m_Channels.find( name );
@@ -227,6 +248,13 @@ namespace Desert::VFX
         if ( auto r = CheckField( layout, module.FilterField, "Filter", true, S::VFXDataChannelFieldType::Float );
              !r )
             return r;
+        if ( auto r = CheckField( layout, module.ColorField, "Color", false, S::VFXDataChannelFieldType::Color );
+             !r )
+            return r;
+        if ( auto r =
+                  CheckField( layout, module.LifetimeField, "Lifetime", true, S::VFXDataChannelFieldType::Float );
+             !r )
+            return r;
         if ( module.MaxDistance > 0.0f && module.PositionField.empty() )
             return Common::MakeFormattedError<bool>( "MaxDistance {} cm has no Position field to measure",
                                                      module.MaxDistance );
@@ -257,6 +285,8 @@ namespace Desert::VFX
         const int   position      = offsetOf( module.PositionField );
         const int   direction     = offsetOf( module.DirectionField );
         const int   filter        = offsetOf( module.FilterField );
+        const int   color         = offsetOf( module.ColorField );
+        const int   lifetime      = offsetOf( module.LifetimeField );
         const float maxDistanceSq = module.MaxDistance * module.MaxDistance;
 
         const std::size_t count = channel->EntryCount();
@@ -278,6 +308,17 @@ namespace Desert::VFX
                 const auto D         = static_cast<std::size_t>( direction );
                 request.HasDirection = true;
                 request.Direction    = glm::vec3( entry[D], entry[D + 1], entry[D + 2] );
+            }
+            if ( color >= 0 )
+            {
+                const auto K     = static_cast<std::size_t>( color );
+                request.HasColor = true;
+                request.Color    = glm::vec4( entry[K], entry[K + 1], entry[K + 2], entry[K + 3] );
+            }
+            if ( lifetime >= 0 )
+            {
+                request.HasLifetime = true;
+                request.Lifetime    = entry[static_cast<std::size_t>( lifetime )];
             }
             if ( module.MaxDistance > 0.0f )
             {

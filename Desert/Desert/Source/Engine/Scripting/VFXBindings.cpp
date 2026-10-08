@@ -1,6 +1,6 @@
 #include "Internal/ScriptRuntime.hpp"
 
-#include <Engine/Assets/Serialization/VFXDataChannel.hpp>
+#include <Engine/Assets/VFXDataChannelAsset.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -10,7 +10,8 @@
 namespace Desert::Scripting
 {
     // VFX table: gameplay writes the scene's data channels (VFX-10, UE UNiagaraDataChannelWriter).
-    //   VFX.useChannel("VFX/Impacts.dfxch")             -- registers the channel (named by its file stem)
+    //   VFX.useChannel("Impacts")                        -- registers the channel ASSET named Impacts (its name,
+    //                                                       as a script names IA_Jump: <VFX root>/Impacts.dfxch)
     //   VFX.writeChannel("Impacts", {                    -- appends entries for this frame; true when all written
     //       { Position = {x, y, z}, Direction = {x, y, z}, Strength = 2.0, Team = 1 },
     //   })
@@ -21,19 +22,23 @@ namespace Desert::Scripting
         auto*      impl = &implRef;
         sol::table vfx  = implRef.Lua.create_named_table( "VFX" );
 
-        vfx["useChannel"] = [impl]( const std::string& path ) -> bool
+        vfx["useChannel"] = [impl]( const std::string& name ) -> bool
         {
             if ( impl->Scene == nullptr )
                 return false;
-            const auto loaded = Assets::Serialization::LoadVFXDataChannelFile( path );
-            if ( !loaded.IsSuccess() )
+            const auto path = Assets::VFXDataChannelAsset::PathForName( name );
+            if ( !path.IsSuccess() )
             {
-                LOG_ERROR( "[Lua] VFX.useChannel: {}", loaded.GetError() );
+                LOG_ERROR( "[Lua] VFX.useChannel: {}", path.GetError() );
                 return false;
             }
-            const std::string name = std::filesystem::path( path ).stem().string();
-            const auto        registered =
-                 impl->Scene->GetVFXWorld().GetDataChannels().Register( name, loaded.GetValue() );
+            Assets::VFXDataChannelAsset asset( path.GetValue() );
+            if ( const auto loaded = asset.LoadFromFile(); !loaded )
+            {
+                LOG_ERROR( "[Lua] VFX.useChannel('{}'): {}", name, loaded.GetError() );
+                return false;
+            }
+            const auto registered = impl->Scene->GetVFXWorld().GetDataChannels().Register( asset );
             if ( !registered )
                 LOG_ERROR( "[Lua] VFX.useChannel: {}", registered.GetError() );
             return static_cast<bool>( registered );

@@ -106,9 +106,11 @@ namespace Desert::VFX
                                                                    const std::string&     where )
         {
             using Result                                             = VFXChannelSpawnModule;
-            static constexpr std::array<std::string_view, 9> kInputs = {
-                 "Channel", "ParticlesPerEntry", "MaxEntriesPerFrame", "MaxDistance", "Position", "Direction",
-                 "Filter",  "FilterOp",          "FilterValue" };
+            static constexpr std::array<std::string_view, 11> kInputs = {
+                 "Channel",     "ParticlesPerEntry", "MaxEntriesPerFrame",
+                 "MaxDistance", "Position",          "Direction",
+                 "Color",       "Lifetime",          "Filter",
+                 "FilterOp",    "FilterValue" };
             for ( const S::VFXModuleInput& in : use.Inputs )
                 if ( std::find( kInputs.begin(), kInputs.end(), in.Name ) == kInputs.end() )
                     return Common::MakeFormattedError<Result>( "{} input '{}': the module declares no such input",
@@ -176,12 +178,16 @@ namespace Desert::VFX
             const auto position  = field( "Position", S::VFXValueType::Vec3 );
             const auto direction = field( "Direction", S::VFXValueType::Vec3 );
             const auto filter    = field( "Filter", S::VFXValueType::Float );
-            for ( const auto* r : { &position, &direction, &filter } )
+            const auto color     = field( "Color", S::VFXValueType::Vec4 );
+            const auto lifetime  = field( "Lifetime", S::VFXValueType::Float );
+            for ( const auto* r : { &position, &direction, &filter, &color, &lifetime } )
                 if ( !r->IsSuccess() )
                     return Common::MakeError<Result>( r->GetError() );
             m.PositionField  = position.GetValue();
             m.DirectionField = direction.GetValue();
             m.FilterField    = filter.GetValue();
+            m.ColorField     = color.GetValue();
+            m.LifetimeField  = lifetime.GetValue();
 
             const bool hasOp    = FindInput( use, "FilterOp" ) != nullptr;
             const bool hasBound = FindInput( use, "FilterValue" ) != nullptr;

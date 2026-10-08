@@ -14,6 +14,7 @@
 
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -26,6 +27,12 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+namespace Desert::Assets
+{
+    class AssetManager;
+    class VFXDataChannelAsset;
+} // namespace Desert::Assets
 
 namespace Desert::VFX
 {
@@ -118,6 +125,11 @@ namespace Desert::VFX
         /// entries; with another layout it is refused while entries are pending, else replaced.
         Common::BoolResultStr Register( const std::string&                               name,
                                         const Assets::Serialization::VFXDataChannelData& data );
+        /// The channel of a loaded `.dfxch` asset, named by its file stem (the asset's name).
+        Common::BoolResultStr Register( const Assets::VFXDataChannelAsset& asset );
+        /// What C++ gameplay calls (UE: a UNiagaraDataChannelAsset reference): the channel asset @p handle names
+        /// in @p assets; refused when no ready VFXDataChannelAsset has that handle.
+        Common::BoolResultStr Register( const Common::AssetHandle& handle, const Assets::AssetManager& assets );
 
         [[nodiscard]] const VFXDataChannel* Find( std::string_view name ) const;
 
@@ -158,6 +170,8 @@ namespace Desert::VFX
         std::string        PositionField;  ///< a Position field -> spawn position; empty = the emitter's
         std::string        DirectionField; ///< a Direction field -> start velocity direction; empty = cone
         std::string        FilterField;    ///< a Float or Int field; empty = no predicate
+        std::string        ColorField;     ///< a Color field -> the particle's Tint (multiplies colour over life)
+        std::string        LifetimeField;  ///< a Float or Int field -> the particle's lifetime in seconds
         VFXChannelFilterOp FilterOp    = VFXChannelFilterOp::Greater;
         float              FilterValue = 0.0f;
 
@@ -173,6 +187,10 @@ namespace Desert::VFX
         glm::vec3     Position     = glm::vec3( 0.0f ); ///< world centimetres
         bool          HasDirection = false;
         glm::vec3     Direction    = glm::vec3( 0.0f );
+        bool          HasColor     = false;
+        glm::vec4     Color        = glm::vec4( 1.0f ); ///< linear rgba
+        bool          HasLifetime  = false;
+        float         Lifetime     = 0.0f; ///< seconds
     };
 
     /// What one tick did with a channel's entries for one emitter. Read = Spawned + Filtered + Overflow.
@@ -194,7 +212,7 @@ namespace Desert::VFX
     };
 
     /// Checks @p module's fields against @p layout: each named field exists and has the type its role needs
-    /// (Position / Direction / Float or Int), and a distance filter has a Position field to measure.
+    /// (Position / Direction / Color / Float or Int), and a distance filter has a Position field to measure.
     Common::BoolResultStr BindChannelSpawn( const VFXChannelSpawnModule& module,
                                             const VFXDataChannelLayout&  layout );
 

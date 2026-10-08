@@ -34,6 +34,8 @@ struct Particle
     // x = age in seconds. yzw are the SIMULATION's local-space offset from the emitter, written only
     // while the emitter simulates in local space; the draw pass must not read or repurpose them.
     vec4 Age;
+    // rgba multiplier of the colour over life, fixed at spawn: a Spawn from Channel colour (VFX-10b), else 1.
+    vec4 Tint;
 };
 
 #endif // PARTICLE_STATE_GLSLH

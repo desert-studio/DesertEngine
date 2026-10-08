@@ -104,6 +104,9 @@ namespace Desert::Assets
         // cluster hierarchy, damage thresholds and convex hulls (Engine/Destruction/FractureBake.hpp). See
         // Engine/Assets/FractureAsset.hpp.
         Fracture,
+        // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
+        // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
+        VFXDataChannel,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -197,6 +200,9 @@ namespace Desert::Assets
             // an `AssetHandle` (UE's UGeometryCollectionComponent::RestCollection), so it lives exactly as
             // long as a live entity holds it.
             case AssetTypeID::Fracture:
+            // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
+            // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
+            case AssetTypeID::VFXDataChannel:
             case AssetTypeID::Count:
                 return false;
         }
@@ -267,6 +273,8 @@ namespace Desert::Assets
                 return "VFXSystem";
             case AssetTypeID::Fracture:
                 return "Fracture";
+            case AssetTypeID::VFXDataChannel:
+                return "VFXDataChannel";
             case AssetTypeID::Count:
                 return "Count";
         }

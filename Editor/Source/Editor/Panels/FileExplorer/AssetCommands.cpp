@@ -115,6 +115,12 @@ namespace Desert::Editor
                        if ( Explorer() == nullptr )
                            return Common::MakeError( "New Level Sequence: the Assets window does not exist" );
                        return Explorer()->CreateNewLevelSequence();
+                   },
+                   [this]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError( "New VFX Data Channel: the Assets window does not exist" );
+                       return Explorer()->CreateNewVFXDataChannel();
                    } ) )
             commands.push_back( std::move( command ) );
     }

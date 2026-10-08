@@ -16,11 +16,12 @@ namespace Desert::Graphic::System
     // count. Neither may be written in terms of the other.
 
     // The size of one element of the particle state storage, in bytes: Common/ParticleState.glslh's
-    // `struct Particle`, which is four vec4s in a std430 array. ParticleRenderer allocates the storage
+    // `struct Particle`, which is five vec4s in a std430 array. ParticleRenderer allocates the storage
     // as MaxParticles * this and zeroes it with a buffer of the same size, so a member appended to the
     // GLSL and not to this number gives the simulation and the draw a different idea of where particle
     // i begins — visible only as an emitter that has come apart.
-    constexpr std::uint32_t kParticleStride = 64;
+    // VFX-10b: + Tint (the Spawn from Channel colour, rgba multiplier of the colour over life) - 4 -> 5 vec4s.
+    constexpr std::uint32_t kParticleStride = 80;
 
     // The x of ParticleSimulate's LocalSize, which is the number the dispatch divides MaxParticles by
     // to get its group count. Too large here and the tail of every emitter is never simulated (those
@@ -35,8 +36,9 @@ namespace Desert::Graphic::System
     constexpr std::uint32_t kParticleStepStride = 20;
 
     // One Spawn from Channel particle (ParticleSimulate binding 5, `struct VFXChannelSpawn`): vec4 position (w = 1
-    // when bound) + vec4 direction (w = 1 when bound).
-    constexpr std::uint32_t kParticleChannelSpawnStride = 32;
+    // when bound) + vec4 direction (w = 1 when bound) + vec4 colour (rgba) + vec4 scalars (x = lifetime seconds,
+    // z = 1 when the colour is bound, w = 1 when the lifetime is bound).
+    constexpr std::uint32_t kParticleChannelSpawnStride = 64;
 
     // The size of one element of an emitter's Counters buffer (Common/ParticlePool.glslh `struct
     // ParticleDrawSlot`: a VkDrawIndirectCommand - vertex count = 6 x alive, instance count 1, first vertex =
