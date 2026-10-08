@@ -610,18 +610,23 @@ TEST( PipelineBlendState, EveryColourSlotWalkerSkipsAnUnusedSlot )
          << "FrameTextures::ImportFramebuffer imports an unused slot's null image.";
 
     // AddRaster (SceneRendererFrameMesh.cpp) and LoadTarget (DeferredFrameNodes.hpp): no target for an invalid
-    // slot.
+    // slot. Each slot carries its own load (FrameTextures::ColorLoads: a graph colour clears on its first writer),
+    // and AddRaster's resolves go through DeclareResolves (ViewRasterTargets.hpp), which skips an invalid one.
     const std::string mesh = read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
-    EXPECT_NE( mesh.find( "if(targets.Colors[slot].IsValid())pass.ColorTarget(slot,targets.Colors[slot],color);" ),
-               std::string::npos )
-         << "AddRaster declares a target for an unused colour slot.";
-    EXPECT_NE( mesh.find( "if(targets.Resolves[slot].IsValid())pass.ResolveTarget(slot,targets.Resolves[slot]);" ),
-               std::string::npos )
-         << "AddRaster declares a resolve for an unused colour slot.";
-    const std::string nodes = read( root / "Desert/Desert/Source/Engine/Graphic/DeferredFrameNodes.hpp" );
     EXPECT_NE(
-         nodes.find( "if(target.Colors[i].IsValid())pass.ColorTarget(i,target.Colors[i],RDG::LoadOp::Load());" ),
+         mesh.find(
+              "if(targets.Colors[slot].IsValid())pass.ColorTarget(slot,targets.Colors[slot],colors[slot]);" ),
          std::string::npos )
+         << "AddRaster declares a target for an unused colour slot.";
+    EXPECT_NE( mesh.find( "DeclareResolves(pass,targets.Resolves);" ), std::string::npos )
+         << "AddRaster declares its resolves outside DeclareResolves.";
+    const std::string view = read( root / "Desert/Desert/Source/Engine/Graphic/ViewRasterTargets.hpp" );
+    EXPECT_NE( view.find( "if(resolves[slot].IsValid())pass.ResolveTarget(slot,resolves[slot]);" ),
+               std::string::npos )
+         << "DeclareResolves declares a resolve for an unused colour slot.";
+    const std::string nodes = read( root / "Desert/Desert/Source/Engine/Graphic/DeferredFrameNodes.hpp" );
+    EXPECT_NE( nodes.find( "if(target.Colors[i].IsValid())pass.ColorTarget(i,target.Colors[i],colors[i]);" ),
+               std::string::npos )
          << "LoadTarget declares a target for an unused colour slot.";
     EXPECT_NE( nodes.find( "if(target.Resolves[i].IsValid())pass.ResolveTarget(i,target.Resolves[i]);" ),
                std::string::npos )
@@ -662,8 +667,11 @@ TEST( PipelineBlendState, EveryColourSlotWalkerSkipsAnUnusedSlot )
 }
 
 // The function above is only the rule if pipeline creation obeys it: VulkanPipeline::CreateColorBlendState
-// takes every blendEnable from ColourAttachmentBlendEnables and never reads the requested blend itself.
-// Mutation: the loop sets `.blendEnable = m_Specification.BlendEnable` again -> red.
+// takes every blendEnable from ColourAttachmentBlendEnables and never reads the requested blend itself. The
+// per-slot states are built by ShaderReflection::BuildColorBlendAttachments (TAA1-VEL: a slot the fragment stage
+// does not write is masked and never blends), which takes each slot's blendEnable from the rule's vector.
+// Mutation: BuildColorBlendAttachments gets m_Specification.BlendEnable, or its blendEnable drops
+// blendPerSlot[slot] -> red.
 TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
 {
     std::ifstream file( Desert::TestSupport::RepositoryRoot() /
@@ -680,7 +688,14 @@ TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
     EXPECT_NE( body.find( "ColourAttachmentBlendEnables(ColourAttachmentFormats(m_Specification),"
                           "m_Specification.BlendEnable)" ),
                std::string::npos );
-    EXPECT_NE( body.find( ".blendEnable=blends[slot]?VK_TRUE:VK_FALSE" ), std::string::npos );
+    EXPECT_NE( body.find( "BuildColorBlendAttachments(vulkanShader->GetFragmentOutputLocations(),blends," ),
+               std::string::npos );
+    std::ifstream reflection( Desert::TestSupport::RepositoryRoot() /
+                              "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanShaderReflection.cpp" );
+    ASSERT_TRUE( reflection );
+    std::string build( ( std::istreambuf_iterator<char>( reflection ) ), std::istreambuf_iterator<char>() );
+    std::erase_if( build, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+    EXPECT_NE( build.find( ".blendEnable=(written&&blendPerSlot[slot])?VK_TRUE:VK_FALSE" ), std::string::npos );
     // The requested blend reaches the attachments only through the rule: named once, as its argument.
     size_t uses = 0;
     for ( size_t at = body.find( "m_Specification.BlendEnable" ); at != std::string::npos;

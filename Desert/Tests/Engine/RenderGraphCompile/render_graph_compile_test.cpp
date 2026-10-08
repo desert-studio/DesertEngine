@@ -2529,7 +2529,13 @@ TEST( RenderGraphCompile, SampleZeroGraphColourGetsAResolveNodeAndNoHardwareReso
     using Desert::Graphic::RasterTargets;
     using Desert::Graphic::VelocityColor;
     using Desert::Graphic::ViewVelocity;
-    Builder     graph( "velocity-resolve" );
+    // CreateViewVelocity gives Velocity a FaultDefault (a lost velocity reads as no motion), and a FaultDefault
+    // needs the graph's system sources: register them as every frame does (SceneRenderer, RDGSystemTextures.hpp).
+    ExternalTexture black{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+    ExternalTexture white{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+    ExternalTexture blackCube{ Tex2D( 1, 1, ImageFormat::RGBA8F, 1, 6 ), Access::SampledGraphics };
+    Builder         graph( "velocity-resolve" );
+    RegisterSystemTextures( graph, black, white, blackCube );
     TextureDesc msColour        = Tex2D( 64, 64, ImageFormat::RGBA16F );
     msColour.Samples            = 4;
     const TextureRef   sceneMs  = graph.CreateTexture( msColour, "SceneColor.MSAA" );

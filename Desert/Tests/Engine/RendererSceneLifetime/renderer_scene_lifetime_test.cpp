@@ -283,6 +283,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "re-issues from zero" },
          { "DeferredLightingSystem", "Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp", false, false,
            "a shade of this frame's G-buffer" },
+         { "GraphColorResolveSystem", "Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp", false, false,
+           "sample 0 of THIS frame's multisampled graph colour (the view's velocity); it holds only the shader, its "
+           "block layout and one pipeline per format, none of which depends on the scene" },
          // The two LAZY ones. They are registered by EnsureGIResources / EnsureSSRResources on first use
          // rather than up front (a preview never enables either, and eager allocation multiplied six
          // full-screen RGBA32F targets by the preview count), which is why they are here and not in the
@@ -371,7 +374,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
                                       "integrates nothing over frames.";
 
         // 4. And the reset really restarts the sequence: a system that counts frames zeroes the count and
-        //    drops its history in the override, not somewhere a later frame might reach.
+        //    drops its history in the override, not somewhere a later frame might reach. A system whose
+        //    history is stamped with the view frame that wrote it (PassHistoryStamp, TAA1-VIEW: readable only
+        //    in the view's next frame) drops it with m_History.Invalidate(); the others clear m_HistoryValid.
         if ( s.Resets && header.find( "m_FrameIndex" ) != std::string::npos )
         {
             // Runs of spaces squeezed: clang-format aligns the `=` of consecutive assignments.
@@ -383,8 +388,11 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
                  << s.Name
                  << ": OnTemporalHistoryReset leaves m_FrameIndex counting on — the jitter, the "
                     "noise seed and the history parity then depend on the frames before the cut.";
-            EXPECT_NE( body.find( "m_HistoryValid = false" ), std::string::npos )
-                 << s.Name << ": OnTemporalHistoryReset keeps the reprojected history valid across the cut.";
+            const bool        stamped = header.find( "PassHistoryStamp m_History" ) != std::string::npos;
+            const char* const drop    = stamped ? "m_History.Invalidate()" : "m_HistoryValid = false";
+            EXPECT_NE( body.find( drop ), std::string::npos )
+                 << s.Name << ": OnTemporalHistoryReset keeps the reprojected history valid across the cut (no `"
+                 << drop << "`).";
         }
     }
 }
