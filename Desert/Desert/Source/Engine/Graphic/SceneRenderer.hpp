@@ -647,7 +647,7 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
-        Common::Scalability::AntiAliasingMethod m_AAMode    = Common::Scalability::AntiAliasingMethod::FXAA;
+        Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;
         // The anti-aliasing this view's frames ACTUALLY render, as ViewInputs::AntiAliasing (BeginScene).
         Common::Scalability::PathAntiAliasing m_RenderedAntiAliasing;
         bool                               m_BloomEnabled = false;

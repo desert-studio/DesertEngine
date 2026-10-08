@@ -56,14 +56,14 @@ namespace Desert::Graphic
         // A view-pass vertex stage with no rows would read an unbound buffer: the producer always fills them.
         if ( Reads( groups, SceneRead::ObjectMotion ) )
         {
-            auto* rows = material->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
+            auto*      rows  = material->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
             const bool bound = rows != nullptr && ObjectMotions != nullptr;
             DESERT_VERIFY( bound, "a view-pass material reads ObjectMotions but the frame carries none" );
             rows->SetBuffer( ObjectMotions );
         }
         if ( Reads( groups, SceneRead::ObjectBones ) )
         {
-            auto* palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBonesName );
+            auto*      palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBonesName );
             const bool bound    = palettes != nullptr && ObjectBones != nullptr;
             DESERT_VERIFY( bound, "a skinned view-pass material reads ObjectBones but the frame carries none" );
             palettes->SetBuffer( ObjectBones );

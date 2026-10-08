@@ -130,7 +130,7 @@ namespace Desert::TestSupport::Std140
         for ( auto it = std::sregex_iterator( body.begin(), body.end(), member ); it != std::sregex_iterator();
               ++it )
         {
-            const std::string type = ( *it )[1];
+            const std::string type      = ( *it )[1];
             size_t            size      = 0;
             size_t            alignment = 0;
             if ( !SizeAndAlignment( type, size, alignment ) )

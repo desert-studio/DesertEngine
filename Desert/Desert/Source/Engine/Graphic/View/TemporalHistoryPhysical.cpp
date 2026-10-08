@@ -50,6 +50,7 @@ namespace Desert::Graphic
                      .Mips       = desc.Mips,
                      .Usage      = Core::Formats::Image2DUsage::Image2D,
                      .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                     .MipLevels  = {},
                 };
                 sides[side] = images.CreateImage2D( spec );
                 if ( !sides[side] )

@@ -80,7 +80,8 @@ namespace Desert::Graphic::System
             if ( !m_Pipeline || !m_Material )
                 return Common::MakeError( "Deferred: SSAO: the SSAO pipeline is not initialised" );
 
-            m_Material->BindInputs( viewProj, invJitteredViewProjection, cameraPos, radius, bias, power, sampleCount );
+            m_Material->BindInputs( viewProj, invJitteredViewProjection, cameraPos, radius, bias, power,
+                                    sampleCount );
 
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,

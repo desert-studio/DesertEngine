@@ -1068,13 +1068,14 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( const auto followed = FollowShaderLocator( source, engineShaders ); !followed.Error.empty() )
+            const auto followed = FollowShaderLocator( source, engineShaders );
+            if ( !followed.Error.empty() )
             {
                 err << "FAIL   " << path.string() << " — " << followed.Error << "\n";
                 ++failed;
                 continue;
             }
-            else if ( followed.Text )
+            if ( followed.Text )
             {
                 if ( check )
                 {

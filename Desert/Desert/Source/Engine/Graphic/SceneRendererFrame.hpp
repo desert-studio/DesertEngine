@@ -295,7 +295,7 @@ namespace Desert::Graphic
         // The graph's own colours on this target (the view's velocity), after the framebuffer's.
         const std::vector<GraphColor>* graphColors = textures.GraphColorsOf( framebuffer.get() );
         const uint32_t provided = graphColors != nullptr ? static_cast<uint32_t>( graphColors->size() ) : 0u;
-        const uint32_t                 colours     = framebuffer->GetColorAttachmentCount() + provided;
+        const uint32_t colours  = framebuffer->GetColorAttachmentCount() + provided;
         const bool     hasDepth = framebuffer->GetDepthAttachmentCount() != 0;
         if ( graphColors != nullptr && targets.Colors.size() + provided == colours &&
              !AppendGraphColors( targets, *graphColors, multisampled ) )

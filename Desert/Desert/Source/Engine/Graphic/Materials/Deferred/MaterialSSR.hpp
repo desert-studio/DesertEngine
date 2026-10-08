@@ -40,7 +40,8 @@ namespace Desert::Graphic
 
         // The SSRResolveUB values: the material carries no texture.
         // @p prevViewProj: ViewFrame::PrevViewProjection (unjittered); @p invJitteredViewProjection:
-        // ViewFrame::InvJitteredViewProjection, which reconstructs the pixel's world position for the reprojection.
+        // ViewFrame::InvJitteredViewProjection, which reconstructs the pixel's world position for the
+        // reprojection.
         void BindValues( const glm::mat4& prevViewProj, const glm::mat4& invJitteredViewProjection,
                          const glm::vec2& texelSize, float historyBlend )
         {

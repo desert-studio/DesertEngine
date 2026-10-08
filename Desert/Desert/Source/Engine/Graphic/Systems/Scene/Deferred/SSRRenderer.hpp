@@ -175,9 +175,10 @@ namespace Desert::Graphic::System
             glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
         };
 
-        // The trace's uniform block (SSR.shader SSRTraceUB, std140: one mat4): ViewFrame::InvJitteredViewProjection,
-        // inverted once per view frame on the CPU - never per workgroup in the shader. The field keeps the name
-        // every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
+        // The trace's uniform block (SSR.shader SSRTraceUB, std140: one mat4):
+        // ViewFrame::InvJitteredViewProjection, inverted once per view frame on the CPU - never per workgroup in
+        // the shader. The field keeps the name every reconstructing reader uses (SSRResolveUB, DeferredUB) so the
+        // camera block can take it over.
         struct TraceUniforms
         {
             glm::mat4 InvJitteredViewProjection;
@@ -186,7 +187,7 @@ namespace Desert::Graphic::System
         // GRAPH BUILD (before "Deferred: SSR"): this frame's TraceUniforms as a graph buffer, uploaded by the
         // graph's upload pass (Builder::QueueBufferUpload) so the trace is ordered after it.
         // @p invJitteredViewProjection = ViewFrame::InvJitteredViewProjection.
-        static RDG::BufferRef UploadTraceUniforms( RDG::Builder& graph,
+        static RDG::BufferRef UploadTraceUniforms( RDG::Builder&    graph,
                                                    const glm::mat4& invJitteredViewProjection )
         {
             const TraceUniforms  uniforms{ invJitteredViewProjection };

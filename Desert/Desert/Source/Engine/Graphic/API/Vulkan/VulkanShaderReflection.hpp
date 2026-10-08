@@ -117,12 +117,14 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
      * mask is 0. So a target that carries a slot only some programs write (the view's velocity target next to
      * scene colour: sky, grid, debug lines and translucent surfaces do not write it — UE draws those with the
      * velocity render target masked) gets that slot masked from the program itself, not from a per-call-site
-     * flag someone has to remember. @p blendPerSlot (one entry per colour attachment, ColourAttachmentBlendEnables:
-     * an integer slot never blends) with @p srcColor / @p dstColor applies to the slots the stage writes. Pure — the ShaderReflection suite evaluates it for compiled GLSL with no Vulkan.
+     * flag someone has to remember. @p blendPerSlot (one entry per colour attachment,
+     * ColourAttachmentBlendEnables: an integer slot never blends) with @p srcColor / @p dstColor applies to the
+     * slots the stage writes. Pure — the ShaderReflection suite evaluates it for compiled GLSL with no Vulkan.
      */
     std::vector<VkPipelineColorBlendAttachmentState>
-    BuildColorBlendAttachments( const std::vector<uint32_t>& writtenLocations, const std::vector<bool>& blendPerSlot,
-                                VkBlendFactor srcColor, VkBlendFactor dstColor );
+    BuildColorBlendAttachments( const std::vector<uint32_t>& writtenLocations,
+                                const std::vector<bool>& blendPerSlot, VkBlendFactor srcColor,
+                                VkBlendFactor dstColor );
 
     /** The Vulkan format one vertex attribute of @p type is read as; VK_FORMAT_UNDEFINED = no mapping. */
     VkFormat VertexAttributeFormat( ShaderDataType type );

@@ -46,7 +46,7 @@ namespace
     std::string ReadText( const std::filesystem::path& path )
     {
         const std::ifstream file( path, std::ios::binary );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << file.rdbuf();
         return text.str();
     }
@@ -214,9 +214,9 @@ TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
             if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
                 continue;
             ++scanned;
-            const fs::path    rel = fs::relative( entry.path(), root );
+            const fs::path      rel = fs::relative( entry.path(), root );
             const std::ifstream in( entry.path(), std::ios::binary );
-            std::stringstream text;
+            std::stringstream   text;
             text << in.rdbuf();
             const std::string source = text.str();
             if ( rel != owner )

@@ -263,8 +263,8 @@ namespace Desert::Graphic
         std::vector<std::array<RDG::ExternalTexture, 2>> m_Pairs;
         // The images behind m_Pairs, same indices; empty until AllocatePhysical, cleared by Prepare / Release.
         std::vector<std::array<std::shared_ptr<Image2D>, 2>> m_Images;
-        uint32_t                                         m_CurrentSlot = 0;
-        std::vector<uint32_t>                            m_RegisteredCurrent; // RDG indices of this frame
+        uint32_t                                             m_CurrentSlot = 0;
+        std::vector<uint32_t>                                m_RegisteredCurrent; // RDG indices of this frame
     };
 
     class ITemporalUpscaler;
@@ -305,10 +305,10 @@ namespace Desert::Graphic
 
     private:
         bool            m_HasCommitted = false;
-        ViewFrame       m_Pending;   // returned by the last BeginFrame, committed by EndFrame
-        ViewFrame       m_Committed; // the previous frame
-        uint64_t        m_CommittedCameraIdentity = 0;     // the camera of m_Committed (written by EndFrame only)
-        uint64_t        m_PendingCameraIdentity   = 0;     // the camera of m_Pending (written by BeginFrame)
+        ViewFrame       m_Pending;                     // returned by the last BeginFrame, committed by EndFrame
+        ViewFrame       m_Committed;                   // the previous frame
+        uint64_t        m_CommittedCameraIdentity = 0; // the camera of m_Committed (written by EndFrame only)
+        uint64_t        m_PendingCameraIdentity   = 0; // the camera of m_Pending (written by BeginFrame)
         bool            m_FrameOpen               = false; // a BeginFrame succeeded and its EndFrame has not run
         uint64_t        m_SceneIdentity           = 0;
         bool            m_PendingFaultReset       = false;

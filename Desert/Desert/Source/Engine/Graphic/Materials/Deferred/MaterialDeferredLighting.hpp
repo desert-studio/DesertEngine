@@ -77,8 +77,9 @@ namespace Desert::Graphic
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                          const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
-                         uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled,
-                         int giMode, const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
+                         uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
+                         bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
+                         const DeferredEnvironmentInput& environment )
         {
             // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
             // node: System.BlackCube / System.Black when absent, UE GBlackTextureCube) - a graph ref of THIS
