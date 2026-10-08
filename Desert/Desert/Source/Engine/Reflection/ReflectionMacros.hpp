@@ -30,5 +30,15 @@
 //   EditCondition("Foo")  grey the row out while the bool field Foo of the same block is false ("!Foo" inverts)
 //
 // REFLECT() marks a struct/class for reflection. PROPERTY(...) marks the field that follows it.
+//
+// FUNCTION(...) marks the member function (or static function) that follows it, inside a REFLECT() type:
+//
+//       FUNCTION( ScriptCallable, Category( "Light" ), Tooltip( "Scales the intensity." ) )
+//       void ScaleIntensity( float factor );
+//
+// The tool emits a FunctionInfo whose Invoke calls it through Values (Engine/Reflection/Value.hpp) — the one
+// layer any language binds to (FunctionThunk.hpp). Attributes: ScriptCallable, Category("..."), Tooltip("...").
+// Every parameter is named; a name is a FUNCTION once per type (no overloads: a caller calls by name).
 #define REFLECT()
 #define PROPERTY( ... )
+#define FUNCTION( ... )

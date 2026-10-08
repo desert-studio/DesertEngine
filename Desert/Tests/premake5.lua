@@ -186,7 +186,22 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source",
+            -- ReflectedFunctions: the generated registration includes its fixture as <Fixture/...>.
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Tools/ReflectedFunctions",
         }
+        -- ReflectedFunctions: the header tool generates the fixture's reflection (FUNCTION thunks included)
+        -- before the compile, exactly as Desert's prebuild generates the engine's. Its own force-link anchor:
+        -- the engine's ForceLinkGeneratedReflection is Desert.lib's, which this runner also links.
+        local reflectedFunctions = "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Tools/ReflectedFunctions"
+        dependson { "DesertHeaderTool" }
+        prebuildcommands {
+            DesertPlatform.BuiltToolPath("DesertHeaderTool")
+                .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+                .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Tools/ReflectedFunctions" "Fixture"'
+                .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Tools/ReflectedFunctions/Generated/FunctionFixture.gen.cpp"'
+                .. ' --reflect-anchor ForceLinkReflectedFunctionFixture'
+        }
+        files { reflectedFunctions .. "/Fixture/*.hpp", reflectedFunctions .. "/Generated/*.gen.cpp" }
     end,
     Engine = function(deps)
         DesertRunnerSettings(deps)
