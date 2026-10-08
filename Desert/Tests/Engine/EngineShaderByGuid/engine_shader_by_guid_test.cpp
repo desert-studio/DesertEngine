@@ -287,9 +287,9 @@ TEST( EngineShaderByGuid, TheStandardSurfaceRoleIsReadFromAnUnreadOrEvictedShade
         ASSERT_TRUE( asset.LoadFromFile() );
         asset.ResolveDependencies( manager );
         EXPECT_EQ( asset.GetShaderName(), "MockStandardSurface" );
-        EXPECT_FALSE( asset.UsesCustomShader() )
-             << ( unread ? "an unread" : "an evicted" )
-             << " StandardSurface template was taken for a custom shader: its role was read from an empty manifest";
+        EXPECT_FALSE( asset.UsesCustomShader() ) << ( unread ? "an unread" : "an evicted" )
+                                                 << " StandardSurface template was taken for a custom shader: its "
+                                                    "role was read from an empty manifest";
     }
 }
 

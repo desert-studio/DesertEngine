@@ -73,7 +73,7 @@ TEST( SurfaceInputs, UVTransformOrderIsScaleThenRotateThenOffset )
     // KHR_texture_transform: T * R * S. A quarter turn maps (u, v) to (v, -u) in this convention, and
     // the offset is added AFTER, so it is not itself scaled or rotated.
     const float quarter = 1.5707963f;
-    const vec2  out     = SurfaceTransformUV( vec2( 1.0f, 0.0f ), vec2( 10.0f, 20.0f ), vec2( 2.0f, 5.0f ), quarter );
+    const vec2  out = SurfaceTransformUV( vec2( 1.0f, 0.0f ), vec2( 10.0f, 20.0f ), vec2( 2.0f, 5.0f ), quarter );
     EXPECT_NEAR( out.x, 10.0f, 1e-5f );
     EXPECT_NEAR( out.y, 20.0f - 2.0f, 1e-5f );
 }

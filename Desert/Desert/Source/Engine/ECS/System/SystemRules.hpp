@@ -85,7 +85,7 @@ namespace Desert::ECS::Rules
     enum class MeshShadowCaster
     {
         None,           // the entity does not cast (CastShadows off, or it produces no draw at all)
-        SurfaceDraw,        // the batched lit draw carries it — the only case before generic meshes cast
+        SurfaceDraw,    // the batched lit draw carries it — the only case before generic meshes cast
         ShaderOverride, // whole-entity Shader Override: there is no lit draw to carry it
         FirstSlotDraw,  // every submesh went to a custom slot material; the first slot draw carries it
     };

@@ -798,8 +798,8 @@ namespace Desert::Graphic::System
         float                             m_SplitLambda     = 0.6f;  // cascade split uniform<->log blend
 
         // Debug visualization (Scene Settings -> Debug)
-        bool      m_ShowNormals          = false; // per-pixel normal color (Lit shader branch)
-        bool      m_LightingDebug        = false; // per-light colored "where light lands" (Lit shader branch)
+        bool m_ShowNormals   = false; // per-pixel normal color (Lit shader branch)
+        bool m_LightingDebug = false; // per-light colored "where light lands" (Lit shader branch)
 #if DESERT_DEV_INSTRUMENTS
         bool      m_ShowBoundingBoxes    = false; // AABB wireframes via the debug line renderer below
         glm::vec3 m_BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );

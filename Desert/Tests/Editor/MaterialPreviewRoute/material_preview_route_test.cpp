@@ -272,7 +272,7 @@ TEST_F( MaterialPreviewRoute, TheCubemapDomainTakesTheCubemapRouteAndSurfaceTheS
     ASSERT_NE( otherwise, std::string::npos )
          << "the Skybox branch has no else — the surface domain must still reach SetMaterial.";
 
-    const std::string cubemapArm = body.substr( cubemapGate, otherwise - cubemapGate );
+    const std::string cubemapArm    = body.substr( cubemapGate, otherwise - cubemapGate );
     const std::string surfaceBranch = body.substr( otherwise );
 
     EXPECT_NE( cubemapArm.find( "SetCubemapMaterial" ), std::string::npos )

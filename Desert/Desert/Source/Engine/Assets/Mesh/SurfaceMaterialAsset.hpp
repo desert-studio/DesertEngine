@@ -130,7 +130,7 @@ namespace Desert::Assets
         MaterialData m_Data;
         std::string         m_ShaderName;                 // display only
         Common::AssetHandle m_ShaderHandle;               // THE identity of the template; null = none resolved
-        bool                m_ShaderIsStandardSurface = false; // the resolved template declares `Role StandardSurface`
+        bool m_ShaderIsStandardSurface = false;           // the resolved template declares `Role StandardSurface`
 
         // TRUE when m_Data is NOT what the file says — the file exists but could not be read, or it
         // read and would not parse. The asset is deliberately still usable in that state (see Load),

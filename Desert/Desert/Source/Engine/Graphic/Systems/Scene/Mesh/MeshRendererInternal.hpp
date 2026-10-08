@@ -60,7 +60,7 @@ namespace Desert::Graphic::System
                                                       MaterialInstance*         instance );
         bool                            IsTranslucent( const DataDrivenMaterial* material );
         uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row );
-        SurfaceSlot  FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
+        SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
         std::optional<std::string>          DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,

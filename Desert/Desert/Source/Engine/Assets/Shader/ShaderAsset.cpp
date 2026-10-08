@@ -127,12 +127,13 @@ namespace Desert::Assets
         if ( !name )
             return name;
         const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
-        if ( guid && IsStandardSurfaceTemplate( manager, Common::AssetHandle( static_cast<uint64_t>(
-                                                         Common::Content::HandleForGuid( guid.GetValue() ) ) ) ) )
-            return Common::MakeError<std::string>(
-                 std::format( "{} on {}: '{}' (GUID {}) is the StandardSurface template, which overrides nothing - the "
-                              "mesh draws its material slots; remove the key from the file",
-                              site.Field, site.Context, ref.Path, ref.Guid ) );
+        if ( guid &&
+             IsStandardSurfaceTemplate( manager, Common::AssetHandle( static_cast<uint64_t>(
+                                                      Common::Content::HandleForGuid( guid.GetValue() ) ) ) ) )
+            return Common::MakeError<std::string>( std::format(
+                 "{} on {}: '{}' (GUID {}) is the StandardSurface template, which overrides nothing - the "
+                 "mesh draws its material slots; remove the key from the file",
+                 site.Field, site.Context, ref.Path, ref.Guid ) );
         return name;
     }
 

@@ -226,7 +226,8 @@ namespace
         const char* PerObjectVertexBuffer; // nullptr = none
         // The view's motion groups the cell's VIEW-pass vertex stage reads (TAA1 step 4): the per-primitive rows
         // (static, skinned) and the view's palettes (skinned: both frames' palettes, named by the row). A batch
-        // of instances is world-static and reads neither. Filled by SceneFrameBinding::ApplyTo like every scene group.
+        // of instances is world-static and reads neither. Filled by SceneFrameBinding::ApplyTo like every scene
+        // group.
         bool ReadsObjectMotions = false;
         bool ReadsObjectBones   = false;
     };
@@ -669,8 +670,8 @@ TEST_F( SceneFrameBindingShaderRoot, MaterialTexturesAreThePropertiesTexturesAnd
     }
 
     // The declared default travels with the parameter (the executor reads it at creation).
-    auto parsed =
-         Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( "Surface/StandardSurface.shader" ) ) );
+    auto parsed = Desert::Core::Preprocess::DShaderParser::Parse(
+         ReadFile( ShaderPath( "Surface/StandardSurface.shader" ) ) );
     ASSERT_TRUE( parsed.IsSuccess() );
     for ( const auto* param : Desert::Core::Formats::MaterialTextureParameters( parsed.GetValue().Meta ) )
         if ( param->Name == "u_NormalTexture" )

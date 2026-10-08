@@ -83,8 +83,10 @@ TEST( AmbientIBL, TheAntiBlackFloorIsNotAnAmbientModel )
     // occluded face with no environment from reading as a pure-black hole. Pinned so that nobody
     // quietly raises it back into a lighting model when a scene looks dark — that is the "knob that
     // hides a defect" the contract forbids.
-    EXPECT_LT( glm::max( glm::max( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ), 0.02f );
-    EXPECT_GT( glm::min( glm::min( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ), 0.0f );
+    EXPECT_LT( glm::max( glm::max( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
+               0.02f );
+    EXPECT_GT( glm::min( glm::min( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
+               0.0f );
 
     // Under any sky worth calling lit, the floor is noise: at unit environment radiance the real
     // ambient must dominate it by a wide margin.

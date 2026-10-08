@@ -66,13 +66,13 @@ namespace Desert::Graphic
         // (Graphic::ShadowQuality), not the ceiling: an asset preview allocates one cascade, and the
         // shader's cascade loop is driven by this number. It defaults to the ceiling so a snapshot built
         // by hand behaves as every snapshot did before the budget existed.
-        uint32_t         CascadeCount = SceneResources::kMaxCascades;
-        glm::vec4        CascadeTexelWorld{ 0.0f };
-        float            ShadowBias      = 0.0f;
-        bool             ShadowsEnabled  = true;
-        int              ShadowDebugMode = 0;
-        bool             ShowNormals     = false;
-        bool             LightingDebug   = false;
+        uint32_t  CascadeCount = SceneResources::kMaxCascades;
+        glm::vec4 CascadeTexelWorld{ 0.0f };
+        float     ShadowBias      = 0.0f;
+        bool      ShadowsEnabled  = true;
+        int       ShadowDebugMode = 0;
+        bool      ShowNormals     = false;
+        bool      LightingDebug   = false;
 
         ImageCube* IrradianceMap  = nullptr;
         ImageCube* PrefilteredMap = nullptr;
@@ -121,7 +121,7 @@ namespace Desert::Graphic
         // reconciled layout lists it in SceneReads (classified from the template's own resources, see
         // SceneResources.hpp) — a capability of whatever template the material was built from, not of a
         // C++ class. Groups() is that decision, pure, so a test holds it with no device.
-        void ApplyTo( Material* material ) const;
+        void                            ApplyTo( Material* material ) const;
         static Core::Formats::SceneRead Groups( const Core::Formats::MaterialLayout& layout )
         {
             return layout.SceneReads;

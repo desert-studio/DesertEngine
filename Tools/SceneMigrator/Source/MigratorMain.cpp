@@ -321,7 +321,7 @@ namespace
 
     // Content-detected (MATL has no generation for a locator): the `Shader` block's `Guid` decides, and an
     // `engine:` locator whose GUID no engine shader states is REFUSED by both, never guessed from the path.
-    ShaderLocatorFollow FollowShaderLocator( const std::string& source,
+    ShaderLocatorFollow FollowShaderLocator( const std::string&                        source,
                                              const std::map<std::string, std::string>& engineShaders )
     {
         static const std::regex kShaderRef(

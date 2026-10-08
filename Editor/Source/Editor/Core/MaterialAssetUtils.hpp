@@ -119,8 +119,8 @@ namespace Desert::Editor::MaterialAssetUtils
     // quietly become unreachable code.
     [[nodiscard]] inline MaterialAssetOutcome
     FindOrCreateSurfaceMaterialAsset( const Assets::AssetManager* am, const std::string& name,
-                                  const std::vector<Assets::MaterialParamRequest>& params,
-                                  std::string_view                                 templateGuid = {} )
+                                      const std::vector<Assets::MaterialParamRequest>& params,
+                                      std::string_view                                 templateGuid = {} )
     {
         MaterialAssetOutcome outcome;
         if ( !am )
@@ -200,8 +200,8 @@ namespace Desert::Editor::MaterialAssetUtils
     // The brace-list spelling the demo builders read best. Same function.
     [[nodiscard]] inline MaterialAssetOutcome
     FindOrCreateSurfaceMaterialAsset( const Assets::AssetManager* am, const std::string& name,
-                                  std::initializer_list<std::pair<const char*, glm::vec4>> params,
-                                  std::string_view                                         templateGuid = {} )
+                                      std::initializer_list<std::pair<const char*, glm::vec4>> params,
+                                      std::string_view                                         templateGuid = {} )
     {
         std::vector<Assets::MaterialParamRequest> requested;
         requested.reserve( params.size() );
@@ -211,9 +211,9 @@ namespace Desert::Editor::MaterialAssetUtils
     }
 
     [[nodiscard]] inline MaterialAssetOutcome FindOrCreateSurfaceMaterialAsset( const Assets::AssetManager* am,
-                                                                            const std::string&          name,
-                                                                            const glm::vec4&            albedo,
-                                                                            float                       roughness )
+                                                                                const std::string&          name,
+                                                                                const glm::vec4&            albedo,
+                                                                                float roughness )
     {
         return FindOrCreateSurfaceMaterialAsset(
              am, name,

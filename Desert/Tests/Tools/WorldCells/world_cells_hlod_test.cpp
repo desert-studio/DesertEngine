@@ -419,11 +419,11 @@ namespace
 {
     constexpr const char*   kCustomMaterial   = "0000000000000000000000000000c057";
     constexpr const char*   kCustomInstance   = "0000000000000000000000000000c0c1";
-    constexpr const char*   kSurfaceMaterial      = "00000000000000000000000000000fb1";
+    constexpr const char*   kSurfaceMaterial  = "00000000000000000000000000000fb1";
     constexpr std::uint64_t kCustomCube       = 301;
     constexpr std::uint64_t kInstanceCube     = 302;
     constexpr std::uint64_t kMixedCube        = 303;
-    constexpr std::uint64_t kSurfaceCube          = 304;
+    constexpr std::uint64_t kSurfaceCube      = 304;
     constexpr std::uint64_t kCustomPointsCube = 305;
 
     Common::Utils::AssetRegistryEntry Row( std::string key, std::string kind, const char* guid,
@@ -450,9 +450,9 @@ namespace
     // the lit surface is a file of another name declaring `Role StandardSurface`.
     Common::Utils::AssetRegistry MaterialRegistry()
     {
-        const auto water = Row( "assets:Shaders/StaticMeshLit.shader", "Shader", nullptr, {} );
-        auto       standard   = Row( "assets:Shaders/Surface.shader", "Shader", nullptr, {} );
-        standard.Role         = std::string( Common::Content::kStandardSurfaceRole );
+        const auto water    = Row( "assets:Shaders/StaticMeshLit.shader", "Shader", nullptr, {} );
+        auto       standard = Row( "assets:Shaders/Surface.shader", "Shader", nullptr, {} );
+        standard.Role       = std::string( Common::Content::kStandardSurfaceRole );
         const auto custom =
              Row( "assets:Materials/M_Water.demat", "Material", kCustomMaterial, { water.PathHandle() } );
         const auto instance =

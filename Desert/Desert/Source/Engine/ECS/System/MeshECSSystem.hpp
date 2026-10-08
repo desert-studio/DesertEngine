@@ -299,8 +299,8 @@ namespace Desert::ECS
                          // the shadow pass draws a mesh whole, so the lit draw and the slot draws are
                          // candidates for the same silhouette and only one of them may record it.
                          const uint64_t allMask = submeshCount >= 64 ? ~0ull : ( ( 1ull << submeshCount ) - 1ull );
-                         const uint64_t surfaceHidden      = mesh.HiddenSubmeshes | customMask;
-                         const bool     surfaceDrawEmitted = submeshCount == 0 || ( ~surfaceHidden & allMask ) != 0;
+                         const uint64_t surfaceHidden  = mesh.HiddenSubmeshes | customMask;
+                         const bool surfaceDrawEmitted = submeshCount == 0 || ( ~surfaceHidden & allMask ) != 0;
 
                          const auto shadowRoute = Rules::RouteMeshShadowCaster(
                               mesh.CastShadows, /*shaderOverride*/ false, slotDraws.size(), surfaceDrawEmitted );

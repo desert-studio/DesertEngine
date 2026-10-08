@@ -616,7 +616,7 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const SurfaceSlot             slot = rd.MaterialSlots != nullptr
+            const SurfaceSlot         slot = rd.MaterialSlots != nullptr
                                                   ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
                                                   : SurfaceSlot{};
             MaterialInstance*         inst = slot.Instance;

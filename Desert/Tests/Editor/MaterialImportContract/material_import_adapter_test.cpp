@@ -249,7 +249,8 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     const fs::path file =
          WriteGltf( "mr-only", R"("pbrMetallicRoughness": { "metallicRoughnessTexture": { "index": 1 } })", "" );
     Assimp::Importer   importer;
-    const TemplateFill fill = FillFromTemplate( Read( file, importer ), Template( "Surface/StandardSurface.shader" ) );
+    const TemplateFill fill =
+         FillFromTemplate( Read( file, importer ), Template( "Surface/StandardSurface.shader" ) );
     const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
     ASSERT_NE( orm, nullptr );
     ASSERT_TRUE( orm->NeedsPacking() ) << "glTF's R of a metallic-roughness image is not occlusion";
@@ -282,7 +283,8 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
 {
     const fs::path     file = WriteGltf( "pack-stable", kFullMaterial, kFullExtensions );
     Assimp::Importer   importer;
-    const TemplateFill fill = FillFromTemplate( Read( file, importer ), Template( "Surface/StandardSurface.shader" ) );
+    const TemplateFill fill =
+         FillFromTemplate( Read( file, importer ), Template( "Surface/StandardSurface.shader" ) );
     const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
     ASSERT_NE( orm, nullptr );
     ASSERT_TRUE( orm->NeedsPacking() );
@@ -304,7 +306,8 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     const auto stamp = fs::last_write_time( packed ) - std::chrono::hours( 1 );
     fs::last_write_time( packed, stamp );
     Assimp::Importer   again;
-    const TemplateFill refill = FillFromTemplate( Read( file, again ), Template( "Surface/StandardSurface.shader" ) );
+    const TemplateFill refill =
+         FillFromTemplate( Read( file, again ), Template( "Surface/StandardSurface.shader" ) );
     ASSERT_NE( Slot( refill, "u_ORMTexture" ), nullptr );
     EXPECT_EQ( PackedTexturePath( *Slot( refill, "u_ORMTexture" ) ), packed ) << "same sources, same asset path";
     const auto second = PackTextureChannels( *orm, packed );
@@ -505,8 +508,8 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureLeavesNoSourceWithoutAnAssetInTheC
     const fs::path                          file = WriteGlbWithEmbeddedPng( "embedded-noloose" );
     std::vector<std::optional<PackOutcome>> extracted;
     Assimp::Importer                        importer;
-    const TemplateFill                      fill =
-         FillFromTemplate( ReadResolving( file, importer, extracted ), Template( "Surface/StandardSurface.shader" ) );
+    const TemplateFill                      fill = FillFromTemplate( ReadResolving( file, importer, extracted ),
+                                                                     Template( "Surface/StandardSurface.shader" ) );
     ASSERT_NE( Slot( fill, "u_AlbedoTexture" ), nullptr );
     EXPECT_EQ( LooseImagesIn( file.parent_path() ), std::vector<std::string>{} )
          << "an embedded texture was written into the content as a bare image";
@@ -519,8 +522,8 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsImportedAsATextureAssetThatKeeps
     const fs::path                          derived = file.parent_path() / "helmet_0.detex";
     std::vector<std::optional<PackOutcome>> extracted;
     Assimp::Importer                        importer;
-    const TemplateFill                      fill =
-         FillFromTemplate( ReadResolving( file, importer, extracted ), Template( "Surface/StandardSurface.shader" ) );
+    const TemplateFill                      fill = FillFromTemplate( ReadResolving( file, importer, extracted ),
+                                                                     Template( "Surface/StandardSurface.shader" ) );
 
     const ImportedTextureSlot* albedo = Slot( fill, "u_AlbedoTexture" );
     ASSERT_NE( albedo, nullptr ) << "the embedded base colour did not reach its slot";
