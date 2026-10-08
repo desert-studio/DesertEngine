@@ -59,18 +59,10 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
-#include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
-#include "Editor/Core/AutosavePaths.hpp"
-#include "Editor/Core/CrashRecovery.hpp"
-
-// The device-lost latch, read in OnDetach: a shutdown caused by a lost GPU must save the user's work
-// before it goes, and must not report itself as a clean exit.
-#include <Engine/Graphic/DeviceLost.hpp>
 #include "Editor/Core/PanelRequests.hpp"
 #include "Editor/Core/SceneOpenRequest.hpp"
 #include "Editor/Core/SceneSaveRules.hpp"
@@ -173,16 +165,6 @@ namespace Desert::Editor
 {
     namespace
     {
-        // The recovery saves (autosave, device-lost) go through the one scene writer and only need to know
-        // whether it landed; what it counted is the editor save's business.
-        Common::BoolResultStr
-        WrittenOrError( const Common::ResultStr<Desert::Core::ExternalEntities::WriteOutcome>& r )
-        {
-            if ( !r )
-                return Common::MakeError( r.GetError() );
-            return BOOLSUCCESS;
-        }
-
         // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
         // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
         // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
@@ -314,27 +296,9 @@ namespace Desert::Editor
 
         BuiltinMeshRegistry::Init( nullptr );
 
-        // Crash recovery: if the previous session left its lock behind (unclean exit) and an autosave
-        // exists, arm a prompt to reopen it. Then (re)arm the lock for THIS session; a clean shutdown
-        // (OnDetach) removes it.
-        if ( CrashRecovery::WasUncleanExit() )
-        {
-            // Only a copy at this build's scene schema is offered; autosaves are never migrated, so one
-            // from another generation is named here and left as it is (CrashRecovery::ChooseAutosave).
-            const Autosave::RecoveryChoice choice = CrashRecovery::ChooseAutosave();
-            for ( const Autosave::NotOfferedCopy& copy : choice.NotOffered )
-            {
-                LOG_WARN( "[Recovery] not offered: '{}' states scene schema v{} / world units v{}; this build "
-                          "opens v{} / v{} only. Autosaves are not migrated -- the file is left as it is.",
-                          copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, Desert::Core::kSceneVersion,
-                          Desert::Core::kUnitVersion );
-            }
-            m_Dock.OfferRecovery( choice.Offered );
-        }
-        if ( !CrashRecovery::ArmSession() )
-            Editor::ToastManager::Push( "Crash recovery is OFF for this session — the lock file could "
-                                        "not be written (see the log)",
-                                        Editor::ToastLevel::Error );
+        // Crash recovery: the pop-up for the previous session's autosave after an unclean exit, then this
+        // session's lock (SessionRecovery::OfferAndArm); a clean shutdown (OnDetach) removes it.
+        m_Recovery.OfferAndArm( m_Dock );
     }
 
     EditorLayer::~EditorLayer() = default;
@@ -763,7 +727,7 @@ namespace Desert::Editor
         // command buffer that references them is in flight — see PlaySession::RequestStop.
         m_Play.ServiceRequests();
 
-        // First-frame prefs application (needs a live camera) + autosave timer.
+        // First-frame prefs application (needs a live camera) + autosave timer (SessionRecovery::Tick).
         {
             static bool s_CameraSpeedApplied = false;
             if ( !s_CameraSpeedApplied )
@@ -776,55 +740,7 @@ namespace Desert::Editor
                     }
             }
 
-            // Autosave: Edit mode only, only when something actually changed since the last autosave.
-            // Writes a SEPARATE file under <Project>/Saved/Autosaves (Autosave::PathFor) — never the main
-            // save, and never anything under the assets root.
-            static float    s_AutosaveAccum        = 0.0f;
-            static uint64_t s_LastAutosaveRevision = 0;
-            const auto&     prefs                  = EditorPreferences::Get();
-            if ( prefs.AutosaveMinutes > 0 &&
-                 m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
-            {
-                // The wall clock: the period is minutes of the user's time, and an autosave never feeds the
-                // scene, so a `--play` capture is not made less reproducible by it.
-                s_AutosaveAccum += ts.GetSeconds();
-                if ( s_AutosaveAccum >= static_cast<float>( prefs.AutosaveMinutes ) * 60.0f )
-                {
-                    s_AutosaveAccum    = 0.0f;
-                    const uint64_t rev = CommandHistory::Get().Revision();
-                    if ( rev != s_LastAutosaveRevision )
-                    {
-                        const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
-                                                                        m_AssetManager.get() );
-                        const auto                          path = Autosave::PathFor( m_SceneFiles.OpenScenePath(),
-                                                                                      m_Workspace.ActiveScene()->GetSceneName(),
-                                                                                      Autosave::kPeriodicSuffix );
-                        const auto                          dir  = path.parent_path();
-                        std::error_code                     ec;
-                        std::filesystem::create_directories( dir, ec );
-                        const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
-                                                                              dir.string(), ec.message() )
-                                                : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText(
-                                                       path, serializer.SerializeToJson() ) );
-                        if ( written )
-                        {
-                            // The revision is marked done ONLY on a write that landed. It used to be
-                            // marked before the write, so a failed autosave was never retried: the next
-                            // tick saw the same revision, decided nothing had changed, and skipped —
-                            // and the log said the autosave had happened. A user going for their
-                            // autosave after a crash found an old file or none.
-                            s_LastAutosaveRevision = rev;
-                            LOG_INFO( "[Autosave] {}", path.string() );
-                        }
-                        else
-                        {
-                            LOG_ERROR( "[Autosave] {} was NOT written: {}. The next autosave tick will "
-                                       "try this revision again.",
-                                       path.string(), written.GetError() );
-                        }
-                    }
-                }
-            }
+            m_Recovery.Tick( ts.GetSeconds() );
         }
 
         // Apply any deferred panel state (e.g. viewport resize) before scene rendering.
@@ -1566,68 +1482,9 @@ namespace Desert::Editor
         if ( const auto kept = m_Dock.KeepLayoutAcrossQuit(); !kept.IsSuccess() )
             LOG_ERROR( "[Layout] the layout from before the maximize was not saved: {}", kept.GetError() );
 
-        // THE DEVICE DIED, AND THIS IS THE LAST MOMENT THE USER'S WORK EXISTS ANYWHERE.
-        //
-        // Not left to the autosave timer, which has three separate reasons not to have run recently: it
-        // fires every AutosaveMinutes (default 5), it skips when the command revision has not moved, and
-        // it runs in Edit mode only. This one runs ONCE, unconditionally, at the moment of loss.
-        //
-        // It writes a SEPARATE file so that a good periodic autosave is never clobbered by it. The name
-        // still contains "_autosave", which is what Autosave::SceneFor matches on, and it is
-        // the newest file there, so the recovery prompt offers this one.
-        //
-        // IN PLAY MODE THE AUTHORED SCENE IS WHAT GETS WRITTEN — PlaySession's snapshot, the same text Stop would
-        // have restored. The live scene at that instant holds runtime mutations nobody authored and nobody
-        // wants back; saving those under the user's scene name would be the wrong answer wearing the right
-        // filename.
-        if ( Graphic::DeviceLost::IsLost() && m_Workspace.ActiveScene() )
-        {
-            using SceneState = ::Desert::Core::Scene::SceneState;
-            const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
-                                                            m_AssetManager.get() );
-            const std::string                   text = m_Workspace.ActiveScene()->GetState() == SceneState::Edit
-                                                            ? serializer.SerializeToJson()
-                                                            : m_Play.AuthoredSnapshot();
-            if ( text.empty() )
-            {
-                // An empty file under a recovery name is a silent wrong answer: the prompt would offer it
-                // and the user would open nothing. Say so instead.
-                LOG_ERROR( "[DeviceLost] nothing could be serialized to save — the scene is in {} and its "
-                           "authored snapshot is empty. Your periodic autosave, if any, is untouched.",
-                           m_Workspace.ActiveScene()->GetState() == SceneState::Edit ? "Edit" : "Play" );
-            }
-            else
-            {
-                const auto path =
-                     Autosave::PathFor( m_SceneFiles.OpenScenePath(), m_Workspace.ActiveScene()->GetSceneName(),
-                                        Autosave::kDeviceLostSuffix );
-                const auto      dir = path.parent_path();
-                std::error_code ec;
-                std::filesystem::create_directories( dir, ec );
-                const auto written =
-                     ec ? Common::MakeFormattedError( "could not create {}: {}", dir.string(), ec.message() )
-                        : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText( path, text ) );
-                // BRACES ARE REQUIRED ON BOTH ARMS: the LOG_ macros are not single statements, so a
-                // braceless if/else here does not compile. The autosave block above is written the same
-                // way for the same reason.
-                if ( written )
-                {
-                    LOG_INFO( "[DeviceLost] your work was saved to {} before shutting down; the next start "
-                              "will offer it.",
-                              path.string() );
-                }
-                else
-                {
-                    LOG_ERROR( "[DeviceLost] the emergency save FAILED: {}. The periodic autosave in {} is "
-                               "the newest copy that exists.",
-                               written.GetError(), dir.string() );
-                }
-            }
-        }
-
-        // Clean shutdown: drop the session lock so the next start doesn't think we crashed. After a device
-        // loss CrashRecovery::DisarmSession refuses, on purpose — see its own comment.
-        CrashRecovery::DisarmSession();
+        // The one emergency save after a device loss, then the lock drop of a clean shutdown (SessionRecovery).
+        m_Recovery.SaveOnDeviceLost();
+        SessionRecovery::Disarm();
 
         // The launcher's tile picture, refreshed on the way out — HERE, while the device and the
         // scene's final image still exist. Everything below this point is teardown; a few lines

@@ -28,6 +28,7 @@
 #include "Editor/LevelEditor/LevelToolbar.hpp"
 #include "Editor/LevelEditor/StatusBar.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
+#include "Editor/LevelEditor/SessionRecovery.hpp"
 #include "Editor/LevelEditor/ControlService.hpp"
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/EditorStartup.hpp"
@@ -220,6 +221,9 @@ namespace Desert::Editor
         // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
         // Editor/LevelEditor/ShotDirector.hpp.
         ShotDirector m_Shots{ m_Workspace, m_SceneFiles, m_Play, m_Capture };
+        // Autosave, the crash lock and its recovery pop-up, the device-lost save (UE: FPackageAutoSaver). See
+        // Editor/LevelEditor/SessionRecovery.hpp.
+        SessionRecovery m_Recovery{ m_Workspace, m_SceneFiles, m_Play, m_AssetManager };
         // The control channel (UE: Remote Control), after every module it reads. See
         // Editor/LevelEditor/ControlService.hpp.
         ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
