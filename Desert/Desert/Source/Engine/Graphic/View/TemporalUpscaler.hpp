@@ -83,6 +83,27 @@ namespace Desert::Graphic
     // (bicubic, B=0 C=0.5) reconstruction — not a box: at a non-integer ratio (150 %) a box filter aliases the
     // very edges SSAA was bought to smooth. Not an ITemporalUpscaler: it has no history, no jitter and no
     // velocity.
-    [[nodiscard]] Common::ResultStr<RDG::TextureRef>
-    AddSupersampleResolve( RDG::Builder& graph, const ViewFrame& frame, RDG::TextureRef sceneColor );
+    //
+    // An object and not a free function because it owns its compute pipeline (made on first record): a pipeline
+    // held by a function-local static would be destroyed after the device at exit. One per SceneRenderer, like
+    // the temporal upscaler. Two compute nodes, each named after the transient it writes:
+    // "SupersampleResolve.Horizontal" (Render -> Output.Width x Render.Height) and "SupersampleResolve.Output"
+    // (-> OutputExtent, the returned ref). Error (named) when the split is not
+    // Supersample or
+    // @p sceneColor is invalid.
+    class SupersampleResolve
+    {
+    public:
+        SupersampleResolve();
+        ~SupersampleResolve();
+        SupersampleResolve( const SupersampleResolve& )            = delete;
+        SupersampleResolve& operator=( const SupersampleResolve& ) = delete;
+
+        [[nodiscard]] Common::ResultStr<RDG::TextureRef> AddPasses( RDG::Builder& graph, const ViewFrame& frame,
+                                                                    RDG::TextureRef sceneColor ) const;
+
+    private:
+        struct PipelineHolder;
+        std::unique_ptr<PipelineHolder> m_Pipeline;
+    };
 } // namespace Desert::Graphic

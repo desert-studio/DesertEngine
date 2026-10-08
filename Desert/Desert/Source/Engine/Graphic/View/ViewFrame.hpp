@@ -69,7 +69,7 @@ namespace Desert::Graphic
         TAAU, // Upscaler::TAAU below 100 %: the temporal resolve writes OutputExtent
     };
 
-    // TAA QUALITY. Read by the TAA/TAAU resolve shader as a specialization constant (no permutation machinery):
+    // TAA QUALITY. Read by the TAA/TAAU resolve shader as the TAA_QUALITY shader variant (one pipeline per level):
     // each level is a different history-rejection filter, never a different jitter length, so a quality change
     // does not reset the history.
     //   Low    — 5-tap plus neighbourhood min/max clamp, bilinear history fetch;
