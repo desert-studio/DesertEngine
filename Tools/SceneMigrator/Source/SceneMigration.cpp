@@ -813,6 +813,265 @@ namespace Desert::Migration
         };
     } // namespace
 
+    namespace
+    {
+        Common::BoolResultStr ReadEmitterVec3( const rfl::Generic::Object& fields, const char* key,
+                                               glm::vec3& out )
+        {
+            const auto value = fields.get( key );
+            if ( !value.has_value() )
+                return BOOLSUCCESS;
+            const auto items = value.value().to_array();
+            if ( !items.has_value() || items.value().size() != 3 )
+                return Common::MakeFormattedError<bool>( "{} is {}, not three numbers", key,
+                                                         Describe( value.value() ) );
+            for ( int c = 0; c < 3; ++c )
+            {
+                const auto& item = items.value()[static_cast<std::size_t>( c )];
+                if ( const auto real = item.to_double(); real.has_value() )
+                    out[c] = static_cast<float>( real.value() );
+                else if ( const auto whole = item.to_int(); whole.has_value() )
+                    out[c] = static_cast<float>( whole.value() );
+                else
+                    return Common::MakeFormattedError<bool>( "{}[{}] is {}, not a number", key, c,
+                                                             Describe( item ) );
+            }
+            return BOOLSUCCESS;
+        }
+
+        namespace S = Assets::Serialization;
+
+        S::VFXModuleInput ValueInput( const char* name, S::VFXValueType type, const glm::vec4& value )
+        {
+            S::VFXModuleInput in;
+            in.Name   = name;
+            in.Type   = type;
+            in.Source = S::VFXInputSource::Value;
+            in.Value  = value;
+            return in;
+        }
+
+        S::VFXModuleInput RandomInput( const char* name, float min, float max )
+        {
+            S::VFXModuleInput in;
+            in.Name   = name;
+            in.Type   = S::VFXValueType::Float;
+            in.Source = S::VFXInputSource::Random;
+            in.Random =
+                 S::VFXRandomRange{ glm::vec4( min, 0.0f, 0.0f, 0.0f ), glm::vec4( max, 0.0f, 0.0f, 0.0f ) };
+            return in;
+        }
+
+        // One channel per component, Linear keys at the given times.
+        S::VFXModuleInput CurveInput( const char* name, S::VFXValueType type,
+                                      const std::vector<std::vector<S::VFXCurveKey>>& channels )
+        {
+            S::VFXModuleInput in;
+            in.Name   = name;
+            in.Type   = type;
+            in.Source = S::VFXInputSource::Curve;
+            in.Curve  = channels;
+            return in;
+        }
+
+        S::VFXCurveKey LinearKey( float time, float value )
+        {
+            S::VFXCurveKey key;
+            key.Time   = time;
+            key.Value  = value;
+            key.Interp = Animation::KeyInterp::Linear;
+            return key;
+        }
+
+        S::VFXModuleUse Use( const char* module, std::vector<S::VFXModuleInput> inputs )
+        {
+            S::VFXModuleUse use;
+            use.Module = std::string( S::kVFXEnginePrefix ) + module;
+            use.Inputs = std::move( inputs );
+            return use;
+        }
+    } // namespace
+
+    Common::ResultStr<ParticleEmitterV42> ReadParticleEmitterV42( const rfl::Generic::Object& f )
+    {
+        ParticleEmitterV42 e;
+        float              maxParticles = static_cast<float>( e.MaxParticles );
+        for ( const auto& check :
+              { ReadInlineBool( f, "Enabled", e.Enabled ), ReadInlineFloat( f, "MaxParticles", maxParticles ),
+                ReadInlineFloat( f, "SpawnRate", e.SpawnRate ), ReadInlineBool( f, "Looping", e.Looping ),
+                ReadInlineBool( f, "WorldSpace", e.WorldSpace ), ReadInlineFloat( f, "Lifetime", e.Lifetime ),
+                ReadInlineFloat( f, "LifetimeVariance", e.LifetimeVariance ),
+                ReadInlineFloat( f, "StartSpeed", e.StartSpeed ),
+                ReadInlineFloat( f, "SpeedVariance", e.SpeedVariance ),
+                ReadEmitterVec3( f, "Direction", e.Direction ), ReadInlineFloat( f, "ConeAngle", e.ConeAngle ),
+                ReadEmitterVec3( f, "Gravity", e.Gravity ), ReadInlineFloat( f, "StartSize", e.StartSize ),
+                ReadInlineFloat( f, "SizeCurvePower", e.SizeCurvePower ),
+                ReadInlineFloat( f, "EndSize", e.EndSize ), ReadEmitterVec3( f, "StartColor", e.StartColor ),
+                ReadEmitterVec3( f, "EndColor", e.EndColor ), ReadInlineFloat( f, "StartAlpha", e.StartAlpha ),
+                ReadInlineFloat( f, "EndAlpha", e.EndAlpha ) } )
+            if ( !check )
+                return Common::MakeFormattedError<ParticleEmitterV42>( "ParticleEmitter.{}", check.GetError() );
+        e.MaxParticles = static_cast<int>( maxParticles );
+        if ( const auto material = f.get( "Material" ); material.has_value() )
+            if ( const auto ref = material.value().to_object(); ref.has_value() )
+            {
+                if ( const auto guid = ref.value().get( "Guid" ); guid.has_value() )
+                    e.Material.Guid = guid.value().to_string().value_or( "" );
+                if ( const auto path = ref.value().get( "Path" ); path.has_value() )
+                    e.Material.Path = path.value().to_string().value_or( "" );
+            }
+        return Common::MakeSuccess( std::move( e ) );
+    }
+
+    Assets::Serialization::VFXSystemData VFXSystemFromParticleEmitter( const ParticleEmitterV42& d )
+    {
+        using T = S::VFXValueType;
+
+        // The old simulate shader: speed = StartSpeed * (1 - SpeedVariance * r), life = Lifetime * (1 -
+        // LifetimeVariance * r), r uniform in [0, 1) - a uniform range ending at the stated number.
+        const float lifeMax  = std::max( d.Lifetime, 0.0f );
+        const float lifeMin  = lifeMax * ( 1.0f - std::clamp( d.LifetimeVariance, 0.0f, 1.0f ) );
+        const float speedMax = d.StartSpeed;
+        const float speedMin = speedMax * ( 1.0f - std::clamp( d.SpeedVariance, 0.0f, 1.0f ) );
+        glm::vec3   axis     = glm::dot( d.Direction, d.Direction ) < 1e-6f ? glm::vec3( 0.0f, 1.0f, 0.0f )
+                                                                            : glm::normalize( d.Direction );
+
+        S::VFXEmitterData emitter;
+        emitter.Name     = "Emitter";
+        emitter.Enabled  = d.Enabled;
+        emitter.Space    = d.WorldSpace ? S::VFXSimulationSpace::World : S::VFXSimulationSpace::Local;
+        emitter.Capacity = static_cast<uint32_t>( std::max( d.MaxParticles, 1 ) );
+        // The component ran forever at its rate; a non-looping one spawned nothing (VFXWorld v42).
+        emitter.Lifecycle = S::VFXEmitterLifecycle{ 0.0f, 1.0f, S::VFXLoopBehavior::Infinite, 1 };
+        emitter.Stack.EmitterUpdate.push_back(
+             Use( "SpawnRate",
+                  { ValueInput( "SpawnRate", T::Float,
+                                glm::vec4( d.Looping ? std::max( d.SpawnRate, 0.0f ) : 0.0f, 0, 0, 0 ) ) } ) );
+
+        // Size and colour: the initial value is 1 and the over-life Scale curve carries Start -> End, so a zero
+        // start channel still reaches its end (a Start x ratio scale could not).
+        emitter.Stack.ParticleSpawn = {
+             Use( "ShapePoint", { ValueInput( "Offset", T::Vec3, glm::vec4( 0.0f ) ) } ),
+             Use( "InitializeLifetime", { RandomInput( "Lifetime", lifeMin, lifeMax ) } ),
+             Use( "AddVelocityInCone", { RandomInput( "Speed", speedMin, speedMax ),
+                                         ValueInput( "Angle", T::Float, glm::vec4( d.ConeAngle, 0, 0, 0 ) ),
+                                         ValueInput( "Falloff", T::Float, glm::vec4( 0.0f ) ),
+                                         ValueInput( "Axis", T::Vec3, glm::vec4( axis, 0.0f ) ) } ),
+             Use( "InitializeSpriteSize", { ValueInput( "Size", T::Vec2, glm::vec4( 1.0f, 1.0f, 0.0f, 0.0f ) ) } ),
+             Use( "InitializeColor", { ValueInput( "Color", T::Vec4, glm::vec4( 1.0f ) ) } ),
+        };
+
+        std::vector<S::VFXCurveKey> size;
+        const bool                  linear   = std::abs( d.SizeCurvePower - 1.0f ) < 1e-6f;
+        const int                   segments = linear ? 1 : kVFXConvertedSizeSegments;
+        const float                 power    = d.SizeCurvePower > 0.0f ? d.SizeCurvePower : 1.0f;
+        for ( int k = 0; k <= segments; ++k )
+        {
+            const float t = static_cast<float>( k ) / static_cast<float>( segments );
+            size.push_back( LinearKey( t, d.StartSize + ( d.EndSize - d.StartSize ) * std::pow( t, power ) ) );
+        }
+        const glm::vec4                          c0( d.StartColor, d.StartAlpha );
+        const glm::vec4                          c1( d.EndColor, d.EndAlpha );
+        std::vector<std::vector<S::VFXCurveKey>> colour;
+        for ( int c = 0; c < 4; ++c )
+            colour.push_back( { LinearKey( 0.0f, c0[c] ), LinearKey( 1.0f, c1[c] ) } );
+
+        emitter.Stack.ParticleUpdate = {
+             Use( "UpdateAge", {} ),
+             Use( "Gravity", { ValueInput( "Gravity", T::Vec3, glm::vec4( d.Gravity, 0.0f ) ) } ),
+             Use( "SolveForcesAndVelocity", { ValueInput( "SpeedLimit", T::Float, glm::vec4( 0.0f ) ) } ),
+             Use( "SizeOverLife", { CurveInput( "Scale", T::Vec2, { size, size } ) } ),
+             Use( "ColorOverLife", { CurveInput( "Scale", T::Vec4, colour ) } ),
+        };
+        emitter.Renderers.push_back( S::VFXRendererData{ S::VFXRendererKind::Sprite, true } );
+
+        S::VFXSystemData system;
+        system.Category = kVFXConvertedCategory;
+        system.Duration = 1.0f;
+        system.Loop     = true;
+        system.Seed     = 0;
+        // Fixed bounds that hold every particle the old emitter could make: the farthest a particle travels in
+        // its longest life at the top speed under gravity, plus the larger sprite.
+        const float reach = std::abs( speedMax ) * lifeMax + 0.5f * glm::length( d.Gravity ) * lifeMax * lifeMax +
+                            std::max( std::abs( d.StartSize ), std::abs( d.EndSize ) );
+        system.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
+        system.Emitters.push_back( std::move( emitter ) );
+        return system;
+    }
+
+    ParticleEmittersToVFXReport MigrateParticleEmittersToVFX( std::vector<Assets::EntityData>& entities,
+                                                              const std::string&               ownerName,
+                                                              const std::filesystem::path&     assetsRoot )
+    {
+        ParticleEmittersToVFXReport        report;
+        std::map<std::string, std::string> minted; // canonical body -> the relative path minted for it
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            if ( entity.PrefabOverrides )
+                for ( const auto& override_ : *entity.PrefabOverrides )
+                    if ( override_.Components.get( "ParticleEmitter" ).has_value() )
+                        report.Refused.push_back( who + ": a prefab override states ParticleEmitter keys; raise "
+                                                        "the prefab first and re-state the override on its VFX "
+                                                        "block" );
+
+            const auto block = entity.Components.get( "ParticleEmitter" );
+            if ( !block.has_value() )
+                continue;
+            const auto fields = block.value().to_object();
+            if ( !fields.has_value() )
+            {
+                report.Refused.push_back( who + ": ParticleEmitter is " + Describe( block.value() ) +
+                                          ", not an object" );
+                continue;
+            }
+            const auto read = ReadParticleEmitterV42( fields.value() );
+            if ( !read )
+            {
+                report.Refused.push_back( who + ": " + read.GetError() );
+                continue;
+            }
+
+            S::VFXSystemData  system = VFXSystemFromParticleEmitter( read.GetValue() );
+            const std::string body   = S::WriteVFXSystem( system ); // header minted fresh: compared without it
+            const std::string key    = body.substr( body.find( "\"Category\"" ) );
+
+            std::string relative;
+            if ( const auto it = minted.find( key ); it != minted.end() )
+            {
+                relative = it->second;
+                ++report.Shared;
+            }
+            else
+            {
+                relative = "VFX/" + SafeStem( ownerName ) + "_" + SafeStem( who ) + S::kVFXSystemExtension;
+                Common::Content::TextAssetHeaderSerialized header;
+                header.Guid   = Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) );
+                system.Header = header;
+                report.NewSystems.emplace_back( ( assetsRoot / relative ).lexically_normal(),
+                                                S::WriteVFXSystem( system ) );
+                minted.emplace( key, relative );
+            }
+
+            rfl::Generic::Object ref;
+            ref["Guid"] = rfl::Generic( Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) ) );
+            ref["Path"] = rfl::Generic( relative );
+            rfl::Generic::Object vfx;
+            vfx["System"]       = rfl::Generic( std::move( ref ) );
+            vfx["AutoActivate"] = rfl::Generic( true );
+
+            Common::Json::KeyedValues kept;
+            for ( const auto& [name, value] : entity.Components )
+                if ( name != "ParticleEmitter" )
+                    kept[name] = value;
+            kept["VFX"]       = rfl::Generic( std::move( vfx ) );
+            entity.Components = std::move( kept );
+            ++report.Emitters;
+        }
+        return report;
+    }
+
     float FoliageDensityFromPerDab( float perDab )
     {
         constexpr float kPi   = 3.14159265358979f;

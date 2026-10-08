@@ -31,6 +31,9 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <glm/glm.hpp>
 
 #include <array>
 
@@ -301,6 +304,69 @@ namespace Desert::Migration
     // Removes ParticleEmitter.Blend under the rule kSceneVersionParticleSpriteMaterial states. PURE.
     ParticleSpriteMaterialsReport
     MigrateParticleSpriteMaterialsV41ToV42( std::vector<Assets::EntityData>& entities );
+
+    // VFX-03, NOT YET CHAINED (see REMAINDER-VFX-03: it is chained, with the next scene version, in the
+    // same commit that makes the renderer draw VFXComponent and deletes ParticleEmitterComponent - chained
+    // earlier, the loader's migration would turn every emitter into a block nothing draws).
+    //
+    // A ParticleEmitter block becomes a `.dfx` system of ONE emitter whose module stack reproduces it, and the
+    // block becomes `VFX { System: {Guid, Path}, AutoActivate: true }`. The file is written next to the owner
+    // under VFX/<owner>_<entity uuid>.dfx (relative to the assets root), its GUID MigrationGuidForPath of that
+    // path, so a rerun writes the same bytes; emitters of one file with the same numbers share the first's file.
+    // System seed 0: VFXWorld seeds an emitter from (system seed, entity uuid, emitter index), and the old
+    // component's seed was (0, uuid, 0), so every random stream stays the same.
+    inline constexpr const char* kVFXConvertedCategory = "Converted";
+
+    // The v42 ParticleEmitter block's numbers, member for member, with ECS::ParticleEmitterData's v42 defaults
+    // (an absent key meant the default); frozen here because the component is deleted.
+    struct ParticleEmitterV42
+    {
+        bool                 Enabled          = true;
+        int                  MaxParticles     = 2000;
+        float                SpawnRate        = 200.0f;
+        bool                 Looping          = true;
+        bool                 WorldSpace       = true;
+        float                Lifetime         = 3.0f;
+        float                LifetimeVariance = 0.2f;
+        float                StartSpeed       = 200.0f;
+        float                SpeedVariance    = 0.3f;
+        glm::vec3            Direction        = glm::vec3( 0.0f, 1.0f, 0.0f );
+        float                ConeAngle        = 45.0f;
+        glm::vec3            Gravity          = glm::vec3( 0.0f, -200.0f, 0.0f );
+        float                StartSize        = 25.0f;
+        float                SizeCurvePower   = 1.0f;
+        float                EndSize          = 6.0f;
+        glm::vec3            StartColor       = glm::vec3( 1.0f, 0.6f, 0.15f );
+        glm::vec3            EndColor         = glm::vec3( 0.6f, 0.1f, 0.0f );
+        float                StartAlpha       = 1.0f;
+        float                EndAlpha         = 0.0f;
+        Assets::AssetGuidRef Material; ///< empty = the default sprite template
+    };
+
+    // Reads a ParticleEmitter block; a key of the wrong type is an error naming it.
+    Common::ResultStr<ParticleEmitterV42> ReadParticleEmitterV42( const rfl::Generic::Object& block );
+
+    // The size-over-life curve's key count when SizeCurvePower != 1 (Linear keys on t^power, so the curve is
+    // exact at every key; between keys it is the chord, error <= range * max|f''| / (8 * segments^2)).
+    inline constexpr int kVFXConvertedSizeSegments = 16;
+
+    // The system the emitter becomes (no header: the caller stamps it). Material: see REMAINDER-VFX-03 (the
+    // `.dfx` sprite renderer gains its Material in VFXS 2).
+    Assets::Serialization::VFXSystemData VFXSystemFromParticleEmitter( const ParticleEmitterV42& emitter );
+
+    struct ParticleEmittersToVFXReport
+    {
+        std::size_t Emitters = 0; // ParticleEmitter blocks on the file's own records, now VFX blocks
+        std::size_t Shared   = 0; // of those, how many reuse a file an earlier identical emitter minted
+        std::vector<std::pair<std::filesystem::path, std::string>> NewSystems; // absolute path, canonical text
+        // A prefab override stating ParticleEmitter keys (a partial block over the prefab's emitter, which this
+        // file does not hold) or an unreadable block: the whole file is refused, naming each.
+        std::vector<std::string> Refused;
+    };
+
+    ParticleEmittersToVFXReport MigrateParticleEmittersToVFX( std::vector<Assets::EntityData>& entities,
+                                                              const std::string&               ownerName,
+                                                              const std::filesystem::path&     assetsRoot );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
