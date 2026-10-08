@@ -223,8 +223,9 @@ namespace Desert::Physics
         // honest while playing, instead of only at the next Play.
         void SetGravity( float gravityCmPerS2 );
 
-        // Advance the simulation by dt seconds (fixed-step accumulated internally).
-        void Step( float dt );
+        // Advance the simulation by dt seconds (fixed-step accumulated internally). Returns how many fixed steps
+        // ran: zero when dt only added to the backlog.
+        uint32_t Step( float dt );
 
         /// Called after every fixed step inside Step, with that step's length: where a system that reacts to
         /// the solve (DestructionWorld) runs, at the solver's rate rather than the frame's. One subscriber;
@@ -285,6 +286,12 @@ namespace Desert::Physics
 
         // Teleport / drive a body (use for Kinematic bodies or resetting on Play).
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
+        /// The pose a KINEMATIC body is driven to (UE: a kinematic body follows its component's transform).
+        /// Every fixed step moves it there with Jolt's MoveKinematic, the remaining distance shared evenly over
+        /// the fixed steps the current Step still has to run, so the body arrives at the end of the Step and
+        /// contacts and triggers see it travel rather than teleport. Kept until replaced or the body is removed:
+        /// a body at its target is moved by nothing. Ignored for a handle that is not a kinematic body.
+        void SetKinematicTarget( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
         /// Adds @p impulse (kg*cm/s) at the centre of mass and wakes the body; a static body ignores it.
         void                    AddImpulse( BodyHandle handle, const glm::vec3& impulse );

@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
+#include <Engine/ECS/System/EntityOverlaps.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
@@ -72,6 +73,7 @@ namespace Desert::ECS
                 if ( m_World )
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
+                    m_Overlaps.reset(); // unsubscribes from the world
                     m_RefusedColliders.clear();
                     m_Landscape.reset();
                     m_Destructibles.reset();
@@ -90,6 +92,7 @@ namespace Desert::ECS
                 m_AppliedGravity = m_Scene ? m_Scene->GetSettings().Gravity : Core::SceneSettings{}.Gravity;
                 m_World->Init( m_AppliedGravity );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
+                m_Overlaps      = std::make_unique<EntityOverlapRouter>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
@@ -134,31 +137,17 @@ namespace Desert::ECS
                 desc.Mass        = rb.Data.Mass;
                 desc.Friction    = rb.Data.Friction;
                 desc.Restitution = rb.Data.Restitution;
+                desc.IsTrigger   = collider.Data.IsTrigger;
+                desc.Overlaps    = { .Static     = collider.Data.OverlapStatic,
+                                     .Kinematic  = collider.Data.OverlapKinematic,
+                                     .Dynamic    = collider.Data.OverlapDynamic,
+                                     .Characters = collider.Data.OverlapCharacters };
 
-                // Use the WORLD pose (walk parents) so a collider on a CHILD entity (e.g. a wall inside a
-                // "House" prefab root) is created where it actually is, not at its local offset.
-                glm::mat4    world = transform.GetTransform();
-                entt::entity cur   = entity;
-                while ( registry.has<RelationshipComponent>( cur ) )
-                {
-                    const auto& rel = registry.get<RelationshipComponent>( cur );
-                    if ( rel.Parent == entt::null )
-                        break;
-                    cur = rel.Parent;
-                    if ( registry.has<TransformComponent>( cur ) )
-                        world = registry.get<TransformComponent>( cur ).GetTransform() * world;
-                }
-                desc.Position = glm::vec3( world[3] );
-                glm::mat3       basis( world ); // strip scale so quat_cast gives a clean rotation
-                const glm::vec3 worldScale( glm::length( basis[0] ), glm::length( basis[1] ),
-                                            glm::length( basis[2] ) );
-                if ( glm::length( basis[0] ) > 1e-6f )
-                    basis[0] = glm::normalize( basis[0] );
-                if ( glm::length( basis[1] ) > 1e-6f )
-                    basis[1] = glm::normalize( basis[1] );
-                if ( glm::length( basis[2] ) > 1e-6f )
-                    basis[2] = glm::normalize( basis[2] );
-                desc.Rotation = glm::quat_cast( basis );
+                // The WORLD pose, so a collider on a CHILD entity is created where it actually is.
+                const EntityWorldPose pose       = ComputeEntityWorldPose( registry, entity );
+                const glm::vec3       worldScale = pose.Scale;
+                desc.Position                    = pose.Position;
+                desc.Rotation                    = pose.Rotation;
 
                 std::optional<ColliderMesh> colliderMesh;
                 if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
@@ -183,6 +172,7 @@ namespace Desert::ECS
                     continue;
                 }
                 rb.RuntimeBody = created.GetValue();
+                m_Overlaps->Track( rb.RuntimeBody, entity );
             }
 
             // Create a Jolt CharacterVirtual for any character entity that doesn't have one (authored pose).
@@ -200,6 +190,8 @@ namespace Desert::ECS
                 desc.Position       = transform.Translation; // capsule center
                 desc.MaxSlopeDeg    = cc.Data.MaxSlopeDeg;
                 cc.RuntimeCharacter = m_World->CreateCharacter( desc );
+                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter )
+                    m_Overlaps->Track( m_World->GetCharacterBody( cc.RuntimeCharacter ), entity );
                 cc.VerticalVelocity = 0.0f;
             }
 
@@ -208,13 +200,19 @@ namespace Desert::ECS
 
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
-            m_World->Step( ts.GetSeconds() );
+            m_Overlaps->BeginFrame( registry );
+            // A kinematic body follows its entity (the transform leads, the body travels to it over the step);
+            // only a dynamic body's pose is written back below.
+            DriveKinematicBodies( registry, *m_World );
+            const uint32_t fixedSteps = m_World->Step( ts.GetSeconds() );
+            // Queued on both entities for their scripts (ScriptSystem, next frame) and given to C++ subscribers.
+            m_Overlaps->Deliver( registry, fixedSteps );
 
-            // Write the simulated pose back into the transform for moving bodies.
+            // Write the simulated pose back into the transform for dynamic bodies.
             for ( auto entity : bodies )
             {
                 auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type == Physics::BodyType::Static )
+                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
                     continue;
 
                 auto& transform       = bodies.get<TransformComponent>( entity );
@@ -370,6 +368,13 @@ namespace Desert::ECS
             return m_Destruction.get();
         }
 
+        /// The scene's trigger overlaps as entity events while Play runs, null in Edit: where C++ gameplay
+        /// subscribes (scripts get theirs through OverlapEventsComponent).
+        [[nodiscard]] EntityOverlapRouter* GetOverlapRouter() const
+        {
+            return m_Overlaps.get();
+        }
+
     private:
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
@@ -382,6 +387,8 @@ namespace Desert::ECS
         std::unique_ptr<Physics::PhysicsWorld> m_World;
         // Declared AFTER m_World so it is destroyed first: it releases into the world, never the other way.
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;
+        // Same rule: subscribed to m_World's overlaps.
+        std::unique_ptr<EntityOverlapRouter> m_Overlaps;
         // Same rule: the landscape's heightfield bodies live in m_World.
         std::unique_ptr<LandscapeCollision> m_Landscape;
         // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.

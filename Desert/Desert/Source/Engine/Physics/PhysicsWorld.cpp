@@ -457,6 +457,14 @@ namespace Desert::Physics
         std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
         std::function<void( float )> StepCallback;
 
+        // SetKinematicTarget: the pose each kinematic body is being moved to. Main thread only.
+        struct KinematicTarget
+        {
+            JPH::RVec3 Position;
+            JPH::Quat  Rotation;
+        };
+        std::unordered_map<BodyHandle, KinematicTarget> KinematicTargets;
+
         // Live overlaps: PairKey(trigger, other) -> the sub-shape pairs touching. Main thread only.
         std::unordered_map<JPH::uint64, std::unordered_set<JPH::uint64>> ActiveOverlaps;
         std::vector<OverlapEvent>                                        PendingOverlaps;
@@ -602,16 +610,30 @@ namespace Desert::Physics
         }
     }
 
-    void PhysicsWorld::Step( float dt )
+    uint32_t PhysicsWorld::Step( float dt )
     {
         if ( !m_Impl || dt <= 0.0f )
-            return;
+            return 0u;
 
         // Fixed 60 Hz steps; clamp the backlog so a hitch can't spiral into a long catch-up.
         constexpr float kFixed = 1.0f / 60.0f;
         m_Accumulator          = std::min( m_Accumulator + dt, 0.25f );
-        while ( m_Accumulator >= kFixed )
+        uint32_t steps         = 0u; // counted the way they are consumed, so the float rounding agrees
+        for ( float backlog = m_Accumulator; backlog >= kFixed; backlog -= kFixed )
+            ++steps;
+        for ( uint32_t step = 0; step < steps; ++step )
         {
+            // Each kinematic body covers 1/(steps left) of what remains to its target, so it arrives on the
+            // Step's last fixed step whatever the number of them.
+            const float share = 1.0f / static_cast<float>( steps - step );
+            for ( const auto& [handle, target] : m_Impl->KinematicTargets )
+            {
+                const JPH::BodyID id( handle );
+                const JPH::RVec3  from = m_Impl->Bodies->GetPosition( id );
+                const JPH::Quat   turn = m_Impl->Bodies->GetRotation( id );
+                m_Impl->Bodies->MoveKinematic( id, from + ( target.Position - from ) * share,
+                                               turn.SLERP( target.Rotation, share ).Normalized(), kFixed );
+            }
             m_Impl->Impulses.Contacts.clear();
             m_Impl->System.Update( kFixed, 1, m_Impl->TempAllocator.get(), m_Impl->JobSystem.get() );
             m_Accumulator -= kFixed;
@@ -620,6 +642,7 @@ namespace Desert::Physics
             if ( m_Impl->StepCallback )
                 m_Impl->StepCallback( kFixed );
         }
+        return steps;
     }
 
     void PhysicsWorld::SetStepCallback( std::function<void( float )> callback )
@@ -847,6 +870,7 @@ namespace Desert::Physics
             return;
         const JPH::BodyID id( handle );
         m_Impl->EndOverlapsOf( handle );
+        m_Impl->KinematicTargets.erase( handle );
         m_Impl->Bodies->RemoveBody( id );
         m_Impl->Bodies->DestroyBody( id );
         m_Impl->HeightFields.erase( handle );
@@ -992,6 +1016,18 @@ namespace Desert::Physics
         m_Impl->Bodies->SetPositionAndRotation( JPH::BodyID( handle ),
                                                 JPH::RVec3( position.x, position.y, position.z ),
                                                 ToJolt( rotation ), JPH::EActivation::Activate );
+    }
+
+    void PhysicsWorld::SetKinematicTarget( BodyHandle handle, const glm::vec3& position,
+                                           const glm::quat& rotation )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        const JPH::BodyID id( handle );
+        if ( m_Impl->Bodies->GetMotionType( id ) != JPH::EMotionType::Kinematic )
+            return;
+        m_Impl->KinematicTargets[handle] = { JPH::RVec3( position.x, position.y, position.z ),
+                                             ToJolt( rotation ).Normalized() };
     }
 
     void PhysicsWorld::SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity )

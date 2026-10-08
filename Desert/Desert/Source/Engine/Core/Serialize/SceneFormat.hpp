@@ -66,7 +66,9 @@ namespace Desert::Core
     // (Tools/SceneMigrator, MigrateWindSourceV41ToV42).
     // v43 (TOD-SPLIT): the sky's five clock keys are a TimeOfDay block on the same record (Tools/SceneMigrator,
     // MigrateTimeOfDayComponentV42ToV43).
-    inline constexpr int kSceneVersion = 43;
+    // v44 (GP4): every Collider block states IsTrigger and the four Overlap* filter keys (Tools/SceneMigrator,
+    // MigrateTriggerColliderV43ToV44).
+    inline constexpr int kSceneVersion = 44;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

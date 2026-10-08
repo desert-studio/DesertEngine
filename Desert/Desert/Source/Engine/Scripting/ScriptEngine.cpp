@@ -200,6 +200,23 @@ namespace Desert::Scripting
         }
     }
 
+    void ScriptEngine::CallOverlap( uint32_t entity, uint32_t slot, const char* callback, uint32_t other )
+    {
+        sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
+        if ( !env )
+            return;
+        const sol::protected_function fn = ( *env )[callback];
+        if ( !fn.valid() )
+            return;
+        m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot ); // Timer.after ownership
+        sol::protected_function_result r = fn( m_Impl->MakeEntity( static_cast<entt::entity>( other ) ) );
+        if ( !r.valid() )
+        {
+            sol::error err = r;
+            LOG_ERROR( "[Lua] {} error: {}", callback, err.what() );
+        }
+    }
+
     void ScriptEngine::BroadcastUIMessage( const std::string& message )
     {
         for ( auto& [entity, slots] : m_Impl->Envs )

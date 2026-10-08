@@ -2722,6 +2722,37 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Center" ), Category( "Collider" ), Length )
         glm::vec3 Center = { 0.0f, 0.0f,
                              0.0f }; // Box / Sphere / Capsule: body-local offset (UE FKShapeElem Center)
+
+        // A trigger pushes nothing and reports overlaps instead (UE: a component set to Overlap with
+        // bGenerateOverlapEvents). Its entity's scripts and the other body's get OnBeginOverlap / OnEndOverlap.
+        PROPERTY( DisplayName( "Is Trigger" ), Category( "Collision" ) )
+        bool IsTrigger = false;
+
+        // Which kinds of body a trigger reports (Physics::OverlapFilter). Read only when IsTrigger is set.
+        PROPERTY( DisplayName( "Overlap Static" ), Category( "Collision" ), Advanced )
+        bool OverlapStatic = false;
+
+        PROPERTY( DisplayName( "Overlap Kinematic" ), Category( "Collision" ), Advanced )
+        bool OverlapKinematic = true;
+
+        PROPERTY( DisplayName( "Overlap Dynamic" ), Category( "Collision" ), Advanced )
+        bool OverlapDynamic = true;
+
+        PROPERTY( DisplayName( "Overlap Characters" ), Category( "Collision" ), Advanced )
+        bool OverlapCharacters = true;
+    };
+
+    // The overlap Begin / End this entity took part in since its scripts last heard (as the trigger or as the
+    // body entering one: UE fires on both components). Filled by PhysicsECSSystem after its step, delivered
+    // and cleared by ScriptSystem (OnBeginOverlap / OnEndOverlap). Transient: not reflected, not saved.
+    struct OverlapEventsComponent
+    {
+        struct Event
+        {
+            bool         Begin = true;
+            entt::entity Other = entt::null; ///< May be destroyed already (an End caused by its removal).
+        };
+        std::vector<Event> Pending;
     };
 
     struct ColliderComponent

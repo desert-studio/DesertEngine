@@ -171,6 +171,24 @@ namespace Desert::ECS
                         anim.PendingNotifies.clear();
                     }
                 }
+
+                // Trigger overlaps the physics step queued for this entity (as the trigger or as the body that
+                // entered one), in order, to every started slot; a callback may destroy the entity, which ends
+                // the delivery.
+                if ( registry.has<OverlapEventsComponent>( entity ) )
+                {
+                    std::vector<OverlapEventsComponent::Event> pending;
+                    pending.swap( registry.get<OverlapEventsComponent>( entity ).Pending );
+                    for ( const auto& overlap : pending )
+                    {
+                        const char* callback = overlap.Begin ? "OnBeginOverlap" : "OnEndOverlap";
+                        for ( uint32_t slot = 0; slot < sc.Scripts.size() && registry.valid( entity ); ++slot )
+                            if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
+                                m_Engine.CallOverlap( id, slot, callback, static_cast<uint32_t>( overlap.Other ) );
+                        if ( !registry.valid( entity ) )
+                            break;
+                    }
+                }
             }
 
             // Deliver whatever the canvas raised this frame (button actions, pointer events, drops) to

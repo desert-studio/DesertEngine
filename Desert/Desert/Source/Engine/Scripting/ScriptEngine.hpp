@@ -61,6 +61,11 @@ namespace Desert::Scripting
         // OnAnimationNotifyBegin / OnAnimationNotifyEnd (a notify state).
         void CallAnimationNotify( uint32_t entity, uint32_t slot, const char* callback, const std::string& name );
 
+        // Calls a slot's @p callback (OnBeginOverlap / OnEndOverlap) with the other entity of a trigger overlap,
+        // if defined. The other entity may already be destroyed (an End its removal caused): the script gets a
+        // handle whose valid() is false.
+        void CallOverlap( uint32_t entity, uint32_t slot, const char* callback, uint32_t other );
+
         // Writes the slot's editor-set property values into its env's `Properties` table, so the running
         // script reads the overridden values. Call after LoadEntityScript, before OnStart.
         void ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props );
