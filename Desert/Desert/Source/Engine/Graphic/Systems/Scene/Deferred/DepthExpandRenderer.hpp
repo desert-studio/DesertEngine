@@ -60,7 +60,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-
         // Whether the scene target needs an expansion and one was built for it.
         [[nodiscard]] bool IsReady() const
         {

@@ -89,7 +89,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-
         // The accumulated indirect light is a reprojection of the previous frame, and the previous frame is
         // now a different world — see IRenderSystem::OnSceneReplaced, kind 1. The blend weight is 0.92, so
         // without this the first scene's bounce light survives in the second for tens of frames wherever the

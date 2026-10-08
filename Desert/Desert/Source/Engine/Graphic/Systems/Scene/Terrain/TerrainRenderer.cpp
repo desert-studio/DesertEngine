@@ -436,32 +436,34 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TerrainRenderer::RegisterPasses( RenderGraphBuilder& builder )
+    SystemRasterPass TerrainRenderer::GeometryPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb || !m_Pipeline )
-            return;
+            return {};
 
-        // Same Geometry phase + scene framebuffer as the meshes: merges into the open render pass
-        // (depth shared, no clear) so terrain and meshes depth-resolve against each other.
-        SystemRasterPass pass{ .Name = "TerrainPass", .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
-                       {
-                           // Forward path only. In Deferred the terrain is in the G-buffer (RenderGBufferManual)
-                           // and lit by the composite; drawing it here too would light the ground twice, two
-                           // different ways.
-                           if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
-                               return BOOLSUCCESS;
-                           const auto* camera = m_SceneRenderer->GetMainCamera();
-                           if ( ( camera == nullptr ) || m_FrameDraws.empty() )
-                               return BOOLSUCCESS;
-                           // Through the blocks declared below (the scene/view inputs Terrain.shader samples - the
-                           // cloud shadow map - are entries of them).
-                           (void)refs;
-                           return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
-                                               m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
-                       }, .TargetFramebuffer = targetFb };
- pass
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        // Right after the meshes in AddFrameBasePass, on the same scene framebuffer: merges into the open render
+        // pass (depth shared, no clear) so terrain and meshes depth-resolve against each other.
+        SystemRasterPass pass{ .Name        = "TerrainPass",
+                               .ExecuteFunc = [this]( RDG::PassContext&     context,
+                                                      const FrameGraphRefs& refs ) -> Common::BoolResultStr
+                               {
+                                   // Forward path only. In Deferred the terrain is in the G-buffer
+                                   // (RenderGBufferManual) and lit by the composite; drawing it here too would
+                                   // light the ground twice, two different ways.
+                                   if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
+                                       return BOOLSUCCESS;
+                                   const auto* camera = m_SceneRenderer->GetMainCamera();
+                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() )
+                                       return BOOLSUCCESS;
+                                   // Through the blocks declared below (the scene/view inputs Terrain.shader
+                                   // samples - the cloud shadow map - are entries of them).
+                                   (void)refs;
+                                   return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
+                                                       m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
+                               },
+                               .TargetFramebuffer = targetFb };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the
             // scene/view inputs its shader has slots for (a block entry IS the read).
@@ -474,6 +476,7 @@ namespace Desert::Graphic::System
             (void)DeclareGroupBlocks( declared, m_Pipeline.get(), m_ForwardLayout,
                                       GroupExecutors( &ProgramMaterials::Forward ), &view );
         };
+        return pass;
     }
 
     Common::BoolResultStr TerrainRenderer::RenderGBufferManual( const RDG::PassContext& context )

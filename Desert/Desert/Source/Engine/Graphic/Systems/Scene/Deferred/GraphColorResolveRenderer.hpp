@@ -71,7 +71,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-
         [[nodiscard]] bool IsReady() const
         {
             return m_Shader && m_Material && m_Pipelines.size() == kFormats.size();

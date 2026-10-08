@@ -6,7 +6,6 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
-#include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -192,8 +191,8 @@ namespace Desert::Graphic::System
                        "built for the multisampled scene target (see the startup error)" );
             return {};
         }
-        // The fog image lives this frame only (written here, sampled by HeightFogApply in the Transparency
-        // phase): a transient of the graph at this frame's view size, published for the apply.
+        // The fog image lives this frame only (written here, sampled by HeightFogApply, the first translucency
+        // node): a transient of the graph at this frame's view size, published for the apply.
         const RDG::TextureDesc fogDesc{ .Size   = RDG::Extent3D{ .Width = fogWidth, .Height = fogHeight },
                                         .Format = ViewTargetFormats::kHeightFog };
         const RDG::TextureRef  fogImage = graph.CreateTexture( fogDesc, "HeightFog.Fog" );
@@ -243,10 +242,9 @@ namespace Desert::Graphic::System
         return nodes;
     }
 
-
     SystemRasterPass HeightFogRenderer::ApplyPass()
     {
-        SystemRasterPass config;
+        SystemRasterPass               config;
         const auto                     target = m_TargetFramebuffer.lock();
         if ( !target || !m_ApplyPipeline )
             return config;

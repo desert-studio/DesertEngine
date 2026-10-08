@@ -11,7 +11,6 @@
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
-#include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -2157,10 +2156,9 @@ namespace Desert::Graphic::System
         return block;
     }
 
-
     SystemRasterPass VolumetricCloudRenderer::CompositePass()
     {
-        SystemRasterPass config;
+        SystemRasterPass               config;
         const auto                     target = m_TargetFramebuffer.lock();
         if ( !target || !m_CompositePipeline )
             return config;

@@ -16,7 +16,8 @@ namespace Desert::Graphic::System
     class RenderSystem : public IRenderSystem
     {
     public:
-        explicit RenderSystem( SceneRenderer* sceneRenderer, const std::shared_ptr<Framebuffer>& targetFramebuffer )
+        explicit RenderSystem( SceneRenderer*                      sceneRenderer,
+                               const std::shared_ptr<Framebuffer>& targetFramebuffer )
              : m_SceneRenderer( sceneRenderer ), m_TargetFramebuffer( targetFramebuffer )
         {
         }

@@ -18,8 +18,8 @@
 //
 //   * its REACH is one file. `SceneRenderer.cpp` was never opened by it, and neither is anything else;
 //   * its SUBJECT is a name. Even pointed at the whole tree it would have found nothing, because
-//     `RegisterExternalPass` (since deleted) called no function called `EmitInput` — the consuming side effect there is
-//     spelled `std::move`, and the reading side effect is a plain member access.
+//     `RegisterExternalPass` (since deleted) called no function called `EmitInput` — the consuming side effect
+//     there is spelled `std::move`, and the reading side effect is a plain member access.
 //
 // So the two censuses are complementary and both are kept. Г24's covers a side effect that has a NAME in
 // one emitter; this one covers the side effect the language itself spells, everywhere.

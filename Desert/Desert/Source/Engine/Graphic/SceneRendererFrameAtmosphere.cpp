@@ -47,7 +47,7 @@ namespace Desert::Graphic
         // block per emitter, ParticleRenderer::DeclareSimulateBindings), so the graph places the barrier against
         // the previous step's write - step s+1 reads what step s wrote - and, for the first step, against the
         // previous graph's write of the persistent state. The billboard draw that reads the result (ParticlePass,
-        // a Transparency raster node) declares it StorageRead in its blocks, so the graph places the compute ->
+        // a translucency raster node) declares it StorageRead in its blocks, so the graph places the compute ->
         // vertex barrier after the last step; DispatchCompute records none of its own. NeverCull: the persistent
         // state advances even on a frame nothing draws it. The graph executes before OnUpdate returns, so the
         // imports held by the renderer's frame emitters outlive these passes.
@@ -107,7 +107,8 @@ namespace Desert::Graphic
         if ( clouds == nullptr )
             return;
         clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph, frame ) ) );
-        // The composite (a Transparency phase pass, declared after this) samples the pair by graph ref.
+        // The composite (a translucency pass, added after this by AddFrameTranslucency) samples the pair by graph
+        // ref.
         const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
         textures.Transients.CloudScatter =
              textures.Import( result.Scatter, std::format( "Clouds.History{}", result.Slot ) );

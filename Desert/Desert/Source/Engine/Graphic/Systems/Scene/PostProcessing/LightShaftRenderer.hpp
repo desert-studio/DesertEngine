@@ -40,7 +40,6 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-
         // The mask and every blur pass are compute nodes of the frame graph (SceneRendererFramePostFX.cpp
         // "PostFX: LightShaft*"). Their two half-resolution images are transients of that graph
         // (Builder::CreateTexture from GetTargetDesc()); the renderer keeps no image and has no Resize.

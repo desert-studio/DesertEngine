@@ -47,6 +47,10 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override;
 
+        // The billboard draw over the lit scene target (LOAD), added by SceneRenderer::AddFrameTranslucency after
+        // the fog apply and the cloud composite. Empty (no TargetFramebuffer) without a target or pipeline.
+        [[nodiscard]] SystemRasterPass DrawPass();
+
         // Drops every cached emitter — see IRenderSystem::OnSceneReplaced, kind 2. m_Emitters is keyed by
         // the raw entt entity value, and a fresh registry hands those out from zero again, so the next
         // scene's first emitter IS the previous scene's first emitter as far as this cache can tell: same

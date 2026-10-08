@@ -161,8 +161,6 @@ namespace Desert::Graphic
         // theirs explicitly after the build, and an explicit claim overrides the ambient one.
         const ResourceAttributionScope owned( ResourceOwner::SceneRenderer );
 
-        // Ensure the phase registry exists before any system registers custom phases or passes.
-
         // The surface's size, never the window's: see ViewExtent.
         const uint32_t width  = m_ViewExtent.Width;
         const uint32_t height = m_ViewExtent.Height;
@@ -273,7 +271,8 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
 
         // Backdrop blur: a blurred snapshot of the scene colour the UI canvas samples for "glass" panels.
-        // Runs before the UI phase (which writes into this same target, so it cannot sample it directly).
+        // Runs before the UI extension point (whose passes write into this same target, so it cannot sample it
+        // directly).
         RegisterSystem<System::BackdropBlurRenderer>( "BackdropBlurSystem", this, m_TargetFramebuffer );
         if ( const auto& backdropSystem =
                   SP_CAST( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
@@ -368,7 +367,7 @@ namespace Desert::Graphic
              !cloudInit )
             LOG_WARN( "[SceneRenderer] Volumetric cloud system unavailable: {}", cloudInit.GetError() );
 
-        // GPU particles: compute-simulated billboards drawn in the Transparency phase. Non-fatal.
+        // GPU particles: compute-simulated billboards drawn by AddFrameTranslucency. Non-fatal.
         RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer );
         if ( !SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->Initialize() )
             LOG_WARN( "[SceneRenderer] Particle system unavailable." );
@@ -421,16 +420,13 @@ namespace Desert::Graphic
         // temporal history and a per-entity GPU cache, and IRenderSystem::OnSceneReplaced says why those two
         // are the only kinds that can exist here.
         //
-        // Walked over m_RenderSystemOrder rather than the map for the reason RebuildRenderGraph gives: the
-        // map's operator[] accesses elsewhere in this file insert null entries, and the order vector never
-        // holds one.
+        // Walked over m_RenderSystemOrder rather than the map: the map's operator[] accesses elsewhere in this
+        // file insert null entries, and the order vector never holds one.
         for ( const auto& name : m_RenderSystemOrder )
         {
             if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
                 it->second->OnSceneReplaced();
         }
-
-        RebuildRenderGraph();
     }
 
     void SceneRenderer::ResetTemporalHistory()
@@ -654,7 +650,7 @@ namespace Desert::Graphic
         }
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
-        // before the render graph, and the billboard pass draws in the Transparency phase.
+        // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
@@ -804,8 +800,8 @@ namespace Desert::Graphic
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
 
-        // Recompute CSM cascade matrices once per frame BEFORE the render graph records (intra-phase pass
-        // order is nondeterministic, so the cascade passes can't compute them themselves).
+        // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes
+        // nothing: its Declare and record only read the matrices).
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
@@ -963,10 +959,11 @@ namespace Desert::Graphic
 
         AddFrameCloudShadowMap( graph, textures );
 
-        // The registered systems' passes outside the overlay phases.
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return !RenderPhase::IsDeferredOverlay( phase ); },
-             true );
+        // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
+        // them), the scene target's sky and geometry, the outline mask.
+        AddFrameShadowDepths( graph, textures );
+        AddFrameBasePass( graph, textures );
+        AddFrameSilhouette( graph, textures );
 
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
         // the post chain.
@@ -1026,13 +1023,9 @@ namespace Desert::Graphic
         // the engine that belong under every translucent layer join here.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterOpaque, {} );
 
-        // Particles (Transparency phase), debug lines and the UI canvas run AFTER the deferred lighting
-        // composite so lit geometry does not paint over them, and as LOAD overlays so a CLEAR begin never
-        // wipes the depth later overlays test against (the particle top-down bug / grid-through-meshes).
-        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::Transparency ) &&
-                            RenderPhase::IsDeferredOverlay( RenderPhase::Debug ) &&
-                            RenderPhase::IsDeferredOverlay( RenderPhase::UI ),
-                       "the overlay phases added below must be the ones the main phase walk skips" );
+        // The translucency, the debug lines and the UI canvas run AFTER the deferred lighting composite so lit
+        // geometry does not paint over them, and as LOAD nodes so a CLEAR never wipes the depth later overlays
+        // test against (the particle top-down bug / grid-through-meshes).
         AddFrameTranslucency( graph, textures );
 
 #if DESERT_DEV_INSTRUMENTS
@@ -1042,13 +1035,12 @@ namespace Desert::Graphic
         }
 #endif // DESERT_DEV_INSTRUMENTS
 
-        // After the last node that draws the scene geometry's velocity into the scene target (the Transparency
-        // phase), before its one reader, the temporal node. The overlays and post nodes below never write velocity
-        // (their fragment shaders do not write slot 1: colour write mask 0,
-        // VulkanPipeline::CreateColorBlendState).
+        // After the last node that draws the scene geometry's velocity into the scene target (the translucency),
+        // before its one reader, the temporal node. The overlays and post nodes below never write velocity (their
+        // fragment shaders do not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
         AddFrameGraphColorResolves( graph, textures );
 
-        // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlay phases draw into
+        // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlays draw into
         // it - never into the history, never into the pre-resolve scene colour. Overlays (debug lines, grid,
         // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
         // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
@@ -1059,9 +1051,13 @@ namespace Desert::Graphic
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false, overlay );
-        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
+#if DESERT_DEV_INSTRUMENTS
+        // The engine's debug lines (bounding boxes), the first overlay.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
+#endif // DESERT_DEV_INSTRUMENTS
+       // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
         // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
@@ -1069,8 +1065,6 @@ namespace Desert::Graphic
         if ( m_BackdropBlurNeeded )
             AddFrameBackdropBlur( graph, textures, postInput );
 
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false, overlay );
         // The UI canvas, last before the post chain.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
@@ -1662,41 +1656,11 @@ namespace Desert::Graphic
     void SceneRenderer::RegisterRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )
     {
         TrackRenderSystem( name, std::move( system ) );
-        RebuildRenderGraph();
     }
 
     void SceneRenderer::UnregisterRenderSystem( const std::string& name )
     {
         ForgetRenderSystem( name );
-        RebuildRenderGraph();
-    }
-
-    void SceneRenderer::RebuildRenderGraph()
-    {
-        m_RenderGraphBuilder.Clear();
-
-        // Registration order, not map order: passes registered earlier draw earlier inside a phase
-        // (RenderGraphBuilder::AddPass), so walking the hash map here would have made the draw order a
-        // property of the system NAMES. Looking each name up also skips the null entries that the
-        // m_RenderSystems[...] accesses elsewhere in this file insert for systems that were never
-        // registered — the map walk used to call RegisterPasses through those.
-        for ( const auto& name : m_RenderSystemOrder )
-        {
-            const auto it = m_RenderSystems.find( name );
-            if ( it != m_RenderSystems.end() && it->second )
-                it->second->RegisterPasses( m_RenderGraphBuilder );
-        }
-
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::DepthPrePass, RenderPhase::Geometry );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Sky, RenderPhase::Geometry );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Geometry, RenderPhase::Outline );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Geometry, RenderPhase::Lighting );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Lighting, RenderPhase::PostProcess );
-
-        if ( !m_RenderGraphBuilder.Build() )
-        {
-            LOG_ERROR( "Failed to build render graph" );
-        }
     }
 
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )

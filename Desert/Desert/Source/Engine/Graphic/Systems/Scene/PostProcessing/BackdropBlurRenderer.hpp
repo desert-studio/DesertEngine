@@ -54,7 +54,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-
         // The pyramid of this frame: half the view, mip-capped so the coarsest level is ~1/32 of the screen.
         // nullopt while the view or the pipeline is missing (no node is added then and the glass reads nothing).
         [[nodiscard]] std::optional<RDG::TextureDesc> GetPyramidDesc() const
