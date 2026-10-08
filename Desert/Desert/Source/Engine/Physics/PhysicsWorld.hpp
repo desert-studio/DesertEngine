@@ -238,6 +238,9 @@ namespace Desert::Physics
         // Teleport / drive a body (use for Kinematic bodies or resetting on Play).
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
+        /// Moves the body to the pose and STOPS it (linear and angular velocity zero), waking it: a restored
+        /// save, a respawn — the body is where the game put it, and the next step does not carry the old motion.
+        void TeleportBody( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         /// Adds @p impulse (kg*cm/s) at the centre of mass and wakes the body; a static body ignores it.
         void                    AddImpulse( BodyHandle handle, const glm::vec3& impulse );
         [[nodiscard]] glm::vec3 GetLinearVelocity( BodyHandle handle ) const;  ///< cm/s, at the centre of mass
@@ -261,6 +264,8 @@ namespace Desert::Physics
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         bool            IsCharacterOnGround( CharacterHandle handle ) const;
         void            SetCharacterPosition( CharacterHandle handle, const glm::vec3& position );
+        /// Moves the capsule centre to @p position and stops it (its velocity zero); see TeleportBody.
+        void TeleportCharacter( CharacterHandle handle, const glm::vec3& position );
 
     private:
         struct Impl;

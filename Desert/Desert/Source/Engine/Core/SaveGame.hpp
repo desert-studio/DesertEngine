@@ -9,6 +9,22 @@
 // PROPERTY(SaveGame). A field without the flag is level data: a load never writes it. The pawn is its own record
 // and not an entity entry, because Play spawns it from the DefaultPawn prefab with a fresh UUID every session.
 //
+// SCRIPT PROPERTIES. A Lua script's exposed properties are its Blueprint variables: the ones the script lists in
+// `SaveGameProperties` (Scripting/ScriptProperty.hpp) are saved per entity UUID + script key + property name,
+// from the slot's Properties (ScriptSystem reads them back from the running script after OnStart / OnUpdate). A
+// load writes them into the slot's Properties; ScriptSystem hands those to the script env BEFORE OnStart on a
+// slot that has not started (so OnStart already sees them), and before the next OnUpdate on a running one
+// (savegame.load from Lua also writes them into the running envs at once). A saved property the script no
+// longer marks SaveGame, or whose kind changed, is reported by name and skipped.
+//
+// WHAT IS FLAGGED. No engine component field carries PROPERTY(SaveGame): which state is progress is the game's
+// decision, so content flags its own gameplay fields (and its scripts' properties). The engine provides the
+// mechanism only.
+//
+// PHYSICS. A restored transform on an entity with a live physics body or character controller moves the body
+// too (PhysicsWorld::TeleportBody / TeleportCharacter, velocity zeroed); writing only the TransformComponent
+// would be undone by the next physics step, which writes the body's pose back over it.
+//
 // THE FILE. <root>/<slot>.desave for user 0 and <root>/User<N>/<slot>.desave for user N (UE's UserIndex), a JSON
 // envelope `{"Format": "DesertSaveGame", "Version": N, ...}` written in the canonical text layout. A file of
 // another format or another version is refused BY NAME (file, found, expected): reading a layout this build was
@@ -41,6 +57,11 @@
 #include <string_view>
 #include <vector>
 
+namespace Desert::Physics
+{
+    class PhysicsWorld;
+}
+
 namespace Desert::Core
 {
     class Scene;
@@ -62,6 +83,22 @@ namespace Desert::Core
     using ReflectedTypeLookup = std::function<const Reflection::TypeInfo*( const std::string& typeName )>;
     [[nodiscard]] const Reflection::TypeInfo* RegistryTypeLookup( const std::string& typeName );
 
+    // The SaveGame property names of the script at `scriptPath`. The engine reads the script
+    // (ScriptFileSaveGameLookup = Scripting::ReadScriptSaveGameProperties); a test passes its own.
+    using ScriptSaveGameLookup =
+         std::function<Common::ResultStr<std::vector<std::string>>( const std::string& scriptPath )>;
+    [[nodiscard]] Common::ResultStr<std::vector<std::string>>
+    ScriptFileSaveGameLookup( const std::string& scriptPath );
+
+    // Where a save learns what is SaveGame: reflected fields (Types) and script properties (Scripts).
+    struct SaveGameSchema
+    {
+        ReflectedTypeLookup  Types;
+        ScriptSaveGameLookup Scripts;
+    };
+    // RegistryTypeLookup + ScriptFileSaveGameLookup.
+    [[nodiscard]] SaveGameSchema EngineSaveGameSchema();
+
     // What a load did not apply, one line each, naming the entity / component / field. Empty = everything applied.
     struct SaveGameLoadReport
     {
@@ -70,18 +107,33 @@ namespace Desert::Core
         bool                     PawnRestored  = false;
     };
 
+    // ── One reflected struct
+    // ───────────────────────────────────────────────────────────────────────────────────── The PROPERTY(SaveGame)
+    // fields of the object `data` described by `type`, as a block in a slot holds them:
+    // {"<field>": {"Type": "<C++ type>", "Value": v}}. Empty when no field of `type` is flagged. What every
+    // component block goes through, and what a game's own reflected struct (UE: a USaveGame subclass) can use.
+    [[nodiscard]] Common::Json::Object CaptureSaveGameFields( const Reflection::TypeInfo& type, const void* data );
+    // Writes `fields` (as CaptureSaveGameFields wrote them) into `data`. A field that is gone, no longer flagged,
+    // of another C++ type or of an unreadable value is reported in `report` as "<label>.<field> ..." and skipped.
+    void ApplySaveGameFields( const Reflection::TypeInfo& type, void* data, const Common::Json::Node& fields,
+                              const std::string& label, SaveGameLoadReport& report );
+
     // ── The document (no files) ─────────────────────────────────────────────────────────────────────────────────
     // The whole save of `registry` as the slot's JSON envelope. `pawn` may be entt::null (no pawn record).
     [[nodiscard]] Common::Json::Value CaptureSaveGame( const entt::registry& registry, entt::entity pawn,
                                                        const SaveGameSceneIdentity& scene,
-                                                       const ReflectedTypeLookup&   types );
+                                                       const SaveGameSchema&        schema );
 
     // Applies `document` (already accepted by ReadSaveGameSlot, or straight from CaptureSaveGame) onto `registry`.
     // Refused whole when the envelope is not this format/version or the slot's scene GUID is not `scene`'s.
+    // `physics` is the running world (null outside Play, where no body exists): an entity whose transform the
+    // load changed and that has a live body / character is teleported in it. A live body with no world given is
+    // reported (its transform alone was restored).
     [[nodiscard]] Common::ResultStr<SaveGameLoadReport> ApplySaveGame( entt::registry& registry, entt::entity pawn,
                                                                        const SaveGameSceneIdentity& scene,
                                                                        const Common::Json::Value&   document,
-                                                                       const ReflectedTypeLookup&   types );
+                                                                       const SaveGameSchema&        schema,
+                                                                       Physics::PhysicsWorld*       physics );
 
     // ── Slot files under an explicit root ───────────────────────────────────────────────────────────────────────
     // The slot's file. A slot name is a file stem: empty, ".", "..", a path separator or a character Windows

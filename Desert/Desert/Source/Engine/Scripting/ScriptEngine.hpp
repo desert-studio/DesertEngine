@@ -65,6 +65,13 @@ namespace Desert::Scripting
         // script reads the overridden values. Call after LoadEntityScript, before OnStart.
         void ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props );
 
+        // The other direction, for the slot's SaveGame properties only (`names`, ReadScriptSaveGameProperties):
+        // what the running script wrote to `Properties.<name>` is copied into `props` (added when the slot did
+        // not list it yet), so the slot holds the game state a save captures. Call after OnStart / OnUpdate. A
+        // value of another kind than a property can hold (a table, a function) is not copied.
+        void ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
+                                 std::vector<ScriptProperty>& props );
+
         // Calls OnUIMessage(msg) on EVERY loaded script that defines it. A UI message has no owner — a
         // button belongs to the canvas, not to a script — so it broadcasts, and each script decides what
         // (if anything) it answers. Drained from UI::UIMessageQueue once per frame by ScriptSystem.

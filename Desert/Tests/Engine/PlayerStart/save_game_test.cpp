@@ -42,10 +42,12 @@ namespace
         return type;
     }
 
-    ReflectedTypeLookup LookupWith( const Reflection::TypeInfo& pointLight )
+    SaveGameSchema LookupWith( const Reflection::TypeInfo& pointLight )
     {
-        return [&pointLight]( const std::string& name ) -> const Reflection::TypeInfo*
-        { return name == "PointLightData" ? &pointLight : nullptr; };
+        return SaveGameSchema{ [&pointLight]( const std::string& name ) -> const Reflection::TypeInfo*
+                               { return name == "PointLightData" ? &pointLight : nullptr; },
+                               []( const std::string& ) -> Common::ResultStr<std::vector<std::string>>
+                               { return Common::MakeSuccess( std::vector<std::string>{} ); } };
     }
 
     const SaveGameSceneIdentity kArena{ "11111111-2222-3333-4444-555555555555", "Arena" };
@@ -91,7 +93,7 @@ TEST( SaveGame, RoundTripRestoresFlaggedFieldsOnly )
     light.Intensity    = 1.0f;              // progress lost -> must come back
     light.Color        = glm::vec3( 0.9f ); // level data edited -> must be left alone
     light.Radius       = 333.0f;
-    const auto applied = ApplySaveGame( registry, entt::null, kArena, document, types );
+    const auto applied = ApplySaveGame( registry, entt::null, kArena, document, types, nullptr );
     ASSERT_TRUE( applied ) << applied.GetError();
     EXPECT_TRUE( applied.GetValue().Problems.empty() );
     EXPECT_EQ( applied.GetValue().AppliedFields, 1u );
@@ -110,7 +112,7 @@ TEST( SaveGame, PawnTransformIsRestored )
     // Play spawns a NEW pawn (fresh UUID) next session: the pawn record is not keyed by UUID.
     entt::registry next;
     const auto     respawned = MakePawn( next, 901u, glm::vec3( 0.0f ) );
-    const auto     applied   = ApplySaveGame( next, respawned, kArena, document, LookupWith( type ) );
+    const auto     applied   = ApplySaveGame( next, respawned, kArena, document, LookupWith( type ), nullptr );
     ASSERT_TRUE( applied ) << applied.GetError();
     EXPECT_TRUE( applied.GetValue().PawnRestored );
     EXPECT_EQ( next.get<ECS::TransformComponent>( respawned ).Translation, glm::vec3( 100.0f, 0.0f, -250.0f ) );
@@ -127,7 +129,7 @@ TEST( SaveGame, MissingEntityIsReportedByNameAndTheRestStillLoads )
     registry.destroy( gone );
     registry.get<ECS::PointLightComponent>( kept ).Data.Intensity = 0.0f;
 
-    const auto applied = ApplySaveGame( registry, entt::null, kArena, document, types );
+    const auto applied = ApplySaveGame( registry, entt::null, kArena, document, types, nullptr );
     ASSERT_TRUE( applied ) << applied.GetError();
     EXPECT_TRUE( AnyProblemMentions( applied.GetValue(), "'BrokenLamp'" ) );
     EXPECT_FLOAT_EQ( registry.get<ECS::PointLightComponent>( kept ).Data.Intensity, 4.0f );
@@ -142,7 +144,7 @@ TEST( SaveGame, FieldWhoseTypeChangedIsReportedAndSkipped )
     registry.get<ECS::PointLightComponent>( lamp ).Data.Intensity = 2.0f;
 
     const auto now     = PointLightType( "double" );
-    const auto applied = ApplySaveGame( registry, entt::null, kArena, document, LookupWith( now ) );
+    const auto applied = ApplySaveGame( registry, entt::null, kArena, document, LookupWith( now ), nullptr );
     ASSERT_TRUE( applied ) << applied.GetError();
     EXPECT_TRUE( AnyProblemMentions( applied.GetValue(), "changed type from 'float' to 'double'" ) );
     EXPECT_FLOAT_EQ( registry.get<ECS::PointLightComponent>( lamp ).Data.Intensity, 2.0f );
@@ -154,7 +156,7 @@ TEST( SaveGame, SlotOfAnotherSceneIsRefusedNamingBoth )
     entt::registry              registry;
     const auto                  document = CaptureSaveGame( registry, entt::null, kArena, LookupWith( type ) );
     const SaveGameSceneIdentity cave{ "other-guid", "Cave" };
-    const auto applied = ApplySaveGame( registry, entt::null, cave, document, LookupWith( type ) );
+    const auto applied = ApplySaveGame( registry, entt::null, cave, document, LookupWith( type ), nullptr );
     ASSERT_FALSE( applied );
     EXPECT_NE( applied.GetError().find( "'Arena'" ), std::string::npos ) << applied.GetError();
     EXPECT_NE( applied.GetError().find( "'Cave'" ), std::string::npos ) << applied.GetError();

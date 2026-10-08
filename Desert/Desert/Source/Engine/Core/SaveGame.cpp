@@ -3,11 +3,16 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <format>
@@ -45,8 +50,8 @@ namespace Desert::Core
                 return &( component.*row.Member );
         }
 
-        // {"<Key>": {"Type": "<reflected type>", "Fields": {"<field>": {"Type": "<C++ type>", "Value": v}}}} —
-        // only the fields carrying PROPERTY(SaveGame); a block with none of them is not written at all.
+        // {"<Key>": {"Type": "<reflected type>", "Fields": {...CaptureSaveGameFields}} - a block with no flagged
+        // field is not written at all.
         Json::Object CaptureBlocks( const entt::registry& registry, entt::entity entity,
                                     const ReflectedTypeLookup& types )
         {
@@ -61,30 +66,251 @@ namespace Desert::Core
                      const Reflection::TypeInfo* type = types( row.TypeName );
                      if ( type == nullptr )
                          return;
-                     const bool anyFlagged =
-                          std::any_of( type->Fields.begin(), type->Fields.end(),
-                                       []( const Reflection::FieldInfo& f ) { return f.Meta.SaveGame; } );
-                     if ( !anyFlagged )
-                         return;
                      const Component&   component = registry.template get<Component>( entity );
-                     const Json::Object whole =
-                          Reflection::SerializeReflected( *type, BlockData( row, component ) );
-                     Json::Object fields;
-                     for ( const Reflection::FieldInfo& field : type->Fields )
-                     {
-                         if ( !field.Meta.SaveGame )
-                             continue;
-                         for ( const auto& [name, value] : whole )
-                             if ( name == field.Name )
-                                 fields[field.Name] = Json::Value( Json::ObjectBuilder{}
-                                                                        .Set( "Type", field.TypeName )
-                                                                        .Set( "Value", value )
-                                                                        .Build() );
-                     }
+                     const Json::Object fields    = CaptureSaveGameFields( *type, BlockData( row, component ) );
+                     if ( fields.size() == 0 )
+                         return;
                      blocks[row.Key] = Json::Value(
                           Json::ObjectBuilder{}.Set( "Type", type->Name ).Set( "Fields", fields ).Build() );
                  } );
             return blocks;
+        }
+
+        // A script slot's record key: its script key, "<key>#<n>" for the n-th slot (n >= 2) running the same
+        // script on one entity, so two slots of one script keep their own values.
+        std::string ScriptRecordKey( const std::vector<ECS::ScriptSlot>& slots, std::size_t index )
+        {
+            std::size_t occurrence = 1;
+            for ( std::size_t i = 0; i < index; ++i )
+                if ( slots[i].ScriptKey == slots[index].ScriptKey )
+                    ++occurrence;
+            return occurrence == 1 ? slots[index].ScriptKey
+                                   : std::format( "{}#{}", slots[index].ScriptKey, occurrence );
+        }
+
+        const char* PropertyKindName( Scripting::PropertyType type )
+        {
+            switch ( type )
+            {
+                case Scripting::PropertyType::Number:
+                    return "Number";
+                case Scripting::PropertyType::Bool:
+                    return "Bool";
+                case Scripting::PropertyType::String:
+                    return "String";
+            }
+            return "Number";
+        }
+
+        // {"<script record key>": {"<property>": {"Type": "Number|Bool|String", "Value": v}}} - the slot's values
+        // of the properties its script marks SaveGame. A property the slot does not hold yet has never left the
+        // script's default, which is what a load would find anyway: nothing to save.
+        Json::Object CaptureScripts( const entt::registry& registry, entt::entity entity,
+                                     const ScriptSaveGameLookup& scripts )
+        {
+            Json::Object records;
+            if ( !registry.has<ECS::ScriptComponent>( entity ) )
+                return records;
+            const auto& slots = registry.get<ECS::ScriptComponent>( entity ).Scripts;
+            for ( std::size_t i = 0; i < slots.size(); ++i )
+            {
+                const ECS::ScriptSlot& slot = slots[i];
+                if ( slot.ScriptKey.empty() )
+                    continue;
+                const auto names = scripts( slot.ResolvedPath().generic_string() );
+                if ( !names )
+                {
+                    LOG_ERROR( "[SaveGame] script '{}': {}; its properties are not saved", slot.ScriptKey,
+                               names.GetError() );
+                    continue;
+                }
+                Json::Object properties;
+                for ( const std::string& name : names.GetValue() )
+                {
+                    const auto held =
+                         std::find_if( slot.Properties.begin(), slot.Properties.end(),
+                                       [&]( const Scripting::ScriptProperty& p ) { return p.Name == name; } );
+                    if ( held == slot.Properties.end() )
+                        continue;
+                    Json::ObjectBuilder record;
+                    record.Set( "Type", std::string( PropertyKindName( held->Type ) ) );
+                    switch ( held->Type )
+                    {
+                        case Scripting::PropertyType::Number:
+                            record.Set( "Value", held->Number );
+                            break;
+                        case Scripting::PropertyType::Bool:
+                            record.Set( "Value", held->Bool );
+                            break;
+                        case Scripting::PropertyType::String:
+                            record.Set( "Value", held->Str );
+                            break;
+                    }
+                    properties[name] = Json::Value( record.Build() );
+                }
+                if ( properties.size() != 0 )
+                    records[ScriptRecordKey( slots, i )] = Json::Value( std::move( properties ) );
+            }
+            return records;
+        }
+
+        // Writes the saved script properties into the entity's slots' Properties (see SCRIPT PROPERTIES).
+        void ApplyScripts( entt::registry& registry, entt::entity entity, const Json::Node& saved,
+                           const std::string& label, const ScriptSaveGameLookup& scripts,
+                           SaveGameLoadReport& report )
+        {
+            std::unordered_map<std::string, std::size_t> byKey;
+            if ( registry.has<ECS::ScriptComponent>( entity ) )
+            {
+                const auto& slots = registry.get<ECS::ScriptComponent>( entity ).Scripts;
+                for ( std::size_t i = 0; i < slots.size(); ++i )
+                    if ( !slots[i].ScriptKey.empty() )
+                        byKey.emplace( ScriptRecordKey( slots, i ), i );
+            }
+            saved.ForEachMember(
+                 [&]( std::string_view key, const Json::Node& properties )
+                 {
+                     const auto found = byKey.find( std::string( key ) );
+                     if ( found == byKey.end() )
+                     {
+                         report.Problems.push_back( std::format(
+                              "{}: script '{}' is no longer on the entity; its saved properties were skipped",
+                              label, key ) );
+                         return;
+                     }
+                     ECS::ScriptSlot& slot  = registry.get<ECS::ScriptComponent>( entity ).Scripts[found->second];
+                     const auto       names = scripts( slot.ResolvedPath().generic_string() );
+                     if ( !names )
+                     {
+                         report.Problems.push_back(
+                              std::format( "{}: script '{}': {}; its saved properties were skipped", label, key,
+                                           names.GetError() ) );
+                         return;
+                     }
+                     properties.ForEachMember(
+                          [&]( std::string_view name, const Json::Node& record )
+                          {
+                              const auto& marked = names.GetValue();
+                              if ( std::find( marked.begin(), marked.end(), name ) == marked.end() )
+                              {
+                                  report.Problems.push_back(
+                                       std::format( "{}: script '{}': property '{}' is no longer a SaveGame "
+                                                    "property of the script "
+                                                    "(removed or unmarked); skipped",
+                                                    label, key, name ) );
+                                  return;
+                              }
+                              const auto        kind  = record.Find( "Type" );
+                              const auto        value = record.Find( "Value" );
+                              const std::string kindName =
+                                   kind && kind->AsString() ? kind->AsString().GetValue() : "";
+                              Scripting::ScriptProperty read;
+                              read.Name   = std::string( name );
+                              bool usable = false;
+                              if ( value && kindName == "Number" )
+                                  if ( const auto v = value->AsNumber() )
+                                  {
+                                      read.Type   = Scripting::PropertyType::Number;
+                                      read.Number = v.GetValue();
+                                      usable      = true;
+                                  }
+                              if ( value && kindName == "Bool" )
+                                  if ( const auto v = value->AsBool() )
+                                  {
+                                      read.Type = Scripting::PropertyType::Bool;
+                                      read.Bool = v.GetValue();
+                                      usable    = true;
+                                  }
+                              if ( value && kindName == "String" )
+                                  if ( const auto v = value->AsString() )
+                                  {
+                                      read.Type = Scripting::PropertyType::String;
+                                      read.Str  = v.GetValue();
+                                      usable    = true;
+                                  }
+                              if ( !usable )
+                              {
+                                  report.Problems.push_back(
+                                       std::format( "{}: script '{}': property '{}' has no readable saved value "
+                                                    "of kind '{}'; skipped",
+                                                    label, key, name, kindName ) );
+                                  return;
+                              }
+                              const auto held = std::find_if( slot.Properties.begin(), slot.Properties.end(),
+                                                              [&]( const Scripting::ScriptProperty& p )
+                                                              { return p.Name == name; } );
+                              if ( held != slot.Properties.end() && held->Type != read.Type )
+                              {
+                                  report.Problems.push_back( std::format( "{}: script '{}': property '{}' changed "
+                                                                          "kind from '{}' to '{}' since the save; "
+                                                                          "skipped",
+                                                                          label, key, name, kindName,
+                                                                          PropertyKindName( held->Type ) ) );
+                                  return;
+                              }
+                              if ( held == slot.Properties.end() )
+                                  slot.Properties.push_back( std::move( read ) );
+                              else
+                                  *held = std::move( read );
+                              ++report.AppliedFields;
+                          } );
+                 } );
+        }
+
+        // The entity's world matrix (parents walked), as PhysicsECSSystem builds a body's pose from it.
+        glm::mat4 WorldMatrix( const entt::registry& registry, entt::entity entity )
+        {
+            glm::mat4    world = registry.get<ECS::TransformComponent>( entity ).GetTransform();
+            entt::entity cur   = entity;
+            while ( registry.has<ECS::RelationshipComponent>( cur ) )
+            {
+                const auto& rel = registry.get<ECS::RelationshipComponent>( cur );
+                if ( rel.Parent == entt::null )
+                    break;
+                cur = rel.Parent;
+                if ( registry.has<ECS::TransformComponent>( cur ) )
+                    world = registry.get<ECS::TransformComponent>( cur ).GetTransform() * world;
+            }
+            return world;
+        }
+
+        // A restored transform reaches the entity's live body / character (see PHYSICS).
+        void MoveThroughPhysics( entt::registry& registry, entt::entity entity, const std::string& label,
+                                 Physics::PhysicsWorld* physics, SaveGameLoadReport& report )
+        {
+            Physics::BodyHandle      body      = Physics::kInvalidBody;
+            Physics::CharacterHandle character = Physics::kInvalidCharacter;
+            if ( registry.has<ECS::RigidBodyComponent>( entity ) )
+                body = registry.get<ECS::RigidBodyComponent>( entity ).RuntimeBody;
+            if ( registry.has<ECS::CharacterControllerComponent>( entity ) )
+                character = registry.get<ECS::CharacterControllerComponent>( entity ).RuntimeCharacter;
+            if ( body == Physics::kInvalidBody && character == Physics::kInvalidCharacter )
+                return;
+            if ( physics == nullptr )
+            {
+                report.Problems.push_back( label +
+                                           ": has a live physics body but no physics world was given; only "
+                                           "its transform was restored" );
+                return;
+            }
+            const glm::mat4 world = WorldMatrix( registry, entity );
+            const glm::vec3 position( world[3] );
+            glm::mat3       basis( world );
+            for ( int axis = 0; axis < 3; ++axis )
+                if ( glm::length( basis[axis] ) > 1e-6f )
+                    basis[axis] = glm::normalize( basis[axis] );
+            if ( body != Physics::kInvalidBody )
+                physics->TeleportBody( body, position, glm::quat_cast( basis ) );
+            if ( character != Physics::kInvalidCharacter )
+            {
+                physics->TeleportCharacter( character, position );
+                registry.get<ECS::CharacterControllerComponent>( entity ).VerticalVelocity = 0.0f;
+            }
+        }
+
+        bool SameTransform( const ECS::TransformComponent& a, const ECS::TransformComponent& b )
+        {
+            return a.Translation == b.Translation && a.Rotation == b.Rotation && a.Scale == b.Scale;
         }
 
         bool ReadVec3( const Json::Node& node, glm::vec3& out )
@@ -141,47 +367,12 @@ namespace Desert::Core
                                            label, row.Key, row.TypeName ) );
                          return;
                      }
-                     Json::Object accepted;
-                     if ( const auto fields = saved->Find( "Fields" ) )
-                         fields->ForEachMember(
-                              [&]( std::string_view name, const Json::Node& record )
-                              {
-                                  const auto        field = std::find_if( type->Fields.begin(), type->Fields.end(),
-                                                                          [&]( const Reflection::FieldInfo& f )
-                                                                          { return f.Name == name; } );
-                                  const auto        savedType = record.Find( "Type" );
-                                  const auto        value     = record.Find( "Value" );
-                                  const std::string savedTypeName =
-                                       savedType && savedType->AsString() ? savedType->AsString().GetValue() : "";
-                                  if ( field == type->Fields.end() )
-                                      report.Problems.push_back( std::format(
-                                           "{}: {}.{} no longer exists; skipped", label, row.Key, name ) );
-                                  else if ( !field->Meta.SaveGame )
-                                      report.Problems.push_back(
-                                           std::format( "{}: {}.{} is no longer marked SaveGame; skipped", label,
-                                                        row.Key, name ) );
-                                  else if ( savedTypeName != field->TypeName )
-                                      report.Problems.push_back( std::format(
-                                           "{}: {}.{} changed type from '{}' to '{}' since the save; skipped",
-                                           label, row.Key, name, savedTypeName, field->TypeName ) );
-                                  else if ( !value )
-                                      report.Problems.push_back( std::format(
-                                           "{}: {}.{} has no saved value; skipped", label, row.Key, name ) );
-                                  else
-                                      accepted[std::string( name )] = value->Raw();
-                              } );
-                     if ( accepted.size() == 0 )
+                     const auto fields = saved->Find( "Fields" );
+                     if ( !fields )
                          return;
-                     const std::size_t offered = accepted.size();
-                     const Json::Value applied( std::move( accepted ) );
-                     Json::Issues      issues;
-                     Component&        component = registry.template get<Component>( entity );
-                     Reflection::DeserializeReflected(
-                          *type, BlockData( row, component ),
-                          Json::Root( applied, Json::Path{}.Key( label ).Key( row.Key ) ), issues );
-                     for ( const Json::Issue& issue : issues )
-                         report.Problems.push_back( Json::Describe( issue ) + "; skipped" );
-                     report.AppliedFields += offered > issues.size() ? offered - issues.size() : 0;
+                     Component& component = registry.template get<Component>( entity );
+                     ApplySaveGameFields( *type, BlockData( row, component ), *fields,
+                                          std::format( "{}: {}", label, row.Key ), report );
                  } );
             blocks.ForEachMember(
                  [&]( std::string_view key, const Json::Node& )
@@ -232,8 +423,77 @@ namespace Desert::Core
         return Reflection::ReflectionRegistry::Get().Find( typeName );
     }
 
+    Common::ResultStr<std::vector<std::string>> ScriptFileSaveGameLookup( const std::string& scriptPath )
+    {
+        return Scripting::ReadScriptSaveGameProperties( scriptPath );
+    }
+
+    SaveGameSchema EngineSaveGameSchema()
+    {
+        return SaveGameSchema{ RegistryTypeLookup, ScriptFileSaveGameLookup };
+    }
+
+    Common::Json::Object CaptureSaveGameFields( const Reflection::TypeInfo& type, const void* data )
+    {
+        Json::Object fields;
+        const bool   anyFlagged = std::any_of( type.Fields.begin(), type.Fields.end(),
+                                               []( const Reflection::FieldInfo& f ) { return f.Meta.SaveGame; } );
+        if ( !anyFlagged )
+            return fields;
+        const Json::Object whole = Reflection::SerializeReflected( type, data );
+        for ( const Reflection::FieldInfo& field : type.Fields )
+        {
+            if ( !field.Meta.SaveGame )
+                continue;
+            for ( const auto& [name, value] : whole )
+                if ( name == field.Name )
+                    fields[field.Name] = Json::Value(
+                         Json::ObjectBuilder{}.Set( "Type", field.TypeName ).Set( "Value", value ).Build() );
+        }
+        return fields;
+    }
+
+    void ApplySaveGameFields( const Reflection::TypeInfo& type, void* data, const Common::Json::Node& fields,
+                              const std::string& label, SaveGameLoadReport& report )
+    {
+        Json::Object accepted;
+        fields.ForEachMember(
+             [&]( std::string_view name, const Json::Node& record )
+             {
+                 const auto field =
+                      std::find_if( type.Fields.begin(), type.Fields.end(),
+                                    [&]( const Reflection::FieldInfo& f ) { return f.Name == name; } );
+                 const auto        savedType = record.Find( "Type" );
+                 const auto        value     = record.Find( "Value" );
+                 const std::string savedTypeName =
+                      savedType && savedType->AsString() ? savedType->AsString().GetValue() : "";
+                 if ( field == type.Fields.end() )
+                     report.Problems.push_back( std::format( "{}.{} no longer exists; skipped", label, name ) );
+                 else if ( !field->Meta.SaveGame )
+                     report.Problems.push_back(
+                          std::format( "{}.{} is no longer marked SaveGame; skipped", label, name ) );
+                 else if ( savedTypeName != field->TypeName )
+                     report.Problems.push_back(
+                          std::format( "{}.{} changed type from '{}' to '{}' since the save; skipped", label, name,
+                                       savedTypeName, field->TypeName ) );
+                 else if ( !value )
+                     report.Problems.push_back( std::format( "{}.{} has no saved value; skipped", label, name ) );
+                 else
+                     accepted[std::string( name )] = value->Raw();
+             } );
+        if ( accepted.size() == 0 )
+            return;
+        const std::size_t offered = accepted.size();
+        const Json::Value applied( std::move( accepted ) );
+        Json::Issues      issues;
+        Reflection::DeserializeReflected( type, data, Json::Root( applied, Json::Path{}.Key( label ) ), issues );
+        for ( const Json::Issue& issue : issues )
+            report.Problems.push_back( Json::Describe( issue ) + "; skipped" );
+        report.AppliedFields += offered > issues.size() ? offered - issues.size() : 0;
+    }
+
     Common::Json::Value CaptureSaveGame( const entt::registry& registry, entt::entity pawn,
-                                         const SaveGameSceneIdentity& scene, const ReflectedTypeLookup& types )
+                                         const SaveGameSceneIdentity& scene, const SaveGameSchema& schema )
     {
         Json::ObjectBuilder document;
         document.Set( "Format", SAVEGAME_FORMAT_NAME ).Set( "Version", SAVEGAME_FORMAT_VERSION );
@@ -246,7 +506,8 @@ namespace Desert::Core
                                        .Set( "Translation", transform.Translation )
                                        .Set( "Rotation", transform.Rotation )
                                        .Set( "Scale", transform.Scale )
-                                       .Set( "Components", CaptureBlocks( registry, pawn, types ) )
+                                       .Set( "Components", CaptureBlocks( registry, pawn, schema.Types ) )
+                                       .Set( "Scripts", CaptureScripts( registry, pawn, schema.Scripts ) )
                                        .Build() );
         }
 
@@ -256,13 +517,18 @@ namespace Desert::Core
         {
             if ( entity == pawn )
                 continue;
-            Json::Object blocks = CaptureBlocks( registry, entity, types );
-            if ( blocks.size() == 0 )
+            Json::Object blocks  = CaptureBlocks( registry, entity, schema.Types );
+            Json::Object scripts = CaptureScripts( registry, entity, schema.Scripts );
+            if ( blocks.size() == 0 && scripts.size() == 0 )
                 continue;
             const std::string name =
                  registry.has<ECS::TagComponent>( entity ) ? registry.get<ECS::TagComponent>( entity ).Tag : "";
             entities[registry.get<ECS::UUIDComponent>( entity ).UUID.ToString()] =
-                 Json::Value( Json::ObjectBuilder{}.Set( "Name", name ).Set( "Components", blocks ).Build() );
+                 Json::Value( Json::ObjectBuilder{}
+                                   .Set( "Name", name )
+                                   .Set( "Components", blocks )
+                                   .Set( "Scripts", scripts )
+                                   .Build() );
         }
         document.Set( "Entities", entities );
         return Json::Value( document.Build() );
@@ -288,7 +554,8 @@ namespace Desert::Core
     Common::ResultStr<SaveGameLoadReport> ApplySaveGame( entt::registry& registry, entt::entity pawn,
                                                          const SaveGameSceneIdentity& scene,
                                                          const Common::Json::Value&   document,
-                                                         const ReflectedTypeLookup&   types )
+                                                         const SaveGameSchema&        schema,
+                                                         Physics::PhysicsWorld*       physics )
     {
         const auto saved = SaveGameSceneOf( document );
         if ( !saved )
@@ -308,7 +575,8 @@ namespace Desert::Core
                      "the slot holds the player pawn but the scene has no player pawn; skipped" );
             else
             {
-                auto&     transform   = registry.get<ECS::TransformComponent>( pawn );
+                auto&                         transform   = registry.get<ECS::TransformComponent>( pawn );
+                const ECS::TransformComponent before      = transform;
                 glm::vec3 translation = transform.Translation, rotation = transform.Rotation,
                           scale = transform.Scale;
                 const auto t    = pawnRecord->Find( "Translation" );
@@ -325,7 +593,11 @@ namespace Desert::Core
                 else
                     report.Problems.push_back( "player pawn: the saved transform is not three vec3s; skipped" );
                 if ( const auto components = pawnRecord->Find( "Components" ) )
-                    ApplyBlocks( registry, pawn, *components, "player pawn", types, report );
+                    ApplyBlocks( registry, pawn, *components, "player pawn", schema.Types, report );
+                if ( const auto scripts = pawnRecord->Find( "Scripts" ) )
+                    ApplyScripts( registry, pawn, *scripts, "player pawn", schema.Scripts, report );
+                if ( !SameTransform( before, registry.get<ECS::TransformComponent>( pawn ) ) )
+                    MoveThroughPhysics( registry, pawn, "player pawn", physics, report );
             }
         }
 
@@ -349,8 +621,16 @@ namespace Desert::Core
                                                     " is not in the scene; its saved fields were skipped" );
                          return;
                      }
+                     const entt::entity            entity = found->second;
+                     const bool                    placed = registry.has<ECS::TransformComponent>( entity );
+                     const ECS::TransformComponent before =
+                          placed ? registry.get<ECS::TransformComponent>( entity ) : ECS::TransformComponent{};
                      if ( const auto components = record.Find( "Components" ) )
-                         ApplyBlocks( registry, found->second, *components, label, types, report );
+                         ApplyBlocks( registry, entity, *components, label, schema.Types, report );
+                     if ( const auto scripts = record.Find( "Scripts" ) )
+                         ApplyScripts( registry, entity, *scripts, label, schema.Scripts, report );
+                     if ( placed && !SameTransform( before, registry.get<ECS::TransformComponent>( entity ) ) )
+                         MoveThroughPhysics( registry, entity, label, physics, report );
                  } );
         return Common::MakeSuccess( std::move( report ) );
     }
@@ -475,6 +755,13 @@ namespace Desert::Core
                                     "SaveGames" );
     }
 
+    // The running physics world of `scene` (null in Edit, or when the scene runs no physics system).
+    static Physics::PhysicsWorld* PhysicsWorldOf( const Scene& scene )
+    {
+        const auto* system = scene.FindSystem<ECS::PhysicsECSSystem>();
+        return system != nullptr ? system->GetPhysicsWorld() : nullptr;
+    }
+
     SaveGameSceneIdentity SceneIdentityOf( const Scene& scene )
     {
         const auto& header = scene.GetAssetHeader();
@@ -488,7 +775,7 @@ namespace Desert::Core
             return Common::MakeFormattedError<bool>( "{}", root.GetError() );
         return WriteSaveGameSlot( root.GetValue(), slot, userIndex,
                                   CaptureSaveGame( scene.GetRegistry(), scene.GetPlayerPawn(),
-                                                   SceneIdentityOf( scene ), RegistryTypeLookup ) );
+                                                   SceneIdentityOf( scene ), EngineSaveGameSchema() ) );
     }
 
     Common::ResultStr<SaveGameLoadReport> LoadGameFromSlot( Scene& scene, std::string_view slot,
@@ -501,7 +788,7 @@ namespace Desert::Core
         if ( !document )
             return Common::MakeFormattedError<SaveGameLoadReport>( "{}", document.GetError() );
         return ApplySaveGame( scene.GetRegistry(), scene.GetPlayerPawn(), SceneIdentityOf( scene ),
-                              document.GetValue(), RegistryTypeLookup );
+                              document.GetValue(), EngineSaveGameSchema(), PhysicsWorldOf( scene ) );
     }
 
     Common::ResultStr<bool> DoesSaveGameExist( std::string_view slot, std::uint32_t userIndex )

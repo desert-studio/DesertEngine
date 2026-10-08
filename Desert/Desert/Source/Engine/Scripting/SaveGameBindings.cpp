@@ -1,6 +1,8 @@
 #include "Internal/ScriptRuntime.hpp"
 
 #include <Engine/Core/SaveGame.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/Components.hpp>
 
 #include <tuple>
 
@@ -41,6 +43,42 @@ namespace Desert::Scripting
                  const auto loaded = Core::LoadGameFromSlot( *impl->Scene, slot, user.value_or( 0 ) );
                  if ( !loaded )
                      return { false, sol::make_object( lua, loaded.GetError() ) };
+                 // The load wrote the SaveGame properties into the slots; the running envs get them NOW, so the
+                 // calling script reads the loaded values on its next line and ScriptSystem's read-back after
+                 // this OnUpdate does not copy the pre-load values over them.
+                 entt::registry& registry = impl->Scene->GetRegistry();
+                 for ( auto& [entityId, envs] : impl->Envs )
+                 {
+                     const auto entity = static_cast<entt::entity>( entityId );
+                     if ( !registry.valid( entity ) || !registry.has<ECS::ScriptComponent>( entity ) )
+                         continue;
+                     const auto& slots = registry.get<ECS::ScriptComponent>( entity ).Scripts;
+                     for ( std::size_t slot = 0; slot < envs.size() && slot < slots.size(); ++slot )
+                     {
+                         const sol::object table = envs[slot]["Properties"];
+                         if ( !envs[slot].valid() || !table.is<sol::table>() )
+                             continue;
+                         sol::table properties = table.as<sol::table>();
+                         for ( const std::string& name : slots[slot].SaveGameProperties )
+                             for ( const ScriptProperty& p : slots[slot].Properties )
+                             {
+                                 if ( p.Name != name )
+                                     continue;
+                                 switch ( p.Type )
+                                 {
+                                     case PropertyType::Number:
+                                         properties[p.Name] = p.Number;
+                                         break;
+                                     case PropertyType::Bool:
+                                         properties[p.Name] = p.Bool;
+                                         break;
+                                     case PropertyType::String:
+                                         properties[p.Name] = p.Str;
+                                         break;
+                                 }
+                             }
+                     }
+                 }
                  sol::table skipped = lua.create_table();
                  for ( const std::string& problem : loaded.GetValue().Problems )
                      skipped.add( problem );

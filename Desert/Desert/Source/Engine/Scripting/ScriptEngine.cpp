@@ -1,6 +1,7 @@
 #include "Internal/ScriptRuntime.hpp"
 
 #include <Common/Utilities/FileSystem.hpp>
+#include <algorithm>
 #include <filesystem>
 
 namespace Desert::Scripting
@@ -273,6 +274,47 @@ namespace Desert::Scripting
         }
     }
 
+    void ScriptEngine::ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
+                                           std::vector<ScriptProperty>& props )
+    {
+        sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
+        if ( !env || names.empty() )
+            return;
+        const sol::object table = ( *env )["Properties"];
+        if ( !table.is<sol::table>() )
+            return;
+        const sol::table t = table.as<sol::table>();
+        for ( const std::string& name : names )
+        {
+            const sol::object value = t[name];
+            ScriptProperty    read;
+            read.Name = name;
+            if ( value.is<bool>() ) // bool BEFORE number (distinct Lua types)
+            {
+                read.Type = PropertyType::Bool;
+                read.Bool = value.as<bool>();
+            }
+            else if ( value.is<double>() )
+            {
+                read.Type   = PropertyType::Number;
+                read.Number = value.as<double>();
+            }
+            else if ( value.is<std::string>() )
+            {
+                read.Type = PropertyType::String;
+                read.Str  = value.as<std::string>();
+            }
+            else
+                continue;
+            const auto held = std::find_if( props.begin(), props.end(),
+                                            [&]( const ScriptProperty& p ) { return p.Name == name; } );
+            if ( held == props.end() )
+                props.push_back( std::move( read ) );
+            else
+                *held = std::move( read );
+        }
+    }
+
     void ScriptEngine::Release( uint32_t entity )
     {
         m_Impl->Envs.erase( entity );
@@ -318,26 +360,72 @@ namespace Desert::Scripting
         }
     }
 
+    // Runs a script's top level in the throwaway `lua` (base + math: the top level only sets locals /
+    // Properties / defines functions, no engine calls at load time). A loose file or packed content alike.
+    static bool ProbeScript( sol::state& lua, const std::string& path )
+    {
+        lua.open_libraries( sol::lib::base, sol::lib::math );
+        std::string packedSource;
+        const bool  loose = std::filesystem::exists( path );
+        if ( !loose )
+        {
+            if ( !Common::Utils::FileSystem::Exists( path ) )
+                return false;
+            auto packed = Common::Utils::FileSystem::ReadFileContent( path );
+            if ( !packed )
+                return false;
+            packedSource = packed.ExtractValue();
+        }
+        sol::protected_function_result r = loose ? lua.safe_script_file( path, sol::script_pass_on_error )
+                                                 : lua.safe_script( packedSource, sol::script_pass_on_error );
+        return r.valid();
+    }
+
+    Common::ResultStr<std::vector<std::string>> ReadScriptSaveGameProperties( const std::string& path )
+    {
+        using Names = std::vector<std::string>;
+        sol::state lua;
+        if ( !ProbeScript( lua, path ) )
+            return Common::MakeFormattedError<Names>( "script '{}' could not be read or its top level failed",
+                                                      path );
+        Names             list;
+        const sol::object declared = lua["SaveGameProperties"];
+        if ( declared.get_type() == sol::type::lua_nil )
+            return Common::MakeSuccess( std::move( list ) );
+        if ( !declared.is<sol::table>() )
+            return Common::MakeFormattedError<Names>( "script '{}': SaveGameProperties is not a list of names",
+                                                      path );
+        const sol::object properties = lua["Properties"];
+        const sol::table  entries    = declared.as<sol::table>();
+        for ( std::size_t i = 1; i <= entries.size(); ++i )
+        {
+            const sol::object entry = entries[i];
+            if ( !entry.is<std::string>() )
+                return Common::MakeFormattedError<Names>(
+                     "script '{}': SaveGameProperties entry {} is not a property name", path, i );
+            const std::string name = entry.as<std::string>();
+            if ( !properties.is<sol::table>() )
+                return Common::MakeFormattedError<Names>(
+                     "script '{}': SaveGameProperties names '{}' but the script has no Properties table", path,
+                     name );
+            const sol::object declaredValue = properties.as<sol::table>()[name];
+            if ( declaredValue.get_type() == sol::type::lua_nil )
+                return Common::MakeFormattedError<Names>(
+                     "script '{}': SaveGameProperties names '{}', which its Properties table does not declare",
+                     path, name );
+            list.push_back( name );
+        }
+        return Common::MakeSuccess( std::move( list ) );
+    }
+
     std::vector<ScriptProperty> ReadScriptProperties( const std::string& path )
     {
         std::vector<ScriptProperty> out;
 
-        // Throwaway state: we only need to read the top-level `Properties` table. base lib is enough — the
-        // file's top level just sets locals / Properties / defines functions (no engine calls at load time).
+        // Throwaway state: only the top-level `Properties` table is read. An unreadable/absent script is
+        // "no properties": this probe only harvests the schema the Details panel shows.
         sol::state lua;
-        lua.open_libraries( sol::lib::base, sol::lib::math );
-        // An unreadable/absent script stays an empty chunk: this probe only harvests Properties, so
-        // "no properties" is the correct answer for a script that cannot run.
-        std::string packedSource;
-        if ( !std::filesystem::exists( path ) && Common::Utils::FileSystem::Exists( path ) )
-        {
-            if ( auto packed = Common::Utils::FileSystem::ReadFileContent( path ); packed )
-                packedSource = packed.ExtractValue();
-        }
-        sol::protected_function_result r = std::filesystem::exists( path )
-                                                ? lua.safe_script_file( path, sol::script_pass_on_error )
-                                                : lua.safe_script( packedSource, sol::script_pass_on_error );
-        if ( !r.valid() )
+        if ( !ProbeScript( lua, path ) )
             return out;
 
         sol::object propsObj = lua["Properties"];

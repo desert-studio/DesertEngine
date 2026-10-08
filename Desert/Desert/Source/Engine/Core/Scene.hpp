@@ -519,6 +519,18 @@ namespace Desert::Core
             m_Systems.emplace_back( std::make_unique<T>( std::forward<Args>( args )... ) );
         }
 
+        // The scene's system of type T, or null when the scene runs none (a test scene, a host that adds
+        // no such system). What a scene-level operation uses to reach a system's runtime state (the physics
+        // world a save game load teleports through) without a second owner of that state.
+        template <typename T>
+        [[nodiscard]] T* FindSystem() const
+        {
+            for ( const auto& system : m_Systems )
+                if ( auto* found = dynamic_cast<T*>( system.get() ) )
+                    return found;
+            return nullptr;
+        }
+
         void Attach( ECS::Entity parent, ECS::Entity child );
 
         // Removes the child from its parent (if any) and makes it a root entity.
