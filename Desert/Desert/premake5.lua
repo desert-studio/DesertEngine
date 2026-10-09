@@ -50,15 +50,6 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
     }
 
-    -- SCR-LUAU-3 -> SCR-LUAU-4: these three native modules are still written against sol2 and are ported to the
-    -- Luau runtime next (/private/tmp/claude-501/SCR-LUAU-3/REMAINDER.md); until then they are not compiled and
-    -- scripts have no entity:setAnimParam/ui/loc.
-    removefiles {
-        "Source/Engine/Scripting/AnimationBindings.cpp",
-        "Source/Engine/Scripting/LocalizationBindings.cpp",
-        "Source/Engine/Scripting/UIBindings.cpp",
-    }
-
     includedirs {
         "Source/",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
@@ -77,7 +68,7 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/opus/include",
         -- Luau, by module path (<VM/include/lua.h>, <Compiler/include/luacode.h>): its lua.h shares a name with
-        -- PUC Lua's, which sol2 includes as <lua.h>, so the two VMs' headers can never resolve to each other.
+        -- PUC Lua's (DesertHeaderTool's), so the two VMs' headers can never resolve to each other.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
     
@@ -96,7 +87,6 @@ project "Desert"
     links {
         "Common",
         "Jolt",
-        "Lua",
         -- Luau (BuildScripts/ThirdParty/Luau.lua): Engine/Scripting/Luau. Dependants before what they use.
         "LuauCodeGen",
         "LuauCompiler",

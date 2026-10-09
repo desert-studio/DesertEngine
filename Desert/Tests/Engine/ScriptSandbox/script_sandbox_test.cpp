@@ -1,5 +1,5 @@
 // SCR-LUAU-1: a game script cannot reach the machine around it. Pinned against the REAL ScriptEngine (the
-// constructor every game VM goes through), not a hand-opened sol2 state:
+// constructor every game VM goes through), not a hand-opened VM:
 //   * os.execute is gone -- the call fails, and the command it carried did not run (the file it would have
 //     written is absent);
 //   * io, dofile, loadfile and load are absent, and so is the process/file half of os;

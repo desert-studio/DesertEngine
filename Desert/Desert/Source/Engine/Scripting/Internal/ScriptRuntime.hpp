@@ -191,4 +191,7 @@ namespace Desert::Scripting
     void RegisterAudioBindings( lua_State* L );        // Audio.play / Audio.stopAll
     void RegisterProjectBindings( lua_State* L );      // project.name/company
     void RegisterLevelBindings( lua_State* L );        // level.open (Core::OpenLevel)
+    void RegisterAnimationBindings( lua_State* L );    // entity:setAnimParam/getAnimCurve/linkAnimLayers/...
+    void RegisterUIBindings( lua_State* L );           // ui table (data store, collections, toasts)
+    void RegisterLocalizationBindings( lua_State* L ); // loc table (text/plural/number/money/date/language)
 } // namespace Desert::Scripting

@@ -70,6 +70,9 @@ namespace Desert::Scripting
                  RegisterAudioBindings( L );
                  RegisterProjectBindings( L );
                  RegisterLevelBindings( L );
+                 RegisterAnimationBindings( L );
+                 RegisterUIBindings( L );
+                 RegisterLocalizationBindings( L );
              } );
     }
 

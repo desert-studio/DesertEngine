@@ -1,7 +1,7 @@
 // ENG-LEVEL: Core::OpenLevel is the one way a game changes level, and it changes it AT THE FRAME BOUNDARY.
 //
 // What is pinned, against the real resolver (a temp .deproj opened through ProjectContext) and the real Lua
-// binding (Scripting::RegisterLevelBindings in a real sol2 state):
+// binding (Scripting::RegisterLevelBindings on the Luau runtime):
 //   * a request from C++ or from Lua only QUEUES -- nothing is loaded until the host's TickTravel;
 //   * the boundary applies exactly once, and a travel asked for DURING the load waits for the next one;
 //   * the last request of a frame wins (UEngine::SetClientTravel overwrites TravelURL);
