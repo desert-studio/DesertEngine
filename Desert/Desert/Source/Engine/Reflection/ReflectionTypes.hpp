@@ -114,6 +114,8 @@ namespace Desert::Reflection
         return sizeof( Member );
     }
 
+    class Value; // Value.hpp — what a container element travels as (FieldInfo::ContainerGet/Set)
+
     struct FieldInfo
     {
         std::string      Name;          // C++ field name
@@ -143,13 +145,23 @@ namespace Desert::Reflection
         std::function<std::vector<std::uint64_t>( const void* /*field*/ )>        ContainerHandles;
         std::function<void( void* /*field*/, const std::vector<std::uint64_t>& )> AssignHandles;
 
+        // THE CONTAINER'S ELEMENTS, for any reader that is not the JSON serializer (a script language, a
+        // property editor): codegen'd typed accessors over the std::vector (ContainerAccess.hpp), the element
+        // travelling as a Value of the element's kind — an asset handle as its 64-bit UInt id. ElementType is
+        // the element's category in the field vocabulary (AssetHandle for a vector of handles). ContainerGet
+        // past the end is an empty Value; ContainerSet refuses an index past the end, a Value of another kind
+        // and an integer outside the element's range, writing nothing.
+        FieldType ElementType                                                   = FieldType::Unknown;
+        std::size_t ( *ContainerSize )( const void* /*field*/ )                 = nullptr;
+        void ( *ContainerResize )( void* /*field*/, std::size_t /*count*/ )     = nullptr;
+        Value ( *ContainerGet )( const void* /*field*/, std::size_t /*index*/ ) = nullptr;
+        bool ( *ContainerSet )( void* /*field*/, std::size_t /*index*/, const Value& /*value*/ ) = nullptr;
+
         const std::string& DisplayName() const
         {
             return Meta.DisplayName.empty() ? Name : Meta.DisplayName;
         }
     };
-
-    class Value; // Value.hpp
 
     /// One parameter or result of a reflected function: its name in the header, its category in the same
     /// vocabulary as a field's, and the C++ spelling (for a diagnostic and for a binding generator).

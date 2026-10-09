@@ -2,8 +2,13 @@
 
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/Value.hpp>
 
+#include <bit>
+#include <cmath>
 #include <cstring>
+#include <optional>
+#include <vector>
 
 namespace Desert::Scripting
 {
@@ -25,10 +30,209 @@ namespace Desert::Scripting
     // Adding a PROPERTY field to a component makes it scriptable automatically; a component is reachable by
     // name exactly when its block is in the serializer's list (ECS/ReflectedComponents.hpp), under its record
     // key. An asset-handle field reads and writes as its integer handle. A write that lands ends in the
-    // component's on_update signal (ReflectedComponent::NotifyChanged). Containers are not exposed yet.
+    // component's on_update signal (ReflectedComponent::NotifyChanged).
+    //
+    // A std::vector field reads as a list view over the live vector (FieldInfo::ContainerGet/Set, codegen'd):
+    //
+    //     local d = self:component("Destructible")
+    //     local n = #d.DamageThreshold                     -- length
+    //     d.DamageThreshold[1] = 500                       -- element write (1-based, as Lua)
+    //     d.DamageThreshold[n + 1] = 900                   -- one past the end appends
+    //     d.DamageThreshold[#d.DamageThreshold] = nil      -- nil at the last index removes it
+    //     d.AnchoredNodes = { 0, 4, 7 }                    -- a whole table replaces the vector
+    //
+    // An element of the wrong kind, an index outside 1..n+1, a fractional or out-of-range integer: nothing is
+    // written, and a table with one such element writes none of them.
 
     namespace
     {
+        // One container element, Value -> Lua. An asset handle is its 64-bit id's bits, as a scalar handle field.
+        sol::object ElementToLua( sol::state_view lua, Reflection::FieldType elementType,
+                                  const Reflection::Value& v )
+        {
+            using FT = Reflection::FieldType;
+            switch ( v.Type() )
+            {
+                case FT::Bool:
+                    return sol::make_object( lua, *v.Get<bool>() );
+                case FT::Int:
+                    return sol::make_object( lua, *v.Get<std::int64_t>() );
+                case FT::UInt:
+                    if ( elementType == FT::AssetHandle )
+                        return sol::make_object( lua, std::bit_cast<std::int64_t>( *v.Get<std::uint64_t>() ) );
+                    return sol::make_object( lua, *v.Get<std::uint64_t>() );
+                case FT::Float:
+                    return sol::make_object( lua, *v.Get<float>() );
+                case FT::Double:
+                    return sol::make_object( lua, *v.Get<double>() );
+                case FT::String:
+                    return sol::make_object( lua, *v.Get<std::string>() );
+                default:
+                    return sol::lua_nil;
+            }
+        }
+
+        // Lua -> one container element of `elementType`, or nothing when the Lua value is not of that kind. An
+        // integer element takes a whole number only (3.5 is refused, not truncated); its range is checked by
+        // ContainerSet against the element's C++ type.
+        std::optional<Reflection::Value> ElementFromLua( Reflection::FieldType elementType, const sol::object& o )
+        {
+            using FT    = Reflection::FieldType;
+            using Value = Reflection::Value;
+            switch ( elementType )
+            {
+                case FT::Bool:
+                    if ( o.is<bool>() )
+                        return Value::Bool( o.as<bool>() );
+                    return std::nullopt;
+                case FT::Int:
+                case FT::UInt:
+                {
+                    if ( o.get_type() != sol::type::number )
+                        return std::nullopt;
+                    const double d = o.as<double>();
+                    if ( std::trunc( d ) != d )
+                        return std::nullopt;
+                    if ( elementType == FT::Int )
+                        return Value::Int( static_cast<std::int64_t>( d ) );
+                    if ( d < 0.0 )
+                        return std::nullopt;
+                    return Value::UInt( static_cast<std::uint64_t>( d ) );
+                }
+                case FT::Float:
+                    if ( o.get_type() == sol::type::number )
+                        return Value::Float( static_cast<float>( o.as<double>() ) );
+                    return std::nullopt;
+                case FT::Double:
+                    if ( o.get_type() == sol::type::number )
+                        return Value::Double( o.as<double>() );
+                    return std::nullopt;
+                case FT::String:
+                    if ( o.get_type() == sol::type::string )
+                        return Value::String( o.as<std::string>() );
+                    return std::nullopt;
+                case FT::AssetHandle:
+                    if ( o.get_type() == sol::type::number )
+                        return Value::UInt(
+                             std::bit_cast<std::uint64_t>( o.as<std::int64_t>() ) ); // the bits a read returned
+                    return std::nullopt;
+                default:
+                    return std::nullopt;
+            }
+        }
+
+        // Replaces the whole vector with a Lua sequence (t[1..#t]). All or nothing: every element is converted
+        // first; a range refusal by ContainerSet after the resize puts the old elements back.
+        bool AssignContainer( const Reflection::FieldInfo& f, void* field, const sol::table& t )
+        {
+            std::vector<Reflection::Value> incoming;
+            const std::size_t              count = t.size();
+            incoming.reserve( count );
+            for ( std::size_t i = 1; i <= count; ++i )
+            {
+                auto v = ElementFromLua( f.ElementType, t.get<sol::object>( i ) );
+                if ( !v )
+                    return false;
+                incoming.push_back( std::move( *v ) );
+            }
+            std::vector<Reflection::Value> previous;
+            const std::size_t              oldCount = f.ContainerSize( field );
+            previous.reserve( oldCount );
+            for ( std::size_t i = 0; i < oldCount; ++i )
+                previous.push_back( f.ContainerGet( field, i ) );
+
+            f.ContainerResize( field, count );
+            for ( std::size_t i = 0; i < count; ++i )
+            {
+                if ( f.ContainerSet( field, i, incoming[i] ) )
+                    continue;
+                f.ContainerResize( field, oldCount );
+                for ( std::size_t k = 0; k < oldCount; ++k )
+                    (void)f.ContainerSet( field, k, previous[k] ); // values it held: cannot be refused
+                return false;
+            }
+            return true;
+        }
+
+        // Lua-side view of one std::vector field of one component on one entity: the live vector, never a copy,
+        // so a write through it is a write to the component (and fires its on_update).
+        struct ContainerProxy
+        {
+            entt::entity                   handle    = entt::null;
+            Core::Scene*                   scene     = nullptr;
+            const ECS::ReflectedComponent* component = nullptr;
+            const Reflection::FieldInfo*   field     = nullptr;
+            std::size_t                    offset    = 0; // the vector's offset within the component's data block
+
+            bool Valid() const
+            {
+                return scene && component && field && handle != entt::null &&
+                       scene->GetRegistry().valid( handle ) && component->Has( scene->GetRegistry(), handle );
+            }
+
+            void* FieldPtr() const
+            {
+                return static_cast<char*>( component->Data( scene->GetRegistry(), handle ) ) + offset;
+            }
+
+            std::size_t Length() const
+            {
+                return Valid() ? field->ContainerSize( FieldPtr() ) : 0;
+            }
+
+            // A Lua index (1-based, whole) as a 0-based one; nothing for any other key.
+            static std::optional<std::size_t> ToIndex( const sol::object& key )
+            {
+                if ( key.get_type() != sol::type::number )
+                    return std::nullopt;
+                const double d = key.as<double>();
+                if ( d < 1.0 || std::trunc( d ) != d )
+                    return std::nullopt;
+                return static_cast<std::size_t>( d ) - 1;
+            }
+
+            sol::object Index( sol::this_state ts, const sol::object& key ) const
+            {
+                const auto index = ToIndex( key );
+                if ( !Valid() || !index )
+                    return sol::lua_nil;
+                return ElementToLua( sol::state_view( ts ), field->ElementType,
+                                     field->ContainerGet( FieldPtr(), *index ) );
+            }
+
+            void NewIndex( const sol::object& key, const sol::object& value )
+            {
+                const auto index = ToIndex( key );
+                if ( !Valid() || !index || field->Meta.ReadOnly )
+                    return;
+                void*             p     = FieldPtr();
+                const std::size_t count = field->ContainerSize( p );
+                bool              wrote = false;
+                if ( value.get_type() == sol::type::lua_nil )
+                {
+                    if ( count > 0 && *index == count - 1 ) // nil at the last index removes it
+                    {
+                        field->ContainerResize( p, count - 1 );
+                        wrote = true;
+                    }
+                }
+                else if ( auto v = ElementFromLua( field->ElementType, value ); v && *index <= count )
+                {
+                    if ( *index == count ) // one past the end appends
+                    {
+                        field->ContainerResize( p, count + 1 );
+                        wrote = field->ContainerSet( p, *index, *v );
+                        if ( !wrote )
+                            field->ContainerResize( p, count );
+                    }
+                    else
+                        wrote = field->ContainerSet( p, *index, *v );
+                }
+                if ( wrote )
+                    component->NotifyChanged( scene->GetRegistry(), handle );
+            }
+        };
+
         // Lua-side view of one reflected struct inside one component on one entity: the component's data block
         // itself (Base 0), or a Struct field nested in it (Base = its offset in the block). The component row
         // comes from ECS::ReflectedComponents, the one component<->type table (the serializer's list).
@@ -126,10 +330,14 @@ namespace Desert::Scripting
                 if ( !Valid() )
                     return sol::lua_nil;
                 const auto* f = FindField( fieldName );
-                if ( !f || f->IsContainer )
-                    return sol::lua_nil; // a std::vector field is not a scalar at Offset: never reinterpret it
+                if ( !f )
+                    return sol::lua_nil;
 
                 sol::state_view lua( ts );
+                if ( f->IsContainer ) // a std::vector is not a scalar at Offset: a list view over it, never
+                                      // reinterpreted
+                    return sol::make_object( lua,
+                                             ContainerProxy{ handle, scene, component, f, base + f->Offset } );
                 const char*     p = static_cast<const char*>( DataPtr() ) + f->Offset;
                 using FT          = Reflection::FieldType;
                 switch ( f->Type )
@@ -195,8 +403,16 @@ namespace Desert::Scripting
                 if ( !Valid() )
                     return;
                 const auto* f = FindField( fieldName );
-                if ( !f || f->Meta.ReadOnly || f->IsContainer )
+                if ( !f || f->Meta.ReadOnly )
                     return;
+                if ( f->IsContainer )
+                {
+                    if ( value.get_type() == sol::type::table &&
+                         AssignContainer( *f, static_cast<char*>( DataPtr() ) + f->Offset,
+                                          value.as<sol::table>() ) )
+                        component->NotifyChanged( scene->GetRegistry(), handle );
+                    return;
+                }
                 if ( Write( *f, static_cast<char*>( DataPtr() ) + f->Offset, value ) )
                     component->NotifyChanged( scene->GetRegistry(), handle );
             }
@@ -299,6 +515,9 @@ namespace Desert::Scripting
         lua.new_usertype<ComponentProxy>( "ComponentProxy", "valid", &ComponentProxy::Valid,
                                           sol::meta_function::index, &ComponentProxy::Index,
                                           sol::meta_function::new_index, &ComponentProxy::NewIndex );
+        lua.new_usertype<ContainerProxy>( "ContainerProxy", sol::meta_function::index, &ContainerProxy::Index,
+                                          sol::meta_function::new_index, &ContainerProxy::NewIndex,
+                                          sol::meta_function::length, &ContainerProxy::Length );
 
         sol::table entity = lua["Entity"];
 
