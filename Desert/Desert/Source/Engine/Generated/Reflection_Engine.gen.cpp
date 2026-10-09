@@ -8,6 +8,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ContainerAccess.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Engine/Reflection/FunctionThunk.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -376,6 +377,9 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "Friction", .Type = FieldType::Float, .Offset = offsetof( T, Friction ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Friction )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Friction", .Category = "Rigid Body", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 2.0f, .Advanced = true, } } )
                     .Field( FieldInfo{ .Name = "Restitution", .Type = FieldType::Float, .Offset = offsetof( T, Restitution ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Restitution )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Restitution", .Category = "Rigid Body", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, .Advanced = true, } } )
                     .Field( FieldInfo{ .Name = "CollisionProfile", .Type = FieldType::String, .Offset = offsetof( T, CollisionProfile ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::CollisionProfile )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Collision Profile", .Category = "Collision", } } )
+                    .Event( ::Desert::Reflection::MakeEvent<T::OnHit>( "OnHit", "RigidBodyData", std::array<::Desert::Reflection::ParamSpelling, 4>{ ::Desert::Reflection::ParamSpelling{ "other", "entt::entity" }, ::Desert::Reflection::ParamSpelling{ "point", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "normal", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "impulse", "float" }, }, ::Desert::Reflection::EventMetadata{ .Category = "Collision", .Tooltip = "This body struck another and the contact began (UE OnComponentHit). Normal points from this body towards the other; impulse in kg*cm/s." } ) )
+                    .Event( ::Desert::Reflection::MakeEvent<T::OnBeginOverlap>( "OnBeginOverlap", "RigidBodyData", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "other", "entt::entity" }, }, ::Desert::Reflection::EventMetadata{ .Category = "Collision", .Tooltip = "Another body began to overlap this one (UE OnComponentBeginOverlap)." } ) )
+                    .Event( ::Desert::Reflection::MakeEvent<T::OnEndOverlap>( "OnEndOverlap", "RigidBodyData", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "other", "entt::entity" }, }, ::Desert::Reflection::EventMetadata{ .Category = "Collision", .Tooltip = "Another body stopped overlapping this one, also when it was destroyed while overlapping (UE OnComponentEndOverlap)." } ) )
             .WithDefault<T>()
             .Register();
     }

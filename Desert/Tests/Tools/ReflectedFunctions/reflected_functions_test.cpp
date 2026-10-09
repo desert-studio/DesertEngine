@@ -16,7 +16,7 @@
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
 
-#include <entt/entity/entity.hpp>
+#include <entt/entt.hpp>
 #include <glm/vec3.hpp>
 
 #include <gtest/gtest.h>

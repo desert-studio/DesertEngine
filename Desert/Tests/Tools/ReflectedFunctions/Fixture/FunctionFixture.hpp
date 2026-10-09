@@ -7,7 +7,7 @@
 
 #include <Engine/Reflection/ReflectionMacros.hpp>
 
-#include <entt/entity/fwd.hpp>
+#include <entt/entt.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
