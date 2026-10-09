@@ -29,6 +29,7 @@ namespace Desert::VFX
         m_Clock = Clock( m_Clock.GetSettings() );
         m_Plan  = {};
         m_Emitters.clear();
+        m_GpuState.reset(); // the scene's GPU particle state goes with its instances
         // m_LastGeneration is NOT reset: a renderer may still hold GPU state stamped with an old
         // generation, and a fresh instance must never be mistaken for it.
     }
@@ -41,6 +42,7 @@ namespace Desert::VFX
 
     void VFXWorld::Tick( entt::registry& registry, double seconds )
     {
+        ++m_TickSerial;
         m_Plan = m_Clock.Advance( seconds );
 
         if ( m_Plan.Reset )

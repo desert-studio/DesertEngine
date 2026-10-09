@@ -6,7 +6,7 @@ Shader "ParticleBillboard"
         // Vertexless billboard draw: 6 vertices per particle, corners from gl_VertexIndex. Each particle is
         // read from the simulation's storage buffer by index and expanded into a camera-facing quad in view
         // space. Size + colour were baked by the compute pass, so the only bindings are the shared camera UB
-        // and the particle buffer. Drawn via Renderer::SubmitVertices( pipeline, particleCount * 6, ... ).
+        // and the particle buffer. Drawn INDIRECT (Renderer::DrawProceduralIndirect, the emitter's last compact slot).
 
         #include <Common/CameraUB.glslh>
 
@@ -19,24 +19,22 @@ Shader "ParticleBillboard"
             Particle u_Particles[];
         };
 
+        // VFX-07: the emitter's alive list in the world pool. The draw is indirect (ParticleCompact's slot):
+        // VertexCount = 6 x alive, FirstVertex = 6 x the start of the slot's alive half, so gl_VertexIndex / 6 is the alive
+        // entry Base + k and every drawn particle is alive.
+        ReadBuffer(2) AliveList
+        {
+            uint u_Alive[];
+        };
+
         Out(0) vec2 v_UV;
         Out(1) vec4 v_Color;
 
         void main()
         {
-            uint particleID = uint( gl_VertexIndex ) / 6u;
-            uint corner     = uint( gl_VertexIndex ) % 6u;
+            uint corner = uint( gl_VertexIndex ) % 6u;
 
-            Particle p = u_Particles[particleID];
-
-            // Dead / invisible particle: emit an off-screen (clipped) vertex so the quad is discarded.
-            if ( p.Color.a <= 0.0 )
-            {
-                gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
-                v_UV        = vec2( 0.0 );
-                v_Color     = vec4( 0.0 );
-                return;
-            }
+            Particle p = u_Particles[u_Alive[uint( gl_VertexIndex ) / 6u]];
 
             const vec2 corners[6] = vec2[6]( vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( -1.0, 1.0 ),
                                              vec2( 1.0, -1.0 ), vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ) );
