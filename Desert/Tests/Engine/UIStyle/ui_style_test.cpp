@@ -152,10 +152,11 @@ TEST( UIStyleSlots, EverySlotIsReadByTheCanvasWalk )
     // UI-FW2: the walk is UICanvasRenderer2D.cpp plus the per-element resolve (UIWalkCtx.cpp) and the
     // widgets each element draws with (Widgets/), so a slot is read when any of them reads it.
     std::string walk;
-    for ( const char* file : { "UICanvasRenderer2D.cpp", "UIWalkCtx.cpp", "Widgets/Button.cpp", "Widgets/Dropdown.cpp",
-                               "Widgets/Image.cpp", "Widgets/InputField.cpp", "Widgets/Panel.cpp", "Widgets/Path.cpp",
-                               "Widgets/ProgressBar.cpp", "Widgets/ScrollList.cpp", "Widgets/Slider.cpp",
-                               "Widgets/Text.cpp", "Widgets/Toggle.cpp" } )
+    for ( const char* file :
+          { "UICanvasRenderer2D.cpp", "UIWalkCtx.cpp", "Widgets/Button.cpp", "Widgets/Dropdown.cpp",
+            "Widgets/Image.cpp", "Widgets/InputField.cpp", "Widgets/Panel.cpp", "Widgets/Path.cpp",
+            "Widgets/ProgressBar.cpp", "Widgets/ScrollList.cpp", "Widgets/Slider.cpp", "Widgets/Text.cpp",
+            "Widgets/Toggle.cpp" } )
     {
         const std::string text = ReadFile( root + "Desert/Desert/Source/Engine/UI/" + file );
         ASSERT_FALSE( text.empty() ) << file << " could not be read";

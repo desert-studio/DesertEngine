@@ -63,8 +63,8 @@ namespace
          "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp",
          "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp",
     };
-    constexpr const char* kRenderer =
-         "the UI walk (UICanvasRenderer2D.cpp + UIWalkCtx.cpp + Widgets/ + UIOverlay.cpp + UIAnimationPlayback.cpp)";
+    constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIWalkCtx.cpp + Widgets/ + "
+                                      "UIOverlay.cpp + UIAnimationPlayback.cpp)";
 
     // The registry adapter behind the walk's IUITree: `Row<ECS::UIxxxComponent, Kind>` per ArgKind. The walk
     // asks the tree for UI argument data (`tree.Has<UIPanelData>`), and this table is what names the
@@ -182,7 +182,8 @@ namespace
             for ( std::size_t at = source.find( needle ); at != std::string::npos;
                   at             = source.find( needle, at + 1 ) )
             {
-                if ( at > 0 && ( std::isalnum( static_cast<unsigned char>( source[at - 1] ) ) || source[at - 1] == '_' ) )
+                if ( at > 0 &&
+                     ( std::isalnum( static_cast<unsigned char>( source[at - 1] ) ) || source[at - 1] == '_' ) )
                     continue;
                 const std::size_t nameStart = at + needle.size();
                 const std::size_t close     = source.find( '>', nameStart );

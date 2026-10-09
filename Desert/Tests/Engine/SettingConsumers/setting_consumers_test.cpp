@@ -365,19 +365,19 @@ namespace
     constexpr const char* kCanvasRenderer = "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp";
     constexpr const char* kAnimationSystem = "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp";
     constexpr const char* kCanvasLayout   = "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp";
-    constexpr const char* kUIButton = "Desert/Desert/Source/Engine/UI/Widgets/Button.cpp";
-    constexpr const char* kUIDropdown = "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp";
-    constexpr const char* kUIImage = "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp";
-    constexpr const char* kUIInputField = "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp";
-    constexpr const char* kUIPanel = "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp";
-    constexpr const char* kUIPath = "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp";
-    constexpr const char* kUIProgressBar = "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp";
-    constexpr const char* kUIScrollList = "Desert/Desert/Source/Engine/UI/Widgets/ScrollList.cpp";
-    constexpr const char* kUISlider = "Desert/Desert/Source/Engine/UI/Widgets/Slider.cpp";
-    constexpr const char* kUIText = "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp";
-    constexpr const char* kUIToggle = "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp";
-    constexpr const char* kUIRichText = "Desert/Desert/Source/Engine/UI/UIRichText.cpp";
-    constexpr const char* kUIWalkCtx = "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp";
+    constexpr const char* kUIButton        = "Desert/Desert/Source/Engine/UI/Widgets/Button.cpp";
+    constexpr const char* kUIDropdown      = "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp";
+    constexpr const char* kUIImage         = "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp";
+    constexpr const char* kUIInputField    = "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp";
+    constexpr const char* kUIPanel         = "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp";
+    constexpr const char* kUIPath          = "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp";
+    constexpr const char* kUIProgressBar   = "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp";
+    constexpr const char* kUIScrollList    = "Desert/Desert/Source/Engine/UI/Widgets/ScrollList.cpp";
+    constexpr const char* kUISlider        = "Desert/Desert/Source/Engine/UI/Widgets/Slider.cpp";
+    constexpr const char* kUIText          = "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp";
+    constexpr const char* kUIToggle        = "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp";
+    constexpr const char* kUIRichText      = "Desert/Desert/Source/Engine/UI/UIRichText.cpp";
+    constexpr const char* kUIWalkCtx       = "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -645,11 +645,8 @@ namespace
     };
 
     constexpr Row kCharacterControllerRows[] = {
-         { "Radius", kPhysicsSystem },
-         { "Height", kPhysicsSystem },
-         { "MaxSlopeDeg", kPhysicsSystem },
-         { "Gravity", kPhysicsSystem },
-         { "CollisionProfile", kPhysicsSystem },
+         { "Radius", kPhysicsSystem },  { "Height", kPhysicsSystem },           { "MaxSlopeDeg", kPhysicsSystem },
+         { "Gravity", kPhysicsSystem }, { "CollisionProfile", kPhysicsSystem },
     };
 
     constexpr Row kAudioRows[] = {
@@ -737,27 +734,36 @@ namespace
     };
 
     constexpr Row kButtonRows[] = {
-         { "NormalColor", kUIButton },    { "HoverColor", kUIButton },
-         { "PressedColor", kUIButton },   { "Action", kUIButton },
-         { "OnClickMessage", kUIButton }, { "Sprite", kUIButton },
-         { "HoverSprite", kUIButton },    { "PressedSprite", kUIButton },
-         { "SpriteBorder", kUIButton },   { "Selected", kUIButton },
-         { "SelectedColor", kUIButton },  { "SelectedAccent", kUIButton },
-         { "Disabled", kUIButton },       { "DisabledColor", kUIButton },
+         { "NormalColor", kUIButton }, { "HoverColor", kUIButton },     { "PressedColor", kUIButton },
+         { "Action", kUIButton },      { "OnClickMessage", kUIButton }, { "Sprite", kUIButton },
+         { "HoverSprite", kUIButton }, { "PressedSprite", kUIButton },  { "SpriteBorder", kUIButton },
+         { "Selected", kUIButton },    { "SelectedColor", kUIButton },  { "SelectedAccent", kUIButton },
+         { "Disabled", kUIButton },    { "DisabledColor", kUIButton },
     };
 
     constexpr Row kTextRows[] = {
-         { "Text", kUIText },         { "FontSize", kUIRichText },
-         { "Font", kUIRichText },         { "Color", kUIRichText },
-         { "Align", kUIRichText },        { "VerticalAlign", kUIRichText },
-         { "Wrap", kUIRichText },         { "LineSpacing", kUIRichText },
-         { "AutoSize", kUIRichText },     { "MinFontSize", kUIRichText },
-         { "Overflow", kUIRichText },     { "RichText", kUIRichText },
-         { "Marquee", kUIRichText },      { "MarqueeSpeed", kUIRichText },
-         { "Shadow", kUIRichText },       { "ShadowColor", kUIRichText },
-         { "ShadowOffset", kUIRichText }, { "Outline", kUIRichText },
-         { "OutlineColor", kUIRichText }, { "Glow", kUIRichText },
-         { "GlowColor", kUIRichText },    { "GlowRadius", kUIRichText },
+         { "Text", kUIText },
+         { "FontSize", kUIRichText },
+         { "Font", kUIRichText },
+         { "Color", kUIRichText },
+         { "Align", kUIRichText },
+         { "VerticalAlign", kUIRichText },
+         { "Wrap", kUIRichText },
+         { "LineSpacing", kUIRichText },
+         { "AutoSize", kUIRichText },
+         { "MinFontSize", kUIRichText },
+         { "Overflow", kUIRichText },
+         { "RichText", kUIRichText },
+         { "Marquee", kUIRichText },
+         { "MarqueeSpeed", kUIRichText },
+         { "Shadow", kUIRichText },
+         { "ShadowColor", kUIRichText },
+         { "ShadowOffset", kUIRichText },
+         { "Outline", kUIRichText },
+         { "OutlineColor", kUIRichText },
+         { "Glow", kUIRichText },
+         { "GlowColor", kUIRichText },
+         { "GlowRadius", kUIRichText },
          { "GlowStrength", kUIRichText },
     };
 
@@ -881,13 +887,11 @@ namespace
     };
 
     constexpr Row kPathRows[] = {
-         { "Curve", kUIPath },      { "PointCount", kUIPath },   { "Reveal", kUIPath },
-         { "Thickness", kUIPath },  { "Color", kUIPath },        { "Opacity", kUIPath },
-         { "RoundCaps", kUIPath },  { "Feather", kUIPath },      { "P0", kUIPath },
-         { "P1", kUIPath },         { "P2", kUIPath },           { "P3", kUIPath },
-         { "P4", kUIPath },         { "P5", kUIPath },           { "P6", kUIPath },
-         { "P7", kUIPath },         { "Glow", kUIPath },         { "GlowColor", kUIPath },
-         { "GlowRadius", kUIPath }, { "GlowStrength", kUIPath },
+         { "Curve", kUIPath }, { "PointCount", kUIPath }, { "Reveal", kUIPath },     { "Thickness", kUIPath },
+         { "Color", kUIPath }, { "Opacity", kUIPath },    { "RoundCaps", kUIPath },  { "Feather", kUIPath },
+         { "P0", kUIPath },    { "P1", kUIPath },         { "P2", kUIPath },         { "P3", kUIPath },
+         { "P4", kUIPath },    { "P5", kUIPath },         { "P6", kUIPath },         { "P7", kUIPath },
+         { "Glow", kUIPath },  { "GlowColor", kUIPath },  { "GlowRadius", kUIPath }, { "GlowStrength", kUIPath },
     };
 
     constexpr Row kRetainerRows[] = {
@@ -909,9 +913,8 @@ namespace
     };
 
     constexpr Row kScrollViewRows[] = {
-         { "ScrollY", kUIScrollList },        { "ContentHeight", kUIScrollList },
-         { "Background", kUIScrollList },     { "ShowScrollbar", kUIScrollList },
-         { "ScrollbarColor", kUIScrollList },
+         { "ScrollY", kUIScrollList },       { "ContentHeight", kUIScrollList },  { "Background", kUIScrollList },
+         { "ShowScrollbar", kUIScrollList }, { "ScrollbarColor", kUIScrollList },
     };
 
     constexpr Row kListViewRows[] = {
@@ -929,19 +932,14 @@ namespace
     };
 
     constexpr Row kInputFieldRows[] = {
-         { "Text", kUIInputField },
-         { "Placeholder", kUIInputField },
-         { "FontSize", kUIInputField },
-         { "TextColor", kUIInputField },
-         { "PlaceholderColor", kUIInputField },
-         { "Background", kUIInputField },
-         { "FocusColor", kUIInputField },
-         { "CornerRadius", kUIInputField },
+         { "Text", kUIInputField },       { "Placeholder", kUIInputField },      { "FontSize", kUIInputField },
+         { "TextColor", kUIInputField },  { "PlaceholderColor", kUIInputField }, { "Background", kUIInputField },
+         { "FocusColor", kUIInputField }, { "CornerRadius", kUIInputField },
     };
 
     constexpr Row kDropdownRows[] = {
-         { "Options", kCanvasRenderer },   { "SelectedIndex", kUIDropdown }, { "Open", kUIDropdown },
-         { "FontSize", kCanvasRenderer },  { "Background", kCanvasRenderer },    { "TextColor", kCanvasRenderer },
+         { "Options", kCanvasRenderer },   { "SelectedIndex", kUIDropdown },    { "Open", kUIDropdown },
+         { "FontSize", kCanvasRenderer },  { "Background", kCanvasRenderer },   { "TextColor", kCanvasRenderer },
          { "Highlight", kCanvasRenderer }, { "CornerRadius", kCanvasRenderer },
     };
 
