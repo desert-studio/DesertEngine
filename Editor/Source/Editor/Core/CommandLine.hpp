@@ -504,7 +504,8 @@ namespace Desert::Editor
                 if ( value.empty() || end != value.c_str() + value.size() || mode > 3ul )
                 {
                     return Common::MakeFormattedError<CommandLineOptions>(
-                         "--cloud-visualize '{}' is not a mode (0 off, 1 the column cut, 2 the ray's kept share, 3 the clip "
+                         "--cloud-visualize '{}' is not a mode (0 off, 1 the column cut, 2 the ray's kept share, "
+                         "3 the clip "
                          "level).",
                          value );
                 }

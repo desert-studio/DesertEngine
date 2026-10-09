@@ -318,7 +318,8 @@ TEST( CloudFieldVolume, TheShaderAndTheGeneratorAgreeAboutHowTallTheVolumeIs )
 TEST( CloudFieldVolume, TheShaderAndTheBakeAgreeOnTheClipLevels )
 {
     EXPECT_EQ( CLOUD_PROCEDURAL_CLIP_LEVELS, static_cast<int>( Desert::Assets::kCloudProceduralClipLevels ) );
-    EXPECT_FLOAT_EQ( CLOUD_PROCEDURAL_VOLUME_SIDE, static_cast<float>( Desert::Assets::kCloudProceduralVolumeSide ) );
+    EXPECT_FLOAT_EQ( CLOUD_PROCEDURAL_VOLUME_SIDE,
+                     static_cast<float>( Desert::Assets::kCloudProceduralVolumeSide ) );
 }
 
 namespace
@@ -391,14 +392,16 @@ TEST( CloudFieldVolume, TheLevelBlendHasNoStep )
                     const vec3 below( boundaryX - kEpsilonKm, 0.0f, z );
                     const vec3 above( boundaryX + kEpsilonKm, 0.0f, z );
 
-                    largestStep = std::max( largestStep,
-                                            CloudLargestChannelStep( CloudSampleProceduralVolume( params, fraction, below ),
-                                                                     CloudSampleProceduralVolume( params, fraction, above ) ) );
+                    largestStep = std::max(
+                         largestStep,
+                         CloudLargestChannelStep( CloudSampleProceduralVolume( params, fraction, below ),
+                                                  CloudSampleProceduralVolume( params, fraction, above ) ) );
 
                     const vec3 on( boundaryX, 0.0f, z );
-                    largestSwitch = std::max( largestSwitch,
-                                              CloudLargestChannelStep( CloudLevelFetch( params, level, fraction, on ),
-                                                                       CloudLevelFetch( params, level + 1, fraction, on ) ) );
+                    largestSwitch =
+                         std::max( largestSwitch,
+                                   CloudLargestChannelStep( CloudLevelFetch( params, level, fraction, on ),
+                                                            CloudLevelFetch( params, level + 1, fraction, on ) ) );
                 }
             }
         }
@@ -502,7 +505,8 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
         const float floorRow = static_cast<float>( level ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT;
 
         EXPECT_FLOAT_EQ( atTop.y, ( floorRow + CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f ) / stackRows )
-             << "level " << level << ": a height fraction of 1 addresses the level's very edge, where the "
+             << "level " << level
+             << ": a height fraction of 1 addresses the level's very edge, where the "
                 "fetch blends with the next level's floor (or wraps)";
         EXPECT_FLOAT_EQ( atBottom.y, ( floorRow + 0.5f ) / stackRows )
              << "level " << level << ": a height fraction of 0 addresses the level's very edge";
