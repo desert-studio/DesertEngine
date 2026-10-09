@@ -941,9 +941,8 @@ namespace Desert::Graphic
         // above one is a medium that emits, which is what Emissive would be for if it existed: a channel
         // over 1 here would make the multiple-scattering series diverge instead of converging, and the
         // frame would bloom on the third octave with nothing in the log.
-        p.Albedo =
-             glm::vec4( glm::clamp( material.ScatteringAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ),
-                        std::clamp( material.SkyLightCloudBottomOcclusion, 0.0f, 1.0f ) );
+        p.Albedo = glm::vec4( glm::clamp( material.ScatteringAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ),
+                              std::clamp( material.SkyLightCloudBottomOcclusion, 0.0f, 1.0f ) );
 
         // THE TYPES' FACTORS ARE NO LONGER FOLDED INTO THE LAYER'S, and the reason is arithmetic rather
         // than taste. A cumulonimbus is made of more water than a stratus, a cirrus is a quarter as opaque

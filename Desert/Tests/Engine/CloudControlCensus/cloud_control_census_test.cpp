@@ -89,7 +89,8 @@ namespace
     // Р11's own, on the tree it names, and is left as measured rather than adjusted.
     constexpr const char* kO1D = "O1-D 2026-09-09, dev@2b504842, Clouds_Protocol 715x784, floor 0 bytes";
     constexpr const char* kP11 = "Р11 2026-08-31, dev@a2631ce0, Clouds_Protocol 1280x766, floor 0 bytes";
-    constexpr const char* kCGb = "CLOUD-GAUNTLET-b r04 2026-10-09, task/CLOUD-FARWX, Clouds_Showcase 1435x857, floor 0 bytes";
+    constexpr const char* kCGb =
+         "CLOUD-GAUNTLET-b r04 2026-10-09, task/CLOUD-FARWX, Clouds_Showcase 1435x857, floor 0 bytes";
 
     // О11 measured on SIL_Lenticular rather than Clouds_Protocol, and the departure is the point: the
     // control is about ONE species' band against the cell it is placed on, and the protocol scene's
