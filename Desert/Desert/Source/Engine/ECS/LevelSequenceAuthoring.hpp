@@ -95,14 +95,39 @@ namespace Desert::ECS
      * @brief The curve editor's per-key shape (UE: the key's interpolation and tangent mode in the curve editor's
      * right-click menu): every lane of @p binding's pose keys on @p ticks gets @p interp and @p mode, and the
      * channel's auto tangents are refreshed. The Rotation lanes are a quaternion (Constant or Linear by the
-     * RotationChannel invariant), so Cubic sets them Linear — the slerp UE's Rotation lanes also use. All or
-     * nothing: a tick with no pose key refuses and leaves the sequence as it was. Revision++.
+     * RotationChannel invariant), so Cubic sets them Linear — the slerp UE's Rotation lanes also use. A nullopt
+     * @p interp or @p mode leaves that part of each key as it is (UE: picking the interpolation keeps the
+     * tangents); both nullopt is refused. All or nothing: a tick with no pose key refuses and leaves the sequence
+     * as it was. Revision++.
      */
-    [[nodiscard]] Common::BoolResultStr
-    SetEntityTransformKeyShape( Animation::Timeline::Sequence&             sequence,
-                                const Animation::Timeline::BindingGuid&    binding,
-                                const std::vector<Animation::FrameNumber>& ticks, Animation::KeyInterp interp,
-                                Animation::TangentMode mode );
+    [[nodiscard]] Common::BoolResultStr SetEntityTransformKeyShape(
+         Animation::Timeline::Sequence& sequence, const Animation::Timeline::BindingGuid& binding,
+         const std::vector<Animation::FrameNumber>& ticks, std::optional<Animation::KeyInterp> interp,
+         std::optional<Animation::TangentMode> mode );
+
+    /// A pose key on the dope sheet: its binding and tick (the Sequencer's key selection).
+    struct TransformKeyRef
+    {
+        Animation::Timeline::BindingGuid Binding;
+        Animation::FrameNumber           Tick;
+    };
+
+    /// What a set of pose keys share (UE: the curve editor's key menu shows the selection's value, "Multiple
+    /// Values" when the keys differ). A nullopt field: the keys differ on it, or none of them exists.
+    struct TransformKeyShape
+    {
+        std::optional<Animation::KeyInterp>   Interp;
+        std::optional<Animation::TangentMode> Mode;
+    };
+
+    /**
+     * @brief The shape of the pose keys @p keys name, read from @p sequence on every call (the selection's current
+     * value, never a remembered pick). Interp is read from the Location and Scale lanes: the Rotation lanes hold
+     * the slerp `SetEntityTransformKeyShape` writes for Cubic, so reading them would make every Cubic key look
+     * mixed. The tangent mode is read from every lane. A ref with no pose key adds nothing.
+     */
+    [[nodiscard]] TransformKeyShape SelectedEntityTransformKeyShape( const Animation::Timeline::Sequence& sequence,
+                                                                     const std::vector<TransformKeyRef>&  keys );
 
     /**
      * @brief An easing preset on the segment of @p binding's @p part (Position or Scale) that ENDS at the pose key
