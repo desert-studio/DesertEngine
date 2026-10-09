@@ -25,14 +25,15 @@ namespace Desert::Editor
     class BlendImporter : public IAssetImporter
     {
     public:
-        ImportResult Import( const std::filesystem::path& blendPath, ImportManager& manager ) override
+        ImportResult Import( const std::filesystem::path& blendPath, ImportManager& manager,
+                             const Assets::SourceImportSettings& settings ) override
         {
             const std::filesystem::path fbx = ConvertToFbx( blendPath );
             if ( fbx.empty() )
                 return {}; // conversion failed (no Blender / export error) — already logged
 
             AssimpImporter assimp;
-            return assimp.Import( fbx, manager );
+            return assimp.Import( fbx, manager, settings );
         }
 
         // The converted FBX's kind (the conversion is the same cached one Import runs).

@@ -24,6 +24,7 @@
 
 #include <Editor/Import/Assimp/VertexStreams.hpp>
 #include <Editor/Import/ImportUnits.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -151,7 +152,8 @@ namespace
     // Returns the world-space box in CENTIMETRES, and reports through `source` how the unit was decided,
     // so a test can assert that a file's size and the reason for it agree.
     WorldBox ImportInCentimetres( const std::filesystem::path& file, std::string& error,
-                                  Desert::Editor::ImportUnits::Source& source )
+                                  Desert::Editor::ImportUnits::Source& source,
+                                  Desert::Assets::MeshFileUnit         settingsUnit = Desert::Assets::MeshFileUnit::FromFile )
     {
         Assimp::Importer importer;
         const aiScene*   scene = importer.ReadFile( file.string(), kEngineImportFlags );
@@ -174,7 +176,8 @@ namespace
             }
         }
 
-        const auto unit = Desert::Editor::ImportUnits::Resolve( file.extension().string(), hasStated, stated );
+        const auto unit = Desert::Editor::ImportUnits::Resolve( file.extension().string(), hasStated, stated,
+                                                                Desert::Assets::MeshFileUnitCentimetres( settingsUnit ) );
         source          = unit.From;
 
         const float assimpMetresPerUnit = importer.GetPropertyFloat( AI_CONFIG_APP_SCALE_KEY, 1.0f );
@@ -448,6 +451,27 @@ TEST( AssimpLibraryPin, AFileThatStatesMetresImportsAsCentimetres )
             "assimp's metre normalisation is back.";
     EXPECT_NEAR( box.Width(), 100.0f, 0.01f );
     EXPECT_NEAR( box.Depth(), 100.0f, 0.01f );
+}
+
+// OBJ STATES NO UNIT, SO THE IMPORT SETTINGS ARE THE ONLY PLACE ONE CAN COME FROM (SHOT-AUTO). The same unit
+// cube imports 1 unit on a side when nothing is stated (assumed centimetres, warned) and 100 when the
+// settings say Metres; a Resolve that ignored the settings would give 1 for both.
+TEST( AssimpLibraryPin, AnObjStatedAsMetresInTheSettingsImportsAHundredTimesLarger )
+{
+    const auto  file = RepositoryRoot() / "Desert/Tests/Editor/AssimpLibraryPin/Fixtures/unit_cube.obj";
+    std::string error;
+    auto        source  = Desert::Editor::ImportUnits::Source::StatedByFile;
+    const auto  assumed = ImportInCentimetres( file, error, source );
+    ASSERT_TRUE( error.empty() ) << "the OBJ fixture did not import: " << error;
+    EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::AssumedCentimetres );
+    EXPECT_NEAR( assumed.Height(), 1.0f, 0.001f );
+
+    const auto metres = ImportInCentimetres( file, error, source, Desert::Assets::MeshFileUnit::Metres );
+    ASSERT_TRUE( error.empty() ) << error;
+    EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::StatedBySettings );
+    EXPECT_NEAR( metres.Height(), 100.0f, 0.01f ) << "Metres in the settings is 100 cm per OBJ unit.";
+    EXPECT_NEAR( metres.Width(), 100.0f, 0.01f );
+    EXPECT_NEAR( metres.Depth(), 100.0f, 0.01f );
 }
 
 // THE FLAG SET THE NUMBERS ABOVE WERE MEASURED UNDER IS STILL THE ENGINE'S, AND SO IS ITS SHAPE.

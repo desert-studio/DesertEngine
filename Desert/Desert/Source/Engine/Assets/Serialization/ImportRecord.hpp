@@ -57,6 +57,9 @@ namespace Desert::Assets::Serialization
         /// SourceImportSettings::SpecularMap by FbxSpecularMapName; absent = `Specular` (FBX's own meaning, UE's
         /// default), so a record that never chose otherwise states nothing new.
         std::optional<std::string> SpecularMap;
+        /// SourceImportSettings::FileUnit by MeshFileUnitName; absent = `FromFile` (the file or its format
+        /// states the unit), so a record that never chose one states nothing new.
+        std::optional<std::string> FileUnit;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.

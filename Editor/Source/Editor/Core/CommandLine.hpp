@@ -458,7 +458,8 @@ namespace Desert::Editor
                     return Common::MakeFormattedError<CommandLineOptions>(
                          "--look '{}' is not a direction (three comma-separated numbers, e.g. 0,0.9,-1).", value );
                 }
-                options.Shot.HasCamera = true;
+                // A direction alone does not place the camera: the shot frames the scene along it.
+                options.Shot.HasLook = true;
             }
             // The far end of a moving shot. Each also implies --camera, because a path that nothing places
             // is a path the scene's own camera ignores.
@@ -546,7 +547,7 @@ namespace Desert::Editor
                      "--flight needs --flight-speed, --flight-csv and --play: a flight with no speed does not "
                      "move, with no CSV keeps nothing, and without Play nothing streams" );
             }
-            if ( shot.HasCamera )
+            if ( shot.HasCamera || shot.HasLook )
             {
                 return Common::MakeError<CommandLineOptions>(
                      "--flight places the camera itself; --camera, --look, --camera-to and --look-to would be "

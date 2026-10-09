@@ -48,7 +48,7 @@ namespace Desert::Core
      *
      * The matrix's columns 0/1/2 are the entity's right/up/backward axes. They are normalised (entity
      * scale is not an optic) and the up axis is re-orthogonalised against forward, so a sheared parent
-     * chain still yields a basis `glm::lookAt` can use.
+     * chain still yields a basis ViewMatrixFrom can use.
      */
     [[nodiscard]] inline CameraEntityView CameraEntityViewOf( const glm::mat4& world, float fovYDegrees,
                                                               float nearPlane, float farPlane )
@@ -69,7 +69,7 @@ namespace Desert::Core
 
     [[nodiscard]] inline glm::mat4 ViewMatrixOf( const CameraEntityView& view )
     {
-        return glm::lookAt( view.Position, view.Position + view.Basis.Forward, view.Basis.Up );
+        return ViewMatrixFrom( view.Position, view.Basis );
     }
 
     // The plain vertical-FOV projection at the viewport's aspect — the one Camera::UpdateProjectionMatrix

@@ -250,6 +250,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/LevelEditor/SceneMeshBounds.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
