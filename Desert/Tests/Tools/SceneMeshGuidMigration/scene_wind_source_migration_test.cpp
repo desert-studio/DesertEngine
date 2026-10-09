@@ -61,7 +61,7 @@ TEST( SceneWindSourceMigration, VersionIsTheGenerationAfterUIAnimationSequences 
 TEST( SceneWindSourceMigration, CloudWindBecomesOneWindSourceWithTheSameDirectionAndSpeed )
 {
     std::vector<EntityData> entities{ Cloud( std::vector<double>{ 0.0, 0.0, -1.0 }, 1250.0 ) };
-    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, "Fixture", true );
+    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, true );
 
     EXPECT_EQ( report.CloudWinds, 1u );
     EXPECT_TRUE( report.Created );
@@ -85,14 +85,14 @@ TEST( SceneWindSourceMigration, CloudWindBecomesOneWindSourceWithTheSameDirectio
 
     // The same file migrated again names the same record.
     std::vector<EntityData> again{ Cloud( std::vector<double>{ 0.0, 0.0, -1.0 }, 1250.0 ) };
-    Migration::MigrateWindSourceV41ToV42( again, "Fixture", true );
+    Migration::MigrateWindSourceV41ToV42( again, true );
     EXPECT_EQ( WindSourceOf( again )->id, source->id );
 }
 
 TEST( SceneWindSourceMigration, MissingKeysWereTheOldDefaults )
 {
     std::vector<EntityData> entities{ Cloud( std::nullopt, std::nullopt ) };
-    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, "Defaults", true );
+    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, true );
     EXPECT_TRUE( report.Created );
     const auto block = BlockOf( *WindSourceOf( entities ), "WindSource" );
     EXPECT_DOUBLE_EQ( block.get( "Speed" ).value().to_double().value(), 3000.0 );
@@ -102,7 +102,7 @@ TEST( SceneWindSourceMigration, MissingKeysWereTheOldDefaults )
 TEST( SceneWindSourceMigration, NoWindNoSource )
 {
     std::vector<EntityData> entities{ Cloud( std::vector<double>{ 1.0, 0.0, 0.0 }, 0.0 ) };
-    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, "Still", true );
+    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, true );
     EXPECT_EQ( report.CloudWinds, 1u );
     EXPECT_FALSE( report.Created );
     EXPECT_EQ( WindSourceOf( entities ), nullptr );
@@ -112,7 +112,7 @@ TEST( SceneWindSourceMigration, NoWindNoSource )
 TEST( SceneWindSourceMigration, APrefabLosesTheKeysAndGainsNoSource )
 {
     std::vector<EntityData> entities{ Cloud( std::vector<double>{ 1.0, 0.0, 0.0 }, 900.0 ) };
-    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, "Prefab", false );
+    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, false );
     EXPECT_EQ( report.CloudWinds, 1u );
     EXPECT_FALSE( report.Created );
     EXPECT_EQ( entities.size(), 1u );
@@ -122,7 +122,7 @@ TEST( SceneWindSourceMigration, ASecondLayersDifferentWindIsReported )
 {
     std::vector<EntityData> entities{ Cloud( std::vector<double>{ 1.0, 0.0, 0.0 }, 900.0 ),
                                       Cloud( std::vector<double>{ 0.0, 0.0, 1.0 }, 900.0 ) };
-    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, "Two", true );
+    const auto              report = Migration::MigrateWindSourceV41ToV42( entities, true );
     EXPECT_EQ( report.CloudWinds, 2u );
     EXPECT_EQ( report.Disagreeing, 1u );
     EXPECT_EQ( entities.size(), 3u );

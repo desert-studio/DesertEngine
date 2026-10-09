@@ -411,8 +411,7 @@ namespace Desert::Migration
         return report;
     }
 
-    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities,
-                                                const std::string& fileName, bool createSource )
+    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities, bool createSource )
     {
         constexpr const char* kDirection = "WindDirection";
         constexpr const char* kSpeed     = "WindSpeed";
@@ -426,6 +425,7 @@ namespace Desert::Migration
             bool                Blows = false;
         };
         std::optional<LayerWind> kept;
+        std::string              keptLayerId; // the kept layer's entity id, "" when the record states none
 
         for ( auto& entity : entities )
         {
@@ -454,7 +454,10 @@ namespace Desert::Migration
                            if ( wind.Blows )
                            {
                                if ( !kept )
-                                   kept = wind;
+                               {
+                                   kept        = wind;
+                                   keptLayerId = entity.id ? entity.id->ToString() : std::string();
+                               }
                                else if ( kept->Direction != wind.Direction || kept->Speed != wind.Speed )
                                    ++report.Disagreeing;
                            }
@@ -476,9 +479,11 @@ namespace Desert::Migration
         if ( !createSource || !kept )
             return report;
 
-        // FNV-1a over the file's name: the same scene migrated twice, on any machine, names the same record.
+        // FNV-1a over the id of the layer the wind came from: the same scene migrated twice, on any machine,
+        // names the same record, and two scenes that differ only in their name (the PR_Hero cost legs) gain
+        // the same record - the file's name is not content, so it may not reach one.
         uint64_t id = 14695981039346656037ull;
-        for ( const char c : "WindSource:" + fileName )
+        for ( const char c : "WindSource:" + keptLayerId )
             id = ( id ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
 
         rfl::Generic::Array direction;
@@ -2335,7 +2340,7 @@ namespace Desert::Migration
         if ( statedSceneVersion < kSceneVersionWindSource )
         {
             report.WindSourceRaised = true;
-            report.WindSource       = MigrateWindSourceV41ToV42( scene.Entities, scene.SceneName, true );
+            report.WindSource       = MigrateWindSourceV41ToV42( scene.Entities, true );
         }
         if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
             report.EntitiesMovedOut = scene.Entities.size();
@@ -2412,7 +2417,7 @@ namespace Desert::Migration
         if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionWindSource )
         {
             outcome.Steps.WindSourceRaised = true;
-            outcome.Steps.WindSource       = MigrateWindSourceV41ToV42( prefab.Entities, prefab.Name, false );
+            outcome.Steps.WindSource       = MigrateWindSourceV41ToV42( prefab.Entities, false );
         }
         if ( !outcome.Steps.Refused.empty() )
         {

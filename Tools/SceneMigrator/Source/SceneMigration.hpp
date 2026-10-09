@@ -290,10 +290,9 @@ namespace Desert::Migration
     };
 
     // Moves the cloud layer's wind into a WindSource record under the rule kSceneVersionWindSource states.
-    // @p createSource: true for a scene, false for a prefab. The record's id is derived from @p fileName so a
-    // re-run states the same identity. PURE.
-    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities,
-                                                const std::string& fileName, bool createSource );
+    // @p createSource: true for a scene, false for a prefab. The record's id is derived from the id of the cloud
+    // layer whose wind it keeps, so a re-run states the same identity and the file's name never reaches it. PURE.
+    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities, bool createSource );
 
     // What MigrateUIAnimationsV40ToV41 did to one file.
     struct UIAnimationsReport
