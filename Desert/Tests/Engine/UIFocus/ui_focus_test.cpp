@@ -130,9 +130,3 @@ TEST( UIFocus, WrapStaysInsideTheContainerBox )
     EXPECT_EQ( UI::FindNextFocusable( e, N( 2 ), UINavigation::Right, box, UINavigationRule::Wrap ), N( 1 ) );
     EXPECT_EQ( UI::FindNextFocusable( e, N( 2 ), UINavigation::Right, kView, UINavigationRule::Escape ), N( 3 ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
