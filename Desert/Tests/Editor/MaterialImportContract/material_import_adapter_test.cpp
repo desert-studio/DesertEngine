@@ -86,6 +86,7 @@ namespace
                 text << probe.rdbuf();
                 return text.str();
             }
+        ADD_FAILURE() << "no repository file " << relative;
         return {};
     }
 
@@ -701,7 +702,7 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusi
     const SourceMaterial source =
          WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::RoughnessMetallic );
     EXPECT_FALSE( source.Has( kFbxSpecularMapKey ) );
-    const TemplateFill fill = FillFromTemplate( source, Template( "PBR/StandardSurface.shader" ) );
+    const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
     EXPECT_TRUE( fill.UnreadKeys.empty() ) << fill.UnreadKeys.front();
     const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
     ASSERT_NE( orm, nullptr ) << "the packed map did not reach the ORM slot";

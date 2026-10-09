@@ -79,7 +79,13 @@ namespace Desert::Graphic
             // A zero-size disk is a point: a step at the horizon.
             if ( sunAngularRadiusRad <= 0.0f )
                 return sunElevationRad > 0.0f ? 1.0f : 0.0f;
-            const float h             = glm::clamp( sunElevationRad / sunAngularRadiusRad, -1.0f, 1.0f );
+            // The two limbs are stated, not computed: in float acos(-1) and pi<float>() differ by an ulp,
+            // which would leave a set sun lighting the ground at ~1e-7.
+            const float h = sunElevationRad / sunAngularRadiusRad;
+            if ( h <= -1.0f )
+                return 0.0f;
+            if ( h >= 1.0f )
+                return 1.0f;
             const float hiddenSegment = glm::acos( h ) - h * glm::sqrt( glm::max( 1.0f - h * h, 0.0f ) );
             return glm::clamp( 1.0f - hiddenSegment / glm::pi<float>(), 0.0f, 1.0f );
         }
