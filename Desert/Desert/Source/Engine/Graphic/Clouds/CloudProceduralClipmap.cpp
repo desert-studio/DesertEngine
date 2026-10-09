@@ -150,7 +150,7 @@ namespace Desert::Graphic
                      out.CacheWriteError = baked.GetValue().CacheWriteError;
                      out.Boxes.push_back(
                           RotateIntoTorus( baked.GetValue().Voxels, origin, params.VolumeSideVoxels ) );
-                     return out;
+                     return Common::MakeSuccess( std::move( out ) );
                  }
 
                  if ( cached )
@@ -161,7 +161,7 @@ namespace Desert::Graphic
                      out.FromCache       = baked.GetValue().FromCache;
                      out.CacheWriteError = baked.GetValue().CacheWriteError;
                      out.Boxes.push_back( std::move( baked.GetValue().Voxels ) );
-                     return out;
+                     return Common::MakeSuccess( std::move( out ) );
                  }
 
                  const float count = static_cast<float>( boxes.size() );
@@ -175,7 +175,7 @@ namespace Desert::Graphic
                          return Common::MakeError<BakedBytes>( baked.GetError() );
                      out.Boxes.push_back( std::move( baked.GetValue() ) );
                  }
-                 return out;
+                 return Common::MakeSuccess( std::move( out ) );
              } );
         return bake;
     }
@@ -358,7 +358,7 @@ namespace Desert::Graphic
         // SCROLLING, only for a shape that is on the device and not being replaced: a slab of the old shape
         // would be written beside the new shape's levels the moment those land.
         if ( !m_Valid || m_ShapeInFlight )
-            return landedShape;
+            return Common::MakeSuccess( std::move( landedShape ) );
 
         std::vector<std::pair<const Bake*, const BakedBytes*>> writes;
         std::array<std::optional<BakedBytes>, kLevels>         bytes;
@@ -411,7 +411,7 @@ namespace Desert::Graphic
             const bool whole = boxes.size() == 1u && boxes[0].Width == side && boxes[0].Depth == side;
             m_Scroll[level]  = StartBake( m_DeviceParams, level, wanted, std::move( boxes ), whole );
         }
-        return landedShape;
+        return Common::MakeSuccess( std::move( landedShape ) );
     }
 
     std::array<glm::vec4, CloudProceduralClipmap::kLevels> CloudProceduralClipmap::LevelUniforms() const
