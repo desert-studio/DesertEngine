@@ -6,6 +6,7 @@
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleSimGraph.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleSortGraph.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
@@ -461,6 +462,131 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
         const int at = position( name );
         EXPECT_GT( at, previous ) << name << " is culled or runs out of its stage order / before the compact";
         EXPECT_LT( at, draw ) << name << " runs after the draw that reads its sorted list";
+        previous = at;
+    }
+}
+
+// VFX-03g (R6). A VFXComponent-only scene: its emitters run their compiled stacks' simulation programs as the
+// Spawn+Update node, between Compact 0 / Dispatch Args 0 and Compact 1, each emitter its own block on its own
+// program's layout (VFX::SimulationBinding: Floats, Ints, Params, Curves, StepTable, FreeList, AliveList,
+// Counters, Slots). Red when DeclareParticleSimulateStep declares other than one block per emitter (two emitters
+// of one entity are two blocks), when a stack block binds a slot the program does not have or leaves one unbound
+// (a declaration fault), or when a node is culled or out of order. The source half: ParticleRenderer imports a
+// stack emitter (StackProgramFor) instead of skipping it with the old "does not simulate or draw yet" error.
+TEST( RenderGraphCompile, AVFXComponentOnlySceneRunsEachEmittersStackAsItsOwnSimulateBlock )
+{
+    namespace Sys = Desert::Graphic::System;
+    {
+        const fs::path root = RepoRoot();
+        std::ifstream  file(
+             ( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" )
+                  .string() );
+        ASSERT_TRUE( file.is_open() );
+        const std::string source( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        EXPECT_EQ( source.find( "does not simulate or draw yet" ), std::string::npos );
+        EXPECT_NE( source.find( "ve.Program = StackProgramFor( *ve.Frame->Stack );" ), std::string::npos );
+    }
+
+    ExternalTexture       backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder               graph( "vfx stack simulate" );
+    Sys::ParticlePoolRefs pool;
+    pool.Particles = graph.CreateBuffer( BufferDesc{ 256u * 64u }, "ParticlePool" );
+    pool.Slots     = graph.CreateBuffer( BufferDesc{ 256u * 8u }, "ParticleSlots" );
+    pool.Floats    = graph.CreateBuffer( BufferDesc{ 256u * 12u * 4u }, "ParticleFloats" );
+    pool.Ints      = graph.CreateBuffer( BufferDesc{ 256u * 4u }, "ParticleInts" );
+    pool.Free      = graph.CreateBuffer( BufferDesc{ 256u * 4u }, "ParticleFreeList" );
+    pool.Alive     = graph.CreateBuffer( BufferDesc{ 2u * 256u * 4u }, "ParticleAliveList" );
+
+    const auto stackLayout = std::make_shared<const ShaderBindingLayout>(
+         ShaderBindingLayout{ "VFX/Simulate/00000000000000a1",
+                              { { "Floats", ShaderResourceKind::StorageBuffer },
+                                { "Ints", ShaderResourceKind::StorageBuffer },
+                                { "Params", ShaderResourceKind::StorageBuffer },
+                                { "Curves", ShaderResourceKind::StorageBuffer },
+                                { "StepTable", ShaderResourceKind::StorageBuffer },
+                                { "FreeList", ShaderResourceKind::StorageBuffer },
+                                { "AliveList", ShaderResourceKind::StorageBuffer },
+                                { "Counters", ShaderResourceKind::StorageBuffer },
+                                { "Slots", ShaderResourceKind::StorageBuffer } },
+                              48u } );
+    // Two emitters of one entity (ParticleEmitterKey index 0 and 1): two ranges, two sets of per-emitter buffers.
+    std::vector<Sys::ParticleSimEmitterRefs> emitters( 2 );
+    for ( uint32_t e = 0; e < 2; ++e )
+    {
+        Sys::ParticleSimEmitterRefs& refs = emitters[e];
+        refs.Steps     = graph.CreateBuffer( BufferDesc{ 64 }, std::format( "ParticleSteps{}", e ) );
+        refs.Counters  = graph.CreateBuffer( BufferDesc{ 64 }, std::format( "ParticleCounters{}", e ) );
+        refs.Args      = graph.CreateBuffer( BufferDesc{ 32 }, std::format( "ParticleDispatchArgs{}", e ) );
+        refs.Params    = graph.CreateBuffer( BufferDesc{ 64 }, std::format( "ParticleParams{}", e ) );
+        refs.Curves    = graph.CreateBuffer( BufferDesc{ 256 }, std::format( "ParticleCurves{}", e ) );
+        refs.Stack     = true;
+        refs.Layout    = stackLayout;
+        refs.PushBytes = 48u;
+    }
+    TextureRef back = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "Particles: Compact 0", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             // Stands in for the uploads and the first compact: everything the simulate reads has a producer.
+             for ( const BufferRef buffer : { pool.Slots, pool.Floats, pool.Ints, pool.Free, pool.Alive } )
+                 pass.Write( buffer, Access::StorageWrite );
+             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
+                 for ( const BufferRef buffer : { refs.Steps, refs.Counters, refs.Params, refs.Curves } )
+                     pass.Write( buffer, Access::StorageWrite );
+         },
+         Ok );
+    graph.AddPass(
+         "Particles: Dispatch Args 0", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
+             {
+                 pass.Read( refs.Steps, Access::StorageRead );
+                 pass.Write( refs.Counters, Access::StorageWrite );
+                 pass.Write( refs.Args, Access::StorageWrite );
+             }
+         },
+         Ok );
+    uint32_t blocks = 0;
+    graph.AddPass(
+         "Particles: Spawn+Update 0", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { blocks = Sys::DeclareParticleSimulateStep( pass, pool, emitters ); }, Ok );
+    graph.AddPass(
+         "Particles: Compact 1", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Write( pool.Slots, Access::StorageWrite );
+             pass.Write( pool.Alive, Access::StorageWrite );
+             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
+                 pass.Write( refs.Counters, Access::StorageWrite );
+         },
+         Ok );
+    graph.AddPass(
+         "ParticlePass", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( pool.Floats, Access::StorageRead );
+             pass.Read( pool.Alive, Access::StorageRead );
+             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
+                 pass.Read( refs.Counters, Access::IndirectArgs );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    EXPECT_EQ( blocks, 2u ) << "two emitters of one entity are two simulate blocks";
+    int previous = -1;
+    for ( const char* name : { "Particles: Compact 0", "Particles: Dispatch Args 0", "Particles: Spawn+Update 0",
+                               "Particles: Compact 1" } )
+    {
+        const auto it = std::find_if( result.Passes.begin(), result.Passes.end(),
+                                      [&]( const auto& pass ) { return pass.Name == name; } );
+        ASSERT_NE( it, result.Passes.end() ) << name << " is culled: the stack emitters declare no node";
+        const int at = static_cast<int>( it - result.Passes.begin() );
+        EXPECT_GT( at, previous ) << name << " runs out of order";
         previous = at;
     }
 }
