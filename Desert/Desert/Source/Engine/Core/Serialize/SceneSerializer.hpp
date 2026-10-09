@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/Serialize/SceneLoadPhases.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
@@ -9,6 +10,9 @@
 #include <glm/glm.hpp>
 
 #include <span>
+#include <cstdint>
+#include <unordered_set>
+#include <vector>
 #include <string_view>
 
 namespace Desert::Core
@@ -24,6 +28,24 @@ namespace Desert::Core
         /// The document a save writes (ComposeSceneDocument): this build's tree with the loaded file's foreign
         /// keys merged back. SerializeToJson writes it as one line, SaveToFile in the canonical layout.
         [[nodiscard]] Common::ResultStr<Common::Json::TextDocument> SerializeToDocument() const;
+        /// The same document stating only the records whose id is in @p only (null = every record): the delta
+        /// save of a partitioned world serializes the entities it writes and no other (WP17).
+        [[nodiscard]] Common::ResultStr<Common::Json::TextDocument>
+        SerializeToDocument( const std::unordered_set<std::uint64_t>* only ) const;
+
+        /// Every live entity as the package save sees it (EntityPackages.hpp): id, the record that states it,
+        /// parent, sibling index. Reads no component but the hierarchy's.
+        [[nodiscard]] std::vector<LiveEntity> LiveEntities() const;
+
+        /// The open just read the scene from @p path: its files hold every entity as it is now (the baseline the
+        /// next SaveToFile to the same path writes the difference from).
+        void AdoptAsSaved( const Common::Filepath& path ) const;
+
+        /// What the last SaveToFile did (files written, records serialized, whole or delta).
+        [[nodiscard]] const PackageSaveOutcome& LastSave() const
+        {
+            return m_LastSave;
+        }
 
         /// Loads a scene from the JSON text of a .desce file into the scene this serializer was made for.
         ///
@@ -78,6 +100,7 @@ namespace Desert::Core
     private:
         Scene*                m_Scene;
         Assets::AssetManager* m_AssetManager;
+        mutable PackageSaveOutcome m_LastSave;
     };
 
     /// A mesh asset's box, from the cooked registry's Bounds column: read without loading the mesh, which is

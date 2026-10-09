@@ -283,6 +283,90 @@ namespace Desert::Core::ExternalEntities
         return Common::MakeSuccess( outcome );
     }
 
+    Common::ResultStr<WriteOutcome> WriteSceneDelta( const std::filesystem::path&      scenePath,
+                                                     const Common::Json::TextDocument& scene,
+                                                     std::span<const Common::UUID>     listed,
+                                                     std::span<const Common::UUID>     changed,
+                                                     std::span<const Common::UUID>     removed )
+    {
+        WriteOutcome outcome;
+        auto         split = Split( scene, scenePath.string() );
+        if ( !split )
+            return Common::MakeError<WriteOutcome>( split.GetError() );
+
+        std::unordered_set<std::uint64_t> wanted;
+        for ( const Common::UUID id : changed )
+            wanted.insert( Bits( id ) );
+        std::unordered_map<std::uint64_t, std::string> texts;
+        for ( const auto& [id, record] : split.GetValue().Records )
+        {
+            if ( !wanted.contains( Bits( id ) ) )
+                continue;
+            const std::filesystem::path file = FileOf( scenePath, id );
+            const auto                  text = Common::Json::WriteCanonical( record );
+            if ( !text )
+                return Common::MakeError<WriteOutcome>(
+                     fmt::format( "could not lay out entity {} ({}) as text: {}", Bits( id ), file.string(),
+                                  text.GetError() ) );
+            if ( const auto written = WriteIfChanged( file, text.GetValue(), outcome ); !written )
+                return Common::MakeError<WriteOutcome>( written.GetError() );
+            texts.emplace( Bits( id ), text.GetValue() );
+        }
+        for ( const Common::UUID id : changed )
+            if ( !texts.contains( Bits( id ) ) )
+                return Common::MakeError<WriteOutcome>(
+                     fmt::format( "'{}': entity {} is to be written but the scene composed no record for it",
+                                  scenePath.string(), Bits( id ) ) );
+
+        // The header states the WHOLE list: the document carried only the changed records.
+        std::vector<Common::Json::TextDocument> ids;
+        ids.reserve( listed.size() );
+        for ( const Common::UUID id : listed )
+        {
+            auto idDocument = Common::Json::TextDocument::Parse( std::to_string( Bits( id ) ) );
+            if ( !idDocument )
+                return Common::MakeError<WriteOutcome>( idDocument.GetError() );
+            ids.push_back( idDocument.ExtractValue() );
+        }
+        const auto header = scene.WithArrayMember( kRecords, kListMember, ids );
+        if ( !header )
+            return Common::MakeError<WriteOutcome>( fmt::format( "'{}': {}", scenePath.string(), header.GetError() ) );
+        const auto headerText = Common::Json::WriteCanonical( header.GetValue() );
+        if ( !headerText )
+            return Common::MakeError<WriteOutcome>(
+                 fmt::format( "could not lay out {} as text: {}", scenePath.string(), headerText.GetError() ) );
+        if ( const auto written = WriteIfChanged( scenePath, headerText.GetValue(), outcome ); !written )
+            return Common::MakeError<WriteOutcome>( written.GetError() );
+
+        // After the header, as in WriteSceneFile: the old list never names a file that is already gone.
+        for ( const Common::UUID id : removed )
+        {
+            const std::filesystem::path file = FileOf( scenePath, id );
+            std::error_code             ec;
+            if ( !std::filesystem::exists( file, ec ) )
+                continue;
+            if ( !std::filesystem::remove( file, ec ) || ec )
+                return Common::MakeError<WriteOutcome>(
+                     fmt::format( "could not remove {}, the file of an entity the scene no longer has: {}",
+                                  file.string(), ec ? ec.message() : "not removed" ) );
+            ++outcome.Removed;
+            std::filesystem::remove( file.parent_path(), ec ); // only when empty
+        }
+
+        const auto indexed = DescriptorIndex::Refresh(
+             scenePath, listed,
+             [&]( Common::UUID id ) -> Common::ResultStr<std::string>
+             {
+                 if ( const auto found = texts.find( Bits( id ) ); found != texts.end() )
+                     return Common::MakeSuccess( found->second );
+                 return Common::Utils::FileSystem::ReadFileContent( FileOf( scenePath, id ) );
+             },
+             [&]( Common::UUID id ) { return !texts.contains( Bits( id ) ); } );
+        if ( !indexed )
+            return Common::MakeError<WriteOutcome>( indexed.GetError() );
+        return Common::MakeSuccess( outcome );
+    }
+
     Common::ResultStr<WriteOutcome> WriteSceneText( const std::filesystem::path& scenePath, std::string_view json )
     {
         auto document = Common::Json::TextDocument::Parse( std::string( json ) );

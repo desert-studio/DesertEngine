@@ -69,8 +69,12 @@ namespace Desert::Core::DescriptorIndex
     // Brings the index of the partitioned world at `scenePath` up to `listed` (its header's entity list), reading
     // each entity's text through `textOf`, and writes it when it changed. A text that is not one entity record, or
     // states another id, is refused naming the entity. An index on disk that cannot be read is rebuilt whole.
-    [[nodiscard]] Common::ResultStr<RefreshOutcome>
-    Refresh( const std::filesystem::path& scenePath, std::span<const Common::UUID> listed, const RecordText& textOf );
+    // `unchanged(id)` true (WP17's delta save) reuses that entity's previous row WITHOUT asking `textOf`; with no
+    // previous row the entity is read as any other.
+    using IsUnchanged = std::function<bool( Common::UUID )>;
+    [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( const std::filesystem::path& scenePath,
+                                                             std::span<const Common::UUID> listed,
+                                                             const RecordText& textOf, const IsUnchanged& unchanged = {} );
 
     // Refresh of the world as it is on disk: the list from its header, each text from its file.
     [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( const std::filesystem::path& scenePath );

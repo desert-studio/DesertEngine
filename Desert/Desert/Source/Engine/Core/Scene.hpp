@@ -10,6 +10,7 @@
 
 #include "SceneSettings.hpp"
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 #include "WorldTime.hpp"
@@ -441,6 +442,14 @@ namespace Desert::Core
             m_LoadedDocument = std::move( document );
         }
 
+        // WHICH ENTITIES DIFFER FROM THEIR FILES (WP17, EntityPackages.hpp): stamped by the editor's recorded
+        // edits, baselined by the open and by every save, read by SceneSerializer::SaveToFile. Shared so an
+        // undo record can hold it weakly and outlive the scene without dangling.
+        [[nodiscard]] const std::shared_ptr<EntityPackages>& Packages() const
+        {
+            return m_Packages;
+        }
+
         // WHETHER THIS WORLD IS PARTITIONED, AND WITH WHAT — held on the live scene, which is what makes
         // it editable at all.
         //
@@ -607,6 +616,8 @@ namespace Desert::Core
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.
         std::optional<Common::Json::TextDocument> m_LoadedDocument;
+        // See Packages().
+        std::shared_ptr<EntityPackages> m_Packages = std::make_shared<EntityPackages>();
         // See GetWorldPartition().
         std::optional<WorldPartitionSerialized> m_WorldPartition;
 

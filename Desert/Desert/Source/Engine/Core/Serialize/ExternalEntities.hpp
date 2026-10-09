@@ -39,6 +39,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -97,6 +98,17 @@ namespace Desert::Core::ExternalEntities
     // ever half-written).
     [[nodiscard]] Common::ResultStr<WriteOutcome> WriteSceneFile( const std::filesystem::path&      scenePath,
                                                                   const Common::Json::TextDocument& scene );
+
+    // THE DELTA WRITE OF A PARTITIONED WORLD (WP17): `scene` states only the records in `changed` (any other
+    // record it states is ignored), and `listed` is every record id of the world in its order. Writes each
+    // changed record's file (only if its bytes differ), the header with the whole list, deletes the files of
+    // `removed`, and refreshes the descriptor index re-describing only `changed` - every other row is reused
+    // without reading its file. Refused, naming the id, when a changed id has no record in `scene`.
+    [[nodiscard]] Common::ResultStr<WriteOutcome> WriteSceneDelta( const std::filesystem::path&      scenePath,
+                                                                   const Common::Json::TextDocument& scene,
+                                                                   std::span<const Common::UUID>     listed,
+                                                                   std::span<const Common::UUID>     changed,
+                                                                   std::span<const Common::UUID>     removed );
 
     // WriteSceneFile of a scene held as TEXT (the autosave's and the device-lost save's SerializeToJson output,
     // WorldGen's typed writer): parsed, then written the same way. Text that is not JSON is refused naming

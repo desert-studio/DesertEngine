@@ -44,7 +44,7 @@ namespace Desert::Core::DescriptorIndex
     }
 
     Common::ResultStr<RefreshOutcome> Refresh( const fs::path& scenePath, std::span<const Common::UUID> listed,
-                                               const RecordText& textOf )
+                                               const RecordText& textOf, const IsUnchanged& unchanged )
     {
         RefreshOutcome outcome;
         const fs::path indexPath = PathOf( scenePath );
@@ -62,7 +62,14 @@ namespace Desert::Core::DescriptorIndex
         for ( const Common::UUID id : listed )
         {
             const auto bits = static_cast<std::uint64_t>( id );
-            auto       text = textOf( id );
+            if ( unchanged && unchanged( id ) )
+                if ( const auto found = before.find( bits ); found != before.end() )
+                {
+                    outcome.Index.Entities.push_back( *found->second );
+                    ++outcome.Reused;
+                    continue;
+                }
+            auto text = textOf( id );
             if ( !text )
                 return Common::MakeError<RefreshOutcome>(
                      fmt::format( "'{}': entity {}: {}", scenePath.string(), bits, text.GetError() ) );

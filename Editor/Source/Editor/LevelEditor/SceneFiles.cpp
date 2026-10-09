@@ -365,6 +365,9 @@ namespace Desert::Editor
             return;
         }
         m_OpenScenePath = path;
+        // The files at `path` now hold every entity as it is: the next save to it writes only what differs (WP17).
+        Desert::Core::SceneSerializer( m_Workspace.ActiveScene().get(), m_Assets.get() )
+             .AdoptAsSaved( Common::Filepath( path ) );
 
         // Update recent scenes
         auto it = std::find( m_RecentScenes.begin(), m_RecentScenes.end(), path );
