@@ -88,6 +88,24 @@ namespace Desert::Editor
 
         constexpr std::array<const char*, 3>  kKeyInterpNames = { "Constant", "Linear", "Cubic" };
         constexpr std::array<const char*, 3>  kTangentNames   = { "Auto", "User", "Break" };
+
+        /// A key-shape combo over @p names previewing @p current (nullopt: "Multiple Values"); the index picked
+        /// this frame, if any.
+        template <typename Enum, size_t N>
+        std::optional<int> KeyShapeCombo( const char* label, const std::optional<Enum> current,
+                                          const std::array<const char*, N>& names )
+        {
+            const int          shown = current ? static_cast<int>( *current ) : -1;
+            std::optional<int> picked;
+            if ( ImGui::BeginCombo( label, shown >= 0 ? names[static_cast<size_t>( shown )] : "Multiple Values" ) )
+            {
+                for ( int i = 0; i < static_cast<int>( N ); ++i )
+                    if ( ImGui::Selectable( names[static_cast<size_t>( i )], i == shown ) )
+                        picked = i;
+                ImGui::EndCombo();
+            }
+            return picked;
+        }
         constexpr std::array<const char*, 10> kEasingNames = { "Linear",     "QuadIn",   "QuadOut",    "QuadInOut",
                                                                "CubicIn",    "CubicOut", "CubicInOut", "BackOut",
                                                                "ElasticOut", "BounceOut" };
@@ -892,17 +910,15 @@ namespace Desert::Editor
             ImGui::AlignTextToFramePadding();
             ImGui::Text( "%d key(s)", static_cast<int>( m_LevelSelKeys.size() ) );
             ImGui::SameLine();
+            // The combos show the selected keys' shape as it is now (UE: "Multiple Values" when they differ).
+            const ECS::TransformKeyShape shape = ECS::SelectedEntityTransformKeyShape( sequence, m_LevelSelKeys );
             ImGui::SetNextItemWidth( 100.0f );
-            const bool interpPicked = ImGui::Combo( "Interp##LevelKey", &m_LevelKeyInterp, kKeyInterpNames.data(),
-                                                    static_cast<int>( kKeyInterpNames.size() ) );
+            if ( const auto picked = KeyShapeCombo( "Interp##LevelKey", shape.Interp, kKeyInterpNames ) )
+                ShapeSelectedLevelKeys( static_cast<Animation::KeyInterp>( *picked ), std::nullopt );
             ImGui::SameLine();
             ImGui::SetNextItemWidth( 90.0f );
-            const bool tangentPicked =
-                 ImGui::Combo( "Tangents##LevelKey", &m_LevelKeyTangent, kTangentNames.data(),
-                               static_cast<int>( kTangentNames.size() ) );
-            if ( interpPicked || tangentPicked )
-                ShapeSelectedLevelKeys( static_cast<Animation::KeyInterp>( m_LevelKeyInterp ),
-                                        static_cast<Animation::TangentMode>( m_LevelKeyTangent ) );
+            if ( const auto picked = KeyShapeCombo( "Tangents##LevelKey", shape.Mode, kTangentNames ) )
+                ShapeSelectedLevelKeys( std::nullopt, static_cast<Animation::TangentMode>( *picked ) );
             ImGui::SameLine();
             ImGui::SetNextItemWidth( 120.0f );
             ImGui::Combo( "##LevelKeyEasing", &m_LevelKeyEasing, kEasingNames.data(),
@@ -1490,8 +1506,8 @@ namespace Desert::Editor
                                 6.0f );
     }
 
-    void SequencerPanel::ShapeSelectedLevelKeys( const Animation::KeyInterp   interp,
-                                                 const Animation::TangentMode mode )
+    void SequencerPanel::ShapeSelectedLevelKeys( const std::optional<Animation::KeyInterp>   interp,
+                                                 const std::optional<Animation::TangentMode> mode )
     {
         const auto asset = ResolveLevelAsset();
         if ( !asset || m_LevelSelKeys.empty() )
@@ -1837,18 +1853,13 @@ namespace Desert::Editor
         if ( !m_LevelSelKeys.empty() )
         {
             for ( size_t i = 0; i < kKeyInterpNames.size(); ++i )
-                actions.push_back(
-                     DocumentAction{ std::format( "Set Key Interp {}", kKeyInterpNames[i] ),
-                                     [this, interp = static_cast<Animation::KeyInterp>( i )] {
-                                         ShapeSelectedLevelKeys(
-                                              interp, static_cast<Animation::TangentMode>( m_LevelKeyTangent ) );
-                                     } } );
+                actions.push_back( DocumentAction{ std::format( "Set Key Interp {}", kKeyInterpNames[i] ),
+                                                   [this, interp = static_cast<Animation::KeyInterp>( i )]
+                                                   { ShapeSelectedLevelKeys( interp, std::nullopt ); } } );
             for ( size_t i = 0; i < kTangentNames.size(); ++i )
-                actions.push_back( DocumentAction{
-                     std::format( "Set Key Tangents {}", kTangentNames[i] ),
-                     [this, mode = static_cast<Animation::TangentMode>( i )] {
-                         ShapeSelectedLevelKeys( static_cast<Animation::KeyInterp>( m_LevelKeyInterp ), mode );
-                     } } );
+                actions.push_back( DocumentAction{ std::format( "Set Key Tangents {}", kTangentNames[i] ),
+                                                   [this, mode = static_cast<Animation::TangentMode>( i )]
+                                                   { ShapeSelectedLevelKeys( std::nullopt, mode ); } } );
             for ( size_t i = 0; i < kEasingNames.size(); ++i )
                 actions.push_back( DocumentAction{ std::format( "Ease Into Selected Keys {}", kEasingNames[i] ),
                                                    [this, preset = static_cast<LevelTL::EasingPreset>( i )]
