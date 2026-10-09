@@ -93,8 +93,6 @@ namespace
               "header states a GUID but StoredFormFor(RetargetAsset) writes AssetsRelative path only (AF10f)" },
          PathOnlyRow{ ContentKind::Prefab,
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
-         PathOnlyRow{ ContentKind::VFXSystem,
-                      "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
          PathOnlyRow{
               ContentKind::VFXDataChannel,
               "header states a GUID but a module names its channel by file stem (DataChannel.<stem>, VFX-10)" },
@@ -136,7 +134,10 @@ namespace
          ContentKind::FoliageType, ContentKind::LandscapeLayerInfo,
          // ANIM-I11: a LevelSequence block states SequenceGuid beside SequencePath and reads the GUID first
          // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
-         ContentKind::LevelSequence };
+         ContentKind::LevelSequence,
+         // VFX-03b: VFXData::System is stored {Guid, Path} (ReflectionSerializer IsStoredByGuid) and resolved by
+         // GUID first (ComponentRegistry's VFXSystemAsset FromGuid branch).
+         ContentKind::VFXSystem };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )

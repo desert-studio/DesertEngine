@@ -113,6 +113,10 @@ namespace Desert::Core
         // reachable only through `RetargetAsset`'s own dependency, exactly as a `.skeleton` is reachable
         // only through the `.skmesh` that names it, so dropping the retarget drops the rig behind it and
         // nothing can bring either back.
+        // A VFX system is named only by the entities that play it: without this row the eviction sweep drops
+        // the `.dfx` under a live entity and VFXWorld finds a handle the manager no longer has.
+        for ( const auto entity : registry.view<ECS::VFXComponent>() )
+            roots.Mark( registry.get<ECS::VFXComponent>( entity ).Data.System, "an entity plays it" );
         // A foliage entity names its type; the paint brush reads the numbers from it.
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
             roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,

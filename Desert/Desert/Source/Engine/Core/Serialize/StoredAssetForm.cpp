@@ -19,8 +19,7 @@ namespace Desert::Core::Serialize
         if ( type == "MaterialAsset" || type == "CloudModellingVolumeAsset" || type == "ControlRigAsset" ||
              type == "AnimGraphAsset" || type == "UIThemeAsset" || type == "RetargetAsset" ||
              type == "PrefabAsset" || type == "FoliageTypeAsset" || type == "FractureAsset" ||
-             type == "PhysicsAsset" ||
-             type == "InputMappingContextAsset" )
+             type == "PhysicsAsset" || type == "VFXSystemAsset" || type == "InputMappingContextAsset" )
             return StoredAssetForm::AssetsRelative;
 
         // Meshes (static/skinned both resolved handle->path through the MeshAsset base) and skyboxes.

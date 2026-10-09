@@ -40,6 +40,7 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
+#include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
@@ -673,6 +674,11 @@ namespace Desert::Core::Serialize
                 if ( const auto a = mgr.FindByHandle<Assets::FoliageTypeAsset>( id ) )
                     loaded = a->Guid();
             }
+            else if ( type == "VFXSystemAsset" )
+            {
+                if ( const auto a = mgr.FindByHandle<Assets::VFXSystemAsset>( id ) )
+                    loaded = a->Guid();
+            }
             else if ( type == "MaterialAsset" )
             {
                 if ( const auto a = mgr.FindByHandle<Assets::SurfaceMaterialAsset>( id ) )
@@ -832,6 +838,32 @@ namespace Desert::Core::Serialize
                     if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
                     {
                         LOG_ERROR( "[Animation] Control rig '{}' named by the scene could not be loaded: {}",
+                                   full.string(), loaded.GetError() );
+                        return 0;
+                    }
+                }
+                return static_cast<uint64_t>( a->GetMetadata().Handle );
+            }
+            if ( type == "VFXSystemAsset" )
+            {
+                // The system a VFXComponent plays - the locator half of its {Guid, Path}. LOADED HERE for the
+                // control rig's reason: VFXWorld plans from the system's data, and a system that is not ready
+                // is one the entity would silently not play while the scene names it.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+
+                auto a = mgr.FindByPath<Assets::VFXSystemAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::VFXSystemAsset>( full, /*loadAfterCreate=*/false );
+                if ( !a )
+                    return 0;
+                if ( !a->IsReadyForUse() )
+                {
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
+                    {
+                        LOG_ERROR( "[VFX] VFX system '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
                         return 0;
                     }
@@ -1104,6 +1136,22 @@ namespace Desert::Core::Serialize
                 // Loaded through the locator half above (FromPath's PrefabAsset branch), which owns the one
                 // mutable view of the manager: FromPath resolves a relative locator against the assets root,
                 // so the row's path is handed over relative to that root and round-trips to itself.
+                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
+                const std::filesystem::path relative =
+                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
+                if ( relative.empty() )
+                    return 0;
+                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
+            }
+            if ( type == "VFXSystemAsset" )
+            {
+                // BY GUID through the content registry: a system's handle IS HandleForGuid of its header GUID
+                // (VFXSystemAsset's constructor), so the row under that handle is the system wherever it moved.
+                if ( const auto a = mgr.FindByHandle<Assets::VFXSystemAsset>( handle ); a && a->IsReadyForUse() )
+                    return guid;
+                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
+                if ( key.empty() )
+                    return 0;
                 const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
                 const std::filesystem::path relative =
                      full.lexically_relative( Common::Constants::Path::ASSETS_PATH );

@@ -773,6 +773,7 @@ namespace Desert::Core
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
         r.prepare<ECS::SocketAttachmentComponent>();
+        r.prepare<ECS::VFXComponent>();
     }
 
     void Scene::ExecuteSystems( const Common::Timestep& gameplayTs )

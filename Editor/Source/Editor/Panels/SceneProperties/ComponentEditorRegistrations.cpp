@@ -128,6 +128,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ControlRigComponent, Data, "
 // everything behind it — binding the source rig by signature, resolving both rigs' names, building the
 // retargeter, rebuilding it when either side moves — belongs to AnimationECSSystem.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RetargetComponent, Data, "RetargetData", "Retarget" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::VFXComponent, Data, "VFXData", "VFX" )
 // Particle Emitter is a CUSTOM entry: the reflected fields plus a transport (play / pause / restart),
 // because "is it emitting right now" is a state you drive, not a value you type. See MakeEmitterEntry.
 // UI Canvas is a CUSTOM entry: the reflected fields PLUS "Open in UI Editor", which is what the UI Editor
