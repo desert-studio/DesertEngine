@@ -56,7 +56,7 @@ namespace Desert::Scripting
                 LOG_ERROR( "[Lua] VFX.writeChannel: {}", writer.GetError() );
                 return false;
             }
-            VFX::VFXDataChannelWriter& w  = writer.GetValue();
+            VFX::VFXDataChannelWriter  w  = writer.GetValue(); // a view onto the reserved range: the copy writes it
             bool                       ok = true;
             for ( std::size_t i = 0; i < entries.size(); ++i )
             {
