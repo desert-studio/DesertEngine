@@ -35,14 +35,12 @@
 #include <vector>
 
 using Desert::Assets::BuildUIThemeRuntime;
-using Desert::Assets::kUIThemeDefaultStyle;
 using Desert::Assets::ParseUITheme;
 using Desert::Assets::UIThemeBinding;
 using Desert::Assets::UIThemeColor;
 using Desert::Assets::UIThemeData;
 using Desert::Assets::UIThemeFont;
 using Desert::Assets::UIThemeMetric;
-using Desert::Assets::UIThemeRuntime;
 using Desert::Assets::UIThemeStyle;
 using Desert::Assets::ValidateUIThemeData;
 using Desert::Assets::WriteUITheme;
@@ -50,10 +48,12 @@ using Desert::UI::CanvasStyle;
 using Desert::UI::ElementStyle;
 using Desert::UI::kStyleSlotCount;
 using Desert::UI::kStyleSlotInfo;
+using Desert::UI::kUIThemeDefaultStyle;
 using Desert::UI::StyleSlot;
 using Desert::UI::StyleSlotKind;
 using Desert::UI::StyleSlotKindOf;
 using Desert::UI::StyleSlotName;
+using Desert::UI::UIThemeRuntime;
 
 namespace
 {
@@ -452,8 +452,8 @@ TEST( UIThemeLibrary, TheShippedThemesDeclareTheSameStylesAndBindTheSameSlots )
         ASSERT_NE( other, nullptr ) << "only one of the shipped themes declares the style '" << name << "'";
         for ( std::size_t i = 0; i < kStyleSlotCount; ++i )
         {
-            const bool boundHere  = table.Slots[i] != Desert::Assets::kUIThemeUnbound;
-            const bool boundThere = other->Slots[i] != Desert::Assets::kUIThemeUnbound;
+            const bool boundHere  = table.Slots[i] != Desert::UI::kUIThemeUnbound;
+            const bool boundThere = other->Slots[i] != Desert::UI::kUIThemeUnbound;
             EXPECT_EQ( boundHere, boundThere )
                  << "the style '" << name << "' binds " << StyleSlotName( static_cast<StyleSlot>( i ) )
                  << " in only one of the two shipped themes";
@@ -483,15 +483,15 @@ TEST( UIThemeLibrary, DesertDarkResolvesToTheComponentsOwnDefaults )
     const ElementStyle st      = CanvasStyle( &theme, 1.0f, false ).For( kUIThemeDefaultStyle, unknown );
     ASSERT_FALSE( unknown );
 
-    const Desert::ECS::UIPanelData       panel{};
-    const Desert::ECS::UIButtonData      button{};
-    const Desert::ECS::UIProgressBarData progress{};
-    const Desert::ECS::UIToggleData      toggle{};
-    const Desert::ECS::UISliderData      slider{};
-    const Desert::ECS::UIScrollViewData  scroll{};
-    const Desert::ECS::UIInputFieldData  input{};
-    const Desert::ECS::UIDropdownData    dropdown{};
-    const Desert::ECS::UILayoutGroupData group{};
+    const Desert::UI::UIPanelData       panel{};
+    const Desert::UI::UIButtonData      button{};
+    const Desert::UI::UIProgressBarData progress{};
+    const Desert::UI::UIToggleData      toggle{};
+    const Desert::UI::UISliderData      slider{};
+    const Desert::UI::UIScrollViewData  scroll{};
+    const Desert::UI::UIInputFieldData  input{};
+    const Desert::UI::UIDropdownData    dropdown{};
+    const Desert::UI::UILayoutGroupData group{};
 
     // A sentinel nothing can legitimately be: if a slot were unbound, the resolver would answer THIS and
     // the comparison would fail loudly rather than pass because two defaults happened to match.
@@ -540,9 +540,9 @@ TEST( UIThemeLibrary, DesertDarkResolvesToTheComponentsOwnDefaults )
 
     EXPECT_FLOAT_EQ( st.Metric( StyleSlot::LayoutGroupSpacing, -1.0f ), group.Spacing );
 
-    const Desert::ECS::UITextData       text{};
-    const Desert::ECS::UIIconData       icon{};
-    const Desert::ECS::UIDropTargetData drop{};
+    const Desert::UI::UITextData       text{};
+    const Desert::UI::UIIconData       icon{};
+    const Desert::UI::UIDropTargetData drop{};
     EXPECT_EQ( Themed( StyleSlot::TextColor ), text.Color );
     EXPECT_EQ( Themed( StyleSlot::IconColor ), icon.Color );
     EXPECT_EQ( Themed( StyleSlot::DropTargetHighlight ), drop.HighlightColor );

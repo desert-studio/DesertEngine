@@ -1,4 +1,4 @@
-#include "UIAnimationPlayback.hpp"
+#include <Engine/UI/Ecs/UIAnimationPlayback.hpp>
 
 #include <Engine/ECS/Components.hpp>
 
@@ -21,7 +21,7 @@ namespace Desert::UI
         class UIHost final : public TL::ITimelineHost
         {
         public:
-            UIHost( const std::unordered_map<std::string, entt::entity>& byUuid, UIClipFrame& frame )
+            UIHost( const std::unordered_map<std::string, entt::entity>& byUuid, TimelineUIAnimationSource& frame )
                  : m_ByUuid( byUuid ), m_Frame( frame )
             {
             }
@@ -75,10 +75,10 @@ namespace Desert::UI
 
         private:
             const std::unordered_map<std::string, entt::entity>& m_ByUuid;
-            UIClipFrame&                                         m_Frame;
+            TimelineUIAnimationSource&                           m_Frame;
         };
 
-        void ReportUnresolved( const TL::ApplyReport& report, UIClipFrame& frame )
+        void ReportUnresolved( const TL::ApplyReport& report, TimelineUIAnimationSource& frame )
         {
             for ( const std::string& label : report.Unresolved )
             {
@@ -90,10 +90,28 @@ namespace Desert::UI
         }
     } // namespace
 
-    void PlayUIAnimations( entt::registry& reg, const float dtSeconds, const bool advance, const bool gameWorld,
-                           UIClipFrame& frame )
+    void TimelineUIAnimationSource::Evaluate( const IUITree& scene, const UIAnimationStep& uiStep )
     {
-        frame.Samples.clear();
+        // The clips live on the ECS (UIAnimComponent), which the tree does not carry: this source is the
+        // engine half of the seam and is only ever handed the engine's own tree. Anything else is a host bug,
+        // said once and drawn unanimated rather than guessed at.
+        const auto* ecs = dynamic_cast<const EcsUITree*>( &scene );
+        if ( ecs == nullptr )
+        {
+            Samples.clear();
+            if ( !WarnedForeignTree )
+            {
+                WarnedForeignTree = true;
+                LOG_ERROR( "[UI] the timeline animation source was handed a tree that is not the ECS scene; "
+                           "UI clips do not play" );
+            }
+            return;
+        }
+        entt::registry& reg = ecs->Registry();
+        const float dtSeconds = uiStep.DtSeconds;
+        const bool  advance   = uiStep.Advance;
+        const bool  gameWorld = uiStep.GameWorld;
+        Samples.clear();
         auto clips = reg.view<ECS::UIAnimComponent>();
         if ( clips.empty() )
             return;
@@ -103,7 +121,7 @@ namespace Desert::UI
         for ( const auto e : reg.view<ECS::UUIDComponent>() )
             byUuid.emplace( reg.get<ECS::UUIDComponent>( e ).UUID.ToString(), e );
 
-        UIHost host( byUuid, frame );
+        UIHost host( byUuid, *this );
         for ( const auto e : clips )
         {
             ECS::UIAnimData& clip = clips.get<ECS::UIAnimComponent>( e ).Data;
@@ -115,8 +133,8 @@ namespace Desert::UI
             {
                 const Animation::FrameTime start{ clip.Sequence.Start, 0.0f };
                 TL::Evaluator              evaluator( clip.Sequence );
-                evaluator.Evaluate( TL::TimeStep{ start, start }, frame.Scratch );
-                ReportUnresolved( evaluator.Apply( frame.Scratch, host ), frame );
+                evaluator.Evaluate( TL::TimeStep{ start, start }, Scratch );
+                ReportUnresolved( evaluator.Apply( Scratch, host ), *this );
                 continue;
             }
             if ( !clip.Playback.has_value() )
@@ -135,8 +153,8 @@ namespace Desert::UI
                                               : TL::TimeStep{ clip.Playback->Current(), clip.Playback->Current() };
 
             TL::Evaluator evaluator( clip.Sequence );
-            evaluator.Evaluate( step, frame.Scratch );
-            ReportUnresolved( evaluator.Apply( frame.Scratch, host ), frame );
+            evaluator.Evaluate( step, Scratch );
+            ReportUnresolved( evaluator.Apply( Scratch, host ), *this );
         }
     }
 } // namespace Desert::UI

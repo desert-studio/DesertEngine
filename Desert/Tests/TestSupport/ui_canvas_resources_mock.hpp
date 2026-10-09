@@ -6,6 +6,8 @@
 // tells the mock which animated-sprite handle answers with which image.
 
 #include <Engine/UI/UICanvasResources.hpp>
+#include <Engine/UI/Ecs/LocalizationUITextSource.hpp>
+#include <Engine/UI/Ecs/UIAnimationPlayback.hpp>
 
 #include <cstdint>
 #include <unordered_map>
@@ -16,31 +18,31 @@ namespace TestSupport
     class MockUICanvasResources final : public Desert::UI::IUICanvasResources
     {
     public:
-        // @p handle now resolves as an animated sprite to @p image. The draw list stores the pointer as an
-        // opaque id and never dereferences it, so any unique address is a complete stand-in for a GPU image.
-        void AnswerAnimatedFrame( uint64_t handle, Desert::Graphic::Image2D* image )
+        // @p handle now resolves as an animated sprite to @p texture. The draw list stores the id as opaque and
+        // never dereferences it, so any unique address is a complete stand-in for a GPU image.
+        void AnswerAnimatedFrame( uint64_t handle, const void* texture )
         {
-            m_Animated[handle] = image;
+            m_Animated[handle] = texture;
         }
         void ForgetAnimatedFrames()
         {
             m_Animated.clear();
         }
 
-        [[nodiscard]] Desert::Graphic::Image2D* SpriteImage( const Desert::Assets::AssetHandle& ) override
+        [[nodiscard]] Desert::UI::TextureRef SpriteTexture( const ::Common::AssetHandle& ) override
         {
-            return nullptr;
+            return {};
         }
-        [[nodiscard]] Desert::Graphic::Image2D* AnimatedFrame( const Desert::Assets::AssetHandle& sprite ) override
+        [[nodiscard]] Desert::UI::TextureRef AnimatedFrame( const ::Common::AssetHandle& sprite ) override
         {
             const auto it = m_Animated.find( static_cast<uint64_t>( sprite ) );
-            return it == m_Animated.end() ? nullptr : it->second;
+            return it == m_Animated.end() ? Desert::UI::TextureRef{} : Desert::UI::TextureRef{ .Id = it->second };
         }
-        [[nodiscard]] Desert::Graphic::Image2D* VideoFrame( uint64_t, float, bool ) override
+        [[nodiscard]] Desert::UI::TextureRef VideoFrame( uint64_t, float, bool ) override
         {
-            return nullptr;
+            return {};
         }
-        [[nodiscard]] const Desert::Assets::UIThemeRuntime* Theme( const Desert::Assets::AssetHandle& ) override
+        [[nodiscard]] const Desert::UI::UIThemeRuntime* Theme( const ::Common::AssetHandle& ) override
         {
             return nullptr;
         }
@@ -51,20 +53,27 @@ namespace TestSupport
         void RequestGlyphs( uint64_t, const std::vector<uint32_t>& ) override
         {
         }
-        [[nodiscard]] Desert::Runtime::Font* Font( uint64_t, float ) override
+        [[nodiscard]] Desert::UI::FontFace Font( uint64_t, float ) override
         {
-            return nullptr;
+            return {};
         }
-        [[nodiscard]] Desert::Runtime::Icon* Icon( uint64_t ) override
+        [[nodiscard]] Desert::UI::IconRef Icon( uint64_t ) override
         {
-            return nullptr;
+            return {};
         }
-        [[nodiscard]] const Desert::Graphic::Image2D* IconAtlas() override
+        // Text is the engine's own: a suite about a translated label reads the Localization service it set up.
+        [[nodiscard]] Desert::UI::IUITextSource& Text() override
         {
-            return nullptr;
+            return m_Text;
+        }
+        // The engine's own clip evaluator: a clip test drives a real UIAnimComponent through the walk.
+        [[nodiscard]] std::unique_ptr<Desert::UI::IUIAnimationSource> CreateAnimationSource() override
+        {
+            return std::make_unique<Desert::UI::TimelineUIAnimationSource>();
         }
 
     private:
-        std::unordered_map<uint64_t, Desert::Graphic::Image2D*> m_Animated;
+        std::unordered_map<uint64_t, const void*> m_Animated;
+        Desert::UI::LocalizationUITextSource      m_Text;
     };
 } // namespace TestSupport

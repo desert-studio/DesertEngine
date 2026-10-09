@@ -1855,7 +1855,7 @@ namespace Desert::Core::Serialize
             // BY GUID (SCNE 31), like a material's shader: the runtime field is the path the host opens, the
             // file states `"Scene": {Guid, Path}` - the scene's header GUID, and its key for the reader.
             // Everything else in the block is the reflected data as it was.
-            ComponentSerializer s = MakeReflected<ECS::UIRenderTextureComponent, ECS::UIRenderTextureData>(
+            ComponentSerializer s = MakeReflected<ECS::UIRenderTextureComponent, UI::UIRenderTextureData>(
                  "UIRenderTexture", "UIRenderTextureData", &ECS::UIRenderTextureComponent::Data );
             s.Serialize = [reflected =
                                 s.Serialize]( ECS::Entity                 entity,

@@ -26,4 +26,14 @@ filter "system:macosx"
         libdirs { os.getenv("VULKAN_SDK") .. "/lib" }
     end
 
+-- AN ARCHIVE IS EXACTLY ITS CURRENT OBJECT LIST. gmake archives with `ar -rcs`, which replaces and appends
+-- members but never removes one: a source deleted or moved keeps its last object inside the .a forever, and
+-- the linker may resolve a symbol from that member. 2026-10-09 (UI-FW2c): UICanvasResources.cpp moved to
+-- UI/Ecs/RegistryUICanvasResources.cpp, the old member still defined the previous vtable of
+-- RegistryUICanvasResources, and the editor crashed (SIGBUS) on the first virtual call through it. Deleting
+-- the archive before each link makes `ar` write it from $(OBJECTS) alone. (MSVC's lib.exe rewrites the whole
+-- .lib every time, so Windows needs nothing.)
+filter { "system:macosx", "kind:StaticLib" }
+    prelinkcommands { "rm -f \"%{cfg.buildtarget.abspath}\"" }
+
 filter {}

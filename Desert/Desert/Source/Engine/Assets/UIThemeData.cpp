@@ -210,14 +210,14 @@ namespace Desert::Assets
         return Common::Json::Write( out );
     }
 
-    Common::ResultStr<UIThemeRuntime>
+    Common::ResultStr<UI::UIThemeRuntime>
     BuildUIThemeRuntime( const UIThemeData& data, std::string_view name,
                          const std::unordered_map<std::string, AssetHandle>& fontHandles )
     {
         if ( auto valid = ValidateUIThemeData( data ); !valid )
-            return Common::MakeFormattedError<UIThemeRuntime>( "{}", valid.GetError() );
+            return Common::MakeFormattedError<UI::UIThemeRuntime>( "{}", valid.GetError() );
 
-        UIThemeRuntime runtime;
+        UI::UIThemeRuntime runtime;
         runtime.Name = data.DisplayName.value_or( std::string( name ) );
 
         runtime.ColorNames = NamesOf( data.Colors );
@@ -247,13 +247,13 @@ namespace Desert::Assets
             // path to name and must not invent a refusal the theme itself does not warrant.
             const auto  it     = fontHandles.find( f.Name );
             AssetHandle handle = it == fontHandles.end() ? AssetHandle::Null() : it->second;
-            runtime.Fonts.push_back( UIThemeResolvedFont{ handle, f.Size } );
+            runtime.Fonts.push_back( UI::UIThemeResolvedFont{ handle, f.Size } );
         }
 
         for ( const auto& style : data.Styles )
         {
-            UIThemeStyleTable table;
-            table.Slots.fill( kUIThemeUnbound );
+            UI::UIThemeStyleTable table;
+            table.Slots.fill( UI::kUIThemeUnbound );
 
             for ( const auto& b : style.Slots )
             {

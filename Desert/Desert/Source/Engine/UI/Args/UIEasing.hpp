@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Desert::ECS
+namespace Desert::UI
 {
     // The easing curve a UI tween or screen transition authors. Its own header, not Components.hpp: the
     // CPU-side Timeline maps it onto EasingPreset (Timeline/Hosts.cpp) and must not reach the GPU headers
@@ -18,4 +18,4 @@ namespace Desert::ECS
         ElasticOut,
         BounceOut
     };
-} // namespace Desert::ECS
+} // namespace Desert::UI

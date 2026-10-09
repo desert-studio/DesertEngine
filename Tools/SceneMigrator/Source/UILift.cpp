@@ -2,7 +2,7 @@
 // under "UI animation"). The migrator's, beside ClipLift.cpp: the engine reads no v40 block.
 //
 // It speaks the v40 integers and converts them here, checked, rather than through `PresetOf` (Hosts.cpp): that
-// file pins `ECS::UIEasing` and so includes the ECS components, and the lift builds wherever the timeline core
+// file pins `UI::UIEasing` and so includes the ECS components, and the lift builds wherever the timeline core
 // builds (the migrator, its step suites, the contract suite).
 
 #include "UILift.hpp"
@@ -28,7 +28,7 @@ namespace Desert::Animation::Timeline
             int         Components; ///< how many of the key's vec4 lanes the property reads
         };
 
-        // `ECS::UITweenProperty` in declaration order — the one table from the v40 integer to the track.
+        // `UI::UITweenProperty` in declaration order — the one table from the v40 integer to the track.
         constexpr PropertyRow kProperties[] = {
              { "Offset", TrackKind::Vector, 2 },
              { "Size", TrackKind::Vector, 2 },

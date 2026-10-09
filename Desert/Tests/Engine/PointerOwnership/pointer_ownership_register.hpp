@@ -1767,7 +1767,7 @@ namespace Desert::Tests::PointerCensus
           "an EventKey inside the EventChannel CollectCrossed was handed. The window is one step: the Evaluator "
           "collects into EvaluatedFrame::Events at the start of Evaluate (which clears them first) and the host's "
           "Fire consumes them in Apply on the same step, with the Sequence held by the Evaluator's owner "
-          "throughout (LevelSequenceSystem's Actor keeps the asset's shared_ptr; PlayUIAnimations evaluates the "
+          "throughout (LevelSequenceSystem's Actor keeps the asset's shared_ptr; TimelineUIAnimationSource::Evaluate evaluates the "
           "component's own sequence in one loop body). The editor's CrossedNotifies reads its local vector and "
           "returns indices. The frame object is REUSED between steps and holds stale keys until the next "
           "Evaluate clears it -- nothing reads Events outside Evaluate..Apply, and that is what a new reader "
@@ -1778,7 +1778,7 @@ namespace Desert::Tests::PointerCensus
           "LevelSequencePlayback, owned by LevelSequenceSystem::Actor through a unique_ptr declared AFTER the "
           "Asset<LevelSequenceAsset> (a shared_ptr) whose member m_Sequence this is -- members die in reverse "
           "order, so the asset outlives the playback; an Unload in between empties the Sequence in place (same "
-          "address), and Apply re-resolves on Sequence::Revision. And PlayUIAnimations, where the Evaluator is a "
+          "address), and Apply re-resolves on Sequence::Revision. And TimelineUIAnimationSource::Evaluate, where the Evaluator is a "
           "loop-body local over the UIAnimData's own sequence, destroyed before the registry can move it" },
         // A10 (T5.3): THE KEYING TARGET. Three pointers in one pack, and the pack exists PRECISELY so that
         // the keyer stores none of them -- `ControlKeyer`'s only members are a bool and a vector of

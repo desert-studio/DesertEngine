@@ -57,6 +57,7 @@ using Desert::Reflection::SerializeReflected;
 using Desert::Reflection::TypeInfo;
 
 namespace ECS = Desert::ECS;
+namespace UI  = Desert::UI;
 
 namespace
 {
@@ -148,7 +149,7 @@ namespace
 // in the PROJECT rather than on the machine that saved it.
 TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProjectRelativeKey )
 {
-    ECS::UICanvasData written;
+    UI::UICanvasData written;
     written.Sprite = Desert::Assets::AssetHandle( kResolvedHandle );
 
     const AssetResolver resolver = KeyResolver();
@@ -178,7 +179,7 @@ TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProject
     EXPECT_NE( path.front(), '/' )
          << "the stored locator is an absolute path, i.e. a directory that exists on one machine only";
 
-    ECS::UICanvasData read;
+    UI::UICanvasData read;
     ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kResolvedHandle )
@@ -189,9 +190,9 @@ TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProject
 // --- (2) The rest of the canvas, so the fix is not one field wide --------------------------------
 TEST( UIComponentRoundTrip, EveryAuthoredCanvasFieldComesBack )
 {
-    ECS::UICanvasData written;
-    written.ScaleMode        = ECS::UICanvasScaleMode::Letterbox;
-    written.RenderMode       = ECS::UICanvasRenderMode::WorldSpace;
+    UI::UICanvasData written;
+    written.ScaleMode        = UI::UICanvasScaleMode::Letterbox;
+    written.RenderMode       = UI::UICanvasRenderMode::WorldSpace;
     written.WorldScale       = 1234.5f;
     written.ReferenceWidth   = 1920.0f;
     written.ReferenceHeight  = 1080.0f;
@@ -209,7 +210,7 @@ TEST( UIComponentRoundTrip, EveryAuthoredCanvasFieldComesBack )
     const AssetResolver resolver = KeyResolver();
     const auto          object   = SerializeReflected( Type( "UICanvasData" ), &written, &resolver );
 
-    ECS::UICanvasData read;
+    UI::UICanvasData read;
     ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_EQ( read.ScaleMode, written.ScaleMode );
@@ -232,14 +233,14 @@ TEST( UIComponentRoundTrip, EveryAuthoredCanvasFieldComesBack )
 // the theme genuinely does not declare and the walk reports it as a typo rather than as a lost field.
 TEST( UIComponentRoundTrip, TheElementStyleSurvivesTheTrip )
 {
-    ECS::UIStyleData written;
-    written.Source = ECS::UIStyleSource::Local;
+    UI::UIStyleData written;
+    written.Source = UI::UIStyleSource::Local;
     written.Style  = "Primary";
 
     const AssetResolver resolver = KeyResolver();
     const auto          object   = SerializeReflected( Type( "UIStyleData" ), &written, &resolver );
 
-    ECS::UIStyleData read;
+    UI::UIStyleData read;
     ReadReflectedValue( Type( "UIStyleData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_EQ( read.Source, written.Source );
@@ -251,7 +252,7 @@ TEST( UIComponentRoundTrip, TheElementStyleSurvivesTheTrip )
 // reopen. It is also the component with an INT field, which no other UI round trip here covers.
 TEST( UIComponentRoundTrip, EveryListViewFieldComesBack )
 {
-    ECS::UIListViewData written;
+    UI::UIListViewData written;
     written.ScrollY        = 1234.5f;
     written.ItemHeight     = 73.0f;
     written.Spacing        = 6.0f;
@@ -263,7 +264,7 @@ TEST( UIComponentRoundTrip, EveryListViewFieldComesBack )
     const AssetResolver resolver = KeyResolver();
     const auto          object   = SerializeReflected( Type( "UIListViewData" ), &written, &resolver );
 
-    ECS::UIListViewData read;
+    UI::UIListViewData read;
     ReadReflectedValue( Type( "UIListViewData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_FLOAT_EQ( read.ScrollY, written.ScrollY );
@@ -277,8 +278,8 @@ TEST( UIComponentRoundTrip, EveryListViewFieldComesBack )
 
 TEST( UIComponentRoundTrip, EveryPathFieldComesBack )
 {
-    ECS::UIPathData written;
-    written.Curve        = ECS::UIPathCurve::Linear;
+    UI::UIPathData written;
+    written.Curve        = UI::UIPathCurve::Linear;
     written.PointCount   = 5;
     written.Reveal       = 0.37f;
     written.Thickness    = 7.5f;
@@ -297,7 +298,7 @@ TEST( UIComponentRoundTrip, EveryPathFieldComesBack )
     const AssetResolver resolver = KeyResolver();
     const auto          object   = SerializeReflected( Type( "UIPathData" ), &written, &resolver );
 
-    ECS::UIPathData read;
+    UI::UIPathData read;
     ReadReflectedValue( Type( "UIPathData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_EQ( read.Curve, written.Curve );
@@ -327,20 +328,20 @@ TEST( UIComponentRoundTrip, TheImageAndPanelSpriteSlotsTakeTheSameRoute )
     const AssetResolver resolver = KeyResolver();
 
     {
-        ECS::UIImageData written;
+        UI::UIImageData written;
         written.Sprite    = Desert::Assets::AssetHandle( kResolvedHandle );
         const auto object = SerializeReflected( Type( "UIImageData" ), &written, &resolver );
 
-        ECS::UIImageData read;
+        UI::UIImageData read;
         ReadReflectedValue( Type( "UIImageData" ), &read, ThroughJsonText( object ), &resolver );
         EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kResolvedHandle );
     }
     {
-        ECS::UIPanelData written;
+        UI::UIPanelData written;
         written.Sprite    = Desert::Assets::AssetHandle( kResolvedHandle );
         const auto object = SerializeReflected( Type( "UIPanelData" ), &written, &resolver );
 
-        ECS::UIPanelData read;
+        UI::UIPanelData read;
         ReadReflectedValue( Type( "UIPanelData" ), &read, ThroughJsonText( object ), &resolver );
         EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kResolvedHandle );
     }
@@ -358,13 +359,13 @@ TEST( UIComponentRoundTrip, ARawHandleSurvivesTheJsonTextExactlyAtEverySize )
     for ( const uint64_t handle :
           { kMeasuredHandle, kDoubleExactLimit, kFirstLostByDouble, kAboveInt64, 1ull, 0ull } )
     {
-        ECS::UICanvasData written;
+        UI::UICanvasData written;
         written.Sprite = Desert::Assets::AssetHandle( handle );
 
         // No resolver: the AssetHandle field takes the raw-integer route on both sides.
         const auto object = SerializeReflected( Type( "UICanvasData" ), &written, nullptr );
 
-        ECS::UICanvasData read;
+        UI::UICanvasData read;
         read.Sprite = Desert::Assets::AssetHandle( 0xDEADBEEFull ); // so "unchanged" cannot pass as "read"
         ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), nullptr );
 
@@ -386,7 +387,7 @@ TEST( UIComponentRoundTrip, AFieldTheRecordDoesNotMentionKeepsWhatItHad )
     Common::Json::Object partial;
     partial["Visible"] = Common::Json::Value( false );
 
-    ECS::UICanvasData read;
+    UI::UICanvasData read;
     read.Sprite         = Desert::Assets::AssetHandle( kMeasuredHandle );
     read.ReferenceWidth = 640.0f;
 
@@ -440,11 +441,11 @@ TEST( UIComponentRoundTrip, AReferenceThatResolvesToNothingReachesTheResolverRat
         return 0ull;
     };
 
-    ECS::UICanvasData written;
+    UI::UICanvasData written;
     written.Sprite    = Desert::Assets::AssetHandle( kMeasuredHandle );
     const auto object = SerializeReflected( Type( "UICanvasData" ), &written, &counting );
 
-    ECS::UICanvasData read;
+    UI::UICanvasData read;
     read.Sprite = Desert::Assets::AssetHandle( 7ull );
     ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &counting );
 
@@ -466,14 +467,14 @@ TEST( UIComponentRoundTrip, AReferenceThatResolvesToNothingReachesTheResolverRat
 // each of the three separately.
 TEST( UIComponentRoundTrip, TheRenderTransformSurvivesTheTrip )
 {
-    ECS::UILayoutData written;
+    UI::UILayoutData written;
     written.Rotation = -37.5f;
     written.Scale    = { 1.75f, 0.25f };
     written.Pivot    = { 0.125f, 0.875f };
 
     const auto object = SerializeReflected( Type( "UILayoutData" ), &written, nullptr );
 
-    ECS::UILayoutData read;
+    UI::UILayoutData read;
     ReadReflectedValue( Type( "UILayoutData" ), &read, ThroughJsonText( object ), nullptr );
 
     EXPECT_FLOAT_EQ( read.Rotation, -37.5f );
@@ -502,7 +503,7 @@ TEST( UIComponentRoundTrip, ALayoutRecordFromBeforeTheTransformExistedLeavesItNe
          Common::Json::Value::Array{ Common::Json::Value( 0.0 ), Common::Json::Value( 0.0 ) } );
     old["ClipContents"] = Common::Json::Value( false );
 
-    ECS::UILayoutData read; // its defaults ARE the neutral transform
+    UI::UILayoutData read; // its defaults ARE the neutral transform
     ReadReflectedValue( Type( "UILayoutData" ), &read, ThroughJsonText( old ), nullptr );
 
     EXPECT_FLOAT_EQ( read.Rotation, 0.0f );
@@ -516,7 +517,7 @@ TEST( UIComponentRoundTrip, ALayoutRecordFromBeforeTheTransformExistedLeavesItNe
 
 TEST( UIComponentRoundTrip, EveryRetainerFieldComesBack )
 {
-    ECS::UIRetainerData written;
+    UI::UIRetainerData written;
     written.Opacity       = 0.61f;
     written.Mask          = true;
     written.MaskElement   = "Dune";
@@ -529,7 +530,7 @@ TEST( UIComponentRoundTrip, EveryRetainerFieldComesBack )
     const AssetResolver resolver = KeyResolver();
     const auto          object   = SerializeReflected( Type( "UIRetainerData" ), &written, &resolver );
 
-    ECS::UIRetainerData read;
+    UI::UIRetainerData read;
     ReadReflectedValue( Type( "UIRetainerData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_FLOAT_EQ( read.Opacity, written.Opacity );

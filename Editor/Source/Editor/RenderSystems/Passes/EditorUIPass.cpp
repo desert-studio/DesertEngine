@@ -4,7 +4,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 #include <Engine/Core/LevelTravel.hpp>
-#include <Engine/UI/LoadingOverlay.hpp>
+#include <Engine/UI/Ecs/LoadingOverlay.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -97,7 +97,7 @@ namespace Desert::Editor::Render
                 // context menu never opened: measured, and it looks exactly like "the flag does nothing".
                 // `Hot` is the PREVIOUS frame's winner, so a non-null one means the UI is up and the
                 // element under the pointer this frame is the same one.
-                const bool ready     = m_UIView.Hot != entt::null;
+                const bool ready     = m_UIView.Hot != UI::NodeId::Null;
                 input.MouseDown      = ready && shot.UIPress == ShotOptions::UIButtonHeld::Left;
                 input.MouseRightDown = ready && shot.UIPress == ShotOptions::UIButtonHeld::Right;
             }
@@ -108,12 +108,8 @@ namespace Desert::Editor::Render
                 input.MouseDown      = pv.Down;
                 input.MouseReleased  = pv.Released;
                 input.MouseRightDown = pv.RightDown;
-                input.Escape         = pv.Escape;
                 input.ScrollDelta   = pv.Scroll;
-                input.Tab           = pv.Tab;
-                input.Submit        = pv.Submit;
-                input.Navigate       = pv.Navigate;
-                input.Backspace     = pv.Backspace;
+                input.Keys           = pv.Keys;
                 input.TypedText     = pv.TypedText;
             }
 

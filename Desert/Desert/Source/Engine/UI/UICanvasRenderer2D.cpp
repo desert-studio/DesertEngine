@@ -2,20 +2,16 @@
 
 #include <Engine/UI/UIOverlay.hpp>
 
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Runtime/Services/Icon/IconService.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <Engine/Text/BakedFont.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UIPathGeometry.hpp>
+#include <Engine/UI/UIWalkCtx.hpp>
+#include <Engine/UI/UIRichText.hpp>
+#include <Engine/UI/Widgets/UIWidgets.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -32,471 +28,8 @@
 
 namespace Desert::UI
 {
-    namespace
+    namespace Walk
     {
-        bool HandleSet( const Assets::AssetHandle& h )
-        {
-            return static_cast<uint64_t>( h ) != 0;
-        }
-
-        // ONE CANVAS BEING WALKED BY ONE VIEW — the two coordinates of the key, bound together for the
-        // length of the walk. They travel as one argument rather than two so that no recursion step can
-        // pick up the wrong half: every ctx.Canvas below is guaranteed to be ctx.View's own cell for the
-        // canvas being drawn, because RenderCanvas2D is the only place that builds one and it builds it
-        // from view.CanvasState( canvas ).
-        struct WalkCtx
-        {
-            UIViewContext&   View;
-            UICanvasContext& Canvas;
-            // The canvas's theme and its two accessibility knobs, resolved once per walk. A default one
-            // (no theme, scale 1, contrast off) is what every canvas authored before Ю13 gets, and it
-            // makes every query below return the element's own authored value.
-            CanvasStyle Style;
-
-            // RETAINED LAYERS (UE Retainer Box). Root = the frame's own list (mask layers live there, shared
-            // by every canvas of the frame); Retaining = the retainer whose layer is being recorded (so the
-            // recursion into it draws instead of retaining again); MaskCapture = the mask element being
-            // captured (drawn even when hidden). MaskOf / MaskTargets are resolved once per walk.
-            Graphic::Render2D::DrawList2D*                 Root        = nullptr;
-            entt::entity                                   Retaining   = entt::null;
-            entt::entity                                   MaskCapture = entt::null;
-            std::unordered_map<entt::entity, entt::entity> MaskOf{};
-            std::unordered_set<entt::entity>               MaskTargets{};
-        };
-
-        // Resolve every retainer's Mask Element NAME to an element, once per walk. A name that matches no
-        // UI element, or more than one, is refused with the reason — the retainer then draws unmasked and
-        // says so, rather than guessing which of two "Dune"s was meant.
-        void ResolveRetainerMasks( WalkCtx& ctx, entt::registry& reg )
-        {
-            for ( const entt::entity r : reg.view<ECS::UIRetainerComponent>() )
-            {
-                const auto& ret = reg.get<ECS::UIRetainerComponent>( r );
-                if ( !ret.Data.Mask || ret.Data.MaskElement.empty() )
-                    continue;
-                entt::entity found = entt::null;
-                int          hits  = 0;
-                for ( const auto m : reg.view<ECS::TagComponent, ECS::UILayoutComponent>() )
-                    if ( m != r && reg.get<ECS::TagComponent>( m ).Tag == ret.Data.MaskElement )
-                    {
-                        found = m;
-                        ++hits;
-                    }
-                if ( hits != 1 )
-                {
-                    if ( ctx.Canvas.RetainerMaskRefused.insert( r ).second )
-                        LOG_ERROR( "[UI] retainer mask '{}': {} UI elements carry that name (exactly one must); "
-                                   "the layer draws unmasked",
-                                   ret.Data.MaskElement, hits );
-                    continue;
-                }
-                ctx.MaskOf.emplace( r, found );
-                ctx.MaskTargets.insert( found );
-            }
-        }
-
-        // THE STYLE ONE ELEMENT RESOLVES THROUGH — the only place an element is paired with a style.
-        //
-        // An element with no UIStyleComponent takes the theme's default style: theming must not require an
-        // edit of every entity, which is the thing themes exist to avoid. `Local` opts out of the THEME and
-        // NOT out of accessibility — a player who needs larger text needs it on the elements whose colours
-        // an author pinned too, so the font scale travels either way.
-        //
-        // A style name the theme does not declare is REPORTED, once per name per canvas cell, with the
-        // element's tag: a typo there draws the element's own colours, which is indistinguishable by eye
-        // from a theme that simply does not cover this element. The fallback is the element's authored
-        // values — what its author actually typed — rather than an invented default or nothing drawn.
-        ElementStyle StyleFor( WalkCtx& ctx, const entt::registry& reg, entt::entity e )
-        {
-            const ECS::UIStyleData* authored =
-                 reg.has<ECS::UIStyleComponent>( e ) ? &reg.get<ECS::UIStyleComponent>( e ).Data : nullptr;
-
-            if ( authored != nullptr && authored->Source == ECS::UIStyleSource::Local )
-                return ElementStyle( nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() );
-
-            // A copy rather than a reference: the alternative binds a reference to a temporary built from
-            // the default-name constant. "Default" fits in a std::string's small buffer, so it costs no
-            // allocation.
-            const std::string name =
-                 authored != nullptr ? authored->Style : std::string( Assets::kUIThemeDefaultStyle );
-
-            bool               unknown = false;
-            const ElementStyle style   = ctx.Style.For( name, unknown );
-            if ( unknown && ctx.Canvas.WarnedStyles.insert( name ).second )
-            {
-                LOG_ERROR( "[UI] Element '{}' asks for the style '{}', which the theme '{}' does not "
-                           "declare — it draws its own authored colours instead.",
-                           reg.has<ECS::TagComponent>( e ) ? reg.get<ECS::TagComponent>( e ).Tag
-                                                           : std::string( "<untagged>" ),
-                           name, ctx.Style.Theme()->Name );
-            }
-            return style;
-        }
-
-        // Applies the four Text slots to a copy of the element's own data. A copy rather than a set of
-        // separate locals because DrawText2D reads the block as a whole (wrap, auto-size, effects all
-        // depend on the size), so resolving into the block is what keeps ONE path through the text layout
-        // instead of a themed one and a local one.
-        ECS::UITextData Themed( const ElementStyle& st, ECS::UITextData t )
-        {
-            t.Color        = st.Color( StyleSlot::TextColor, t.Color );
-            t.ShadowColor  = st.Color( StyleSlot::TextShadow, t.ShadowColor );
-            t.OutlineColor = st.Color( StyleSlot::TextOutline, t.OutlineColor );
-            t.Font         = st.Font( StyleSlot::TextFont, t.Font );
-            t.FontSize     = st.FontSize( StyleSlot::TextFont, t.FontSize );
-            // The auto-size floor has no slot of its own and must not: it is a relation to FontSize, not a
-            // design decision a theme makes. It is SCALED, though, or it would stop being a floor for the
-            // size it is a floor for the moment the accessibility multiplier moved.
-            t.MinFontSize = st.ScaleFontSize( t.MinFontSize );
-            return t;
-        }
-
-        // Per-button hover interpolation (0=rest, 1=hovered), eased each frame toward the target so hover
-        // colours cross-fade instead of snapping. The clock is keyed by entity INSIDE the view's context —
-        // entt::entity is unique only within a registry, so a map shared between views answered to entity 7
-        // of every scene at once.
-        float HoverEase( WalkCtx& ctx, entt::entity e, bool hovered )
-        {
-            float&      t = ctx.Canvas.HoverT[e];
-            const float k = std::clamp( ctx.View.FrameDt * 12.0f, 0.0f, 1.0f ); // exponential approach
-            t += ( ( hovered ? 1.0f : 0.0f ) - t ) * k;
-            return t;
-        }
-
-        // --- Screens ----------------------------------------------------------------------------------
-        // A canvas can hold several UIScreen sub-trees; exactly one is current, and a ShowScreen button
-        // moves between them (BackScreen returns). Like the tweens, the live state is kept in the view's
-        // context and not in the component: navigating in the editor must not rewrite the authored scene.
-        void RequestScreen( WalkCtx& ctx, const std::string& name, bool back )
-        {
-            ctx.Canvas.ScreenReq     = name;
-            ctx.Canvas.ScreenReqBack = back;
-        }
-
-        float Ease( ECS::UIEasing e, float t )
-        {
-            t = std::clamp( t, 0.0f, 1.0f );
-            switch ( e )
-            {
-                case ECS::UIEasing::QuadIn:
-                    return t * t;
-                case ECS::UIEasing::QuadOut:
-                    return 1.0f - ( 1.0f - t ) * ( 1.0f - t );
-                case ECS::UIEasing::QuadInOut:
-                    return t < 0.5f ? 2.0f * t * t : 1.0f - 2.0f * ( 1.0f - t ) * ( 1.0f - t );
-                case ECS::UIEasing::CubicIn:
-                    return t * t * t;
-                case ECS::UIEasing::CubicOut:
-                    return 1.0f - std::pow( 1.0f - t, 3.0f );
-                case ECS::UIEasing::CubicInOut:
-                    return t < 0.5f ? 4.0f * t * t * t : 1.0f - std::pow( -2.0f * t + 2.0f, 3.0f ) * 0.5f;
-                case ECS::UIEasing::BackOut:
-                {
-                    constexpr float c1 = 1.70158f, c3 = c1 + 1.0f;
-                    return 1.0f + c3 * std::pow( t - 1.0f, 3.0f ) + c1 * std::pow( t - 1.0f, 2.0f );
-                }
-                case ECS::UIEasing::ElasticOut:
-                {
-                    if ( t <= 0.0f || t >= 1.0f )
-                        return t;
-                    constexpr float c4 = 2.0f * 3.14159265f / 3.0f;
-                    return std::pow( 2.0f, -10.0f * t ) * std::sin( ( t * 10.0f - 0.75f ) * c4 ) + 1.0f;
-                }
-                case ECS::UIEasing::BounceOut:
-                {
-                    constexpr float n1 = 7.5625f, d1 = 2.75f;
-                    if ( t < 1.0f / d1 )
-                        return n1 * t * t;
-                    if ( t < 2.0f / d1 )
-                    {
-                        t -= 1.5f / d1;
-                        return n1 * t * t + 0.75f;
-                    }
-                    if ( t < 2.5f / d1 )
-                    {
-                        t -= 2.25f / d1;
-                        return n1 * t * t + 0.9375f;
-                    }
-                    t -= 2.625f / d1;
-                    return n1 * t * t + 0.984375f;
-                }
-                case ECS::UIEasing::Linear:
-                default:
-                    return t;
-            }
-        }
-
-        // What a tween contributes this frame. Identity when the element has none.
-        struct TweenSample
-        {
-            glm::vec2 Offset{ 0.0f }; // design px
-            glm::vec2 Size{ 0.0f };   // design px
-            glm::vec4 Tint{ 1.0f };   // multiplies colour + alpha
-        };
-
-        // A generic from->to animation, evaluated here on the way to the screen and NEVER written back
-        // into the authored component — so a tween is safe to run in the editor, previews live in Design
-        // mode, and stopping it simply restores the authored look. Its playhead therefore lives in the
-        // view's context, which is what lets two views animate the same element independently.
-        TweenSample SampleTween( WalkCtx& ctx, entt::registry& reg, entt::entity e )
-        {
-            TweenSample out;
-            if ( !reg.has<ECS::UITweenComponent>( e ) )
-                return out;
-            const auto& tw = reg.get<ECS::UITweenComponent>( e ).Data;
-
-            float&    clock    = ctx.Canvas.TweenT[e];
-            uint64_t& lastSeen = ctx.Canvas.TweenSeen[e];
-            // Not evaluated last frame => this element was hidden (or the canvas was). Replaying from the
-            // top is what an intro tween should do when its screen comes back.
-            if ( tw.RewindOnHide && lastSeen + 1 != ctx.View.FrameIndex )
-                clock = 0.0f;
-            lastSeen = ctx.View.FrameIndex;
-
-            if ( tw.Playing )
-                clock += ctx.View.FrameDt;
-
-            const float dur = std::max( 0.001f, tw.Duration );
-            float       t   = ( clock - tw.Delay ) / dur; // <0 while delayed
-            switch ( tw.Loop )
-            {
-                case ECS::UITweenLoop::Loop:
-                    t = t > 0.0f ? std::fmod( t, 1.0f ) : 0.0f;
-                    break;
-                case ECS::UITweenLoop::PingPong:
-                {
-                    if ( t > 0.0f )
-                    {
-                        const float cycle = std::fmod( t, 2.0f );
-                        t                 = cycle <= 1.0f ? cycle : 2.0f - cycle;
-                    }
-                    else
-                        t = 0.0f;
-                    break;
-                }
-                case ECS::UITweenLoop::Once:
-                default:
-                    t = std::clamp( t, 0.0f, 1.0f );
-                    break;
-            }
-
-            const glm::vec4 v = glm::mix( tw.From, tw.To, Ease( tw.Easing, t ) );
-            switch ( tw.Property )
-            {
-                case ECS::UITweenProperty::Offset:
-                    out.Offset = glm::vec2( v );
-                    break;
-                case ECS::UITweenProperty::Size:
-                    out.Size = glm::vec2( v );
-                    break;
-                case ECS::UITweenProperty::Opacity:
-                    out.Tint.a = v.x;
-                    break;
-                case ECS::UITweenProperty::Color:
-                    out.Tint = glm::vec4( glm::vec3( v ), 1.0f );
-                    break;
-            }
-            return out;
-        }
-
-        // A keyed CLIP (UIAnim) on top of the one-shot tween. The clips were stepped and evaluated once for the
-        // whole frame (BeginUIFrame → PlayUIAnimations), because a clip may drive an element other than its
-        // own; here the element only folds in what the frame computed for it.
-        void ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out )
-        {
-            const auto it = ctx.View.AnimClips.Samples.find( e );
-            if ( it == ctx.View.AnimClips.Samples.end() )
-                return;
-            out.Offset += it->second.Offset;
-            out.Size += it->second.Size;
-            out.Tint *= it->second.Tint;
-        }
-
-        // --- Data binding (MVVM-lite) -----------------------------------------------------------------
-        // Ties an element to a key in the UI data store. Like the tweens, the bound value is applied on
-        // the way to the screen and never written back, so gameplay can drive a label without the scene
-        // ever being modified.
-        struct BindingSample
-        {
-            bool                       Hide = false; // Visible target said no
-            std::optional<std::string> Text;         // Text target, string value
-            std::optional<double>      Number;       // Text target, numeric value
-            std::optional<float>       Value;        // Slider / ProgressBar target
-        };
-
-        BindingSample SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw,
-                                     const UICanvasContext& cell )
-        {
-            BindingSample out;
-            if ( !reg.has<ECS::UIBindingComponent>( e ) )
-                return out;
-            const auto& b = reg.get<ECS::UIBindingComponent>( e ).Data;
-            if ( b.Key.empty() )
-                return out;
-
-            // The cell's locals before the process-wide store — the one question, asked in the one place
-            // the layout walk asks it too, so the two cannot disagree about a frame.
-            const UIDataStore& store = BindingStore( &cell, b.Key, cell.RowRecord );
-            switch ( b.Target )
-            {
-                case ECS::UIBindTarget::Text:
-                {
-                    // A NUMBER AND A STRING ARE DIFFERENT ARGUMENTS, not two spellings of one. A number is
-                    // the count a translation's plural form is chosen from and what `{n}` prints in the
-                    // reader's own locale; a string simply stands in for the authored text (and is then
-                    // resolved on the same terms, so gameplay can write a key into the store and have it
-                    // translated). Deciding between them here rather than at the draw site keeps the two
-                    // in one place.
-                    //
-                    // `store.Text` converts a number to text, so it is asked SECOND: asking it first would
-                    // turn every numeric binding into a C-locale string and lose the count.
-                    if ( const auto n = store.Number( b.Key ) )
-                    {
-                        out.Number = *n;
-                        break;
-                    }
-                    if ( const auto t = store.Text( b.Key ) )
-                        out.Text = *t;
-                    break;
-                }
-                case ECS::UIBindTarget::Value:
-                    if ( const auto n = store.Number( b.Key ) )
-                        out.Value = static_cast<float>( *n );
-                    break;
-                case ECS::UIBindTarget::Opacity:
-                    if ( const auto n = store.Number( b.Key ) )
-                        tw.Tint.a *= std::clamp( static_cast<float>( *n ), 0.0f, 1.0f );
-                    break;
-                case ECS::UIBindTarget::Color:
-                    if ( const auto c = store.Color( b.Key ) )
-                        tw.Tint *= glm::vec4( *c, 1.0f );
-                    break;
-                case ECS::UIBindTarget::Visible:
-                    if ( const auto v = store.Bool( b.Key ) )
-                        out.Hide = !*v;
-                    break;
-            }
-            return out;
-        }
-
-        /**
-         * @brief THE ONE PLACE AN AUTHORED UI STRING BECOMES A DRAWN STRING.
-         *
-         * Every label on a canvas goes through here, which is what makes the subsystem's decisive relation
-         * true by construction rather than by discipline: a key is translated, a literal is not, and no
-         * draw site gets to decide differently.
-         *
-         * The bound value, when there is one, stands in for the authored text and is then resolved on the
-         * SAME terms — so gameplay writing a key into the data store gets a translation, and gameplay
-         * writing a player's name gets the name.
-         */
-        std::string ResolveLabel( const std::string& authored, const BindingSample& binding )
-        {
-            Localization::FormatArguments args;
-            if ( binding.Number )
-                args.Count = *binding.Number;
-
-            const std::string_view source =
-                 binding.Text ? std::string_view( *binding.Text ) : std::string_view( authored );
-            const auto resolved = Localization::Localization::Get().Resolve( source, args );
-
-            // A number bound to a LITERAL label replaces it, formatted for the reader's locale — that is
-            // what "bind this number to this label" has always meant here, and it is now locale-aware
-            // instead of going through a C-locale printf. A number bound to a KEY is the key's `{n}`
-            // argument instead, which the resolve above has already spent.
-            if ( binding.Number && !binding.Text &&
-                 resolved.Outcome == Localization::Localization::Outcome::Literal )
-            {
-                return Localization::FormatNumber( Localization::Localization::Get().Language(), *binding.Number,
-                                                   0 );
-            }
-            return resolved.Text;
-        }
-
-        // The tint of the element being drawn lives in the context (UICanvasContext::Tint) — multiplied into
-        // its colours so Opacity/Color tweens reach every control. The two draw helpers outside the walk
-        // (DrawText2D, DrawIcon) take the already-tinted colour as an argument rather than reading it, so
-        // they need no context at all.
-        glm::vec4 Tinted( const WalkCtx& ctx, const glm::vec4& c )
-        {
-            return c * ctx.View.Tint;
-        }
-
-        // --- Hit testing ------------------------------------------------------------------------------
-        // Controls used to each test the cursor against their own rect, so two overlapping ones both lit
-        // up. Instead the walk elects a single HOT element: every raycast-target whose rect (and clip)
-        // contains the pointer overwrites the candidate, and since children draw after parents the last
-        // writer is the topmost. Controls compare against the PREVIOUS frame's winner — the same one-frame
-        // deferral ImGui uses, which avoids a second layout pass and is invisible in practice. The election
-        // and the drag both live in UICanvasContext (Hot / HotNext / Drag).
-
-        bool PointIn( const Rect& r, const glm::vec2& p )
-        {
-            return p.x >= r.X && p.x <= r.X + r.W && p.y >= r.Y && p.y <= r.Y + r.H;
-        }
-
-        // Does this target accept the payload in flight? An empty filter takes anything.
-        bool Accepts( const ECS::UIDropTargetData& t, const std::string& payload )
-        {
-            return t.Accepts.empty() || payload.rfind( t.Accepts, 0 ) == 0;
-        }
-
-        // Split a ';'-separated option string into its items (empty items skipped).
-        //
-        // EACH ITEM IS RESOLVED ON ITS OWN (Ю15), not the list: a dropdown mixes translated labels with
-        // proper nouns — a server name, a player's own preset — far more often than it is wholly one or
-        // the other, and a per-list rule would force the author to choose. The separator is not part of
-        // any item, so a key never contains one.
-        std::vector<std::string> SplitOptions( const std::string& s )
-        {
-            std::vector<std::string> out;
-            std::string              cur;
-            for ( char c : s )
-            {
-                if ( c == ';' )
-                {
-                    if ( !cur.empty() )
-                        out.push_back( Localization::Localization::Get().Resolve( cur ).Text );
-                    cur.clear();
-                }
-                else
-                    cur += c;
-            }
-            if ( !cur.empty() )
-                out.push_back( Localization::Localization::Get().Resolve( cur ).Text );
-            return out;
-        }
-
-        // What an ancestor's UIHitTest allows this sub-tree to do — the half of the hit-test axis that is
-        // INHERITED. Both old booleans were read off the element alone and the walk descended regardless,
-        // which is why "this element and everything under it is invisible to the pointer" and "grey out
-        // this whole panel" could not be said at all: the flag had to be cleared by hand on every
-        // descendant. Passed down the recursion, never up, and only ever narrowed — a sub-tree can lose
-        // permission and never regain it, so no child can re-enable itself inside a disabled dialog.
-        //
-        // IT IS ONE BOOLEAN AND NOT TWO, and that was measured rather than assumed. The obvious shape is a
-        // pair — may this sub-tree be ELECTED, may it RESPOND — but the second carries no information the
-        // first does not: reacting to anything, pointer or keyboard, is gated on `interactive` below, and
-        // `interactive` already ANDs in the inherited term through `electsSelf`. A mutation that removed a
-        // separate inherited "respond" left every test green, which is what a field with no observable
-        // effect looks like (DC 1.3), so it is not here.
-        struct HitScope
-        {
-            bool Elect = true; // may anything in here become the hot element (i.e. stop the pointer)?
-        };
-
-        // An open dropdown whose option list is drawn AFTER the whole tree, so it overlays everything.
-        struct PopupInfo
-        {
-            entt::entity Entity;
-            Rect         Box;   // the dropdown's box rect (screen px)
-            float        Scale; // canvas scale for its text
-            // The style the BOX was drawn with, carried here rather than re-resolved after the walk. The
-            // open list is the same control as the closed box and must be the same colours; resolving it a
-            // second time would be a second answer that happens to agree today.
-            ElementStyle Style;
-        };
-
         // Every non-empty UIScreen name in @p e's sub-tree, in draw order.
         //
         // WHY A SUB-TREE WALK AND NOT `reg.view<UIScreenComponent>()`: the seed below picks "the first screen
@@ -505,749 +38,18 @@ namespace Desert::UI
         // canvas; now that the canvas is named, a second canvas's screens would seed and re-seed this one's
         // context, and a menu canvas could silently drive a HUD canvas's screen machine.
         template <typename F>
-        void ForEachScreenName( entt::registry& reg, entt::entity e, F&& fn )
+        void ForEachScreenName( IUITree& tree, NodeId e, F&& fn )
         {
-            if ( !reg.valid( e ) )
+            if ( !tree.Valid( e ) )
                 return;
-            if ( reg.has<ECS::UIScreenComponent>( e ) )
+            if ( tree.Has<UIScreenData>( e ) )
             {
-                const std::string& n = reg.get<ECS::UIScreenComponent>( e ).Data.Name;
+                const std::string& n = tree.Get<UIScreenData>( e )->Name;
                 if ( !n.empty() )
                     fn( n );
             }
-            if ( reg.has<ECS::RelationshipComponent>( e ) )
-                for ( auto c : reg.get<ECS::RelationshipComponent>( e ).Children )
-                    ForEachScreenName( reg, c, fn );
-        }
-
-        // Keyboard-focusable controls (Tab cycles between them; Enter activates the focused one).
-        bool IsFocusable( entt::registry& reg, entt::entity e )
-        {
-            return reg.has<ECS::UIButtonComponent>( e ) || reg.has<ECS::UIInputFieldComponent>( e ) ||
-                   reg.has<ECS::UIToggleComponent>( e ) || reg.has<ECS::UISliderComponent>( e ) ||
-                   reg.has<ECS::UIDropdownComponent>( e );
-        }
-
-        // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and
-        // Render2D keys its per-texture executor by the raw pointer). nullptr when unset / unresolvable.
-        Graphic::Image2D* ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle )
-        {
-            if ( !HandleSet( handle ) )
-                return nullptr;
-            return res.SpriteImage( handle );
-        }
-
-        // Resolve an element's UI-material slot to the entry Render2D will draw it with, or nullptr when
-        // the slot is unset.
-        //
-        // THE ONE CASE THAT IS NOT AN ERROR AND IS STILL REPORTED: a walk with no GPU backend behind it
-        // (`ctx.View.Materials == nullptr`) — a unit test, or a host that never wired one. The element then
-        // draws its ordinary fill, which is a FALLBACK, so it is named. Reported once per view because a
-        // per-frame line buries the log and gets the whole message ignored; the picture is what keeps
-        // saying it, every frame.
-        const void* ResolveUIMaterial( WalkCtx& ctx, entt::entity e, const Assets::AssetHandle& handle )
-        {
-            if ( !HandleSet( handle ) )
-                return nullptr;
-
-            if ( !ctx.View.Materials )
-            {
-                if ( ctx.View.WarnedMaterial != handle )
-                {
-                    ctx.View.WarnedMaterial = handle;
-                    LOG_WARN( "[UI] element {} has material {} but this view has no 2D backend, so it "
-                              "draws its plain fill instead",
-                              static_cast<uint32_t>( e ), static_cast<uint64_t>( handle ) );
-                }
-                return nullptr;
-            }
-
-            return ctx.View.Materials->ResolveMaterial( handle );
-        }
-
-        // The offscreen world a render-texture element shows this frame, or nullptr when there is none.
-        //
-        // THE SIZE IS COMPUTED HERE AND NOWHERE ELSE. `rect` is the element in canvas pixels — anchors,
-        // canvas scale and every layout group already applied — so this is the only place that knows how
-        // many texels the quad will actually show. The backend asking for it would be a second layout
-        // engine. Clamped at both ends because a target is a real allocation: an element mid-tween can
-        // pass through zero width, and an author can put ResolutionScale 2 on a full-screen element.
-        //
-        // THE ONE CASE THAT IS NOT A BACKEND ERROR AND IS STILL REPORTED: a walk with no backend behind it
-        // (`ctx.View.RenderTextures == nullptr`) — a unit test, or a host that never wired one. Reported
-        // once per view, because a per-frame line buries the log and gets the whole message ignored; the
-        // magenta is what keeps saying it, every frame.
-        const void* ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const ECS::UIRenderTextureData& data,
-                                          const Rect& rect )
-        {
-            if ( ctx.View.RenderTextures == nullptr )
-            {
-                if ( ctx.View.WarnedRenderTexture != e )
-                {
-                    ctx.View.WarnedRenderTexture = e;
-                    LOG_WARN( "[UI] render-texture element {} names scene '{}' but this view has no 2D "
-                              "backend, so it draws the magenta error fill instead",
-                              static_cast<uint32_t>( e ), data.ScenePath );
-                }
-                return nullptr;
-            }
-
-            // 16 px is the floor and 4096 the ceiling: below the first a world is not a picture, and above
-            // the second one element would cost more memory than the whole editor's viewport.
-            constexpr float kMinPx = 16.0f;
-            constexpr float kMaxPx = 4096.0f;
-            const float     w      = std::clamp( rect.W * data.ResolutionScale, kMinPx, kMaxPx );
-            const float     h      = std::clamp( rect.H * data.ResolutionScale, kMinPx, kMaxPx );
-
-            const UIRenderTextureRequest request{ .ScenePath = data.ScenePath,
-                                                  .WidthPx   = static_cast<uint32_t>( w ),
-                                                  .HeightPx  = static_cast<uint32_t>( h ) };
-            return ctx.View.RenderTextures->ResolveRenderTexture( e, request );
-        }
-
-        // An animated (GIF) sprite's current frame — a pure function of wall-clock time. Non-GIF handles
-        // resolve to nullptr here, so ordinary textures fall through to ResolveSpriteImage.
-        Graphic::Image2D* ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle )
-        {
-            return res.AnimatedFrame( handle );
-        }
-
-        // Draw a filled UI box: a sprite (tinted by `color`) when one is bound + resolvable, else a flat
-        // colour. `srcBorder` (L,T,R,B in SOURCE pixels) enables 9-slice — corners stay unstretched (x
-        // scale), edges/centre stretch — so image panels/buttons resize without distorting their borders.
-        // Mirrors the ImGui DrawBox so both render paths look identical.
-        void DrawBox( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn,
-                      const glm::vec2& mx, const glm::vec4& color, const Assets::AssetHandle& sprite,
-                      const glm::vec4& srcBorder, float scale, float rounding )
-        {
-            // An animated sprite plays stretched to the box; static sprites / 9-slice keep the path below.
-            if ( Graphic::Image2D* frame = ResolveAnimatedFrame( res, sprite ) )
-            {
-                dl.AddImage( frame, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f }, color );
-                return;
-            }
-
-            Graphic::Image2D* img = ResolveSpriteImage( res, sprite );
-            if ( !img )
-            {
-                dl.AddRectFilled( mn, mx, color, rounding );
-                return;
-            }
-
-            const void* tex = img;
-            const float tw  = static_cast<float>( img->GetWidth() );
-            const float th  = static_cast<float>( img->GetHeight() );
-            const bool  nine =
-                 tw > 0.0f && th > 0.0f &&
-                 ( srcBorder.x > 0.0f || srcBorder.y > 0.0f || srcBorder.z > 0.0f || srcBorder.w > 0.0f );
-            if ( !nine )
-            {
-                dl.AddImage( tex, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f }, color );
-                return;
-            }
-
-            const float hw = ( mx.x - mn.x ) * 0.5f, hh = ( mx.y - mn.y ) * 0.5f;
-            const float pl = std::min( srcBorder.x * scale, hw ), pt = std::min( srcBorder.y * scale, hh );
-            const float pr = std::min( srcBorder.z * scale, hw ), pb = std::min( srcBorder.w * scale, hh );
-            const float xs[4] = { mn.x, mn.x + pl, mx.x - pr, mx.x };
-            const float ys[4] = { mn.y, mn.y + pt, mx.y - pb, mx.y };
-            const float us[4] = { 0.0f, srcBorder.x / tw, 1.0f - srcBorder.z / tw, 1.0f };
-            const float vs[4] = { 0.0f, srcBorder.y / th, 1.0f - srcBorder.w / th, 1.0f };
-            for ( int r = 0; r < 3; ++r )
-                for ( int c = 0; c < 3; ++c )
-                    dl.AddImage( tex, { xs[c], ys[r] }, { xs[c + 1], ys[r + 1] }, { us[c], vs[r] },
-                                 { us[c + 1], vs[r + 1] }, color );
-        }
-
-        // --- Text layout (Phase E: rich text + word-wrap + auto-size + vertical align + overflow) --------
-        // Lays a UIText string into SDF glyph quads inside `rect`. `scale` maps design px -> screen px; the SDF
-        // stays crisp at any resulting size. Handles the per-element font asset, multi-line + word-wrap,
-        // line-spacing, horizontal/vertical alignment, auto-size, overflow (ellipsis/clip) and rich text.
-
-        // One character carrying its resolved rich-text style. `bold` => faux-bold (the glyph is drawn a
-        // second time nudged in X, since the atlas has a single weight).
-        struct StyledChar
-        {
-            uint32_t  ch    = 0; // Unicode codepoint (NOT a byte — see Engine/Text/Utf8)
-            glm::vec4 color = glm::vec4( 1.0f );
-            bool      bold  = false;
-        };
-
-        // A laid-out line: its characters plus the total advance width in EM units (baked-pixel space, before
-        // the on-screen scale `s` is applied). Kept in em so auto-size can rescale without re-measuring glyphs.
-        struct TextLine
-        {
-            std::vector<StyledChar> chars;
-            float                   width = 0.0f;
-        };
-
-        // A positioned glyph quad in pixel space — computed once, then drawn for shadow / outline / main so
-        // every pass stays in perfect lock-step.
-        struct PlacedGlyph
-        {
-            float     x0, y0, x1, y1;
-            float     u0, v0, u1, v1;
-            glm::vec4 color;
-            bool      bold;
-        };
-
-        // "rrggbb" or "rrggbbaa" -> vec4. false (and out untouched) on any malformed input.
-        bool ParseHexColor( const std::string& hex, glm::vec4& out )
-        {
-            auto nib = []( char c ) -> int
-            {
-                if ( c >= '0' && c <= '9' )
-                    return c - '0';
-                if ( c >= 'a' && c <= 'f' )
-                    return c - 'a' + 10;
-                if ( c >= 'A' && c <= 'F' )
-                    return c - 'A' + 10;
-                return -1;
-            };
-            if ( hex.size() != 6 && hex.size() != 8 )
-                return false;
-            // The nibble is stored and THEN tested. Written as an assignment inside the condition it reads
-            // as a comparison at a glance, which is the one place a reader must not have to look twice: a
-            // `==` slipped in here would parse, compile, and quietly accept every malformed colour.
-            int v[8] = { 0 };
-            for ( size_t k = 0; k < hex.size(); ++k )
-            {
-                v[k] = nib( hex[k] );
-                if ( v[k] < 0 )
-                {
-                    return false;
-                }
-            }
-            out.r = ( v[0] * 16 + v[1] ) / 255.0f;
-            out.g = ( v[2] * 16 + v[3] ) / 255.0f;
-            out.b = ( v[4] * 16 + v[5] ) / 255.0f;
-            out.a = hex.size() == 8 ? ( v[6] * 16 + v[7] ) / 255.0f : 1.0f;
-            return true;
-        }
-
-        // Expand text into styled characters. When `rich`, parse a BBCode subset — [color=#rrggbb]..[/color]
-        // (nestable) and [b]..[/b] — consuming the tags; an unrecognised '[' is emitted literally.
-        std::vector<StyledChar> BuildStyledChars( const std::string& text, const glm::vec4& baseColor, bool rich )
-        {
-            std::vector<StyledChar> out;
-            out.reserve( text.size() );
-            if ( !rich )
-            {
-                for ( size_t i = 0; i < text.size(); )
-                    out.push_back( { Text::Utf8Next( text, i ), baseColor, false } );
-                return out;
-            }
-
-            std::vector<glm::vec4> colorStack{ baseColor };
-            int                    boldDepth = 0;
-            for ( size_t i = 0; i < text.size(); )
-            {
-                if ( text[i] == '[' )
-                {
-                    const size_t close = text.find( ']', i );
-                    if ( close != std::string::npos )
-                    {
-                        const std::string tag     = text.substr( i + 1, close - i - 1 );
-                        bool              handled = true;
-                        if ( tag == "b" )
-                            ++boldDepth;
-                        else if ( tag == "/b" )
-                            boldDepth = std::max( 0, boldDepth - 1 );
-                        else if ( tag == "/color" )
-                        {
-                            if ( colorStack.size() > 1 )
-                                colorStack.pop_back();
-                        }
-                        else if ( tag.rfind( "color=#", 0 ) == 0 )
-                        {
-                            glm::vec4 c = colorStack.back();
-                            ParseHexColor( tag.substr( 7 ), c ); // keep parent colour on malformed hex
-                            colorStack.push_back( c );
-                        }
-                        else
-                            handled = false;
-
-                        if ( handled )
-                        {
-                            i = close + 1;
-                            continue;
-                        }
-                    }
-                }
-                out.push_back( { Text::Utf8Next( text, i ), colorStack.back(), boldDepth > 0 } );
-            }
-            return out;
-        }
-
-        // Greedy word-wrap into lines. `adv(ch)` gives a glyph's em advance; explicit '\n' always breaks.
-        // A word longer than maxWidthEm overflows its own line rather than being character-split.
-        template <typename AdvFn>
-        std::vector<TextLine> LayoutLines( const std::vector<StyledChar>& chars, AdvFn adv, float maxWidthEm,
-                                           bool wrap )
-        {
-            std::vector<TextLine>   lines;
-            TextLine                cur;
-            std::vector<StyledChar> word;
-            float                   wordW = 0.0f;
-
-            auto flushWord = [&]()
-            {
-                for ( const auto& c : word )
-                {
-                    cur.chars.push_back( c );
-                    cur.width += adv( c.ch );
-                }
-                word.clear();
-                wordW = 0.0f;
-            };
-            auto trimTrailingSpaces = [&]()
-            {
-                while ( !cur.chars.empty() && cur.chars.back().ch == ' ' )
-                {
-                    cur.width -= adv( ' ' );
-                    cur.chars.pop_back();
-                }
-            };
-            auto pushLine = [&]()
-            {
-                lines.push_back( std::move( cur ) );
-                cur = TextLine{};
-            };
-
-            for ( const StyledChar& c : chars )
-            {
-                if ( c.ch == '\n' )
-                {
-                    flushWord();
-                    pushLine();
-                    continue;
-                }
-                if ( c.ch == ' ' )
-                {
-                    flushWord();
-                    cur.chars.push_back( c );
-                    cur.width += adv( ' ' );
-                    continue;
-                }
-                word.push_back( c );
-                wordW += adv( c.ch );
-                if ( wrap && !cur.chars.empty() && ( cur.width + wordW ) > maxWidthEm )
-                {
-                    trimTrailingSpaces();
-                    pushLine(); // the pending word carries over and starts the fresh line
-                }
-            }
-            flushWord();
-            trimTrailingSpaces();
-            lines.push_back( std::move( cur ) );
-            return lines;
-        }
-
-        // @p tint is the caller's accumulated element tint (UICanvasContext::Tint), passed in rather than
-        // read from a global so this helper stays a pure function of its arguments.
-        // @p viewSeconds is the view's UI time (UIViewContext::Time) — the marquee's phase, so it scrolls
-        // by frame steps the host handed in rather than by a wall clock, and frame N of a fixed-step run
-        // draws the same scroll every run.
-        void DrawText2D( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t,
-                         const Rect& rect, float scale, const glm::vec4& tint, double viewSeconds )
-        {
-            if ( t.Text.empty() )
-                return;
-
-            // Font is an asset handle on the element (drag-drop / preloaded); unset falls back to the default.
-            const uint64_t fontHandle =
-                 static_cast<uint64_t>( t.Font ) != 0 ? static_cast<uint64_t>( t.Font ) : res.DefaultFontHandle();
-            // Non-ASCII (Cyrillic, CJK, …) is only in the atlas if it was asked for: request this string's
-            // codepoints first, so a re-bake — if any — happens before the font is resolved and the text
-            // draws correctly on its very first frame instead of a frame late.
-            res.RequestGlyphs( fontHandle, Text::Utf8Decode( t.Text ) );
-
-            Runtime::Font* font = res.Font( fontHandle, Text::kDefaultBakePixelHeight );
-            if ( !font || !font->Atlas || !font->Baked.Valid() || font->Baked.PixelHeight <= 0.0f )
-                return;
-
-            const Text::BakedFont& bf    = font->Baked;
-            const void*            atlas = font->Atlas.get();
-
-            auto glyph = [&]( uint32_t ch ) -> const Text::Glyph*
-            {
-                const auto it = bf.Glyphs.find( ch );
-                return it == bf.Glyphs.end() ? nullptr : &it->second;
-            };
-            auto advEm = [&]( uint32_t ch ) -> float
-            {
-                const Text::Glyph* g = glyph( ch );
-                return g ? g->Advance : 0.0f;
-            };
-
-            const std::vector<StyledChar> chars =
-                 BuildStyledChars( t.Text, glm::vec4( t.Color, 1.0f ) * tint, t.RichText );
-
-            // Marquee: a single clipped line scrolling leftward, repeated seamlessly across the width. A news
-            // ticker / running banner. Pure function of the shared clock, so it needs no per-frame state.
-            if ( t.Marquee )
-            {
-                const float sM       = ( t.FontSize * scale ) / bf.PixelHeight;
-                float       contentW = 0.0f;
-                for ( const StyledChar& sc : chars )
-                    contentW += advEm( sc.ch ) * sM;
-                const float gap    = std::max( 40.0f * scale, rect.W * 0.35f );
-                const float period = std::max( 1.0f, contentW + gap );
-                const auto  off = static_cast<float>( std::fmod( viewSeconds * t.MarqueeSpeed * scale, period ) );
-                const float blockH = ( bf.Ascent - bf.Descent ) * sM;
-                const float baseY  = rect.Y + ( rect.H - blockH ) * 0.5f + bf.Ascent * sM;
-
-                dl.PushClipRect( { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H } );
-                for ( float startX = rect.X - off; startX < rect.X + rect.W; startX += period )
-                {
-                    float penX = startX;
-                    for ( const StyledChar& sc : chars )
-                    {
-                        const Text::Glyph* g = glyph( sc.ch );
-                        if ( !g )
-                            continue;
-                        if ( g->Width > 0.0f && g->Height > 0.0f )
-                        {
-                            const float x0 = penX + g->OffsetX * sM;
-                            const float y0 = baseY + g->OffsetY * sM;
-                            dl.AddText( atlas, { x0, y0 }, { x0 + g->Width * sM, y0 + g->Height * sM },
-                                        { g->U0, g->V0 }, { g->U1, g->V1 }, sc.color );
-                        }
-                        penX += g->Advance * sM;
-                    }
-                }
-                dl.PopClipRect();
-                return;
-            }
-
-            const float pad    = 6.0f;
-            const float availW = std::max( 1.0f, rect.W - 2.0f * pad );
-            const float availH = std::max( 1.0f, rect.H - 2.0f * pad );
-            // Em-space vertical advance per line: the font's line box times the user's line-spacing multiplier.
-            const float lineHemEm = ( bf.Ascent - bf.Descent ) * std::max( 0.1f, t.LineSpacing );
-
-            auto layoutAt = [&]( float s ) -> std::vector<TextLine>
-            {
-                const float threshold = t.Wrap ? availW / s : std::numeric_limits<float>::max();
-                return LayoutLines( chars, advEm, threshold, t.Wrap );
-            };
-
-            float                 s     = ( t.FontSize * scale ) / bf.PixelHeight;
-            std::vector<TextLine> lines = layoutAt( s );
-
-            if ( t.AutoSize )
-            {
-                // Shrink toward the floor until the block fits height (and width when not wrapping).
-                const float minS = std::max( 0.01f, ( t.MinFontSize * scale ) / bf.PixelHeight );
-                for ( int iter = 0; iter < 24; ++iter )
-                {
-                    float maxLineEm = 0.0f;
-                    for ( const auto& ln : lines )
-                        maxLineEm = std::max( maxLineEm, ln.width );
-                    const float blockH = lines.empty() ? 0.0f
-                                                       : ( static_cast<float>( lines.size() - 1 ) * lineHemEm * s +
-                                                           ( bf.Ascent - bf.Descent ) * s );
-                    const bool  fitsH  = blockH <= availH;
-                    const bool  fitsW  = t.Wrap || ( maxLineEm * s <= availW );
-                    if ( ( fitsH && fitsW ) || s <= minS )
-                        break;
-                    s     = std::max( minS, s * 0.92f );
-                    lines = layoutAt( s );
-                }
-            }
-
-            const float lineStep = lineHemEm * s;
-            if ( lineStep <= 0.0f )
-                return;
-
-            // Overflow: drop the lines that fall past the bottom (Ellipsis/Clip), tagging the tail as truncated.
-            bool truncated = false;
-            if ( t.Overflow != ECS::UITextOverflow::Overflow )
-            {
-                const size_t maxVisible =
-                     std::max<size_t>( 1, static_cast<size_t>( std::floor( availH / lineStep ) ) );
-                if ( lines.size() > maxVisible )
-                {
-                    lines.resize( maxVisible );
-                    truncated = ( t.Overflow == ECS::UITextOverflow::Ellipsis );
-                }
-            }
-
-            // Ellipsis: trim trailing glyphs off any over-wide line (and the truncated tail) and append "...".
-            if ( t.Overflow == ECS::UITextOverflow::Ellipsis )
-            {
-                const float dotAdv    = advEm( '.' );
-                auto        ellipsize = [&]( TextLine& ln )
-                {
-                    const float dots = 3.0f * dotAdv;
-                    while ( !ln.chars.empty() && ( ln.width + dots ) * s > availW )
-                    {
-                        ln.width -= advEm( ln.chars.back().ch );
-                        ln.chars.pop_back();
-                    }
-                    const glm::vec4 col = ln.chars.empty() ? glm::vec4( t.Color, 1.0f ) : ln.chars.back().color;
-                    for ( int k = 0; k < 3; ++k )
-                    {
-                        ln.chars.push_back( { '.', col, false } );
-                        ln.width += dotAdv;
-                    }
-                };
-                if ( dotAdv > 0.0f )
-                {
-                    if ( !t.Wrap )
-                        for ( auto& ln : lines )
-                            if ( ln.width * s > availW )
-                                ellipsize( ln );
-                    if ( truncated && !lines.empty() )
-                        ellipsize( lines.back() );
-                }
-            }
-
-            // Vertical placement of the whole block within the rect.
-            const float blockH =
-                 lines.empty()
-                      ? 0.0f
-                      : ( static_cast<float>( lines.size() - 1 ) * lineStep + ( bf.Ascent - bf.Descent ) * s );
-            float blockTop = rect.Y + pad; // Top
-            if ( t.VerticalAlign == ECS::UITextVAlign::Middle )
-                blockTop = rect.Y + ( rect.H - blockH ) * 0.5f;
-            else if ( t.VerticalAlign == ECS::UITextVAlign::Bottom )
-                blockTop = rect.Y + rect.H - pad - blockH;
-
-            // Position every glyph (per-line horizontal alignment), collecting quads for the draw passes.
-            std::vector<PlacedGlyph> placed;
-            for ( size_t i = 0; i < lines.size(); ++i )
-            {
-                const float lineWpx = lines[i].width * s;
-                float       penX    = rect.X + pad; // Left
-                if ( t.Align == ECS::UITextAlign::Center )
-                    penX = rect.X + ( rect.W - lineWpx ) * 0.5f;
-                else if ( t.Align == ECS::UITextAlign::Right )
-                    penX = rect.X + rect.W - pad - lineWpx;
-                const float baselineY = blockTop + static_cast<float>( i ) * lineStep + bf.Ascent * s;
-
-                for ( const StyledChar& sc : lines[i].chars )
-                {
-                    const Text::Glyph* g = glyph( sc.ch );
-                    if ( !g )
-                        continue;
-                    if ( g->Width > 0.0f && g->Height > 0.0f )
-                    {
-                        // OffsetY is the glyph top relative to the baseline, Y-down (negative above baseline).
-                        const float x0 = penX + g->OffsetX * s;
-                        const float y0 = baselineY + g->OffsetY * s;
-                        placed.push_back( { x0, y0, x0 + g->Width * s, y0 + g->Height * s, g->U0, g->V0, g->U1,
-                                            g->V1, glm::vec4( glm::vec3( sc.color ), sc.color.a ), sc.bold } );
-                    }
-                    penX += g->Advance * s;
-                }
-            }
-
-            const bool clip = ( t.Overflow == ECS::UITextOverflow::Clip );
-            if ( clip )
-                dl.PushClipRect( { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H } );
-
-            auto quad = [&]( const PlacedGlyph& g, const glm::vec2& off, const glm::vec4& col )
-            {
-                dl.AddText( atlas, { g.x0 + off.x, g.y0 + off.y }, { g.x1 + off.x, g.y1 + off.y }, { g.u0, g.v0 },
-                            { g.u1, g.v1 }, col );
-            };
-
-            if ( t.Glow && t.GlowRadius > 0.0f && t.GlowStrength > 0.0f )
-            {
-                // Rings of the glyphs at growing radii, each fainter: the summed coverage falls off with
-                // distance from the glyph edge, which is a halo. Twelve directions keep the ring round at
-                // the radii a title uses; three rings make the falloff a slope rather than a step.
-                constexpr int kDirections = 12;
-                constexpr int kRings      = 3;
-                const float   radius      = t.GlowRadius * scale;
-                for ( int ring = kRings; ring >= 1; --ring )
-                {
-                    const float r = radius * static_cast<float>( ring ) / kRings;
-                    const float a = t.GlowStrength * ( 1.0f - static_cast<float>( ring - 1 ) / kRings ) /
-                                    static_cast<float>( kDirections ) * 2.0f;
-                    const glm::vec4 gc( t.GlowColor, std::clamp( a, 0.0f, 1.0f ) );
-                    for ( int k = 0; k < kDirections; ++k )
-                    {
-                        const float     ang = 6.28318530718f * static_cast<float>( k ) / kDirections;
-                        const glm::vec2 off = { std::cos( ang ) * r, std::sin( ang ) * r };
-                        for ( const auto& g : placed )
-                            quad( g, off, gc );
-                    }
-                }
-            }
-            if ( t.Shadow )
-            {
-                const glm::vec4 sc = glm::vec4( t.ShadowColor, 1.0f );
-                const glm::vec2 so = t.ShadowOffset * scale;
-                for ( const auto& g : placed )
-                    quad( g, so, sc );
-            }
-            if ( t.Outline )
-            {
-                const glm::vec4 oc( t.OutlineColor, 1.0f );
-                const float     ow = std::max( 1.0f, scale );
-                for ( int ox = -1; ox <= 1; ++ox )
-                    for ( int oy = -1; oy <= 1; ++oy )
-                        if ( ox != 0 || oy != 0 )
-                            for ( const auto& g : placed )
-                                quad( g, { ox * ow, oy * ow }, oc );
-            }
-            for ( const auto& g : placed )
-            {
-                quad( g, { 0.0f, 0.0f }, g.color );
-                if ( g.bold ) // faux-bold: a second pass nudged in X thickens the stroke
-                    quad( g, { std::max( 0.5f, 0.6f * scale ), 0.0f }, g.color );
-            }
-
-            if ( clip )
-                dl.PopClipRect();
-        }
-
-        // Width in px of `text` at `fontSizePx` in the default font (for the input caret). 0 if no font.
-        float MeasureTextPx( IUICanvasResources& res, const std::string& text, float fontSizePx )
-        {
-            Runtime::Font* font = res.Font( res.DefaultFontHandle(), Text::kDefaultBakePixelHeight );
-            if ( !font || !font->Baked.Valid() )
-                return 0.0f;
-            const Text::BakedFont& bf = font->Baked;
-            const float            s  = bf.PixelHeight > 0.0f ? fontSizePx / bf.PixelHeight : 0.0f;
-            float                  w  = 0.0f;
-            for ( size_t i = 0; i < text.size(); )
-            {
-                const auto it = bf.Glyphs.find( Text::Utf8Next( text, i ) );
-                if ( it != bf.Glyphs.end() )
-                    w += it->second.Advance * s;
-            }
-            return w;
-        }
-
-        // Remove the last UTF-8 codepoint (trailing continuation bytes + the lead/ASCII byte).
-        void Utf8PopBack( std::string& s )
-        {
-            while ( !s.empty() && ( static_cast<unsigned char>( s.back() ) & 0xC0 ) == 0x80 )
-                s.pop_back();
-            if ( !s.empty() )
-                s.pop_back();
-        }
-
-        // Maps the canvas to the viewport per its scale mode — mirrors ResolveCanvas in the ImGui renderer so
-        // both paths agree on layout. Returns the canvas root rect (screen px) + the uniform scale applied to
-        // every element's offsets / min-size.
-        struct CanvasFit
-        {
-            Rect  Root;
-            float Scale;
-        };
-        CanvasFit ResolveCanvas( const ECS::UICanvasData& d, const Rect& viewportPx )
-        {
-            switch ( d.ScaleMode )
-            {
-                case ECS::UICanvasScaleMode::ScaleWithScreen:
-                {
-                    const float sx = d.ReferenceWidth > 0.0f ? viewportPx.W / d.ReferenceWidth : 1.0f;
-                    const float sy = d.ReferenceHeight > 0.0f ? viewportPx.H / d.ReferenceHeight : 1.0f;
-                    const float m  = std::clamp( d.MatchWidthHeight, 0.0f, 1.0f );
-                    return { viewportPx, sx * ( 1.0f - m ) + sy * m };
-                }
-                case ECS::UICanvasScaleMode::Letterbox:
-                {
-                    const Rect fit = CanvasRect( d.ReferenceWidth, d.ReferenceHeight, viewportPx.W, viewportPx.H );
-                    const float scale = d.ReferenceWidth > 0.0f ? fit.W / d.ReferenceWidth : 1.0f;
-                    return { Rect{ viewportPx.X + fit.X, viewportPx.Y + fit.Y, fit.W, fit.H }, scale };
-                }
-                case ECS::UICanvasScaleMode::Stretch:
-                default:
-                    return { viewportPx, 1.0f };
-            }
-        }
-
-        // Draw an icon ASSET centred in `rect`, sized to `sizeFrac` of the shorter side. The .svg was
-        // imported into an SDF once (Runtime::IconService), so this is a single quad through the very same
-        // shader as text — crisp at any size, and outline/glow/shadow come along for free.
-        // @p tint as in DrawText2D: the caller's accumulated element tint, an argument rather than a global.
-        void DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UIIconData& ic,
-                       const Rect& rect, const glm::vec4& tint )
-        {
-            Runtime::Icon*          icon  = res.Icon( static_cast<uint64_t>( ic.Icon ) );
-            const Graphic::Image2D* atlas = res.IconAtlas();
-            // unset/unreadable: draw nothing, no placeholder
-            if ( icon == nullptr || !icon->Valid() || atlas == nullptr )
-                return;
-
-            const float box = std::min( rect.W, rect.H ) * std::clamp( ic.Scale, 0.1f, 1.0f );
-            if ( box <= 0.0f )
-                return;
-            // Fit the source aspect inside that box so a wide icon isn't stretched.
-            const float     w = icon->Aspect >= 1.0f ? box : box * icon->Aspect;
-            const float     h = icon->Aspect >= 1.0f ? box / icon->Aspect : box;
-            const glm::vec2 c( rect.X + rect.W * 0.5f, rect.Y + rect.H * 0.5f );
-
-            // One quad per colour run, painted back-to-front in document order. A monochrome icon is a
-            // single white layer, so Color tints it outright; a multi-colour one keeps the fills the .svg
-            // authored and Color multiplies them (white = exactly as drawn).
-            for ( const Runtime::IconLayer& layer : icon->Layers )
-            {
-                const glm::vec4 fill( static_cast<float>( ( layer.RGBA >> 24 ) & 0xFF ) / 255.0f,
-                                      static_cast<float>( ( layer.RGBA >> 16 ) & 0xFF ) / 255.0f,
-                                      static_cast<float>( ( layer.RGBA >> 8 ) & 0xFF ) / 255.0f,
-                                      static_cast<float>( layer.RGBA & 0xFF ) / 255.0f );
-                dl.AddText( atlas, { c.x - w * 0.5f, c.y - h * 0.5f }, { c.x + w * 0.5f, c.y + h * 0.5f },
-                            { layer.U0, layer.V0 }, { layer.U1, layer.V1 },
-                            glm::vec4( glm::vec3( fill ) * ic.Color, fill.a ) * tint );
-            }
-        }
-
-        // ONE STATEMENT OF A LAYOUT GROUP'S GEOMETRY, read by the two places that must agree about it: the
-        // Content Size Fitter's MEASURE and the layout that then positions the children. They were two
-        // copies of five lines, which was survivable while both read the same component — and stops being
-        // the moment a theme can move the padding, because a themed padding applied in one of them and not
-        // the other is a container that hugs its children at the wrong size. Same shape as every "two
-        // values that must agree" defect in this engine, so there is one value.
-        LayoutGroupParams GroupParams( const ECS::UILayoutGroupData& g, const ElementStyle& st, float scale )
-        {
-            LayoutGroupParams params;
-            params.Type = g.Type == ECS::UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                          : g.Type == ECS::UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                  : LayoutGroupType::Vertical;
-
-            // A THEMED PADDING IS ONE NUMBER ON ALL FOUR EDGES. A theme says "panels breathe by 12 px",
-            // which is a symmetric statement; the asymmetric cases (a title bar with a deeper top inset)
-            // are layout rather than livery and stay on the element. Asked through IsThemed rather than
-            // through a sentinel, because 0 is a legal padding and a sentinel would make it unreachable.
-            const glm::vec4 padding = st.IsThemed( StyleSlot::LayoutGroupPadding )
-                                           ? glm::vec4( st.Metric( StyleSlot::LayoutGroupPadding, 0.0f ) )
-                                           : g.Padding;
-            params.PaddingL         = padding.x * scale;
-            params.PaddingT         = padding.y * scale;
-            params.PaddingR         = padding.z * scale;
-            params.PaddingB         = padding.w * scale;
-            params.Spacing          = st.Metric( StyleSlot::LayoutGroupSpacing, g.Spacing ) * scale;
-            params.CellSize         = g.CellSize * scale;
-            params.Columns          = g.Columns;
-            return params;
-        }
-
-        // Content size (px) a layout-group container needs to hug its children — for the Content Size Fitter.
-        glm::vec2 GroupContentPx( entt::registry& reg, entt::entity e, const ElementStyle& st, float scale )
-        {
-            if ( !reg.has<ECS::UILayoutGroupComponent>( e ) || !reg.has<ECS::RelationshipComponent>( e ) )
-                return { 0.0f, 0.0f };
-            const auto&            g = reg.get<ECS::UILayoutGroupComponent>( e ).Data;
-            std::vector<glm::vec2> sizes;
-            for ( auto c : reg.get<ECS::RelationshipComponent>( e ).Children )
-            {
-                if ( !reg.valid( c ) || !TakesLayoutSpace( reg, c ) )
-                    continue; // a Collapsed child has no slot, so it is not part of the content either
-                glm::vec2 pref( 0.0f );
-                if ( reg.has<ECS::UILayoutComponent>( c ) )
-                {
-                    const auto& L = reg.get<ECS::UILayoutComponent>( c ).Data;
-                    pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
-                }
-                sizes.push_back( pref * scale );
-            }
-            return MeasureLayoutGroup( GroupParams( g, st, scale ), sizes );
+            for ( NodeId c : ChildrenOf( tree, e ) )
+                    ForEachScreenName( tree, c, fn );
         }
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
@@ -1257,11 +59,11 @@ namespace Desert::UI
         // container below recurses over a Relationship child list or over a window of one, so nothing
         // here can revisit an element it has already drawn.
         // NOLINTNEXTLINE(misc-no-recursion)
-        void DrawElement( WalkCtx& ctx, entt::registry& reg, entt::entity e, const Rect& parent, float scale,
+        void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
-                          entt::entity* focused, std::vector<PopupInfo>* popups,
-                          std::vector<entt::entity>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
-                          HitScope scope, const Rect* forcedRect = nullptr )
+                          NodeId* focused, std::vector<PopupInfo>* popups,
+                          std::vector<NodeId>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
+                          HitScope scope, const Rect* forcedRect )
         {
             // The visibility axis, before anything else is computed. Hidden and Collapsed both stop here
             // and take the whole sub-tree with them — nothing drawn, nothing hit-tested, no tween clock
@@ -1277,39 +79,39 @@ namespace Desert::UI
             // texture as an element. Input is not routed through the capture.
             if ( ctx.Root != nullptr && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
             {
-                auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( entt::to_integral( e ) ) );
+                auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( static_cast<std::uint32_t>( e ) ) );
                 if ( mask.Empty() )
                 {
                     if ( dl.HasTransform() )
                         mask.PushTransform( dl.GetTransform() );
                     std::vector<PopupInfo>    noPopups;
-                    std::vector<entt::entity> noFocus;
+                    std::vector<NodeId> noFocus;
                     std::string               noClick;
-                    entt::entity              noFocused = entt::null;
-                    const entt::entity        outer     = ctx.MaskCapture;
+                    NodeId              noFocused = NodeId::Null;
+                    const NodeId        outer     = ctx.MaskCapture;
                     ctx.MaskCapture                     = e;
-                    DrawElement( ctx, reg, e, parent, scale, mask, nullptr, &noClick, &noFocused, &noPopups,
+                    DrawElement( ctx, tree, e, parent, scale, mask, nullptr, &noClick, &noFocused, &noPopups,
                                  &noFocus, clipRegion, scope, forcedRect );
                     ctx.MaskCapture = outer;
                 }
             }
 
-            if ( !IsElementVisible( reg, e ) && ctx.MaskCapture != e )
+            if ( !IsElementVisible( tree, e ) && ctx.MaskCapture != e )
                 return;
 
             // UE Retainer Box: the element and its subtree are recorded into their own layer and shown
             // through one composite with the element's effect. Render2D::AddRetainedPasses renders the layer as a
             // graph pass.
-            if ( ctx.Retaining != e && reg.has<ECS::UIRetainerComponent>( e ) )
+            if ( ctx.Retaining != e && tree.Has<UIRetainerData>( e ) )
             {
-                const ECS::UIRetainerData& rd    = reg.get<ECS::UIRetainerComponent>( e ).Data;
+                const UIRetainerData&      rd    = *tree.Get<UIRetainerData>( e );
                 uint32_t                   index = 0;
                 auto&                      layer = dl.BeginRetainedLayer( &index );
                 if ( dl.HasTransform() )
                     layer.PushTransform( dl.GetTransform() );
-                const entt::entity outer = ctx.Retaining;
+                const NodeId outer = ctx.Retaining;
                 ctx.Retaining            = e;
-                DrawElement( ctx, reg, e, parent, scale, layer, input, outClicked, focused, popups, focusables,
+                DrawElement( ctx, tree, e, parent, scale, layer, input, outClicked, focused, popups, focusables,
                              clipRegion, scope, forcedRect );
                 ctx.Retaining = outer;
 
@@ -1321,10 +123,9 @@ namespace Desert::UI
                 fx.HazeSpeed     = rd.HazeSpeed;
                 fx.Time          = static_cast<float>( ctx.View.Time );
                 // A keyed clip REPLACES the authored amplitude while it drives it (never written back).
-                if ( const auto clip = ctx.View.AnimClips.Samples.find( e );
-                     clip != ctx.View.AnimClips.Samples.end() )
+                if ( const UIClipSample* clip = ctx.View.Animation().Sample( e ); clip != nullptr )
                 {
-                    if ( const std::optional<float> amplitude = clip->second.HazeAmplitude; amplitude.has_value() )
+                    if ( const std::optional<float> amplitude = clip->HazeAmplitude; amplitude.has_value() )
                         fx.HazeAmplitude = *amplitude * scale;
                 }
 
@@ -1334,7 +135,7 @@ namespace Desert::UI
                     {
                         fx.Mask       = true;
                         fx.InvertMask = rd.InvertMask;
-                        maskKey       = static_cast<int64_t>( entt::to_integral( m->second ) );
+                        maskKey       = static_cast<int64_t>( static_cast<std::uint32_t>( m->second ) );
                     }
                 dl.AddRetainedComposite( index, maskKey, fx, glm::vec4( 1.0f ) );
                 return;
@@ -1342,25 +143,25 @@ namespace Desert::UI
 
             // THIS ELEMENT'S STYLE, resolved once, before the rect: a themed padding changes what the
             // Content Size Fitter measures, so the style has to exist before the geometry does.
-            const ElementStyle st = StyleFor( ctx, reg, e );
+            const ElementStyle st = StyleFor( ctx, tree, e );
 
             Rect       rect      = parent;
-            const bool hasLayout = reg.has<ECS::UILayoutComponent>( e );
+            const bool hasLayout = tree.Has<UILayoutData>( e );
             if ( forcedRect )
                 rect = *forcedRect; // positioned + sized by the parent's layout group
             else if ( hasLayout )
             {
-                const auto& L = reg.get<ECS::UILayoutComponent>( e ).Data;
+                const auto& L = *tree.Get<UILayoutData>( e );
                 rect          = ResolveRect( L.AnchorMin, L.AnchorMax, L.OffsetMin * scale, L.OffsetMax * scale,
                                              L.CustomMinimumSize * scale, parent );
             }
             if ( hasLayout ) // fitters reshape the resolved rect (also applied inside a layout group)
             {
-                const auto& L = reg.get<ECS::UILayoutComponent>( e ).Data;
+                const auto& L = *tree.Get<UILayoutData>( e );
                 rect          = ApplyAspectFit( rect, L.AspectRatio, static_cast<int>( L.AspectMode ) );
-                if ( ( L.FitWidth || L.FitHeight ) && reg.has<ECS::UILayoutGroupComponent>( e ) )
+                if ( ( L.FitWidth || L.FitHeight ) && tree.Has<UILayoutGroupData>( e ) )
                 {
-                    const glm::vec2 content = GroupContentPx( reg, e, st, scale );
+                    const glm::vec2 content = GroupContentPx( tree, e, st, scale );
                     if ( L.FitWidth )
                         rect.W = content.x;
                     if ( L.FitHeight )
@@ -1373,9 +174,9 @@ namespace Desert::UI
             // the outgoing doing the reverse — which is the whole transition.
             float     screenFade = 1.0f;
             glm::vec2 screenSlide( 0.0f );
-            if ( reg.has<ECS::UIScreenComponent>( e ) )
+            if ( tree.Has<UIScreenData>( e ) )
             {
-                const std::string& name      = reg.get<ECS::UIScreenComponent>( e ).Data.Name;
+                const std::string& name      = tree.Get<UIScreenData>( e )->Name;
                 const bool         isCurrent = ( name == ctx.Canvas.Screen );
                 const bool         isLeaving = ( name == ctx.Canvas.ScreenFrom && ctx.Canvas.ScreenT < 1.0f );
                 if ( !isCurrent && !isLeaving )
@@ -1400,11 +201,11 @@ namespace Desert::UI
 
             // Tween: shift/resize the resolved rect and stage the colour multiplier its draws will use.
             // Applied on the way out, never written back — see SampleTween.
-            TweenSample tween = SampleTween( ctx, reg, e );
+            TweenSample tween = SampleTween( ctx, tree, e );
             ApplyAnimClip( ctx, e, tween ); // a clip layers on top of the one-shot tween
 
             // A binding can hide the element outright — skip the sub-tree, input included.
-            const BindingSample binding = SampleBinding( reg, e, tween, ctx.Canvas );
+            const BindingSample binding = SampleBinding( tree, e, tween, ctx.Canvas );
             if ( binding.Hide )
                 return;
             rect.X += ( tween.Offset.x + screenSlide.x ) * scale;
@@ -1434,7 +235,7 @@ namespace Desert::UI
 
             if ( hasLayout )
             {
-                const auto& L = reg.get<ECS::UILayoutComponent>( e ).Data;
+                const auto& L = *tree.Get<UILayoutData>( e );
                 if ( L.Rotation != 0.0f || L.Scale != glm::vec2( 1.0f, 1.0f ) )
                 {
                     // Pivot is a FRACTION of this element's own rect, so it keeps meaning across a
@@ -1461,15 +262,7 @@ namespace Desert::UI
             // This element's on-screen bounding box. The clip is a scissor and the scissor is axis
             // aligned, so both the drawn clip and the pointer's clip are this box (DrawList2D::
             // PushClipRect computes it through the same TransformedAABB2D).
-            const auto ScreenBounds = [&dl]( const Rect& r )
-            {
-                if ( !dl.HasTransform() )
-                    return r;
-                glm::vec2 mn, mx;
-                Graphic::Render2D::TransformedAABB2D( dl.GetTransform(), { r.X, r.Y }, { r.X + r.W, r.Y + r.H },
-                                                      mn, mx );
-                return Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y };
-            };
+            const auto ScreenBounds = [&dl]( const Rect& r ) { return ScreenBoundsOf( dl, r ); };
 
             // Tints nest: a faded panel fades its children with it.
             const glm::vec4 parentTint = ctx.View.Tint;
@@ -1488,16 +281,15 @@ namespace Desert::UI
             // takes the default. Four values, resolved into the three questions the walk actually asks —
             // may I be elected, may I react, and what may my children do — and each is narrowed by what
             // an ancestor already allowed, so permissions only ever shrink going down.
-            const ECS::UIHitTest hitTest =
-                 hasLayout ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest : ECS::UIHitTest::All;
+            const UIHitTest hitTest =
+                 hasLayout ? tree.Get<UILayoutData>( e )->HitTest : UIHitTest::All;
 
             // Blocking elects itself precisely so the pointer STOPS here: it is the greyed-out form and the
             // modal dialog, which must swallow the click rather than let it reach what is behind them.
-            const bool electsSelf =
-                 scope.Elect && ( hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::Blocking );
+            const bool electsSelf = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::Blocking );
             // This element's own value only; the inherited half arrives through `electsSelf` above and is
             // ANDed in by `interactive` below.
-            const bool responds = hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::ChildrenOnly;
+            const bool responds = hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly;
 
             // ONE PREDICATE FOR BOTH INPUT PATHS, and it is the whole point of this line existing.
             //
@@ -1519,8 +311,13 @@ namespace Desert::UI
 
             // Blocking and None both close the sub-tree to the pointer; they differ only in whether the
             // element itself stops it, which is `electsSelf` above.
-            const HitScope childScope{
-                 scope.Elect && ( hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::ChildrenOnly ) };
+            const HitScope childScope{ scope.Elect &&
+                                       ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly ) };
+
+            // What the widget below draws from — every value it reads was resolved above, once.
+            ElementFrame frame{ ctx,        tree,     e,      scale,      dl,         input,
+                                outClicked, focused, popups, focusables, clipRegion, childScope,
+                                st,         rect,    tween,  binding,    pointerPx,  interactive };
 
             if ( forcedRect || hasLayout )
             {
@@ -1546,11 +343,14 @@ namespace Desert::UI
                 // This element is what the pointer is over (resolved last frame) AND it may be interacted
                 // with at all — the same predicate the keyboard sites below read.
                 const bool hot = interactive && e == ctx.View.Hot;
+                frame.Mn       = mn;
+                frame.Mx       = mx;
+                frame.Hot      = hot;
 
                 // A drop target outlines itself while a drag it would accept is in flight.
-                if ( ctx.View.Drag.Active && reg.has<ECS::UIDropTargetComponent>( e ) )
+                if ( ctx.View.Drag.Active && tree.Has<UIDropTargetData>( e ) )
                 {
-                    const auto& dt = reg.get<ECS::UIDropTargetComponent>( e ).Data;
+                    const auto& dt = *tree.Get<UIDropTargetData>( e );
                     if ( Accepts( dt, ctx.View.Drag.Payload ) )
                         dl.AddRect( mn, mx,
                                     glm::vec4( st.Color( StyleSlot::DropTargetHighlight, dt.HighlightColor ),
@@ -1561,448 +361,34 @@ namespace Desert::UI
                 // Panels and buttons render their sprite (single or 9-slice) tinted by the colour, or a flat
                 // box when no sprite is bound. Button hover/press state needs input plumbing (a later slice),
                 // so the normal state is drawn for now. Rounding / gradient / effects also come later.
-                if ( reg.has<ECS::UIButtonComponent>( e ) )
-                {
-                    const auto& b     = reg.get<ECS::UIButtonComponent>( e ).Data;
-                    // Disabled swallows all pointer/keyboard interaction and rests on the dim colour.
-                    const bool hover = !b.Disabled && input && hot;
-                    const bool down  = hover && input->MouseDown;
-                    // Resting colour is Selected (persistent highlight) or Normal; hover cross-fades toward
-                    // HoverColor (eased), press snaps to PressedColor, Disabled overrides everything.
-                    const glm::vec3 rest = b.Selected ? st.Color( StyleSlot::ButtonSelected, b.SelectedColor )
-                                                      : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
-                    const float     ht   = HoverEase( ctx, e, hover && !down );
-                    const glm::vec3 c =
-                         b.Disabled ? st.Color( StyleSlot::ButtonDisabled, b.DisabledColor )
-                         : down     ? st.Color( StyleSlot::ButtonPressed, b.PressedColor )
-                                    : glm::mix( rest, st.Color( StyleSlot::ButtonHover, b.HoverColor ), ht );
+                if ( tree.Has<UIButtonData>( e ) )
+                    DrawButtonWidget( frame );
+                else if ( tree.Has<UIPanelData>( e ) )
+                    DrawPanelWidget( frame );
+                else if ( tree.Has<UIProgressBarData>( e ) )
+                    DrawProgressBarWidget( frame );
+                else if ( tree.Has<UIPathData>( e ) )
+                    DrawPathWidget( frame );
+                else if ( tree.Has<UIToggleData>( e ) )
+                    DrawToggleWidget( frame );
+                else if ( tree.Has<UISliderData>( e ) )
+                    DrawSliderWidget( frame );
+                else if ( tree.Has<UIInputFieldData>( e ) )
+                    DrawInputFieldWidget( frame );
+                else if ( tree.Has<UIDropdownData>( e ) )
+                    DrawDropdownWidget( frame );
 
-                    // Image can change with state (hover / press), falling back to the normal Sprite.
-                    Assets::AssetHandle spr = b.Sprite;
-                    if ( down && HandleSet( b.PressedSprite ) )
-                        spr = b.PressedSprite;
-                    else if ( hover && HandleSet( b.HoverSprite ) )
-                        spr = b.HoverSprite;
-                    DrawBox( ctx.View.Resources(), dl, mn, mx,
-                             Tinted( ctx, glm::vec4( c, b.Disabled ? 0.6f : 1.0f ) ), spr, b.SpriteBorder, scale,
-                             6.0f * scale );
+                if ( tree.Has<UITextData>( e ) )
+                    DrawTextWidget( frame );
 
-                    // Selected accent: a rounded bar hugging the left edge (the "you are here" marker).
-                    if ( b.Selected && !b.Disabled )
-                    {
-                        const float barW  = std::max( 2.0f, 3.0f * scale );
-                        const float inset = 4.0f * scale;
-                        dl.AddRectFilled(
-                             { mn.x, mn.y + inset }, { mn.x + barW, mx.y - inset },
-                             glm::vec4( st.Color( StyleSlot::ButtonSelectedAccent, b.SelectedAccent ), 1.0f ),
-                             barW * 0.5f );
-                    }
+                if ( tree.Has<UIIconData>( e ) )
+                    DrawIconWidget( frame );
 
-                    // `focused` is the HOST's, and it survives between frames — so a control that held focus
-                    // while it was reachable keeps holding it after an ancestor turns Blocking. Gating the
-                    // question itself (rather than the Enter below) is what makes that stale focus inert in
-                    // every direction at once: no activation, no focus ring, no caret.
-                    const bool isFocused = interactive && focused && *focused == e;
-                    if ( outClicked && input && !b.Disabled &&
-                         ( ( hover && input->MouseReleased && !ctx.View.Drag.Active ) ||
-                           ( isFocused && input->Submit ) ) )
-                    {
-                        // Encode the structured action into the click message the runtime dispatches (same
-                        // encoding as the ImGui renderer, so the host dispatcher is unchanged).
-                        switch ( b.Action )
-                        {
-                            case ECS::UIButtonAction::LoadScene:
-                                *outClicked = "scene:" + b.OnClickMessage;
-                                break;
-                            case ECS::UIButtonAction::QuitGame:
-                                *outClicked = "quit";
-                                break;
-                            case ECS::UIButtonAction::OpenURL:
-                                *outClicked = "url:" + b.OnClickMessage;
-                                break;
-                            case ECS::UIButtonAction::ShowScreen:
-                                // Handled inside the canvas — the host never sees a screen switch.
-                                RequestScreen( ctx, b.OnClickMessage, false );
-                                *outClicked = "screen:" + b.OnClickMessage;
-                                break;
-                            case ECS::UIButtonAction::BackScreen:
-                                RequestScreen( ctx, "", true );
-                                *outClicked = "screen:back";
-                                break;
-                            case ECS::UIButtonAction::SendEvent:
-                                *outClicked = b.OnClickMessage;
-                                break;
-                            case ECS::UIButtonAction::None:
-                            default:
-                                break;
-                        }
-                    }
-                }
-                else if ( reg.has<ECS::UIPanelComponent>( e ) )
-                {
-                    const auto& p = reg.get<ECS::UIPanelComponent>( e ).Data;
+                if ( tree.Has<UIImageData>( e ) )
+                    DrawImageWidget( frame );
 
-                    // Pulse breathes the whole panel's opacity between PulseMin and full (live dot / CTA glow).
-                    const float op =
-                         p.Pulse ? p.Opacity * ( p.PulseMin +
-                                                 ( 1.0f - p.PulseMin ) *
-                                                      ( 0.5f + 0.5f * static_cast<float>( std::sin(
-                                                                           ctx.View.Time * p.PulseSpeed ) ) ) )
-                                 : p.Opacity;
-
-                    // Resolved once: the corner radius is read by the glow, the shadow and the fill, and a
-                    // per-site lookup is three chances for two of them to disagree about one rounding.
-                    const glm::vec3 panelColor  = st.Color( StyleSlot::PanelColor, p.Color );
-                    const float     cornerPx    = st.Metric( StyleSlot::PanelCornerRadius, p.CornerRadius );
-                    const float     borderWidth = st.Metric( StyleSlot::PanelBorderWidth, p.BorderWidth );
-
-                    if ( p.Glow && p.GlowSize > 0.0f )
-                    {
-                        const int   layers = 6;
-                        const float gs     = p.GlowSize * scale;
-                        for ( int i = 0; i < layers; ++i ) // large faint -> small; overlap into a soft glow
-                        {
-                            const float ex = gs * ( 1.0f - static_cast<float>( i ) / layers );
-                            dl.AddRectFilled(
-                                 { mn.x - ex, mn.y - ex }, { mx.x + ex, mx.y + ex },
-                                 glm::vec4( st.Color( StyleSlot::PanelGlow, p.GlowColor ), 0.10f * op ),
-                                 cornerPx + ex );
-                        }
-                    }
-
-                    if ( p.Shadow )
-                        dl.AddRectFilled( { mn.x + p.ShadowOffset.x * scale, mn.y + p.ShadowOffset.y * scale },
-                                          { mx.x + p.ShadowOffset.x * scale, mx.y + p.ShadowOffset.y * scale },
-                                          glm::vec4( st.Color( StyleSlot::PanelShadow, p.ShadowColor ), op ),
-                                          cornerPx * scale );
-
-                    // Circle forces full rounding (radius = half the shorter side) for avatars / badges / dots.
-                    const float rounding = p.Circle ? std::min( rect.W, rect.H ) * 0.5f : cornerPx * scale;
-
-                    // A streamed video fills the panel (its stable texture is updated outside the pass by the
-                    // VideoService); it takes precedence over the sprite/gradient fill while a path is set.
-                    Graphic::Image2D* video =
-                         HandleSet( p.Video ) ? ctx.View.Resources().VideoFrame( static_cast<uint64_t>( p.Video ),
-                                                                                 p.VideoVolume, p.VideoMuted )
-                                              : nullptr;
-                    // Frosted glass: the fill IS the blurred scene behind the panel, tinted by Color/Opacity.
-                    // Checked before the sprite/video fills — a glass panel is defined by what is behind it,
-                    // so an image on top of it would be a different element (draw one as a child).
-                    // A UI-domain material IS the fill and is asked first, ahead of glass, video, the
-                    // gradient and the sprite: those are the fixed list this replaces, and letting one of
-                    // them win would make the material's presence depend on which other field happened to
-                    // be set. Resolve() never answers null for a set handle — a slot the UI path cannot
-                    // execute comes back as the magenta error entry, named once in the log.
-                    const auto* uiMaterial = ResolveUIMaterial( ctx, e, p.Material );
-                    if ( uiMaterial )
-                        dl.AddMaterialRect( uiMaterial, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ) );
-                    else if ( p.BackdropBlur > 0.0f && !video && !HandleSet( p.Sprite ) )
-                        dl.AddGlassRect( mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), rounding,
-                                         p.BackdropBlur );
-                    else if ( video )
-                        dl.AddImage( video, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f },
-                                     Tinted( ctx, glm::vec4( panelColor, op ) ) );
-                    else if ( p.UseGradient && !HandleSet( p.Sprite ) )
-                        dl.AddRectFilledMultiColor(
-                             mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),
-                             glm::vec4( st.Color( StyleSlot::PanelGradient, p.GradientColor ), op ) );
-                    else
-                        DrawBox( ctx.View.Resources(), dl, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),
-                                 p.Sprite, p.SpriteBorder, scale, rounding );
-
-                    // Gradient ring hugging the edge (avatar / status / progress ring).
-                    if ( p.RingWidth > 0.0f )
-                    {
-                        const glm::vec2 c      = ( mn + mx ) * 0.5f;
-                        const float     outerR = std::min( rect.W, rect.H ) * 0.5f;
-                        const float     rw     = std::max( 1.0f, p.RingWidth * scale );
-                        dl.AddRing( c, outerR, outerR - rw,
-                                    glm::vec4( st.Color( StyleSlot::PanelRingA, p.RingColorA ), 1.0f ),
-                                    glm::vec4( st.Color( StyleSlot::PanelRingB, p.RingColorB ), 1.0f ) );
-                    }
-
-                    if ( borderWidth > 0.0f )
-                        dl.AddRect( mn, mx, glm::vec4( st.Color( StyleSlot::PanelBorder, p.BorderColor ), 1.0f ),
-                                    borderWidth * scale );
-                }
-                else if ( reg.has<ECS::UIProgressBarComponent>( e ) )
-                {
-                    ECS::UIProgressBarData pb = reg.get<ECS::UIProgressBarComponent>( e ).Data;
-                    if ( binding.Value )
-                        pb.Value = *binding.Value; // bound: the store drives the fill
-                    const float r = st.Metric( StyleSlot::ProgressCornerRadius, pb.CornerRadius ) * scale;
-                    dl.AddRectFilled(
-                         mn, mx,
-                         Tinted( ctx,
-                                 glm::vec4( st.Color( StyleSlot::ProgressBackground, pb.Background ), 1.0f ) ),
-                         r );
-                    const float t = std::clamp( pb.Value, 0.0f, 1.0f );
-                    if ( t > 0.0f )
-                        dl.AddRectFilled( mn, { mn.x + rect.W * t, mx.y },
-                                          glm::vec4( st.Color( StyleSlot::ProgressFill, pb.Fill ), 1.0f ), r );
-                }
-                else if ( reg.has<ECS::UIPathComponent>( e ) )
-                {
-                    const ECS::UIPathData& path     = reg.get<ECS::UIPathComponent>( e ).Data;
-                    const glm::vec2        slots[8] = { path.P0, path.P1, path.P2, path.P3,
-                                                        path.P4, path.P5, path.P6, path.P7 };
-                    const int              count    = std::clamp( path.PointCount, 2, 8 );
-
-                    // Points are fractions of the element's own rect, so the line follows its anchors.
-                    std::array<glm::vec2, 8> control{};
-                    for ( int i = 0; i < count; ++i )
-                        control[static_cast<size_t>( i )] = mn + slots[i] * ( mx - mn );
-
-                    const UIPathPolyline line = TessellateUIPath(
-                         std::span<const glm::vec2>( control.data(), static_cast<size_t>( count ) ),
-                         path.Curve == ECS::UIPathCurve::Smooth );
-
-                    // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
-                    float      reveal = path.Reveal;
-                    const auto clip   = ctx.View.AnimClips.Samples.find( e );
-                    if ( clip != ctx.View.AnimClips.Samples.end() )
-                        reveal = clip->second.Reveal.value_or( reveal );
-
-                    const std::vector<glm::vec2> shown = RevealUIPath( line, reveal );
-                    if ( shown.size() >= 2 )
-                    {
-                        const float thick = path.Thickness * scale;
-                        if ( path.Glow && path.GlowRadius > 0.0f && path.GlowStrength > 0.0f )
-                            dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
-                                            Tinted( ctx, glm::vec4( path.GlowColor, path.GlowStrength ) ), thick,
-                                            path.GlowRadius * scale, path.RoundCaps );
-                        dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
-                                        Tinted( ctx, glm::vec4( path.Color, path.Opacity ) ), thick, path.Feather,
-                                        path.RoundCaps );
-                    }
-                }
-                else if ( reg.has<ECS::UIToggleComponent>( e ) )
-                {
-                    auto&      tg    = reg.get<ECS::UIToggleComponent>( e ).Data;
-                    const bool  hover = input && hot;
-                    const float r     = st.Metric( StyleSlot::ToggleCornerRadius, tg.CornerRadius ) * scale;
-                    dl.AddRectFilled(
-                         mn, mx, Tinted( ctx, glm::vec4( st.Color( StyleSlot::ToggleBox, tg.BoxColor ), 1.0f ) ),
-                         r );
-                    if ( tg.Value )
-                    {
-                        const float pad = std::min( rect.W, rect.H ) * 0.22f; // inset "check" fill
-                        dl.AddRectFilled( { mn.x + pad, mn.y + pad }, { mx.x - pad, mx.y - pad },
-                                          glm::vec4( st.Color( StyleSlot::ToggleCheck, tg.CheckColor ), 1.0f ),
-                                          r * 0.5f );
-                    }
-                    const bool isFocused = interactive && focused && *focused == e;
-                    if ( input && ( ( hover && input->MouseReleased ) || ( isFocused && input->Submit ) ) )
-                        tg.Value = !tg.Value;
-                }
-                else if ( reg.has<ECS::UISliderComponent>( e ) )
-                {
-                    auto&       sl    = reg.get<ECS::UISliderComponent>( e ).Data;
-                    const float range = std::max( 0.0001f, sl.MaxValue - sl.MinValue );
-                    const float t     = std::clamp( ( sl.Value - sl.MinValue ) / range, 0.0f, 1.0f );
-                    const float pill  = rect.H * 0.5f; // fully-rounded track ends
-                    const float fillX = mn.x + rect.W * t;
-                    const float cy    = ( mn.y + mx.y ) * 0.5f;
-                    const float hs    = rect.H * 0.6f; // handle half-size (circle via rounding)
-                    dl.AddRectFilled(
-                         mn, mx,
-                         Tinted( ctx, glm::vec4( st.Color( StyleSlot::SliderTrack, sl.TrackColor ), 1.0f ) ),
-                         pill );
-                    if ( t > 0.0f )
-                        dl.AddRectFilled( mn, { fillX, mx.y },
-                                          glm::vec4( st.Color( StyleSlot::SliderFill, sl.FillColor ), 1.0f ),
-                                          pill );
-                    dl.AddRectFilled( { fillX - hs, cy - hs }, { fillX + hs, cy + hs },
-                                      glm::vec4( st.Color( StyleSlot::SliderHandle, sl.HandleColor ), 1.0f ), hs );
-
-                    const bool hover = input && hot;
-                    if ( hover && input->MouseDown )
-                    {
-                        // The slider's fraction is measured along ITS OWN track, so it takes the undone
-                        // pointer: dragging a rotated slider follows the track you can see rather than
-                        // the screen's x axis.
-                        const float nt =
-                             std::clamp( ( pointerPx.x - mn.x ) / std::max( 1.0f, rect.W ), 0.0f, 1.0f );
-                        sl.Value = sl.MinValue + nt * range;
-                    }
-                }
-                else if ( reg.has<ECS::UIInputFieldComponent>( e ) )
-                {
-                    auto&      f         = reg.get<ECS::UIInputFieldComponent>( e ).Data;
-                    const bool isFocused = interactive && focused && *focused == e;
-                    const bool hover     = input && hot;
-
-                    // The field's own slots, resolved once: the text colour is read by the glyphs AND by the
-                    // caret, and the size by the glyphs AND by the caret's x — two lookups each would be two
-                    // chances for the caret to sit where the text does not.
-                    const glm::vec3 fieldText = st.Color( StyleSlot::InputText, f.TextColor );
-                    const float     fieldSize = st.FontSize( StyleSlot::InputFont, f.FontSize );
-
-                    dl.AddRectFilled(
-                         mn, mx,
-                         Tinted( ctx, glm::vec4( st.Color( StyleSlot::InputBackground, f.Background ), 1.0f ) ),
-                         st.Metric( StyleSlot::InputCornerRadius, f.CornerRadius ) * scale );
-                    if ( isFocused )
-                        dl.AddRect( mn, mx, glm::vec4( st.Color( StyleSlot::InputFocus, f.FocusColor ), 1.0f ),
-                                    std::max( 1.0f, 2.0f * scale ) );
-
-                    // Text (or dimmed placeholder), clipped to the field; caret at the end when focused.
-                    const bool      showPlaceholder = f.Text.empty() && !isFocused;
-                    ECS::UITextData td;
-                    td.Text     = showPlaceholder ? f.Placeholder : f.Text;
-                    td.FontSize = fieldSize;
-                    td.Color =
-                         showPlaceholder ? st.Color( StyleSlot::InputPlaceholder, f.PlaceholderColor ) : fieldText;
-                    // An empty handle is "the built-in face", which is what this synthetic block has always
-                    // drawn with — so an unthemed field is byte-identical to what it was.
-                    td.Font  = st.Font( StyleSlot::InputFont, Assets::AssetHandle{} );
-                    td.Align = ECS::UITextAlign::Left;
-                    // The PLACEHOLDER is authored and therefore localisable; `f.Text` is what the player
-                    // typed and is drawn exactly as typed — translating a person's own input would be
-                    // absurd, and it is the one string on a canvas that must never go through the table.
-                    td.Text     = showPlaceholder ? Localization::Localization::Get().Resolve( f.Placeholder ).Text
-                                                  : f.Text;
-                    td.FontSize = f.FontSize;
-                    td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
-                    td.Align    = ECS::UITextAlign::Left;
-                    dl.PushClipRect( mn, mx );
-                    DrawText2D( ctx.View.Resources(), dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
-                    if ( isFocused )
-                    {
-                        const float caretX =
-                             rect.X + 6.0f + MeasureTextPx( ctx.View.Resources(), f.Text, fieldSize * scale );
-                        dl.AddRectFilled( { caretX, rect.Y + rect.H * 0.2f },
-                                          { caretX + std::max( 1.0f, scale ), rect.Y + rect.H * 0.8f },
-                                          glm::vec4( fieldText, 1.0f ) );
-                    }
-                    dl.PopClipRect();
-
-                    if ( isFocused && input )
-                    {
-                        if ( !input->TypedText.empty() )
-                            f.Text += input->TypedText;
-                        if ( input->Backspace )
-                            Utf8PopBack( f.Text );
-                    }
-                    if ( hover && input && input->MouseReleased && focused )
-                        *focused = e; // click to focus
-                }
-                else if ( reg.has<ECS::UIDropdownComponent>( e ) )
-                {
-                    auto&      d       = reg.get<ECS::UIDropdownComponent>( e ).Data;
-                    const auto options = SplitOptions( d.Options );
-
-                    // Resolved once: the arrow is the same ink as the label, and two lookups would be two
-                    // chances for them to stop being.
-                    const glm::vec3 listText = st.Color( StyleSlot::DropdownText, d.TextColor );
-
-                    dl.AddRectFilled(
-                         mn, mx,
-                         Tinted( ctx, glm::vec4( st.Color( StyleSlot::DropdownBackground, d.Background ), 1.0f ) ),
-                         st.Metric( StyleSlot::DropdownCornerRadius, d.CornerRadius ) * scale );
-
-                    ECS::UITextData td;
-                    td.Text     = ( d.SelectedIndex >= 0 && d.SelectedIndex < (int)options.size() )
-                                       ? options[d.SelectedIndex]
-                                       : std::string();
-                    td.FontSize = st.FontSize( StyleSlot::DropdownFont, d.FontSize );
-                    td.Color    = listText;
-                    td.Font     = st.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
-                    td.Align    = ECS::UITextAlign::Left;
-                    DrawText2D( ctx.View.Resources(), dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
-
-                    // Down-arrow on the right edge.
-                    const float ax = mx.x - rect.H * 0.5f, ay = ( mn.y + mx.y ) * 0.5f, aw = rect.H * 0.16f;
-                    dl.AddTriangleFilled( { ax - aw, ay - aw * 0.7f }, { ax + aw, ay - aw * 0.7f },
-                                          { ax, ay + aw * 0.7f }, glm::vec4( listText, 1.0f ) );
-
-                    const bool hover     = input && hot;
-                    const bool isFocused = interactive && focused && *focused == e;
-                    if ( input && ( ( hover && input->MouseReleased ) || ( isFocused && input->Submit ) ) )
-                        d.Open = !d.Open;
-                    if ( d.Open && popups )
-                        // Deferred to draw on top of everything — which means it is drawn AFTER the walk,
-                        // outside every transform, so what it is anchored to has to be a screen box and
-                        // not a rect in a space that no longer exists by then. An open list under a
-                        // rotated dropdown therefore hangs straight down from the box's bounds, which is
-                        // what a screen-space overlay does everywhere else in this engine.
-                        popups->push_back( { e, ScreenBounds( rect ), scale, st } );
-                }
-
-                if ( reg.has<ECS::UITextComponent2D>( e ) )
-                {
-                    // A bound label draws the store's string, and a keyed one draws its translation, both
-                    // without the component ever being touched — the authored text is never written back.
-                    //
-                    // ONE DRAW, AND IT USED TO BE TWO. The Ю15 merge (bb89ba87) resolved a conflict with
-                    // Ю13's theming by KEEPING BOTH SIDES: a themed draw that read `binding.Text`, and
-                    // directly under it an UNTHEMED draw that read ResolveLabel. Every label in the engine
-                    // was therefore emitted twice — double the glyph geometry in every text batch, SDF
-                    // edges composited over themselves, and the unthemed copy painted LAST, which is what
-                    // made Ю13's theming of text silently do nothing. The two halves compose rather than
-                    // compete: theme first (it decides colour, size and font), then resolve the string
-                    // (ResolveLabel already subsumes `binding.Text` — see its own comment).
-                    ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
-                    text.Text            = ResolveLabel( text.Text, binding );
-                    DrawText2D( ctx.View.Resources(), dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
-                }
-
-                if ( reg.has<ECS::UIIconComponent>( e ) )
-                {
-                    ECS::UIIconData icon = reg.get<ECS::UIIconComponent>( e ).Data;
-                    icon.Color           = st.Color( StyleSlot::IconColor, icon.Color );
-                    DrawIcon( ctx.View.Resources(), dl, icon, rect, ctx.View.Tint );
-                }
-
-                if ( reg.has<ECS::UIImageComponent>( e ) )
-                {
-                    // A sprite block — reuses DrawBox so it gets GIF playback, 9-slice and the static path.
-                    // With no sprite bound it draws nothing (an empty Image is invisible, not a solid box).
-                    const auto& im = reg.get<ECS::UIImageComponent>( e ).Data;
-                    if ( HandleSet( im.Sprite ) )
-                        DrawBox( ctx.View.Resources(), dl, mn, mx,
-                                 Tinted( ctx, glm::vec4( st.Color( StyleSlot::ImageTint, im.Tint ), im.Opacity ) ),
-                                 im.Sprite, im.SpriteBorder, scale, 0.0f );
-                }
-
-                if ( reg.has<ECS::UIRenderTextureComponent>( e ) )
-                {
-                    // A LIVE WORLD IN THE RECT (Ю16). The backend rendered it offscreen before this frame's
-                    // render pass opened — a nested one is illegal, which is why the producer runs in the
-                    // host's pre-update and this site only samples what it left.
-                    //
-                    // ASKING IS ALSO THE DEMAND. Reaching this line is how the backend learns the element
-                    // is on screen; an element the walk skipped — not Visible, scrolled out of a clipped
-                    // list, on a screen that is not current — is never asked about, and the backend
-                    // destroys its capture and gives the renderer slot back. That is the whole answer to
-                    // "what happens on the seventh one", and it is an answer no flag could have given:
-                    // a slot comes back by DESTRUCTION and by nothing else.
-                    const auto& rt = reg.get<ECS::UIRenderTextureComponent>( e ).Data;
-
-                    // NOT THEMED, and that is a decision. Every other element here resolves its colour
-                    // through a StyleSlot, but a theme's Image.Tint belongs to UIImageComponent — the
-                    // Details panel shows the Image slots only for an element that HAS one, and
-                    // Desert/Tests/Engine/UIStyle pins that pairing. Borrowing the slot would give this
-                    // element a themed value the author cannot see or edit. Tint here is a straight
-                    // multiply on a live picture, so it is the element's own field and nothing else's.
-                    const glm::vec4 tint = Tinted( ctx, glm::vec4( rt.Tint, rt.Opacity ) );
-
-                    if ( rect.W > 0.0f && rect.H > 0.0f )
-                    {
-                        if ( const void* world = ResolveRenderTexture( ctx, e, rt, rect ); world != nullptr )
-                        {
-                            dl.AddImage( world, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f }, tint );
-                        }
-                        else
-                        {
-                            // MAGENTA, NOT NOTHING, and it is the same rule IUIMaterialSource states: an
-                            // element that renders nothing is indistinguishable from an element that was
-                            // meant to render nothing. The reason is already in the log with its numbers
-                            // — who refused knows why, this site only knows that somebody did.
-                            dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( 1.0f, 0.0f, 1.0f, 1.0f ) ), 0.0f );
-                        }
-                    }
-                }
+                if ( tree.Has<UIRenderTextureData>( e ) )
+                    DrawRenderTextureWidget( frame );
 
                 // Keyboard focus: record this control for Tab-cycling, and draw a focus ring when it holds
                 // focus (InputField draws its own coloured border, so skip the generic ring there).
@@ -2010,11 +396,11 @@ namespace Desert::UI
                 // GATED BY THE SAME PREDICATE THE POINTER USES. An ungated list is what let Tab walk into a
                 // Blocking panel and hand Enter a target the mouse could never have reached; it is also why
                 // Tab now steps OVER such a control rather than sticking on it.
-                if ( interactive && IsFocusable( reg, e ) )
+                if ( interactive && IsFocusable( tree, e ) )
                 {
                     if ( focusables )
                         focusables->push_back( e );
-                    if ( focused && *focused == e && !reg.has<ECS::UIInputFieldComponent>( e ) )
+                    if ( focused && *focused == e && !tree.Has<UIInputFieldData>( e ) )
                         dl.AddRect(
                              mn, mx,
                              glm::vec4( st.Color( StyleSlot::FocusRing, glm::vec3( 0.30f, 0.62f, 0.98f ) ), 1.0f ),
@@ -2022,251 +408,45 @@ namespace Desert::UI
                 }
             }
 
-            if ( reg.has<ECS::RelationshipComponent>( e ) )
-            {
-                Rect childParent = rect;
-                // Clip Contents (RectMask2D) OR a scroll view both scissor children to this element's rect.
-                bool clip = reg.has<ECS::UILayoutComponent>( e ) &&
-                            reg.get<ECS::UILayoutComponent>( e ).Data.ClipContents;
-
-                // The scrolling containers' shared state, stated once so the scrollbar below is written
-                // once. >0 in ScrollMaxPx is also "the content overflows", i.e. "draw a scrollbar".
-                float      contentPx     = 0.0f;
-                float      scrollPx      = 0.0f;
-                float      scrollMaxPx   = 0.0f;
-                bool       showScrollbar = false;
-                glm::vec3  scrollbarColor( 0.0f );
-                const bool wheelOver = input != nullptr && interactive && e == ctx.View.Hot;
-                if ( reg.has<ECS::UIScrollViewComponent>( e ) )
-                {
-                    auto& sv = reg.get<ECS::UIScrollViewComponent>( e ).Data;
-                    dl.AddRectFilled(
-                         { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
-                         glm::vec4( st.Color( StyleSlot::ScrollViewBackground, sv.Background ), 1.0f ) );
-
-                    contentPx   = sv.ContentHeight * scale;
-                    scrollMaxPx = std::max( 0.0f, contentPx - rect.H );
-                    if ( wheelOver && input->ScrollDelta != 0.0f )
-                    {
-                        sv.ScrollY -= input->ScrollDelta * 30.0f; // 30 design px per wheel notch
-                    }
-                    const float maxScrollDesign = scale > 0.0f ? scrollMaxPx / scale : 0.0f;
-                    sv.ScrollY                  = std::clamp( sv.ScrollY, 0.0f, maxScrollDesign );
-
-                    scrollPx       = sv.ScrollY * scale;
-                    showScrollbar  = sv.ShowScrollbar;
-                    scrollbarColor = st.Color( StyleSlot::ScrollViewScrollbar, sv.ScrollbarColor );
-                    clip           = true;
-                    childParent.Y -= scrollPx; // shift children up by the scroll offset
-                }
-
-                // THE VIRTUALIZED LIST (Ю17). Everything above is the same container seen from one step
-                // back — a background, a wheel, a clip and a scrollbar — and the one difference is below,
-                // in the child loop: this one walks a WINDOW of its children and the scroll view walks all
-                // of them. It reads the same ROW GEOMETRY the enumeration reads, out of one function, so
-                // the row that draws here and the row that is picked in the editor cannot be two rows.
-                const bool isList = reg.has<ECS::UIListViewComponent>( e );
-                ListWindow window;
-                const UICollection* boundRows = nullptr;
-                if ( isList )
-                {
-                    auto& lv = reg.get<ECS::UIListViewComponent>( e ).Data;
-                    // Bound (UIL1): the row count is the collection's, and a list whose collection has not
-                    // been written yet is an empty list — the same answer a binding to an unwritten key
-                    // gives, the authored state until gameplay says otherwise.
-                    boundRows =
-                         lv.Collection.empty() ? nullptr : UIDataStore::Get().FindCollection( lv.Collection );
-                    std::size_t rowCount = reg.get<ECS::RelationshipComponent>( e ).Children.size();
-                    if ( !lv.Collection.empty() )
-                        rowCount = boundRows != nullptr ? static_cast<std::size_t>( boundRows->Size() ) : 0;
-                    if ( boundRows != nullptr )
-                    {
-                        // Follow the records, not the indices: see AnchorListScroll. Done BEFORE the wheel
-                        // and the solve, so this frame's window is already the anchored one.
-                        auto& seen = ctx.Canvas.ListBindings[e];
-                        if ( seen.Serial != boundRows->Serial() || seen.Generation != boundRows->Generation() )
-                        {
-                            std::vector<UICollection::Change> changes;
-                            const bool                        complete = seen.Serial == boundRows->Serial() &&
-                                                  boundRows->ChangesSince( seen.Generation, changes );
-                            const float pitch = std::max( 1.0f, lv.ItemHeight ) + std::max( 0.0f, lv.Spacing );
-                            if ( seen.Serial != 0 )
-                                lv.ScrollY = AnchorListScroll( lv.ScrollY, pitch, lv.FollowEnd, seen.AtEnd,
-                                                               complete, changes );
-                            seen.Serial     = boundRows->Serial();
-                            seen.Generation = boundRows->Generation();
-                        }
-                    }
-                    dl.AddRectFilled(
-                         { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
-                         glm::vec4( st.Color( StyleSlot::ScrollViewBackground, lv.Background ), 1.0f ) );
-
-                    if ( wheelOver && input->ScrollDelta != 0.0f )
-                    {
-                        lv.ScrollY -= input->ScrollDelta * 30.0f; // the scroll view's notch, exactly
-                    }
-
-                    window = SolveListWindow( static_cast<int>( rowCount ), lv.ItemHeight, lv.Spacing, lv.Overscan,
-                                              lv.ScrollY, rect.H, scale );
-                    // Written back CLAMPED, from the one place that knows the content height — which here
-                    // is derived from the child count and not authored, so it cannot be stale.
-                    lv.ScrollY = scale > 0.0f ? window.ScrollPx / scale : 0.0f;
-                    if ( boundRows != nullptr )
-                        ctx.Canvas.ListBindings[e].AtEnd = window.ScrollPx >= window.ScrollMaxPx - 0.5f;
-
-                    contentPx      = window.ContentPx;
-                    scrollPx       = window.ScrollPx;
-                    scrollMaxPx    = window.ScrollMaxPx;
-                    showScrollbar  = lv.ShowScrollbar;
-                    scrollbarColor = st.Color( StyleSlot::ScrollViewScrollbar, lv.ScrollbarColor );
-                    clip           = true;
-                }
-
-                if ( clip )
-                    dl.PushClipRect( { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H } );
-
-                // Children inherit the clip for hit testing too, so what is scrolled out of view can't be
-                // clicked through its viewport. Narrowed by THE SAME FUNCTION DrawList2D::PushClipRect just
-                // called, with the same matrix and the same rect — the pointer is refused exactly where the
-                // geometry was cut, because there is one implementation of "where" and not two that agree.
-                // The return value is ignored on purpose: the draw list has already logged an inexact
-                // region, and both halves get the same superset either way.
-                Graphic::Render2D::ClipRegion2D childClip = clipRegion;
-                if ( clip )
-                    (void)Graphic::Render2D::IntersectClipRegion( childClip, dl.GetTransform(), { rect.X, rect.Y },
-                                                                  { rect.X + rect.W, rect.Y + rect.H } );
-
-                const auto& children = reg.get<ECS::RelationshipComponent>( e ).Children;
-                if ( isList )
-                {
-                    // THE WHOLE POINT, AND IT IS FOUR LINES. Everything outside [First, Last] is never
-                    // reached, so it costs no rect, no style, no tween, no hit test and no vertex — and,
-                    // because asking is also the demand, a UIRenderTexture row that left the window has
-                    // its capture destroyed and its renderer slot returned with no code at this site.
-                    const bool bound = !reg.get<ECS::UIListViewComponent>( e ).Data.Collection.empty();
-                    if ( bound && children.size() != 1 && ctx.Canvas.WarnedListTemplates.insert( e ).second )
-                    {
-                        LOG_WARN( "[UI] list {} is bound to collection '{}' and has {} children; a bound list "
-                                  "draws its ONE child as the entry template, so it draws no rows",
-                                  static_cast<std::uint32_t>( e ),
-                                  reg.get<ECS::UIListViewComponent>( e ).Data.Collection, children.size() );
-                    }
-                    if ( bound )
-                    {
-                        // ONE ENTITY, MANY ROWS: the template is walked once per record in the window with
-                        // that record answering its bindings, so a record costs a row only while it is on
-                        // screen. The previous record is restored rather than cleared, for a bound list
-                        // nested inside another one's row.
-                        const entt::entity entry =
-                             children.size() == 1 ? children.front() : entt::entity( entt::null );
-                        if ( boundRows != nullptr && reg.valid( entry ) )
-                        {
-                            const UIDataStore* outer = ctx.Canvas.RowRecord;
-                            for ( int i = window.First; i <= window.Last; ++i )
-                            {
-                                ctx.Canvas.RowRecord = &boundRows->Record( i );
-                                const Rect rowRect   = ListRowRect( rect, window, i );
-                                DrawElement( ctx, reg, entry, rect, scale, dl, input, outClicked, focused, popups,
-                                             focusables, childClip, childScope, &rowRect );
-                            }
-                            ctx.Canvas.RowRecord = outer;
-                        }
-                    }
-                    for ( int i = window.First; !bound && i <= window.Last; ++i )
-                    {
-                        const entt::entity c = children[static_cast<std::size_t>( i )];
-                        if ( !reg.valid( c ) )
-                        {
-                            continue;
-                        }
-                        const Rect rowRect = ListRowRect( rect, window, i );
-                        DrawElement( ctx, reg, c, rect, scale, dl, input, outClicked, focused, popups, focusables,
-                                     childClip, childScope, &rowRect );
-                    }
-                }
-                else if ( reg.has<ECS::UILayoutGroupComponent>( e ) )
-                {
-                    // Auto-layout: the group positions + sizes its children (overriding their anchors). Each
-                    // child's preferred size = CustomMinimumSize, else its authored offset size (design px).
-                    const auto&               g = reg.get<ECS::UILayoutGroupComponent>( e ).Data;
-                    std::vector<entt::entity> kids;
-                    std::vector<glm::vec2>    sizes;
-                    std::vector<float>        flex;
-                    for ( auto c : children )
-                    {
-                        // THE LAYOUT AXIS, and the only place it does anything: a Collapsed child is not
-                        // given a slot, so every sibling after it moves up by that slot's size plus the
-                        // spacing. A Hidden one is kept here and stopped at the top of DrawElement, which
-                        // is what leaves its hole open.
-                        if ( !reg.valid( c ) || !TakesLayoutSpace( reg, c ) )
-                            continue;
-                        glm::vec2 pref( 0.0f );
-                        float     fg = 0.0f;
-                        if ( reg.has<ECS::UILayoutComponent>( c ) )
-                        {
-                            const auto& L = reg.get<ECS::UILayoutComponent>( c ).Data;
-                            pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
-                            fg            = L.FlexGrow;
-                        }
-                        kids.push_back( c );
-                        sizes.push_back( pref * scale );
-                        flex.push_back( fg );
-                    }
-
-                    LayoutGroupParams params = GroupParams( g, st, scale );
-                    params.StretchCross = g.StretchCross;
-                    params.CellSize     = g.CellSize * scale;
-                    params.Columns      = g.Columns;
-
-                    const auto rects = SolveLayoutGroup( childParent, params, sizes, flex );
-                    for ( std::size_t i = 0; i < kids.size(); ++i )
-                        DrawElement( ctx, reg, kids[i], childParent, scale, dl, input, outClicked, focused, popups,
-                                     focusables, childClip, childScope, &rects[i] );
-                }
-                else
-                {
-                    for ( auto c : children )
-                        if ( reg.valid( c ) )
-                            DrawElement( ctx, reg, c, childParent, scale, dl, input, outClicked, focused, popups,
-                                         focusables, childClip, childScope );
-                }
-                if ( clip )
-                    dl.PopClipRect();
-
-                // Scroll thumb on the right edge (outside the clip), shown only when the content overflows.
-                // ONE BLOCK FOR BOTH CONTAINERS: the thumb is a function of (content, viewport, offset) and
-                // nothing else, and a second copy of it for the list would be a second thing to keep in
-                // step with the first.
-                if ( showScrollbar && scrollMaxPx > 0.0f && contentPx > 0.0f )
-                {
-                    const float barW   = 6.0f * scale;
-                    const float trackX = rect.X + rect.W - barW;
-                    const float thumbH = std::max( barW * 2.0f, rect.H * ( rect.H / contentPx ) );
-                    const float t      = scrollPx / scrollMaxPx;
-                    const float thumbY = rect.Y + t * ( rect.H - thumbH );
-                    dl.AddRectFilled( { trackX, thumbY }, { rect.X + rect.W, thumbY + thumbH },
-                                      glm::vec4( scrollbarColor, 1.0f ), barW * 0.5f );
-                }
-            }
+            if ( tree.ChildCount( e ) != 0 )
+                DrawChildren( frame );
         }
-    } // namespace
 
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx, float frameDtSeconds )
+        // The directional focus step a frame's keys ask for: -1 = previous focusable (Up / W), +1 = next
+        // (Down / S), 0 = none. A menu is walked with the arrows the way UE's Slate navigation walks it. When
+        // both directions arrive in one frame the LAST event wins — the order the host saw them in.
+        int NavigateStep( const UIInput& input )
+        {
+            int step = 0;
+            for ( const UIKeyEvent& k : input.Keys )
+            {
+                if ( k.Key == Common::KeyCode::Down || k.Key == Common::KeyCode::S )
+                    step = 1;
+                else if ( k.Key == Common::KeyCode::Up || k.Key == Common::KeyCode::W )
+                    step = -1;
+            }
+            return step;
+        }
+    } // namespace Walk
+
+    using namespace Walk;
+
+    void BeginUIFrame( UIViewContext& view, IUITree& tree, const Rect& viewportPx, float frameDtSeconds )
     {
         // This view is now looking at another scene. Entity ids are unique only inside a registry, so every
         // per-entity clock and every (canvas x view) cell the view holds would answer to ids that mean
         // something else here — drop them.
-        if ( view.Registry != &reg )
+        if ( view.Scene != tree.Storage() )
         {
             view.Reset();
-            view.Registry = &reg;
+            view.Scene = tree.Storage();
         }
 
         // A canvas destroyed since the last frame takes its cell with it, THIS frame. entt recycles entity
         // ids, so a cell left behind is not dead weight: the next canvas created can be handed that id and
         // would open on a stranger's screen with a stranger's hover clocks. Same shape as the preview that
         // held its renderer slot until something destroyed it (Docs/RENDERER_FRAME_STATE.md).
-        view.RetireDeadCanvases( reg );
+        view.RetireDeadCanvases( tree );
 
         // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas — and handed in by the
         // host, which owns the frame's timestep (as FSlateApplication::Tick takes the engine's DeltaTime).
@@ -2278,15 +458,17 @@ namespace Desert::UI
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
         // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
-        PlayUIAnimations( reg, view.FrameDt, view.DrivesSceneAnimation, view.GameWorld, view.AnimClips );
+        view.Animation().Evaluate( tree, UIAnimationStep{ .DtSeconds = view.FrameDt,
+                                                         .Advance   = view.DrivesSceneAnimation,
+                                                         .GameWorld = view.GameWorld } );
 
         // A scene swap leaves the elected entity dangling — drop it rather than matching a recycled id.
-        if ( view.Hot != entt::null && !reg.valid( view.Hot ) )
-            view.Hot = entt::null;
+        if ( view.Hot != NodeId::Null && !tree.Valid( view.Hot ) )
+            view.Hot = NodeId::Null;
 
         // The election is over the whole frame: every canvas of this view writes into it in draw order and
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
-        view.HotNext = entt::null;
+        view.HotNext = NodeId::Null;
         view.Focusables.clear();
 
         // Where this view draws, for the whole frame. Stated once here rather than handed to each canvas,
@@ -2297,7 +479,7 @@ namespace Desert::UI
         // UIViewContext::AuthoringLastFrame.
         if ( view.AuthoringPreview != view.AuthoringLastFrame )
         {
-            CloseAllOverlays( view, reg );
+            CloseAllOverlays( view, tree );
             view.AuthoringLastFrame = view.AuthoringPreview;
         }
 
@@ -2306,7 +488,7 @@ namespace Desert::UI
         // walk and the layout walk read — see UIViewContext::AuthoringPreview.
         if ( view.AuthoringPreview )
         {
-            for ( const entt::entity c : reg.view<ECS::UIOverlayComponent>() )
+            for ( const NodeId c : RootsOf( tree, ArgKind::Overlay ) )
             {
                 UICanvasContext& cell = view.CanvasState( c );
                 cell.OverlayOpen      = true;
@@ -2316,9 +498,9 @@ namespace Desert::UI
         view.FrameOpen = true;
     }
 
-    Common::BoolResultStr RenderCanvas2D( UIViewContext& view, entt::registry& reg, entt::entity canvasEntity,
+    Common::BoolResultStr RenderCanvas2D( UIViewContext& view, IUITree& tree, NodeId canvasEntity,
                                           Graphic::Render2D::DrawList2D& dl, const glm::mat4* worldViewProj,
-                                          const UIInput* input, std::string* outClicked, entt::entity* focused )
+                                          const UIInput* input, std::string* outClicked, NodeId* focused )
     {
         // The frame's viewport, not this call's: one view is one framebuffer, and BeginUIFrame is where that
         // is said. The FrameOpen check below is what guarantees it has been said before this is read.
@@ -2326,10 +508,10 @@ namespace Desert::UI
         // The canvas is the caller's answer, checked before anything else touches the context. Electing one
         // here — which is what this function did, `*reg.view<UICanvasComponent>().begin()` — meant a scene's
         // second canvas was drawn by nothing and reported by nothing.
-        if ( canvasEntity == entt::null || !reg.valid( canvasEntity ) )
+        if ( canvasEntity == NodeId::Null || !tree.Valid( canvasEntity ) )
             return Common::MakeFormattedError( "[UI] RenderCanvas2D was given no canvas to draw (entity {})",
                                                static_cast<std::uint32_t>( canvasEntity ) );
-        if ( !reg.has<ECS::UICanvasComponent>( canvasEntity ) )
+        if ( !tree.Has<UICanvasData>( canvasEntity ) )
             return Common::MakeFormattedError(
                  "[UI] RenderCanvas2D was given entity {} as a canvas, but it carries no UICanvasComponent",
                  static_cast<std::uint32_t>( canvasEntity ) );
@@ -2342,17 +524,17 @@ namespace Desert::UI
                  "[UI] RenderCanvas2D was called for canvas {} outside a frame of its view; call "
                  "BeginUIFrame / EndUIFrame around the frame's canvases",
                  static_cast<std::uint32_t>( canvasEntity ) );
-        if ( view.Registry != &reg )
+        if ( view.Scene != tree.Storage() )
             return Common::MakeFormattedError(
-                 "[UI] RenderCanvas2D was given a registry the open frame does not belong to (canvas {})",
+                 "[UI] RenderCanvas2D was given a tree the open frame does not belong to (canvas {})",
                  static_cast<std::uint32_t>( canvasEntity ) );
 
         // THE PAIR, BOUND HERE AND NOWHERE ELSE: this view's own cell for this canvas.
         WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };
         ctx.Root = &dl;
-        ResolveRetainerMasks( ctx, reg );
+        ResolveRetainerMasks( ctx, tree );
 
-        const auto& canvasData = reg.get<ECS::UICanvasComponent>( canvasEntity ).Data;
+        const auto& canvasData = *tree.Get<UICanvasData>( canvasEntity );
         if ( !canvasData.Visible )
             return Common::MakeSuccess( false ); // a canvas that asked not to be drawn, not a failure
 
@@ -2361,7 +543,7 @@ namespace Desert::UI
         // UICanvasData::Visible being false — that one is the author saying never. Success(false), because
         // the canvas was named correctly and simply has no pixels this frame, exactly like a WorldSpace
         // canvas behind the camera.
-        const ECS::UIOverlayData* overlay = OverlayDataOf( reg, canvasEntity );
+        const UIOverlayData* overlay = OverlayDataOf( tree, canvasEntity );
         if ( overlay != nullptr && !ctx.Canvas.OverlayOpen )
             return Common::MakeSuccess( false );
         // THE CANVAS'S THEME, RESOLVED ONCE PER WALK (Ю13). Asked of the service by handle every frame
@@ -2385,12 +567,12 @@ namespace Desert::UI
 
         Rect  canvasRect;
         float scale;
-        if ( canvasData.RenderMode == ECS::UICanvasRenderMode::WorldSpace && worldViewProj &&
-             reg.has<ECS::TransformComponent>( canvasEntity ) )
+        if ( canvasData.RenderMode == UICanvasRenderMode::WorldSpace && worldViewProj &&
+             tree.WorldOrigin( canvasEntity ).has_value() )
         {
             // Billboard: project the canvas entity's world position to the screen, centre + distance-scale it
             // (mirrors the ImGui renderer so world-space UI matches).
-            const glm::vec3 wpos = glm::vec3( reg.get<ECS::TransformComponent>( canvasEntity ).GetTransform()[3] );
+            const glm::vec3 wpos = *tree.WorldOrigin( canvasEntity );
             const glm::vec4 clip = ( *worldViewProj ) * glm::vec4( wpos, 1.0f );
             if ( clip.w <= 0.0001f )
                 // Behind the camera: the canvas is real and was asked for correctly, it simply has no pixels
@@ -2422,7 +604,7 @@ namespace Desert::UI
             canvasRect.X += ctx.Canvas.OverlayShift.x;
             canvasRect.Y += ctx.Canvas.OverlayShift.y;
 
-            if ( overlay->Kind == ECS::UIOverlayKind::Modal )
+            if ( overlay->Kind == UIOverlayKind::Modal )
             {
                 // THE SCRIM IS WHAT MAKES A MODAL MODAL, and it is two things at once.
                 //
@@ -2461,12 +643,12 @@ namespace Desert::UI
         // scene. It draws only what it can resolve, and says so once when it cannot.
         if ( HandleSet( canvasData.Sprite ) )
         {
-            Graphic::Image2D* bg = ResolveAnimatedFrame( view.Resources(), canvasData.Sprite );
+            TextureRef bg = ResolveAnimatedFrame( view.Resources(), canvasData.Sprite );
             if ( !bg )
                 bg = ResolveSpriteImage( view.Resources(), canvasData.Sprite );
             if ( bg )
             {
-                dl.AddImage( bg, { canvasRect.X, canvasRect.Y },
+                dl.AddImage( bg.Id, { canvasRect.X, canvasRect.Y },
                              { canvasRect.X + canvasRect.W, canvasRect.Y + canvasRect.H }, { 0.0f, 0.0f },
                              { 1.0f, 1.0f }, glm::vec4( 1.0f ) );
                 ctx.Canvas.WarnedBackground = Assets::AssetHandle{};
@@ -2488,9 +670,9 @@ namespace Desert::UI
 
         // --- Screen machine: seed on first use, then advance the running transition ---
         {
-            if ( reg.has<ECS::UIScreenStackComponent>( canvasEntity ) )
+            if ( tree.Has<UIScreenStackData>( canvasEntity ) )
             {
-                const auto& st  = reg.get<ECS::UIScreenStackComponent>( canvasEntity ).Data;
+                const auto& st  = *tree.Get<UIScreenStackData>( canvasEntity );
                 ctx.Canvas.ScreenTime    = st.TransitionTime;
                 ctx.Canvas.ScreenSlidePx = st.SlidePx;
                 ctx.Canvas.ScreenEasing  = st.Easing;
@@ -2518,29 +700,27 @@ namespace Desert::UI
             // ancestor of this screen", not "is it the screen's NEAREST canvas". The two differ for a
             // canvas nested under another canvas, which nothing authors today; using CanvasOf here would
             // have been a second, unrelated behaviour change smuggled into a cost fix.
-            const auto underCanvas = [&reg, canvasEntity]( entt::entity e )
+            const auto underCanvas = [&tree, canvasEntity]( NodeId e )
             {
                 // Bounded rather than trusting the tree to be acyclic, for the reason CanvasOf states.
-                const std::size_t limit = reg.size() + 1;
+                const std::size_t limit = tree.NodeBound() + 1;
                 std::size_t       steps = 0;
-                for ( entt::entity cur = e; cur != entt::null && reg.valid( cur ) && steps < limit; ++steps )
+                for ( NodeId cur = e; cur != NodeId::Null && tree.Valid( cur ) && steps < limit; ++steps )
                 {
                     if ( cur == canvasEntity )
                     {
                         return true;
                     }
-                    cur = reg.has<ECS::RelationshipComponent>( cur )
-                               ? reg.get<ECS::RelationshipComponent>( cur ).Parent
-                               : entt::null;
+                    cur = tree.Parent( cur );
                 }
                 return false;
             };
 
             bool currentExists = false;
             bool anyScreenHere = false;
-            for ( const entt::entity s : reg.view<ECS::UIScreenComponent>() )
+            for ( const NodeId s : RootsOf( tree, ArgKind::Screen ) )
             {
-                const std::string& n = reg.get<ECS::UIScreenComponent>( s ).Data.Name;
+                const std::string& n = tree.Get<UIScreenData>( s )->Name;
                 if ( n.empty() || !underCanvas( s ) )
                 {
                     continue;
@@ -2555,7 +735,7 @@ namespace Desert::UI
             if ( anyScreenHere && !currentExists )
             {
                 std::string firstScreen;
-                ForEachScreenName( reg, canvasEntity,
+                ForEachScreenName( tree, canvasEntity,
                                    [&firstScreen]( const std::string& n )
                                    {
                                        if ( firstScreen.empty() )
@@ -2598,12 +778,11 @@ namespace Desert::UI
         // either, so Tab cannot walk into a notification that is about to disappear.
         //
         // A context menu and a modal are the opposite: capturing the pointer IS what they are for.
-        const bool inert = overlay != nullptr && ( overlay->Kind == ECS::UIOverlayKind::Tooltip ||
-                                                   overlay->Kind == ECS::UIOverlayKind::Toast );
-        if ( reg.has<ECS::RelationshipComponent>( canvasEntity ) )
-            for ( auto c : reg.get<ECS::RelationshipComponent>( canvasEntity ).Children )
-                if ( reg.valid( c ) )
-                    DrawElement( ctx, reg, c, childRoot, scale, dl, input, outClicked, focused, &popups,
+        const bool inert = overlay != nullptr &&
+                           ( overlay->Kind == UIOverlayKind::Tooltip || overlay->Kind == UIOverlayKind::Toast );
+        for ( NodeId c : ChildrenOf( tree, canvasEntity ) )
+                if ( tree.Valid( c ) )
+                    DrawElement( ctx, tree, c, childRoot, scale, dl, input, outClicked, focused, &popups,
                                  inert ? nullptr : &ctx.View.Focusables, rootClip, HitScope{ !inert } );
 
         // A ShowScreen / BackScreen button fired during the walk: start the hand-over now, so the very
@@ -2636,10 +815,10 @@ namespace Desert::UI
         // Open dropdown option lists, drawn LAST so they overlay everything.
         for ( const PopupInfo& pi : popups )
         {
-            if ( !reg.valid( pi.Entity ) || !reg.has<ECS::UIDropdownComponent>( pi.Entity ) )
+            if ( !tree.Valid( pi.Entity ) || !tree.Has<UIDropdownData>( pi.Entity ) )
                 continue;
-            auto&       d       = reg.get<ECS::UIDropdownComponent>( pi.Entity ).Data;
-            const auto  options = SplitOptions( d.Options );
+            auto&       d       = *tree.GetState<UIDropdownData>( pi.Entity );
+            const auto  options = SplitOptions( ctx.View.Resources().Text(), d.Options );
             const float rowH    = pi.Box.H;
             const Rect  popup{ pi.Box.X, pi.Box.Y + pi.Box.H, pi.Box.W,
                               rowH * static_cast<float>( options.size() ) };
@@ -2657,12 +836,12 @@ namespace Desert::UI
                     dl.AddRectFilled(
                          { row.X, row.Y }, { row.X + row.W, row.Y + row.H },
                          glm::vec4( pi.Style.Color( StyleSlot::DropdownHighlight, d.Highlight ), 1.0f ) );
-                ECS::UITextData td;
+                UITextData td;
                 td.Text     = options[i];
                 td.FontSize = pi.Style.FontSize( StyleSlot::DropdownFont, d.FontSize );
                 td.Color    = pi.Style.Color( StyleSlot::DropdownText, d.TextColor );
                 td.Font     = pi.Style.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
-                td.Align    = ECS::UITextAlign::Left;
+                td.Align    = UITextAlign::Left;
                 DrawText2D( ctx.View.Resources(), dl, td, row, pi.Scale, ctx.View.Tint, ctx.View.Time );
                 if ( hover && input->MouseReleased )
                 {
@@ -2686,8 +865,8 @@ namespace Desert::UI
         return Common::MakeSuccess( true );
     }
 
-    void EndUIFrame( UIViewContext& view, entt::registry& reg, Graphic::Render2D::DrawList2D& dl,
-                     const UIInput* input, entt::entity* focused, std::string* outClicked,
+    void EndUIFrame( UIViewContext& view, IUITree& tree, Graphic::Render2D::DrawList2D& dl,
+                     const UIInput* input, NodeId* focused, std::string* outClicked,
                      std::vector<std::string>* outMessages )
     {
         // Named, not shrugged off: closing a frame that was never opened would hand over an election nobody
@@ -2714,41 +893,40 @@ namespace Desert::UI
                 else if ( outClicked && outClicked->empty() )
                     *outClicked = msg;
             };
-            auto events = [&]( entt::entity e ) -> const ECS::UIPointerEventsData*
+            auto events = [&]( NodeId e ) -> const UIPointerEventsData*
             {
-                return ( e != entt::null && reg.valid( e ) && reg.has<ECS::UIPointerEventsComponent>( e ) )
-                            ? &reg.get<ECS::UIPointerEventsComponent>( e ).Data
+                return ( e != NodeId::Null && tree.Valid( e ) && tree.Has<UIPointerEventsData>( e ) )
+                            ? tree.Get<UIPointerEventsData>( e )
                             : nullptr;
             };
 
             // The hit-test axis already says what the pointer does with an element, and the routing must
             // read that answer rather than invent a second one. An element with no UILayout — the canvas
             // itself is the only one — takes the default, so a canvas-level listener is reachable.
-            auto hitTestOf = [&]( entt::entity e )
+            auto hitTestOf = [&]( NodeId e )
             {
-                return ( e != entt::null && reg.valid( e ) && reg.has<ECS::UILayoutComponent>( e ) )
-                            ? reg.get<ECS::UILayoutComponent>( e ).Data.HitTest
-                            : ECS::UIHitTest::All;
+                return ( e != NodeId::Null && tree.Valid( e ) && tree.Has<UILayoutData>( e ) )
+                            ? tree.Get<UILayoutData>( e )->HitTest
+                            : UIHitTest::All;
             };
 
             // May @p e hear a pointer event about ITSELF? Only All. ChildrenOnly is transparent to the
             // pointer, so telling it about a press it cannot receive would contradict the field that says
             // it cannot; Blocking responds to nothing by definition. Either may still sit on the route of a
             // descendant that does respond — being silent is not the same as being absent.
-            auto respondsToPointer = [&]( entt::entity e )
-            { return e != entt::null && reg.valid( e ) && hitTestOf( e ) == ECS::UIHitTest::All; };
+            auto respondsToPointer = [&]( NodeId e )
+            { return e != NodeId::Null && tree.Valid( e ) && hitTestOf( e ) == UIHitTest::All; };
 
             // The route of an event aimed at @p target: the chain from the canvas down to it, ANCESTORS
             // FIRST. Built by walking Parent and reversing, because that is the only direction the
             // relationship stores and a tree has exactly one path to its root.
-            auto chainOf = [&]( entt::entity target )
+            auto chainOf = [&]( NodeId target )
             {
-                std::vector<entt::entity> chain;
-                for ( entt::entity t = target; t != entt::null && reg.valid( t ); )
+                std::vector<NodeId> chain;
+                for ( NodeId t = target; t != NodeId::Null && tree.Valid( t ); )
                 {
                     chain.push_back( t );
-                    t = reg.has<ECS::RelationshipComponent>( t ) ? reg.get<ECS::RelationshipComponent>( t ).Parent
-                                                                 : entt::null;
+                    t = tree.Parent( t );
                 }
                 std::reverse( chain.begin(), chain.end() );
                 return chain;
@@ -2757,7 +935,7 @@ namespace Desert::UI
             // One step of a route. Returns true when the route must end here — which is a property of the
             // listener and NOT of whether it had anything to say, so an element may swallow an event while
             // emitting nothing.
-            auto step = [&]( entt::entity e, ECS::UIEventPhase phase, std::string ECS::UIPointerEventsData::*msg )
+            auto step = [&]( NodeId e, UIEventPhase phase, std::string UIPointerEventsData::*msg )
             {
                 const auto* ev = events( e );
                 if ( ev == nullptr || ev->Phase != phase || !respondsToPointer( e ) )
@@ -2768,7 +946,7 @@ namespace Desert::UI
 
             // Tunnel down the chain, then bubble back up it. Two passes over one chain rather than two
             // chains, so an element cannot be reached in one pass and missed in the other.
-            auto route = [&]( entt::entity target, std::string ECS::UIPointerEventsData::*msg )
+            auto route = [&]( NodeId target, std::string UIPointerEventsData::*msg )
             {
                 // Blocking STOPS THE POINTER, and a routed press IS that pointer, so it stops here for the
                 // ancestors too: a greyed-out form or a modal scrim that let the canvas behind it hear the
@@ -2781,15 +959,15 @@ namespace Desert::UI
                 // is a statement about. Silencing the whole chain on hover instead would fire Exit on every
                 // ancestor the moment the pointer crossed onto a blocked child and Enter again when it
                 // left — the very flicker the chain-difference rule exists to prevent.
-                if ( hitTestOf( target ) == ECS::UIHitTest::Blocking )
+                if ( hitTestOf( target ) == UIHitTest::Blocking )
                     return;
 
-                const std::vector<entt::entity> chain = chainOf( target );
+                const std::vector<NodeId> chain = chainOf( target );
                 for ( std::size_t i = 0; i < chain.size(); ++i )
-                    if ( step( chain[i], ECS::UIEventPhase::Tunnel, msg ) )
+                    if ( step( chain[i], UIEventPhase::Tunnel, msg ) )
                         return;
                 for ( std::size_t i = chain.size(); i-- > 0; )
-                    if ( step( chain[i], ECS::UIEventPhase::Bubble, msg ) )
+                    if ( step( chain[i], UIEventPhase::Bubble, msg ) )
                         return;
             };
 
@@ -2798,8 +976,8 @@ namespace Desert::UI
                 // Enter/Exit are the DIFFERENCE of the two chains, not a route (see UIPointerEventsData).
                 // The shared prefix is everything the pointer never left, so a move between two children of
                 // one panel reports nothing about the panel.
-                const std::vector<entt::entity> from = chainOf( view.Hot );
-                const std::vector<entt::entity> to   = chainOf( view.HotNext );
+                const std::vector<NodeId> from = chainOf( view.Hot );
+                const std::vector<NodeId> to   = chainOf( view.HotNext );
 
                 std::size_t common = 0;
                 while ( common < from.size() && common < to.size() && from[common] == to[common] )
@@ -2818,15 +996,15 @@ namespace Desert::UI
             const bool pressed = input->MouseDown && !view.PrevDown; // UIInput carries held + release only
             if ( pressed )
             {
-                route( view.HotNext, &ECS::UIPointerEventsData::OnDownMessage );
+                route( view.HotNext, &UIPointerEventsData::OnDownMessage );
 
                 // Start a drag from a draggable element. The ghost is the source's own footprint, so the
                 // cursor carries something the size of what it picked up.
-                if ( view.HotNext != entt::null && reg.valid( view.HotNext ) &&
-                     reg.has<ECS::UIDraggableComponent>( view.HotNext ) )
+                if ( view.HotNext != NodeId::Null && tree.Valid( view.HotNext ) &&
+                     tree.Has<UIDraggableData>( view.HotNext ) )
                 {
                     // Only PENDING for now — a press that never moves is a click, not a drag.
-                    const auto& d      = reg.get<ECS::UIDraggableComponent>( view.HotNext ).Data;
+                    const auto& d      = *tree.Get<UIDraggableData>( view.HotNext );
                     view.Drag.Pending  = true;
                     view.Drag.Source   = view.HotNext;
                     view.Drag.Payload  = d.Payload;
@@ -2845,17 +1023,17 @@ namespace Desert::UI
 
             if ( input->MouseReleased )
             {
-                route( view.HotNext, &ECS::UIPointerEventsData::OnUpMessage );
+                route( view.HotNext, &UIPointerEventsData::OnUpMessage );
 
                 if ( view.Drag.Active )
                 {
                     // Drop on the element under the cursor, or on the nearest ancestor that accepts — a
                     // target is usually a panel whose children are what you actually point at.
-                    for ( entt::entity t = view.HotNext; t != entt::null && reg.valid( t ); )
+                    for ( NodeId t = view.HotNext; t != NodeId::Null && tree.Valid( t ); )
                     {
-                        if ( reg.has<ECS::UIDropTargetComponent>( t ) )
+                        if ( tree.Has<UIDropTargetData>( t ) )
                         {
-                            const auto& dt = reg.get<ECS::UIDropTargetComponent>( t ).Data;
+                            const auto& dt = *tree.Get<UIDropTargetData>( t );
                             if ( Accepts( dt, view.Drag.Payload ) && t != view.Drag.Source )
                             {
                                 emit( dt.OnDropMessage.empty() ? view.Drag.Payload
@@ -2863,9 +1041,7 @@ namespace Desert::UI
                                 break;
                             }
                         }
-                        t = reg.has<ECS::RelationshipComponent>( t )
-                                 ? reg.get<ECS::RelationshipComponent>( t ).Parent
-                                 : entt::null;
+                        t = tree.Parent( t );
                     }
                 }
                 view.Drag = UIDragState{}; // a plain click on a draggable ends here too
@@ -2878,7 +1054,7 @@ namespace Desert::UI
             // authored (UIViewContext::AuthoringPreview) — and running a pointer machine over a pointer it
             // does not have would open menus nobody clicked.
             if ( !view.AuthoringPreview )
-                UpdateOverlays( view, reg, *input );
+                UpdateOverlays( view, tree, *input );
 
             view.PrevDown = input->MouseDown;
 
@@ -2894,16 +1070,16 @@ namespace Desert::UI
                 // of StyleFor's rules, which would be two statements of "which style does this element
                 // resolve through" and therefore two that can disagree.
                 ElementStyle ghostStyle;
-                if ( reg.valid( view.Drag.Source ) )
+                if ( tree.Valid( view.Drag.Source ) )
                 {
-                    const entt::entity ghostCanvas = CanvasOf( reg, view.Drag.Source );
-                    if ( ghostCanvas != entt::null && reg.has<ECS::UICanvasComponent>( ghostCanvas ) )
+                    const NodeId ghostCanvas = CanvasOf( tree, view.Drag.Source );
+                    if ( ghostCanvas != NodeId::Null && tree.Has<UICanvasData>( ghostCanvas ) )
                     {
-                        const auto& ghostCanvasData = reg.get<ECS::UICanvasComponent>( ghostCanvas ).Data;
+                        const auto& ghostCanvasData = *tree.Get<UICanvasData>( ghostCanvas );
                         WalkCtx     ghostCtx{ view, view.CanvasState( ghostCanvas ),
                                           CanvasStyle( view.Resources().Theme( ghostCanvasData.Theme ),
                                                            ghostCanvasData.FontScale, ghostCanvasData.HighContrast ) };
-                        ghostStyle = StyleFor( ghostCtx, reg, view.Drag.Source );
+                        ghostStyle = StyleFor( ghostCtx, tree, view.Drag.Source );
                     }
                 }
                 dl.AddRectFilled(
@@ -2930,7 +1106,7 @@ namespace Desert::UI
         // an overlay. With nothing focused, either direction lands on the FIRST control — the top of a menu.
         int step = 0;
         if ( input != nullptr )
-            step = input->Tab ? 1 : input->Navigate;
+            step = input->Pressed( Common::KeyCode::Tab ) ? 1 : NavigateStep( *input );
         if ( focused != nullptr && step != 0 && !view.Focusables.empty() )
         {
             const std::size_t n   = view.Focusables.size();

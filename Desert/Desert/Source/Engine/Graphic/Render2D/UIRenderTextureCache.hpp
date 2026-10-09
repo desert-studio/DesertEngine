@@ -113,7 +113,7 @@ namespace Desert::Graphic::Render2D
         // IUIRenderTextureSource. The walk holds this object through the interface and never through the
         // concrete type — see UIRenderTextureSource.hpp for the link failure that rule was written from.
         [[nodiscard]] const void*
-        ResolveRenderTexture( entt::entity element, const ::Desert::UI::UIRenderTextureRequest& request ) override;
+        ResolveRenderTexture( ::Desert::UI::NodeId element, const ::Desert::UI::UIRenderTextureRequest& request ) override;
 
     private:
         // One element's world. Destroying it is what returns the renderer slot, so this type is only ever
@@ -136,7 +136,7 @@ namespace Desert::Graphic::Render2D
         // consumed and cleared by Tick.
         struct Demand
         {
-            entt::entity Element = entt::null;
+            ::Desert::UI::NodeId Element = ::Desert::UI::NodeId::Null;
             std::string  ScenePath;
             uint32_t     Width  = 0;
             uint32_t     Height = 0;
@@ -144,10 +144,10 @@ namespace Desert::Graphic::Render2D
 
         // Build one capture, or say why not. Returns nullptr on refusal, having logged the reason with
         // its numbers.
-        [[nodiscard]] Capture* Build( entt::entity element, const Demand& demand,
+        [[nodiscard]] Capture* Build( ::Desert::UI::NodeId element, const Demand& demand,
                                       Assets::AssetManager& assetManager );
 
-        std::unordered_map<entt::entity, Capture> m_Captures;
+        std::unordered_map<::Desert::UI::NodeId, Capture> m_Captures;
 
         // A VECTOR AND NOT A MAP, AND THE ORDER IS THE WHOLE REASON. Tick builds captures in the order it
         // reads this, and the first elements it reaches are the ones that get the scarce renderer slots —
@@ -165,6 +165,6 @@ namespace Desert::Graphic::Render2D
 
         // Elements already reported as refused, so a shortage is one line per element per stretch rather
         // than one line per element per frame. Cleared for an element the moment it gets its capture.
-        std::unordered_map<entt::entity, std::string> m_Refused;
+        std::unordered_map<::Desert::UI::NodeId, std::string> m_Refused;
     };
 } // namespace Desert::Graphic::Render2D

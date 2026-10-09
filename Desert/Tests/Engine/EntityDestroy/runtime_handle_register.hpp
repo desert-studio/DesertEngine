@@ -92,9 +92,10 @@ namespace Desert::Tests::RuntimeHandles
            "WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };",
            "retainer -> mask element, rebuilt inside the stack-local walk context of one canvas draw; it dies "
            "with the walk, so no entity outlives a frame in it" },
-         { "Desert/Desert/Source/Engine/UI/UIAnimationPlayback.hpp", "Samples", Release::Sweep,
-           "Desert/Desert/Source/Engine/UI/UIAnimationPlayback.cpp", "frame.Samples.clear()",
-           "one frame's clip results; PlayUIAnimations clears them before it refills, every view frame" },
+         { "Desert/Desert/Source/Engine/UI/Ecs/UIAnimationPlayback.hpp", "Samples", Release::Sweep,
+           "Desert/Desert/Source/Engine/UI/Ecs/UIAnimationPlayback.cpp", "Samples.clear()",
+           "one frame's clip results; TimelineUIAnimationSource::Evaluate clears them before it refills, every "
+           "view frame" },
          { "Desert/Desert/Source/Engine/ECS/System/LevelSequenceSystem.hpp", "m_Actors", Release::Sweep,
            "Desert/Desert/Source/Engine/ECS/System/LevelSequenceSystem.hpp", "it = m_Actors.erase( it )",
            "the actor's player and loaded sequence; the per-frame pass retires actors whose entity is gone or "

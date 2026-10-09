@@ -45,9 +45,9 @@ namespace
     constexpr const char* kRendererFiles[] = {
          "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
          "Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
-         // The walk's clip pre-pass (ANIM-I9): UICanvasRenderer2D calls PlayUIAnimations before any canvas is
-         // walked, and it is where UIAnimComponent is read and folded into each element's sample.
-         "Desert/Desert/Source/Engine/UI/UIAnimationPlayback.cpp",
+         // The walk's clip pre-pass (ANIM-I9): UICanvasRenderer2D evaluates the view's animation source
+         // (TimelineUIAnimationSource) before any canvas is walked, and it is where UIAnimComponent is read.
+         "Desert/Desert/Source/Engine/UI/Ecs/UIAnimationPlayback.cpp",
     };
     constexpr const char* kRenderer =
          "the UI walk (UICanvasRenderer2D.cpp + UIOverlay.cpp + UIAnimationPlayback.cpp)";
