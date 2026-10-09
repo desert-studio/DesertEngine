@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Json.hpp>
 
 namespace Common::Json
@@ -147,11 +149,68 @@ namespace Desert::Reflection
         }
     };
 
-    struct TypeInfo
+    class Value; // Value.hpp
+
+    /// One parameter or result of a reflected function: its name in the header, its category in the same
+    /// vocabulary as a field's, and the C++ spelling (for a diagnostic and for a binding generator).
+    struct ParamInfo
+    {
+        std::string Name;
+        FieldType   Type = FieldType::Unknown;
+        std::string TypeName;
+    };
+
+    /// FUNCTION(...) attributes, parsed by DesertHeaderTool exactly as PROPERTY(...) ones are.
+    struct FunctionMetadata
+    {
+        bool        ScriptCallable = false; // FUNCTION(ScriptCallable) — a script language may bind and call it
+        std::string Category;               // FUNCTION(Category("...")) — grouping in a browser or a palette
+        std::string Tooltip;                // FUNCTION(Tooltip("..."))  — hover help
+    };
+
+    /// THE CALL ITSELF, generated per function (FunctionThunk.hpp): unpacks the Values into the C++
+    /// arguments, calls, packs the result. FunctionInfo::Invoke has checked the count, the kinds and `self`
+    /// before it runs, so a thunk only refuses what only it can see (an integer outside its parameter's range).
+    using FunctionThunk = Common::BoolResultStr ( * )( void* self, const Value* args, Value* rets );
+
+    /// A REFLECTED FUNCTION — UE's UFunction, Godot's MethodBind: the one public layer through which ANY
+    /// language calls C++. A language binding reads Params/Returns/Meta to build its side and calls Invoke;
+    /// nothing in here knows that a language exists.
+    struct FunctionInfo
     {
         std::string            Name;
-        std::size_t            Size = 0;
-        std::vector<FieldInfo> Fields;
+        std::string            Owner;   // registry name of the reflected type that declares it
+        std::vector<ParamInfo> Params;
+        std::vector<ParamInfo> Returns; // empty for void; one entry otherwise
+        bool                   IsStatic = false;
+        bool                   IsConst  = false;
+        FunctionMetadata       Meta;
+        FunctionThunk          Thunk = nullptr;
+
+        /// Calls the function. `self` is the instance (nullptr for a static function, required otherwise);
+        /// `args` holds exactly Params.size() values of exactly the parameters' kinds; `rets` has room for
+        /// Returns.size() values. Every mismatch is refused with what was expected — a value of another kind
+        /// is never converted here: converting is the CALLER'S language rule (Lua's number -> Float), not
+        /// this layer's.
+        Common::BoolResultStr Invoke( void* self, const Value* args, std::size_t argc, Value* rets ) const;
+    };
+
+    struct TypeInfo
+    {
+        std::string               Name;
+        std::size_t               Size = 0;
+        std::vector<FieldInfo>    Fields;
+        std::vector<FunctionInfo> Functions; // FUNCTION(...) members, in declaration order
+
+        /// The function named `name`, or nullptr. Names are unique within a type (the header tool refuses an
+        /// overload: a language calls by name, and two C++ signatures under one name would be a guess).
+        [[nodiscard]] const FunctionInfo* FindFunction( std::string_view name ) const
+        {
+            for ( const FunctionInfo& function : Functions )
+                if ( function.Name == name )
+                    return &function;
+            return nullptr;
+        }
 
         // Returns a pointer to a process-wide default-constructed instance of the type (member initializers
         // give it the "factory defaults"), or nullptr if the codegen didn't provide one. Used by the editor's
