@@ -13,6 +13,7 @@
 
 #include "ParticleGpuLayout.hpp"
 #include "ParticleSimGraph.hpp"
+#include "ParticleSpriteBindings.hpp"
 #include "ParticleWorldGpu.hpp"
 
 #include <cstdint>
@@ -170,6 +171,7 @@ namespace Desert::Graphic::System
         {
             std::shared_ptr<ComputePipeline> Pipeline;
             mutable ShaderBindingLayoutCache Layout;
+            ParticleSpriteBindings           Sprite; // the sprite's Position / Color / SpriteSize in its layout
         };
 
         struct ViewEmitter

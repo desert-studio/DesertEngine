@@ -349,6 +349,16 @@ namespace Desert::Graphic::System
         }
         found->second           = std::make_unique<StackProgram>();
         found->second->Pipeline = made.GetValue();
+        // The sprite renderer's bindings to this layout; an attribute it lacks draws with the renderer default,
+        // said here, once per stack.
+        found->second->Sprite = ResolveParticleSpriteBindings( stack.Layout );
+        for ( const std::string& unbound : found->second->Sprite.Unbound )
+            LOG_WARN( "[Particles] stack {} draws its sprites with the renderer default for {}", stack.ShaderName,
+                      unbound );
+        LOG_ERROR(
+             "[Particles] stack {} simulates, its sprites are not drawn: the sprite vertex path reads the legacy "
+             "particle records, not the stack's layout (IsDrawn)",
+             stack.ShaderName );
         return found->second.get();
     }
 
@@ -530,7 +540,10 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        return ve.Declared && ve.Sprite != nullptr;
+        // A compiled stack's particles live in the pool's SoA components (ve.Program->Sprite says where); the
+        // sprite cell reads the legacy AoS Particles, so a stack emitter is simulated but not drawn until the
+        // vertex path reads the bindings (REMAINDER-VFX-03g).
+        return ve.Declared && ve.Sprite != nullptr && ve.Program == nullptr;
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
