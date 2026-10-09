@@ -1,15 +1,20 @@
 // DesertHeaderTool — a lightweight Unreal-Header-Tool-style code generator.
 //
-// Scans C++ headers for REFLECT() / PROPERTY(...) annotations and emits a single aggregated
-// translation unit that registers every reflected type (with field offsets, types and editor
-// metadata) into Desert::Reflection::ReflectionRegistry at static-init time.
+// Scans C++ headers for REFLECT() / PROPERTY(...) annotations and emits, per engine module of
+// BuildScripts/DesertModules.lua, one translation unit with RegisterReflection_<Module>() that registers the
+// module's reflected types (with field offsets, types and editor metadata) into
+// Desert::Reflection::ReflectionRegistry, plus the module list <output-file> that calls them in the table's
+// order at static-init time and resolves struct links once (plan C11).
 //
 // Usage:
-//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file>]
+//   DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]
+//                    [--reflect <source-root> <scan-subdir> <output-file>]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
 //     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates).
-//     --reflect      REFLECT()/PROPERTY() registration of <source-root>/<scan-subdir> into <output-file>.
+//     --modules      the module table; required with --reflect. The repository root is its file's grandparent.
+//     --reflect      REFLECT()/PROPERTY() registration of <source-root>/<scan-subdir>: the module list in
+//                    <output-file>, each module's types in Reflection_<Module>.gen.cpp beside it.
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
@@ -24,10 +29,13 @@
 #include <ToolMain.hpp>
 
 #include "Source/HeaderScan.hpp"
+#include "Source/ModuleTable.hpp"
 
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
+#include <map>
 #include <iostream>
 #include <iterator>
 #include <set>
@@ -96,6 +104,7 @@ namespace
         std::string        registryName; // short name used as the registry key, e.g. SurfaceMaterialData
         std::vector<Field> fields;
         std::string        headerInclude; // include path relative to source root
+        std::string        module;        // BuildScripts/DesertModules.lua module of the header
     };
 
     // --------------------------------------------------------------------- helpers
@@ -767,7 +776,7 @@ namespace
         return b.Build();
     }
 
-    Common::Json::Value ReflectionModel( const std::vector<ReflectedType>& types )
+    Common::Json::Value ReflectionModel( const std::string& module, const std::vector<ReflectedType>& types )
     {
         // Each header is included once, in first-use order.
         std::vector<std::string> includes;
@@ -789,6 +798,7 @@ namespace
                                           .Build() );
         }
         return Common::Json::ObjectBuilder()
+             .Set( "module", module )
              .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
              .Set( "types", Common::Json::Value( std::move( typeValues ) ) )
              .Build();
@@ -871,8 +881,32 @@ namespace
     {
         fs::path SourceRoot;
         fs::path ScanRoot;
-        fs::path Output;
+        fs::path Output; // the module list; the per-module files are written beside it
     };
+
+    constexpr std::string_view kModuleFilePrefix = "Reflection_";
+    constexpr std::string_view kModuleFileSuffix = ".gen.cpp";
+
+    // Renders `entry` with `model` into `output` when its text changed; false on an error, already reported.
+    bool Emit( const fs::path& templateDir, std::string_view entry, const Common::Json::Value& model,
+               const fs::path& output )
+    {
+        auto rendered = RenderTemplate( templateDir, entry, model );
+        if ( !rendered.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
+            return false;
+        }
+        const Common::BoolResultStr written = WriteIfChanged( output, rendered.ExtractValue() );
+        if ( !written.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << written.GetError() << "\n";
+            return false;
+        }
+        if ( written.GetValue() )
+            std::cout << std::format( "[DesertHeaderTool] generated {}\n", output.string() );
+        return true;
+    }
 
     struct SubsystemsRequest
     {
@@ -882,7 +916,8 @@ namespace
         fs::path    Output;
     };
 
-    int Reflect( const fs::path& templateDir, const ReflectRequest& request )
+    int Reflect( const fs::path& templateDir, const ReflectRequest& request,
+                 const Desert::HeaderTool::ModuleTable& modules, const fs::path& repoRoot )
     {
         if ( !fs::exists( request.ScanRoot ) )
         {
@@ -912,21 +947,54 @@ namespace
         for ( const auto& h : headers )
             ParseFile( h, request.SourceRoot, types, enums );
 
-        auto rendered = RenderTemplate( templateDir, "Reflection.gen.cpp.tpl", ReflectionModel( types ) );
-        if ( !rendered.IsSuccess() )
+        // Each type to its module, by the header's place in the repository (plan C11).
+        std::map<std::string, std::vector<ReflectedType>> byModule;
+        for ( auto& t : types )
         {
-            std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
-            return 1;
+            const fs::path header = fs::relative( request.SourceRoot / t.headerInclude, repoRoot );
+            t.module              = modules.ModuleOf( header.generic_string() );
+            if ( t.module.empty() )
+            {
+                std::cerr << std::format( "[DesertHeaderTool] {}: {} belongs to no module of the module table\n",
+                                          header.generic_string(), t.fqn );
+                return 1;
+            }
+            byModule[t.module].push_back( t );
         }
-        const Common::BoolResultStr written = WriteIfChanged( request.Output, rendered.ExtractValue() );
-        if ( !written.IsSuccess() )
+
+        const fs::path        outputDir = request.Output.parent_path();
+        std::set<std::string> written;
+        // EVERY module of the table gets its file, the ones without a reflected type an empty registration: the
+        // set of files is then fixed by the table, which premake reads, so the source glob premake expands at
+        // generation time always holds the file a newly reflected type lands in.
+        Common::Json::Value::Array listed; // in the module table's order: dependencies register first
+        for ( const auto& module : modules.Modules() )
         {
-            std::cerr << "[DesertHeaderTool] " << written.GetError() << "\n";
-            return 1;
+            const std::string file = std::format( "{}{}{}", kModuleFilePrefix, module.Name, kModuleFileSuffix );
+            if ( !Emit( templateDir, "ReflectionModule.gen.cpp.tpl", ReflectionModel( module.Name, byModule[module.Name] ),
+                        outputDir / file ) )
+                return 1;
+            written.insert( file );
+            listed.emplace_back( module.Name );
         }
-        std::cout << "[DesertHeaderTool] " << ( written.GetValue() ? "generated " : "up to date " )
-                  << request.Output.string() << " (" << types.size() << " reflected types, " << headers.size()
-                  << " headers scanned)\n";
+        if ( !Emit( templateDir, "Reflection.gen.cpp.tpl",
+                    Common::Json::ObjectBuilder().Set( "modules", Common::Json::Value( std::move( listed ) ) ).Build(),
+                    request.Output ) )
+            return 1;
+
+        // A module that left the table leaves no file behind for the source glob to compile.
+        for ( const auto& entry : fs::directory_iterator( outputDir ) )
+        {
+            const std::string name = entry.path().filename().string();
+            if ( name.starts_with( kModuleFilePrefix ) && name.ends_with( kModuleFileSuffix ) && !written.contains( name ) )
+            {
+                fs::remove( entry.path() );
+                std::cout << std::format( "[DesertHeaderTool] removed {} (its module is not in the module table)\n",
+                                          entry.path().string() );
+            }
+        }
+        std::cout << std::format( "[DesertHeaderTool] {} reflected types in {} modules, {} headers scanned\n", types.size(),
+                                  written.size(), headers.size() );
         return 0;
     }
 } // namespace
@@ -935,6 +1003,7 @@ static int RunTool( int argc, char** argv )
 {
     std::optional<fs::path>        templateDir;
     std::optional<ReflectRequest>  reflect;
+    std::optional<fs::path>        moduleTable;
     std::vector<SubsystemsRequest> subsystemRequests;
     std::vector<fs::path>          checkRoots;
     std::vector<fs::path>          contextRoots;
@@ -944,6 +1013,8 @@ static int RunTool( int argc, char** argv )
         const int              left = argc - i - 1;
         if ( arg == "--templates" && left >= 1 )
             templateDir = argv[++i];
+        else if ( arg == "--modules" && left >= 1 )
+            moduleTable = argv[++i];
         else if ( arg == "--check" && left >= 1 )
             checkRoots.emplace_back( argv[++i] );
         else if ( arg == "--context" && left >= 1 )
@@ -966,9 +1037,10 @@ static int RunTool( int argc, char** argv )
             break;
         }
     }
-    if ( !templateDir || ( !reflect && checkRoots.empty() ) )
+    if ( !templateDir || ( !reflect && checkRoots.empty() ) || ( reflect && !moduleTable ) )
     {
-        std::cerr << "Usage: DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output>]\n"
+        std::cerr << "Usage: DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]\n"
+                     "       [--reflect <source-root> <scan-subdir> <output>] (needs --modules)\n"
                      "       [--check <include-root>]... [--context <include-root>]...\n"
                      "       [--subsystems <Owner> <OwnerType> <owner-header> <output>]...\n";
         return 1;
@@ -1018,7 +1090,15 @@ static int RunTool( int argc, char** argv )
                   << request.Output.string() << " (" << owned.size() << " " << request.Owner << " subsystems)\n";
     }
 
-    return reflect ? Reflect( *templateDir, *reflect ) : 0;
+    if ( !reflect )
+        return 0;
+    auto modules = Desert::HeaderTool::ModuleTable::Load( *moduleTable );
+    if ( !modules.IsSuccess() )
+    {
+        std::cerr << "[DesertHeaderTool] " << modules.GetError() << "\n";
+        return 1;
+    }
+    return Reflect( *templateDir, *reflect, modules.GetValue(), fs::absolute( *moduleTable ).parent_path().parent_path() );
 }
 
 // The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
