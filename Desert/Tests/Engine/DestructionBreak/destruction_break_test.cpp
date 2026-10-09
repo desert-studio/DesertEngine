@@ -184,8 +184,9 @@ TEST( DestructionBreak, BreakIsNamedByItsEntity )
     ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
 
     entt::registry registry;
-    const auto     entity = registry.create();
-    registry.emplace<ECS::DestructibleComponent>( entity ).RuntimeObject = added.GetValue();
+    const auto     entity       = registry.create();
+    auto&          destructible = registry.emplace<ECS::DestructibleComponent>( entity );
+    destructible.RuntimeObject  = added.GetValue();
     ECS::DestructibleLifetime owner( *f.destruction );
 
     f.Run( 5 );
@@ -213,9 +214,9 @@ TEST( DestructionBreak, RemovedAndUnownedNameNothing )
     const DestructionEvent   unowned{ DestructionEventKind::Break, object + 1, 2 };
     const DestructionEvent   events[] = { removed, unowned };
 
-    entt::registry registry;
+    entt::registry                                             registry;
     const std::unordered_map<DestructibleHandle, entt::entity> objects = { { object, registry.create() } };
-    std::vector<ECS::DestructionBreakEvent>                     out;
+    std::vector<ECS::DestructionBreakEvent>                    out;
     ECS::NameBreakEvents( events, objects, out );
     EXPECT_TRUE( out.empty() ) << "Removed is the simulation's bookkeeping; an object with no entity names no one";
 }

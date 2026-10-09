@@ -203,7 +203,6 @@ TEST( PhysicsEvents, EachSideIsNamedWithTheNormalTowardsTheOther )
     EXPECT_TRUE( named[2].Other == entt::null );
 }
 
-
 // The physics queue cannot carry a break: a physics event names no fracture node, and destruction's events do
 // not name into it.
 namespace
@@ -212,9 +211,9 @@ namespace
     concept NamesAFractureNode = requires( Event event ) { event.Node; };
 
     template <class Events>
-    concept NamesIntoThePhysicsQueue =
-         requires( Events events, const std::unordered_map<Desert::Physics::BodyHandle, entt::entity>& bodies,
-                   std::vector<Desert::ECS::PhysicsEvent>& out ) { Desert::ECS::NameContactEvents( events, bodies, out ); };
+    concept NamesIntoThePhysicsQueue = requires(
+         Events events, const std::unordered_map<Desert::Physics::BodyHandle, entt::entity>& bodies,
+         std::vector<Desert::ECS::PhysicsEvent>& out ) { Desert::ECS::NameContactEvents( events, bodies, out ); };
 } // namespace
 
 static_assert( !NamesAFractureNode<Desert::ECS::PhysicsEvent>,

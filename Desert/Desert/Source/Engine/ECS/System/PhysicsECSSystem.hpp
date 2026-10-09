@@ -388,8 +388,9 @@ namespace Desert::ECS
         }
 
     private:
-        // This frame's steps' contact events, named by entity, into the registry's PhysicsEventQueue (see PhysicsEvents.hpp).
-        // The body → entity map keeps an entity whose body went this frame until its EndOverlap is named.
+        // This frame's steps' contact events, named by entity, into the registry's PhysicsEventQueue (see
+        // PhysicsEvents.hpp). The body → entity map keeps an entity whose body went this frame until its
+        // EndOverlap is named.
         void PublishEvents( entt::registry& registry )
         {
             auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
