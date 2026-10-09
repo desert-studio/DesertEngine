@@ -122,7 +122,11 @@ namespace Desert::ECS
                     Refuse( entity, meshSkeleton.GetError() );
                     continue;
                 }
-                auto asset = assets( data.PhysicsAsset, meshSkeleton.GetValue(), skeleton.GetName() );
+                // A runtime Skeleton carries no name of its own (its identity is the asset GUID above); the
+                // refusal names the entity whose skinned mesh it is.
+                const std::string rigName =
+                     registry.has<TagComponent>( entity ) ? registry.get<TagComponent>( entity ).Tag : std::string();
+                auto asset = assets( data.PhysicsAsset, meshSkeleton.GetValue(), rigName );
                 if ( !asset.IsSuccess() )
                 {
                     Refuse( entity, asset.GetError() );

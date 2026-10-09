@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <system_error>
 #include <type_traits>
 #include <unordered_map>
@@ -26,6 +27,30 @@ namespace Desert::Core
 {
     namespace
     {
+        // A node's string / integer, or nothing: the Json accessors answer a Result by value, and a value is
+        // never read off a temporary Result (ResultWithCodes deletes that overload).
+        template <typename NodeRef>
+        std::optional<std::string> StringOf( const NodeRef& node )
+        {
+            if ( !node )
+                return std::nullopt;
+            const auto text = node->AsString();
+            if ( !text )
+                return std::nullopt;
+            return text.GetValue();
+        }
+
+        template <typename NodeRef>
+        std::optional<int64_t> IntegerOf( const NodeRef& node )
+        {
+            if ( !node )
+                return std::nullopt;
+            const auto number = node->AsInteger();
+            if ( !number )
+                return std::nullopt;
+            return number.GetValue();
+        }
+
         namespace Json = Common::Json;
 
         std::mutex& RootMutex()
@@ -202,8 +227,7 @@ namespace Desert::Core
                               }
                               const auto        kind  = record.Find( "Type" );
                               const auto        value = record.Find( "Value" );
-                              const std::string kindName =
-                                   kind && kind->AsString() ? kind->AsString().GetValue() : "";
+                              const std::string kindName = StringOf( kind ).value_or( "" );
                               Scripting::ScriptProperty read;
                               read.Name   = std::string( name );
                               bool usable = false;
@@ -304,7 +328,7 @@ namespace Desert::Core
             if ( character != Physics::kInvalidCharacter )
             {
                 physics->TeleportCharacter( character, position );
-                registry.get<ECS::CharacterControllerComponent>( entity ).VerticalVelocity = 0.0f;
+                registry.get<ECS::CharacterControllerComponent>( entity ).Velocity = glm::vec3( 0.0f );
             }
         }
 
@@ -387,16 +411,17 @@ namespace Desert::Core
         Common::BoolResultStr CheckEnvelope( const Json::Node& root, const std::string& what )
         {
             const auto format = root.Find( "Format" );
-            if ( !format || !format->AsString() || format->AsString().GetValue() != SAVEGAME_FORMAT_NAME )
+            if ( StringOf( format ) != std::optional<std::string>( SAVEGAME_FORMAT_NAME ) )
                 return Common::MakeFormattedError<bool>( "{}: not a save game (Format is not '{}')", what,
                                                          SAVEGAME_FORMAT_NAME );
             const auto version = root.Find( "Version" );
-            if ( !version || !version->AsInteger() )
+            const std::optional<int64_t> stated = IntegerOf( version );
+            if ( !stated )
                 return Common::MakeFormattedError<bool>( "{}: save game has no integer Version", what );
-            if ( version->AsInteger().GetValue() != SAVEGAME_FORMAT_VERSION )
+            if ( *stated != SAVEGAME_FORMAT_VERSION )
                 return Common::MakeFormattedError<bool>(
-                     "{}: save game version {} refused, this build reads version {}", what,
-                     version->AsInteger().GetValue(), SAVEGAME_FORMAT_VERSION );
+                     "{}: save game version {} refused, this build reads version {}", what, *stated,
+                     SAVEGAME_FORMAT_VERSION );
             return Common::MakeSuccess( true );
         }
 
@@ -465,8 +490,7 @@ namespace Desert::Core
                                     [&]( const Reflection::FieldInfo& f ) { return f.Name == name; } );
                  const auto        savedType = record.Find( "Type" );
                  const auto        value     = record.Find( "Value" );
-                 const std::string savedTypeName =
-                      savedType && savedType->AsString() ? savedType->AsString().GetValue() : "";
+                 const std::string savedTypeName = StringOf( savedType ).value_or( "" );
                  if ( field == type.Fields.end() )
                      report.Problems.push_back( std::format( "{}.{} no longer exists; skipped", label, name ) );
                  else if ( !field->Meta.SaveGame )
@@ -543,10 +567,10 @@ namespace Desert::Core
         SaveGameSceneIdentity identity;
         if ( const auto scene = root.Find( "Scene" ) )
         {
-            if ( const auto guid = scene->Find( "Guid" ); guid && guid->AsString() )
-                identity.Guid = guid->AsString().GetValue();
-            if ( const auto name = scene->Find( "Name" ); name && name->AsString() )
-                identity.Name = name->AsString().GetValue();
+            if ( auto guid = StringOf( scene->Find( "Guid" ) ) )
+                identity.Guid = std::move( *guid );
+            if ( auto name = StringOf( scene->Find( "Name" ) ) )
+                identity.Name = std::move( *name );
         }
         return Common::MakeSuccess( identity );
     }
@@ -611,8 +635,8 @@ namespace Desert::Core
                  [&]( std::string_view uuid, const Json::Node& record )
                  {
                      std::string name;
-                     if ( const auto saved = record.Find( "Name" ); saved && saved->AsString() )
-                         name = saved->AsString().GetValue();
+                     if ( auto saved = StringOf( record.Find( "Name" ) ) )
+                         name = std::move( *saved );
                      const std::string label = std::format( "entity '{}' ({})", name, uuid );
                      const auto        found = byUuid.find( std::string( uuid ) );
                      if ( found == byUuid.end() )
