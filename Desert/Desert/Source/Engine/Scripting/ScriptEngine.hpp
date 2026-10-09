@@ -21,12 +21,12 @@ namespace Desert::Assets
 
 namespace Desert::Scripting
 {
-    // Owns the embedded Lua runtime (via sol2). The concept: the engine exposes capabilities + lifecycle to
-    // scripts written in Lua, so game behavior lives in hot-reloadable .lua files instead of compiled C++.
-    // Engine = mechanism/hot-path; script = behavior/decisions.
+    // The game's script host on the Luau runtime (Luau/LuauRuntime: sandboxed slots, the watchdog, compiled-once
+    // bytecode). The engine exposes capabilities + lifecycle to scripts, so game behavior lives in hot-reloadable
+    // scripts instead of compiled C++. Engine = mechanism/hot-path; script = behavior/decisions.
     //
-    // sol2/Lua headers are HEAVY and are confined entirely to ScriptEngine.cpp (PIMPL, like PhysicsWorld) so
-    // the rest of the engine never pays their compile cost and never sees Lua types.
+    // `self` is the entity object: its data by record key (self:component("PointLight"), has/add/remove), its
+    // verbs as native methods (destroy, call, move, ...). No Luau type appears here (PIMPL).
     class ScriptEngine
     {
     public:
@@ -38,7 +38,7 @@ namespace Desert::Scripting
         ScriptEngine( const ScriptEngine& )            = delete;
         ScriptEngine& operator=( const ScriptEngine& ) = delete;
 
-        // Runs a chunk of Lua immediately (boot self-test / quick eval). Returns the Lua error on failure.
+        // Runs a chunk in the console sandbox (its globals persist between calls). Returns the script error on failure.
         Common::BoolResultStr RunString( const std::string& code );
 
         // REPL eval for the editor Lua console: runs @p code (as an expression first, then as a

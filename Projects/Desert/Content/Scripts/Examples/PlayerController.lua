@@ -19,7 +19,7 @@ Properties = {
 }
 
 function OnStart()
-    if not self:hasComponent("CharacterController") then
+    if not self:has("CharacterController") then
         Log.warn(self:name() .. ": PlayerController needs a Character Controller component")
     end
     Input.lockCursor() -- capture the mouse for look (Escape toggles it back)

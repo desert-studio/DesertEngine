@@ -205,7 +205,7 @@ namespace Desert::Scripting
         }
     };
 
-    LuauRuntime::LuauRuntime( LuauLimits limits ) : m_Impl( std::make_unique<Impl>() )
+    LuauRuntime::LuauRuntime( LuauLimits limits, const LuauInstall& install ) : m_Impl( std::make_unique<Impl>() )
     {
         Impl& impl  = *m_Impl;
         impl.Limits = limits;
@@ -225,6 +225,8 @@ namespace Desert::Scripting
         lua_pushcfunction( impl.L, &Impl::Print, "print" );
         lua_setglobal( impl.L, "print" );
         LuauBinder::Install( impl.L );
+        if ( install )
+            install( impl.L );
         luaL_sandbox( impl.L );
 
         impl.Console    = lua_newthread( impl.L );
@@ -340,6 +342,110 @@ namespace Desert::Scripting
             LuauBinder::PushValue( thread, arg );
         return impl.Run( thread, static_cast<int>( args.size() ), 0, impl.Scripts.at( target.Script ).Category,
                          std::format( "{} {}", target.Script, function ) );
+    }
+
+    Common::BoolResultStr LuauRuntime::CallFrom( LuauSlot slot, const char* function, lua_State* from, int first,
+                                                 int count )
+    {
+        Impl& impl  = *m_Impl;
+        auto  found = impl.Slots.find( slot );
+        if ( found == impl.Slots.end() )
+            return Common::MakeError<bool>( std::format( "slot {} does not exist", slot ) );
+        const Impl::Slot& target = found->second;
+        lua_State*        thread = target.Thread;
+
+        lua_getglobal( thread, function );
+        if ( !lua_isfunction( thread, -1 ) )
+        {
+            lua_pop( thread, 1 );
+            return Common::MakeError<bool>(
+                 std::format( "{}: defines no function '{}'", target.Script, function ) );
+        }
+        for ( int i = 0; i < count; ++i )
+            lua_xpush( from, thread, first + i );
+        return impl.Run( thread, count, 0, impl.Scripts.at( target.Script ).Category,
+                         std::format( "{} {}", target.Script, function ) );
+    }
+
+    Common::BoolResultStr LuauRuntime::CallRef( LuauSlot slot, int function )
+    {
+        Impl& impl  = *m_Impl;
+        auto  found = impl.Slots.find( slot );
+        if ( found == impl.Slots.end() )
+            return Common::MakeError<bool>( std::format( "slot {} does not exist", slot ) );
+        const Impl::Slot& target = found->second;
+        lua_getref( target.Thread, function );
+        if ( !lua_isfunction( target.Thread, -1 ) )
+        {
+            lua_pop( target.Thread, 1 );
+            return Common::MakeError<bool>( std::format( "{}: the callback is gone", target.Script ) );
+        }
+        return impl.Run( target.Thread, 0, 0, impl.Scripts.at( target.Script ).Category,
+                         std::format( "{} callback", target.Script ) );
+    }
+
+    void LuauRuntime::Unref( int reference )
+    {
+        lua_unref( m_Impl->L, reference );
+    }
+
+    void LuauRuntime::SetTableField( LuauSlot slot, const char* table, const std::string& key,
+                                     const Reflection::Value& value )
+    {
+        Impl& impl  = *m_Impl;
+        auto  found = impl.Slots.find( slot );
+        if ( found == impl.Slots.end() )
+            return;
+        lua_State* thread = found->second.Thread;
+        lua_getglobal( thread, table );
+        if ( !lua_istable( thread, -1 ) )
+        {
+            lua_pop( thread, 1 );
+            lua_newtable( thread );
+            lua_pushvalue( thread, -1 );
+            lua_setglobal( thread, table );
+        }
+        LuauBinder::PushValue( thread, value );
+        lua_setfield( thread, -2, key.c_str() );
+        lua_pop( thread, 1 );
+    }
+
+    std::vector<LuauTableEntry> LuauRuntime::ReadTable( LuauSlot slot, const char* table ) const
+    {
+        std::vector<LuauTableEntry> entries;
+        const Impl&                 impl  = *m_Impl;
+        auto                        found = impl.Slots.find( slot );
+        if ( found == impl.Slots.end() )
+            return entries;
+        lua_State* thread = found->second.Thread;
+        lua_getglobal( thread, table );
+        if ( lua_istable( thread, -1 ) )
+        {
+            lua_pushnil( thread );
+            while ( lua_next( thread, -2 ) != 0 )
+            {
+                if ( lua_type( thread, -2 ) == LUA_TSTRING )
+                {
+                    std::string key = lua_tostring( thread, -2 );
+                    switch ( lua_type( thread, -1 ) )
+                    {
+                        case LUA_TBOOLEAN:
+                            entries.push_back( { std::move( key ), Reflection::Value::Bool( lua_toboolean( thread, -1 ) != 0 ) } );
+                            break;
+                        case LUA_TNUMBER:
+                            entries.push_back( { std::move( key ), Reflection::Value::Double( lua_tonumber( thread, -1 ) ) } );
+                            break;
+                        case LUA_TSTRING:
+                            entries.push_back( { std::move( key ), Reflection::Value::String( lua_tostring( thread, -1 ) ) } );
+                            break;
+                        default: break; // a table / function default is not an editor property
+                    }
+                }
+                lua_pop( thread, 1 );
+            }
+        }
+        lua_pop( thread, 1 );
+        return entries;
     }
 
     Common::BoolResultStr LuauRuntime::Eval( const std::string& code, std::string& output )

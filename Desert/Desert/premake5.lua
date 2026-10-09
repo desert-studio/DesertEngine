@@ -50,6 +50,15 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
     }
 
+    -- SCR-LUAU-3 -> SCR-LUAU-4: these three native modules are still written against sol2 and are ported to the
+    -- Luau runtime next (/private/tmp/claude-501/SCR-LUAU-3/REMAINDER.md); until then they are not compiled and
+    -- scripts have no entity:setAnimParam/ui/loc.
+    removefiles {
+        "Source/Engine/Scripting/AnimationBindings.cpp",
+        "Source/Engine/Scripting/LocalizationBindings.cpp",
+        "Source/Engine/Scripting/UIBindings.cpp",
+    }
+
     includedirs {
         "Source/",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",

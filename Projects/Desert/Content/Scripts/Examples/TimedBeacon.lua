@@ -3,7 +3,7 @@
 --
 -- Showcases the scripting API:
 --   Timer.after(seconds, fn)            -- deferred callback; re-arm inside fn to repeat
---   self:addComponent("PointLight")     -- reflection-driven components from script
+--   self:add("PointLight")     -- reflection-driven components from script
 --   light.Intensity / light.Color       -- reflected fields read/write directly
 --   Input.wasPressed("B")               -- edge-detected key press (full keyboard)
 --   self:forward() / self:distanceTo()  -- spatial helpers
@@ -31,7 +31,7 @@ local function blink()
 end
 
 function OnStart()
-    local light = self:addComponent("PointLight")
+    local light = self:add("PointLight")
     light.Color = { x = 1.0, y = 0.55, z = 0.15 }
     light.Intensity = 0.0
 

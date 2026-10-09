@@ -2,20 +2,48 @@
 
 namespace Desert::Scripting
 {
-    // Logging into the engine Logs panel: log(), Log.info/warn/error.
-    void RegisterLogBindings( ScriptEngine::Impl& implRef )
+    namespace
     {
-        auto& lua  = implRef.Lua;
-        auto* impl = &implRef;
-        (void)lua; (void)impl;
+        // Every argument as text (tostring), tab-separated — what print() would show.
+        std::string Message( lua_State* L )
+        {
+            std::string text;
+            for ( int i = 1, n = lua_gettop( L ); i <= n; ++i )
+            {
+                std::size_t length = 0;
+                const char* piece  = luaL_tolstring( L, i, &length );
+                if ( i > 1 )
+                    text += '\t';
+                text.append( piece, length );
+                lua_pop( L, 1 );
+            }
+            return text;
+        }
 
-        // Route Lua output through the engine logger (shows in the editor's Logs panel).
-        lua.set_function( "log", []( const std::string& msg ) { LOG_INFO( "[Lua] {}", msg ); } );
+        int Info( lua_State* L )
+        {
+            LOG_INFO( "[Lua] {}", Message( L ) );
+            return 0;
+        }
+        int Warn( lua_State* L )
+        {
+            LOG_WARN( "[Lua] {}", Message( L ) );
+            return 0;
+        }
+        int Error( lua_State* L )
+        {
+            LOG_ERROR( "[Lua] {}", Message( L ) );
+            return 0;
+        }
+    } // namespace
 
-        // Leveled logging: Log.info / Log.warn / Log.error (Logs panel filters by level).
-        sol::table logTable = lua.create_named_table( "Log" );
-        logTable["info"]    = []( const std::string& msg ) { LOG_INFO( "[Lua] {}", msg ); };
-        logTable["warn"]    = []( const std::string& msg ) { LOG_WARN( "[Lua] {}", msg ); };
-        logTable["error"]   = []( const std::string& msg ) { LOG_ERROR( "[Lua] {}", msg ); };
+    // Logging into the engine Logs panel: log(), Log.info/warn/error (the panel filters by level).
+    void RegisterLogBindings( lua_State* L )
+    {
+        lua_pushcfunction( L, &Info, "log" );
+        lua_setglobal( L, "log" );
+        constexpr luaL_Reg kLog[] = { { "info", &Info }, { "warn", &Warn }, { "error", &Error }, { nullptr, nullptr } };
+        luaL_register( L, "Log", kLog );
+        lua_pop( L, 1 );
     }
 } // namespace Desert::Scripting

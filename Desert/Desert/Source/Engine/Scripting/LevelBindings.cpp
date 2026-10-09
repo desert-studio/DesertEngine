@@ -2,26 +2,26 @@
 
 #include <Engine/Core/LevelTravel.hpp>
 
-#include <tuple>
-
 namespace Desert::Scripting
 {
-    // level.open( name ) -- Core::OpenLevel, the same call a UI button and C++ gameplay make: it QUEUES the
-    // travel and the host applies it at the next frame boundary, so the script that called it finishes its
-    // callback in the level it is running in. `name` is project-relative (Content/Scenes/Arena.desce) or
-    // absolute; level.open() with no name opens the project's default map. Returns true, or
-    // false + the reason (with the path that was tried) when the level does not resolve.
-    void RegisterLevelBindings( ScriptEngine::Impl& implRef )
+    namespace
     {
-        sol::table level = implRef.Lua.create_named_table( "level" );
-        level.set_function(
-             "open",
-             []( const sol::optional<std::string>& name ) -> std::tuple<bool, sol::optional<std::string>>
-             {
-                 const auto opened = Core::OpenLevel( name.value_or( std::string{} ) );
-                 if ( !opened )
-                     return { false, opened.GetError() };
-                 return { true, sol::nullopt };
-             } );
+        // level.open([name]) -> true | false, why. Queues the travel (Core::OpenLevel); no name = the default level.
+        int Open( lua_State* L )
+        {
+            const auto opened = Core::OpenLevel( luaL_optstring( L, 1, "" ) );
+            lua_pushboolean( L, opened ? 1 : 0 );
+            if ( opened )
+                return 1;
+            lua_pushstring( L, opened.GetError().c_str() );
+            return 2;
+        }
+    } // namespace
+
+    void RegisterLevelBindings( lua_State* L )
+    {
+        constexpr luaL_Reg kLevel[] = { { "open", &Open }, { nullptr, nullptr } };
+        luaL_register( L, "level", kLevel );
+        lua_pop( L, 1 );
     }
 } // namespace Desert::Scripting

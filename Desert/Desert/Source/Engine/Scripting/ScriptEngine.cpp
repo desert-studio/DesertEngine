@@ -1,33 +1,47 @@
 #include "Internal/ScriptRuntime.hpp"
 
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Core/Input.hpp>
+
 #include <filesystem>
+#include <format>
+#include <fstream>
+#include <iterator>
 
 namespace Desert::Scripting
 {
     namespace
     {
-        // A game script is CONTENT: it arrives with a level, a mod or a download, and it runs with the
-        // player's rights. So it gets the language and the engine's own API, and nothing that reaches the
-        // machine around it: no `io` (never opened), no process/file half of `os` (execute, exit, getenv,
-        // remove, rename, tmpname, setlocale), and none of the base library's loaders (dofile, loadfile,
-        // load), which would turn any string or file into code past this boundary. What `os` keeps is
-        // time: clock, date, difftime, time. Code the engine runs comes in through RunString/LoadEntityScript,
-        // which compile on the C++ side and need none of these.
-        void OpenGameLibraries( sol::state& lua )
+        /// The registry key of the host pointer every native reaches through Impl::Of.
+        constexpr const char* kHost = "desert.host";
+
+        /// The script's text: a loose file on disk, else the packed archive's copy (shipped game).
+        Common::ResultStr<std::string> ReadScript( const std::string& path )
         {
-            lua.open_libraries( sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table, sol::lib::os );
-
-            for ( const char* loader : { "dofile", "loadfile", "load" } )
-                lua[loader] = sol::lua_nil;
-
-            const sol::table fullOs = lua["os"];
-            sol::table       timeOs = lua.create_table();
-            for ( const char* name : { "clock", "date", "difftime", "time" } )
-                timeOs[name] = fullOs[name];
-            lua["os"] = timeOs;
+            if ( std::filesystem::exists( path ) )
+            {
+                std::ifstream file( path, std::ios::binary );
+                if ( !file )
+                    return Common::MakeError<std::string>( std::format( "script not readable: {}", path ) );
+                return Common::MakeSuccess(
+                     std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() ) );
+            }
+            if ( Common::Utils::FileSystem::Exists( path ) )
+            {
+                if ( auto packed = Common::Utils::FileSystem::ReadFileContent( path ); packed )
+                    return Common::MakeSuccess( packed.ExtractValue() );
+            }
+            return Common::MakeError<std::string>( std::format( "script not found: {}", path ) );
         }
     } // namespace
+
+    ScriptEngine::Impl& ScriptEngine::Impl::Of( lua_State* L )
+    {
+        lua_getfield( L, LUA_REGISTRYINDEX, kHost );
+        auto* host = static_cast<Impl*>( lua_tolightuserdata( L, -1 ) );
+        lua_pop( L, 1 );
+        return *host;
+    }
 
     ScriptEngine::ScriptEngine( Core::Scene* scene, Assets::AssetManager* assetManager )
          : m_Impl( std::make_unique<Impl>() )
@@ -35,366 +49,266 @@ namespace Desert::Scripting
         m_Impl->Scene  = scene;
         m_Impl->Assets = assetManager;
 
-        OpenGameLibraries( m_Impl->Lua );
+        Impl* host       = m_Impl.get();
+        m_Impl->Runtime = std::make_unique<LuauRuntime>(
+             LuauLimits{},
+             [host]( lua_State* L )
+             {
+                 lua_pushlightuserdata( L, host );
+                 lua_setfield( L, LUA_REGISTRYINDEX, kHost );
+                 lua_newtable( L );
+                 host->WorldVars = lua_ref( L, -1 );
+                 lua_pop( L, 1 );
 
-        // Modular bindings: the core owns the VM; every domain registers its own API from its
-        // own translation unit (see Internal/ScriptRuntime.hpp for the architecture note).
-        RegisterLogBindings( *m_Impl );
-        RegisterEntityCoreBindings( *m_Impl );
-        RegisterCharacterBindings( *m_Impl );
-        RegisterMaterialBindings( *m_Impl );
-        RegisterInputBindings( *m_Impl );
-        RegisterTimerBindings( *m_Impl );
-        RegisterWorldBindings( *m_Impl );
-        RegisterReflectionBindings( *m_Impl ); // after EntityCore: extends the Entity usertype
-        RegisterAudioBindings( *m_Impl );
-        RegisterAnimationBindings( *m_Impl ); // after EntityCore: extends the Entity usertype
-        RegisterUIBindings( *m_Impl );
-        RegisterLocalizationBindings( *m_Impl );
-        RegisterProjectBindings( *m_Impl );
-        RegisterLevelBindings( *m_Impl );
+                 RegisterLogBindings( L );
+                 RegisterEntityCoreBindings( L );
+                 RegisterCharacterBindings( L );
+                 RegisterMaterialBindings( L );
+                 RegisterInputBindings( L );
+                 RegisterTimerBindings( L );
+                 RegisterWorldBindings( L );
+                 RegisterAudioBindings( L );
+                 RegisterProjectBindings( L );
+                 RegisterLevelBindings( L );
+             } );
     }
 
     ScriptEngine::~ScriptEngine() = default;
 
     Common::BoolResultStr ScriptEngine::RunString( const std::string& code )
     {
-        sol::protected_function_result result = m_Impl->Lua.safe_script( code, sol::script_pass_on_error );
-        if ( !result.valid() )
-        {
-            sol::error err = result;
-            return Common::MakeError( err.what() );
-        }
-        return BOOLSUCCESS;
+        std::string output;
+        Common::BoolResultStr ran = m_Impl->Runtime->Eval( code, output );
+        m_Impl->Settle();
+        return ran;
     }
 
     Common::BoolResultStr ScriptEngine::EvalToString( const std::string& code, std::string& output )
     {
-        auto& lua = m_Impl->Lua;
         output.clear();
-
-        // Redirect print() into a table for the duration of this eval (this is the console's OWN VM, and
-        // print is restored right after).
-        lua.safe_script( "__repl_out = {}; __repl_old_print = print; "
-                         "function print(...) local t = {} for i = 1, select('#', ...) do "
-                         "t[i] = tostring(select(i, ...)) end "
-                         "__repl_out[#__repl_out + 1] = table.concat(t, '\\t') end",
-                         sol::script_pass_on_error );
-
-        // Try as an expression first ("2+2", "World.count()") so its value is shown; fall back to running
-        // it as a statement ("x = 5", "for ...") only when the expression form does not COMPILE — so a
-        // runtime error in a valid expression is reported once, not run twice.
-        sol::protected_function_result r;
-        bool                           ranAsExpr = false;
-        if ( sol::load_result exprChunk = lua.load( "return (" + code + ")" ); exprChunk.valid() )
-        {
-            sol::protected_function fn = exprChunk;
-            r                          = fn();
-            ranAsExpr                  = true;
-        }
-        else
-        {
-            r = lua.safe_script( code, sol::script_pass_on_error );
-        }
-
-        lua.safe_script( "print = __repl_old_print", sol::script_pass_on_error );
-
-        // Collect captured print() lines (array part, in order).
-        if ( sol::table out = lua["__repl_out"]; out.valid() )
-        {
-            const std::size_t n = out.size();
-            for ( std::size_t i = 1; i <= n; ++i )
-            {
-                output += out.get<std::string>( i );
-                output += '\n';
-            }
-        }
-
-        if ( !r.valid() )
-        {
-            sol::error err = r;
-            return Common::MakeError( err.what() );
-        }
-
-        // Append the expression's value, if it produced one.
-        if ( ranAsExpr && r.return_count() > 0 )
-        {
-            sol::object v = r[0];
-            if ( v.valid() && v.get_type() != sol::type::lua_nil )
-            {
-                const std::string s = lua["tostring"]( v );
-                output += s;
-                output += '\n';
-            }
-        }
-        return BOOLSUCCESS;
-    }
-
-    // Returns the env for (entity, slot), or nullptr if not loaded. Grows the slot vector on demand when
-    // `create` is set (used by LoadEntityScript so slots can be (re)loaded in any order).
-    static sol::environment* SlotEnv( EnvMap& envs, uint32_t entity, uint32_t slot, bool create )
-    {
-        auto it = envs.find( entity );
-        if ( it == envs.end() )
-        {
-            if ( !create )
-                return nullptr;
-            it = envs.emplace( entity, std::vector<sol::environment>{} ).first;
-        }
-        if ( slot >= it->second.size() )
-        {
-            if ( !create )
-                return nullptr;
-            it->second.resize( slot + 1, sol::environment{} );
-        }
-        return &it->second[slot];
+        Common::BoolResultStr ran = m_Impl->Runtime->Eval( code, output );
+        m_Impl->Settle();
+        return ran;
     }
 
     Common::BoolResultStr ScriptEngine::LoadEntityScript( uint32_t entity, uint32_t slot,
                                                           const std::string& path )
     {
-        sol::environment env( m_Impl->Lua, sol::create, m_Impl->Lua.globals() );
-        env["self"] = m_Impl->MakeEntity( static_cast<entt::entity>( entity ) );
+        Common::ResultStr<std::string> source = ReadScript( path );
+        if ( !source.IsSuccess() )
+            return Common::MakeError<bool>( source.GetError() );
 
-        // Disk scripts load via sol's file path (dev / hot-reload); a packaged game reads the source
-        // out of the mounted .dpak and loads it as a string chunk. A path the VFS does not know
-        // either — or knows but cannot read — becomes a Lua error() chunk, so the failure surfaces
-        // through the same channel as any script error below.
-        std::string packedSource;
-        if ( !std::filesystem::exists( path ) )
-        {
-            packedSource = std::string( "error('script not found: " ).append( path ).append( "')" );
-            if ( Common::Utils::FileSystem::Exists( path ) )
-            {
-                if ( auto packed = Common::Utils::FileSystem::ReadFileContent( path ); packed )
-                    packedSource = packed.ExtractValue();
-            }
-        }
-        sol::protected_function_result r =
-             std::filesystem::exists( path )
-                  ? m_Impl->Lua.safe_script_file( path, env, sol::script_pass_on_error )
-                  : m_Impl->Lua.safe_script( packedSource, env, sol::script_pass_on_error );
-        if ( !r.valid() )
-        {
-            sol::error err = r;
-            return Common::MakeError( err.what() );
-        }
+        Impl&          impl = *m_Impl;
+        const uint64_t key  = Impl::SlotKey( entity, slot );
+        // The replaced sandbox's timers are stale whether or not the new code runs.
+        impl.DropTimers( [key]( const Impl::PendingTimer& t ) { return t.Owner == key; } );
+        impl.LastUpdateError.erase( key ); // fresh sandbox -> fresh error state
 
-        *SlotEnv( m_Impl->Envs, entity, slot, /*create*/ true ) = std::move( env );
-        const uint64_t key = Impl::SlotKey( entity, slot );
-        m_Impl->LastUpdateError.erase( key ); // fresh env -> fresh error state
-        // Fresh env -> the OLD env's pending timers must not fire into it (hot-reload safety).
-        std::erase_if( m_Impl->Timers, [key]( const Impl::PendingTimer& t ) { return t.Owner == key; } );
+        entt::registry*    registry = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
+        const entt::entity handle   = static_cast<entt::entity>( entity );
+        impl.CurrentOwner           = key; // Timer.after at the top level belongs to this slot
+        Common::ResultStr<LuauSlot> loaded =
+             impl.Runtime->Load( path, source.GetValue(),
+                                 { EntityBinding( "self", [registry, handle]()
+                                                  { return LuauEntityRef{ registry, handle }; } ) } );
+        impl.Settle();
+        if ( !loaded.IsSuccess() )
+            return Common::MakeError<bool>( loaded.GetError() );
+
+        std::vector<LuauSlot>& slots = impl.Slots[entity];
+        if ( slot >= slots.size() )
+            slots.resize( slot + 1, 0 );
+        if ( slots[slot] != 0 )
+            impl.Runtime->Release( slots[slot] );
+        slots[slot] = loaded.GetValue();
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr ScriptEngine::Impl::CallSlot( uint32_t entity, uint32_t slot, const char* function,
+                                                        std::span<const Reflection::Value> args )
+    {
+        const LuauSlot target = SlotOf( entity, slot );
+        if ( target == 0 || !Runtime->Defines( target, function ) )
+            return BOOLSUCCESS;
+        CurrentOwner                    = SlotKey( entity, slot ); // Timer.after ownership
+        Common::BoolResultStr called = Runtime->Call( target, function, args );
+        Settle();
+        return called;
+    }
+
+    void ScriptEngine::Impl::Settle()
+    {
+        // entity:destroy() inside a script: its slots are released here, once no script code runs.
+        std::vector<uint32_t> released;
+        released.swap( PendingRelease );
+        for ( uint32_t entity : released )
+            ReleaseEntity( entity );
+    }
+
+    void ScriptEngine::Impl::ReleaseEntity( uint32_t entity )
+    {
+        if ( auto it = Slots.find( entity ); it != Slots.end() )
+        {
+            for ( LuauSlot slot : it->second )
+                if ( slot != 0 )
+                    Runtime->Release( slot );
+            Slots.erase( it );
+        }
+        DropTimers( [entity]( const PendingTimer& t ) { return static_cast<uint32_t>( t.Owner >> 32 ) == entity; } );
     }
 
     void ScriptEngine::CallStart( uint32_t entity, uint32_t slot )
     {
-        sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
-        if ( !env )
-            return;
-        sol::protected_function fn = ( *env )["OnStart"];
-        if ( !fn.valid() )
-            return;
-        m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot ); // Timer.after ownership
-        sol::protected_function_result r = fn();
-        if ( !r.valid() )
-        {
-            sol::error err = r;
-            LOG_ERROR( "[Lua] OnStart error: {}", err.what() );
-        }
+        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, "OnStart", {} ); !r.IsSuccess() )
+            LOG_ERROR( "[Lua] OnStart error: {}", r.GetError() );
     }
 
     void ScriptEngine::CallAnimationNotify( uint32_t entity, uint32_t slot, const char* callback,
                                             const std::string& name )
     {
-        sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
-        if ( !env )
-            return;
-        const sol::protected_function fn = ( *env )[callback];
-        if ( !fn.valid() )
-            return;
-        m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot ); // Timer.after ownership
-        sol::protected_function_result r = fn( name );
-        if ( !r.valid() )
-        {
-            sol::error err = r;
-            LOG_ERROR( "[Lua] {} error: {}", callback, err.what() );
-        }
+        const Reflection::Value arg = Reflection::Value::String( name );
+        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, callback, { &arg, 1 } ); !r.IsSuccess() )
+            LOG_ERROR( "[Lua] {} error: {}", callback, r.GetError() );
     }
 
     void ScriptEngine::BroadcastUIMessage( const std::string& message )
     {
-        for ( auto& [entity, slots] : m_Impl->Envs )
-        {
+        const Reflection::Value arg = Reflection::Value::String( message );
+        // A copy: an answering script may destroy entities (their slots are released after it returns).
+        std::vector<std::pair<uint32_t, uint32_t>> targets;
+        for ( const auto& [entity, slots] : m_Impl->Slots )
             for ( uint32_t slot = 0; slot < static_cast<uint32_t>( slots.size() ); ++slot )
-            {
-                sol::protected_function fn = slots[slot]["OnUIMessage"];
-                if ( !fn.valid() )
-                    continue;
-                m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot ); // Timer.after ownership
-                sol::protected_function_result r = fn( message );
-                if ( !r.valid() )
-                {
-                    sol::error err = r;
-                    LOG_ERROR( "[Lua] OnUIMessage error: {}", err.what() );
-                }
-            }
-        }
+                targets.emplace_back( entity, slot );
+        for ( const auto& [entity, slot] : targets )
+            if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, "OnUIMessage", { &arg, 1 } );
+                 !r.IsSuccess() )
+                LOG_ERROR( "[Lua] OnUIMessage error: {}", r.GetError() );
     }
 
     void ScriptEngine::CallUpdate( uint32_t entity, uint32_t slot, float dt )
     {
-        sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
-        if ( !env )
-            return;
-        sol::protected_function fn = ( *env )["OnUpdate"];
-        if ( !fn.valid() )
-            return;
-        const uint64_t key    = Impl::SlotKey( entity, slot );
-        m_Impl->CurrentOwner  = key; // Timer.after ownership
-        sol::protected_function_result r = fn( dt );
-        if ( !r.valid() )
-        {
-            sol::error        err  = r;
-            const std::string what = err.what();
-            // OnUpdate runs every frame — report a given error once, not 60x/sec.
-            if ( m_Impl->LastUpdateError[key] != what )
-            {
-                m_Impl->LastUpdateError[key] = what;
-                LOG_ERROR( "[Lua] OnUpdate error: {}", what );
-            }
-        }
-        else
+        const Reflection::Value arg = Reflection::Value::Float( dt );
+        const uint64_t          key = Impl::SlotKey( entity, slot );
+        Common::BoolResultStr   r   = m_Impl->CallSlot( entity, slot, "OnUpdate", { &arg, 1 } );
+        if ( r.IsSuccess() )
         {
             m_Impl->LastUpdateError.erase( key );
+            return;
+        }
+        if ( m_Impl->LastUpdateError[key] != r.GetError() )
+        {
+            m_Impl->LastUpdateError[key] = r.GetError();
+            LOG_ERROR( "[Lua] OnUpdate error: {}", r.GetError() );
         }
     }
 
     void ScriptEngine::ApplyProperties( uint32_t entity, uint32_t slot,
                                         const std::vector<ScriptProperty>& props )
     {
-        sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
-        if ( !env )
+        const LuauSlot target = m_Impl->SlotOf( entity, slot );
+        if ( target == 0 )
             return;
-
-        // Ensure the env has a `Properties` table (the script usually declares one, but be safe).
-        sol::object existing = ( *env )["Properties"];
-        if ( !existing.is<sol::table>() )
-            ( *env )["Properties"] = m_Impl->Lua.create_table();
-        sol::table t = ( *env )["Properties"];
-
         for ( const auto& p : props )
         {
             switch ( p.Type )
             {
-                case PropertyType::Number: t[p.Name] = p.Number; break;
-                case PropertyType::Bool:   t[p.Name] = p.Bool; break;
-                case PropertyType::String: t[p.Name] = p.Str; break;
+                case PropertyType::Number:
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::Double( p.Number ) );
+                    break;
+                case PropertyType::Bool:
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::Bool( p.Bool ) );
+                    break;
+                case PropertyType::String:
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::String( p.Str ) );
+                    break;
             }
         }
     }
 
     void ScriptEngine::Release( uint32_t entity )
     {
-        m_Impl->Envs.erase( entity );
-        std::erase_if( m_Impl->Timers, [entity]( const Impl::PendingTimer& t )
-                       { return static_cast<uint32_t>( t.Owner >> 32 ) == entity; } );
+        m_Impl->ReleaseEntity( entity );
     }
 
     void ScriptEngine::TrimSlots( uint32_t entity, uint32_t count )
     {
-        auto it = m_Impl->Envs.find( entity );
-        if ( it != m_Impl->Envs.end() && it->second.size() > count )
+        auto it = m_Impl->Slots.find( entity );
+        if ( it != m_Impl->Slots.end() && it->second.size() > count )
+        {
+            for ( std::size_t i = count; i < it->second.size(); ++i )
+                if ( it->second[i] != 0 )
+                    m_Impl->Runtime->Release( it->second[i] );
             it->second.resize( count );
-        std::erase_if( m_Impl->Timers, [entity, count]( const Impl::PendingTimer& t )
-                       { return static_cast<uint32_t>( t.Owner >> 32 ) == entity &&
-                                static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) >= count; } );
+        }
+        m_Impl->DropTimers( [entity, count]( const Impl::PendingTimer& t )
+                            { return static_cast<uint32_t>( t.Owner >> 32 ) == entity &&
+                                     static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) >= count; } );
     }
 
     void ScriptEngine::TickTimers( float dt )
     {
-        // Two-phase so a firing callback can safely schedule new timers (Timer.after re-arm):
-        // extract everything due first, then invoke — new pushes land in m_Impl->Timers untouched.
+        Impl&                           impl = *m_Impl;
         std::vector<Impl::PendingTimer> due;
-        for ( auto it = m_Impl->Timers.begin(); it != m_Impl->Timers.end(); )
+        for ( auto it = impl.Timers.begin(); it != impl.Timers.end(); )
         {
             it->Remaining -= dt;
             if ( it->Remaining <= 0.0f )
             {
-                due.push_back( std::move( *it ) );
-                it = m_Impl->Timers.erase( it );
+                due.push_back( *it );
+                it = impl.Timers.erase( it );
             }
             else
                 ++it;
         }
-        for ( auto& t : due )
+        for ( const Impl::PendingTimer& t : due )
         {
-            m_Impl->CurrentOwner             = t.Owner; // a re-arm inherits the same (entity, slot)
-            sol::protected_function_result r = t.Fn();
-            if ( !r.valid() )
+            const LuauSlot slot = impl.SlotOf( static_cast<uint32_t>( t.Owner >> 32 ),
+                                               static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) );
+            if ( slot != 0 )
             {
-                sol::error err = r;
-                LOG_ERROR( "[Lua] Timer.after error: {}", err.what() );
+                impl.CurrentOwner = t.Owner; // a re-arm inherits the same (entity, slot)
+                if ( Common::BoolResultStr r = impl.Runtime->CallRef( slot, t.Fn ); !r.IsSuccess() )
+                    LOG_ERROR( "[Lua] Timer.after error: {}", r.GetError() );
             }
+            impl.Runtime->Unref( t.Fn );
+            impl.Settle();
         }
     }
 
     std::vector<ScriptProperty> ReadScriptProperties( const std::string& path )
     {
         std::vector<ScriptProperty> out;
-
-        // Throwaway state: we only need to read the top-level `Properties` table. base lib is enough — the
-        // file's top level just sets locals / Properties / defines functions (no engine calls at load time).
-        sol::state lua;
-        lua.open_libraries( sol::lib::base, sol::lib::math );
-        // An unreadable/absent script stays an empty chunk: this probe only harvests Properties, so
-        // "no properties" is the correct answer for a script that cannot run.
-        std::string packedSource;
-        if ( !std::filesystem::exists( path ) && Common::Utils::FileSystem::Exists( path ) )
-        {
-            if ( auto packed = Common::Utils::FileSystem::ReadFileContent( path ); packed )
-                packedSource = packed.ExtractValue();
-        }
-        sol::protected_function_result r = std::filesystem::exists( path )
-                                                ? lua.safe_script_file( path, sol::script_pass_on_error )
-                                                : lua.safe_script( packedSource, sol::script_pass_on_error );
-        if ( !r.valid() )
+        Common::ResultStr<std::string> source = ReadScript( path );
+        if ( !source.IsSuccess() )
             return out;
 
-        sol::object propsObj = lua["Properties"];
-        if ( !propsObj.is<sol::table>() )
+        // A throwaway runtime with no engine modules: the top level runs, `Properties` is read back.
+        LuauRuntime                 runtime;
+        Common::ResultStr<LuauSlot> slot = runtime.Load( path, source.GetValue(), {} );
+        if ( !slot.IsSuccess() )
             return out;
 
-        sol::table props = propsObj.as<sol::table>();
-        for ( const auto& kv : props )
+        for ( const LuauTableEntry& entry : runtime.ReadTable( slot.GetValue(), "Properties" ) )
         {
-            if ( kv.first.get_type() != sol::type::string )
-                continue;
-            const std::string name = kv.first.as<std::string>();
-            const sol::object value = kv.second;
-
             ScriptProperty p;
-            p.Name = name;
-            if ( value.is<bool>() ) // check bool BEFORE number (distinct Lua types)
+            p.Name = entry.Key;
+            if ( const bool* b = entry.Value.Get<bool>() )
             {
                 p.Type = PropertyType::Bool;
-                p.Bool = value.as<bool>();
+                p.Bool = *b;
             }
-            else if ( value.is<double>() )
+            else if ( const double* d = entry.Value.Get<double>() )
             {
                 p.Type   = PropertyType::Number;
-                p.Number = value.as<double>();
+                p.Number = *d;
             }
-            else if ( value.is<std::string>() )
+            else if ( const std::string* str = entry.Value.Get<std::string>() )
             {
                 p.Type = PropertyType::String;
-                p.Str  = value.as<std::string>();
+                p.Str  = *str;
             }
             else
-            {
-                continue; // unsupported type (table/function/...)
-            }
+                continue;
             out.push_back( p );
         }
         return out;

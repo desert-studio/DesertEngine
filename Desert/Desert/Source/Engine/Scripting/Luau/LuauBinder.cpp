@@ -319,14 +319,14 @@ namespace Desert::Scripting::LuauBinder
             return 1;
         }
 
-        /// entity:component(key) — the component by its record key (ECS::ReflectedComponents), nil when the
-        /// entity has none; an unknown key is an error (a typo must not read as "absent").
-        int EntityComponent( lua_State* L )
+        /// The component row an entity method names by `key` (argument 2), on a live entity — or a Luau error:
+        /// an unknown key is an error (a typo must not read as "absent"), as is a gone entity.
+        const ECS::ReflectedComponent& EntityRow( lua_State* L, const char* method, LuauEntityRef& ref )
         {
             const LuauBinding& object = *CheckObject( L, 1 );
             const char*        key    = luaL_checkstring( L, 2 );
             if ( object.Type != nullptr || !object.Entity )
-                luaL_errorL( L, "component() is a method of an entity: call it as entity:component(\"%s\")", key );
+                luaL_errorL( L, "%s() is a method of an entity: call it as entity:%s(\"%s\")", method, method, key );
 
             const ECS::ReflectedComponent* row = ECS::FindReflectedComponent( key );
             if ( row == nullptr )
@@ -334,16 +334,53 @@ namespace Desert::Scripting::LuauBinder
             if ( row->Type() == nullptr )
                 luaL_errorL( L, "the component '%s' has no reflected type", key );
 
-            const LuauEntityRef ref = object.Entity();
+            ref = object.Entity();
             if ( ref.Registry == nullptr || !ref.Registry->valid( ref.Entity ) )
                 luaL_errorL( L, "the entity bound as '%s' is gone", object.Name.c_str() );
-            if ( !row->Has( *ref.Registry, ref.Entity ) )
+            return *row;
+        }
+
+        /// entity:component(key) — the component by its record key (ECS::ReflectedComponents), nil when the
+        /// entity has none.
+        int EntityComponent( lua_State* L )
+        {
+            LuauEntityRef                  ref;
+            const ECS::ReflectedComponent& row    = EntityRow( L, "component", ref );
+            const LuauBinding&             object = *CheckObject( L, 1 );
+            if ( !row.Has( *ref.Registry, ref.Entity ) )
             {
                 lua_pushnil( L );
                 return 1;
             }
-            PushObject( L, ComponentBinding( std::format( "{}:{}", object.Name, key ), object.Entity, *row ) );
+            PushObject( L, ComponentBinding( std::format( "{}:{}", object.Name, row.Name ), object.Entity, row ) );
             return 1;
+        }
+
+        /// entity:has(key) — whether the entity carries the component.
+        int EntityHas( lua_State* L )
+        {
+            LuauEntityRef                  ref;
+            const ECS::ReflectedComponent& row = EntityRow( L, "has", ref );
+            lua_pushboolean( L, row.Has( *ref.Registry, ref.Entity ) ? 1 : 0 );
+            return 1;
+        }
+
+        /// entity:add(key) — adds the component default-constructed (kept when present) and returns it.
+        int EntityAdd( lua_State* L )
+        {
+            LuauEntityRef                  ref;
+            const ECS::ReflectedComponent& row = EntityRow( L, "add", ref );
+            row.Add( *ref.Registry, ref.Entity );
+            return EntityComponent( L );
+        }
+
+        /// entity:remove(key) — removes the component (no-op when absent).
+        int EntityRemove( lua_State* L )
+        {
+            LuauEntityRef                  ref;
+            const ECS::ReflectedComponent& row = EntityRow( L, "remove", ref );
+            row.Remove( *ref.Registry, ref.Entity );
+            return 0;
         }
 
         int Index( lua_State* L )
@@ -353,10 +390,23 @@ namespace Desert::Scripting::LuauBinder
 
             if ( object.Type == nullptr )
             {
-                if ( std::strcmp( key, "component" ) == 0 )
+                for ( const auto& [name, method] : { std::pair{ "component", &EntityComponent },
+                                                     std::pair{ "has", &EntityHas }, std::pair{ "add", &EntityAdd },
+                                                     std::pair{ "remove", &EntityRemove } } )
                 {
-                    lua_pushcfunction( L, EntityComponent, "component" );
-                    return 1;
+                    if ( std::strcmp( key, name ) == 0 )
+                    {
+                        lua_pushcfunction( L, method, name );
+                        return 1;
+                    }
+                }
+                // The engine's own entity methods (destroy, call, move, ...) — installed by the host module.
+                lua_getfield( L, LUA_REGISTRYINDEX, kEntityMethods );
+                if ( lua_istable( L, -1 ) )
+                {
+                    lua_getfield( L, -1, key );
+                    if ( lua_isfunction( L, -1 ) )
+                        return 1;
                 }
                 luaL_errorL( L, "an entity has no field or method '%s' (its data is entity:component(key))", key );
             }
@@ -520,6 +570,51 @@ namespace Desert::Scripting::LuauBinder
         lua_setfield( L, LUA_REGISTRYINDEX, kMethodCache );
 
         BindStaticFunctions( L );
+    }
+
+    void SetEntityMethod( lua_State* L, const char* name, lua_CFunction method )
+    {
+        lua_getfield( L, LUA_REGISTRYINDEX, kEntityMethods );
+        if ( !lua_istable( L, -1 ) )
+        {
+            lua_pop( L, 1 );
+            lua_newtable( L );
+            lua_pushvalue( L, -1 );
+            lua_setfield( L, LUA_REGISTRYINDEX, kEntityMethods );
+        }
+        lua_pushcfunction( L, method, name );
+        lua_setfield( L, -2, name );
+        lua_pop( L, 1 );
+    }
+
+    std::optional<LuauEntityRef> ToEntity( lua_State* L, int index )
+    {
+        auto* object = static_cast<LuauBinding*>( lua_touserdatatagged( L, index, kObjectTag ) );
+        if ( object == nullptr || object->Type != nullptr || !object->Entity )
+            return std::nullopt;
+        return object->Entity();
+    }
+
+    LuauEntityRef CheckEntity( lua_State* L, int index )
+    {
+        std::optional<LuauEntityRef> ref = ToEntity( L, index );
+        if ( !ref )
+            luaL_typeerrorL( L, index, "entity" );
+        if ( ref->Registry == nullptr || !ref->Registry->valid( ref->Entity ) )
+            luaL_errorL( L, "argument #%d: the entity is gone", index );
+        return *ref;
+    }
+
+    void PushEntity( lua_State* L, entt::registry& registry, entt::entity entity )
+    {
+        if ( entity == entt::null || !registry.valid( entity ) )
+        {
+            lua_pushnil( L );
+            return;
+        }
+        entt::registry* owner = &registry;
+        PushObject( L, EntityBinding( std::format( "entity {}", static_cast<std::uint32_t>( entity ) ),
+                                      [owner, entity]() { return LuauEntityRef{ owner, entity }; } ) );
     }
 
     void PushObject( lua_State* L, const LuauBinding& binding )

@@ -23,6 +23,22 @@ namespace Desert::Scripting::LuauBinder
     /// what it creates is frozen with the rest.
     void Install( lua_State* L );
 
+    /// The registry table of the engine's entity methods (destroy, call, move, ...): the entity object's
+    /// __index looks a name up here after its own reflection methods (component/has/add/remove).
+    inline constexpr const char* kEntityMethods = "desert.entity.methods";
+
+    /// Adds `entity:name(...)`, a native the host module installs (on the main state, before the sandbox).
+    void SetEntityMethod( lua_State* L, const char* name, lua_CFunction method );
+
+    /// The entity an object at `index` binds, or nullopt when it is not an entity object.
+    std::optional<LuauEntityRef> ToEntity( lua_State* L, int index );
+
+    /// The LIVE entity at `index`, or a Luau error (not an entity / gone).
+    LuauEntityRef CheckEntity( lua_State* L, int index );
+
+    /// Pushes `entity` as an entity object (nil when null or destroyed).
+    void PushEntity( lua_State* L, entt::registry& registry, entt::entity entity );
+
     /// Pushes `binding` as an object: tagged userdata owning a copy of the binding (destroyed by the VM).
     void PushObject( lua_State* L, const LuauBinding& binding );
 
