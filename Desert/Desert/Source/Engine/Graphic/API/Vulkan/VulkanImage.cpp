@@ -1554,6 +1554,108 @@ namespace Desert::Graphic::API::Vulkan
         m_Resource.Layout = newLayout;
     }
 
+    Common::BoolResultStr VulkanImage3D::WriteRegions( const std::vector<RegionWrite>& regions )
+    {
+        if ( regions.empty() )
+            return BOOLSUCCESS;
+        if ( !m_Resource.Image )
+            return Common::MakeFormattedError<bool>( "Image3D '{}': WriteRegions on an image with no resource",
+                                                     m_Specification.Tag );
+
+        // EVERY BOX IS CHECKED BEFORE ANYTHING IS RECORDED, so a refusal writes nothing at all rather than
+        // the boxes that happened to come before the bad one.
+        uint64_t total = 0;
+        for ( const RegionWrite& r : regions )
+        {
+            const bool inside = r.Width > 0 && r.Height > 0 && r.Depth > 0 &&
+                                uint64_t( r.X ) + r.Width <= m_Specification.Width &&
+                                uint64_t( r.Y ) + r.Height <= m_Specification.Height &&
+                                uint64_t( r.Z ) + r.Depth <= m_Specification.Depth;
+            if ( !inside )
+                return Common::MakeFormattedError<bool>(
+                     "Image3D '{}': box {}x{}x{} at ({}, {}, {}) is outside the {}x{}x{} image", m_Specification.Tag,
+                     r.Width, r.Height, r.Depth, r.X, r.Y, r.Z, m_Specification.Width, m_Specification.Height,
+                     m_Specification.Depth );
+            const uint64_t expected =
+                 Core::Formats::CalculateImageSize( r.Width, r.Height, r.Depth, m_Specification.Format );
+            if ( r.Bytes == nullptr || r.Size != expected )
+                return Common::MakeFormattedError<bool>( "Image3D '{}': box {}x{}x{} carries {} bytes, needs {}",
+                                                         m_Specification.Tag, r.Width, r.Height, r.Depth, r.Size,
+                                                         expected );
+            total += expected;
+        }
+
+        auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                              ->GetVulkanAllocator()
+                              .get();
+
+        VkBuffer           staging;
+        VkBufferCreateInfo bInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                     .size  = total,
+                                     .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
+        auto stagingResult = allocator->RT_AllocateBuffer( "VolumeRegionStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU,
+                                                           staging );
+        if ( !stagingResult.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Image3D '{}': {} byte staging buffer failed: {}",
+                                                     m_Specification.Tag, total, stagingResult.GetError() );
+        const VmaAllocation stagingAlloc = stagingResult.GetValue();
+
+        const VkImageAspectFlags       aspect = GetImageVulkanAspect( m_Specification.Format );
+        std::vector<VkBufferImageCopy> copies;
+        copies.reserve( regions.size() );
+        {
+            // The boxes are laid end to end in one buffer and copied by one command, one region each.
+            std::vector<unsigned char> packed;
+            packed.reserve( static_cast<size_t>( total ) );
+            for ( const RegionWrite& r : regions )
+            {
+                copies.push_back( VkBufferImageCopy{
+                     .bufferOffset     = static_cast<VkDeviceSize>( packed.size() ),
+                     .imageSubresource = { .aspectMask = aspect, .layerCount = 1 },
+                     .imageOffset      = { static_cast<int32_t>( r.X ), static_cast<int32_t>( r.Y ),
+                                           static_cast<int32_t>( r.Z ) },
+                     .imageExtent      = { r.Width, r.Height, r.Depth } } );
+                packed.insert( packed.end(), r.Bytes, r.Bytes + r.Size );
+            }
+            MappedMemory staged = allocator->MapMemory( stagingAlloc );
+            const auto   wrote  = staged.Write( packed.data(), packed.size() );
+            if ( !wrote.IsSuccess() )
+            {
+                allocator->RT_DestroyBuffer( staging, stagingAlloc );
+                return Common::MakeFormattedError<bool>( "Image3D '{}': {}", m_Specification.Tag,
+                                                         wrote.GetError() );
+            }
+        }
+
+        const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
+        if ( !cmdAlloc.IsSuccess() )
+        {
+            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            return Common::MakeFormattedError<bool>( "VulkanImage3D::WriteRegions: no command buffer: {}",
+                                                     cmdAlloc.GetError() );
+        }
+        const VkCommandBuffer cmd = cmdAlloc.GetValue();
+
+        // ALL_COMMANDS IN THE FIRST SCOPE: every frame submitted to this queue before the write — including
+        // ones still sampling the texels about to be overwritten — finishes its reads first (write after
+        // read needs an execution dependency only). The second barrier makes the copy visible to every
+        // shader stage submitted after it, and returns the image to the layout the graph expects.
+        const VkImageLayout restingLayout = GetDefaultLayout();
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT );
+        vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                static_cast<uint32_t>( copies.size() ), copies.data() );
+        TransitionLayout( cmd, restingLayout, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
+
+        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+        allocator->RT_DestroyBuffer( staging, stagingAlloc );
+        if ( !flushed.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Image3D '{}': region upload submit failed: {}",
+                                                     m_Specification.Tag, flushed.GetError() );
+        return BOOLSUCCESS;
+    }
+
     VkImageLayout VulkanImage3D::GetDefaultLayout() const
     {
         return Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties );

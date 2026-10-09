@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Assets/CloudProceduralVolume.hpp>
+#include <Engine/Graphic/Clouds/CloudProceduralClipmap.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
@@ -250,7 +251,7 @@ namespace Desert::Graphic::System
          */
         bool IsModellingVolumeBaking() const
         {
-            return m_ModellingBake.valid();
+            return m_Clipmap.IsShapeInFlight();
         }
 
         /// How far that bake has got, 0..1. Meaningless unless IsModellingVolumeBaking(), and 0 for a view
@@ -265,7 +266,7 @@ namespace Desert::Graphic::System
         /// this costs one relaxed store per XZ slice and nothing at all per voxel.
         float ModellingBakeProgress() const
         {
-            return m_ModellingBakeSignal->Fraction.load( std::memory_order_relaxed );
+            return m_Clipmap.ShapeProgress();
         }
 
     private:
@@ -622,7 +623,7 @@ namespace Desert::Graphic::System
         // camera, so a second live renderer would drag the viewport's sky to wherever the preview's camera
         // happens to be, and the two would re-bake each other's region every frame. A renderer with no
         // cloud component never allocates it, which is every asset thumbnail and every mesh preview.
-        std::shared_ptr<Image3D> m_ModellingVolume;
+        CloudProceduralClipmap m_Clipmap;
         // The world weather over one kCloudFarWeatherPeriodKm torus (Assets::BakeCloudFarWeatherMap), rebuilt
         // only when its seed or its shortest wave moves — see EnsureFarWeatherMap.
         std::shared_ptr<Image2D> m_FarWeatherMap;
@@ -633,53 +634,12 @@ namespace Desert::Graphic::System
         uint32_t                 m_LayoutPatternHash = 0u;
         uint32_t                 m_LayoutMaskHash    = 0u;
 
-        // A BAKE IN FLIGHT, on Common::JobSystem. A future rather than a raw thread so the result is
-        // collected exactly once — the same arrangement, for the same reason, that the sculpting panel's
-        // bake uses.
-        //
-        // IT USED TO BE `std::async` AND THAT WAS THREE DEFECTS AT ONCE (Г9). The work was invisible to the
-        // profiler, so the delay the owner reported had to be measured off log timestamps over a whole day;
-        // it obeyed no thread budget, so two document windows could each start bakes with nothing counting
-        // them; and it could not be STOPPED, so an already-doomed bake ran to the end while the wanted one
-        // waited behind it. There is a fourth, quieter one: the destructor of a future returned by
-        // std::async BLOCKS until the task finishes, so simply dropping a stale bake was not available —
-        // which is why the old code could only ever have one in flight. A JobSystem future wraps a
-        // packaged_task and its destructor waits for nothing, so abandoning one is a move-assignment.
-        std::future<Common::ResultStr<Assets::CloudProceduralCachedBake>> m_ModellingBake;
-
-        /// THE WHOLE CHANNEL BETWEEN A BAKE AND THE VIEW THAT WANTED IT: one flag in, one number out. Both
-        /// are read by the worker at the same instant — between XZ slices, through the one progress hook —
-        /// so they are ONE object rather than two shared_ptrs that a future edit could give different
-        /// lifetimes to.
-        struct ModellingBakeSignal
-        {
-            /// Set by the renderer when this bake's parameters are no longer wanted. The bake returns an
-            /// error at its next slice boundary and its result is never collected.
-            std::atomic<bool> Cancelled{ false };
-
-            /// 0 at the start, 1 at the end. Written by the worker, read by whatever draws the wait.
-            std::atomic<float> Fraction{ 0.0f };
-        };
-
-        // A FRESH SIGNAL PER BAKE rather than a reset of the old one: an abandoned job is still reading the
-        // object it was started with, so clearing that flag would un-cancel a bake nobody is waiting for and
-        // burn a worker to the end of it — and its progress would fight the new bake's for the same number.
-        //
-        // Never null, so no call site has to ask.
-        std::shared_ptr<ModellingBakeSignal> m_ModellingBakeSignal = std::make_shared<ModellingBakeSignal>();
-
-        // How many bakes this view has abandoned. It is in the log line beside the milliseconds because it
-        // is the number that says the cancellation is WORKING — "baked in 3 100 ms, 19 stale bake(s)
-        // cancelled" is a sentence a slider drag produces and a single edit does not.
-        uint32_t m_ModellingBakesCancelled = 0;
-
         // WHAT THE VOLUME ON THE DEVICE WAS BAKED FROM. Two things, and both have to be asked about: the
         // PARAMETERS, which change when the artist moves a slider or drops a different type into a slot,
         // and the REGION ORIGIN, which changes when the camera crosses a snap of the lump lattice. A cache
         // keyed on one of them alone would either never follow the camera or re-bake on every edit that
         // did not reach the field.
         Assets::CloudProceduralFieldParams m_ModellingParams{};
-        glm::vec2                          m_ModellingOriginKm{ 0.0f };
         bool                               m_ModellingValid = false;
 
         // HOW MANY TIMES THE VOLUME HAS BEEN REBUILT FROM GENUINELY DIFFERENT PARAMETERS — the region's
@@ -715,7 +675,6 @@ namespace Desert::Graphic::System
         // The region the bake IN FLIGHT is for, so that the frame it lands the payload can be pointed at
         // the region that was actually baked rather than at wherever the camera is by then.
         Assets::CloudProceduralFieldParams m_PendingParams{};
-        glm::vec2                          m_PendingOriginKm{ 0.0f };
 
         // AND WHICH TYPES IT IS FOR, which the pending set did not carry until cancellation arrived. With
         // no way to stop a bake, "is one in flight" was the whole question and the answer was enough; with
@@ -726,9 +685,6 @@ namespace Desert::Graphic::System
         uint32_t            m_PendingSpeciesCount = 0;
         uint32_t            m_PendingGeneration   = 0;
 
-        // When the bake in flight was started, so the log line that collects it can print what it cost.
-        // Wall time and not CPU time: what this number bounds is how far the sky lags the camera.
-        std::chrono::steady_clock::time_point m_ModellingBakeStarted{};
 
         // Latched so a bake that cannot be started, or an image that cannot be created, is said once per
         // scene rather than sixty times a second.
@@ -744,7 +700,6 @@ namespace Desert::Graphic::System
         // property for a value that stays broken, while a knob moved to anything else retries.
         bool                               m_ModellingFailed = false;
         Assets::CloudProceduralFieldParams m_FailedParams{};
-        glm::vec2                          m_FailedOriginKm{ 0.0f };
         // WHAT THE VOLUME WAS BUILT FROM ON THE ASSET SIDE, and it takes two values rather than one. The
         // handle answers "is this still the type the artist chose"; the generation answers "is the FILE
         // behind that type still the one I read", which is what makes an edit in the Cloud Type panel show

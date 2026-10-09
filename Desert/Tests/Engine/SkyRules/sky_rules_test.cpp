@@ -714,7 +714,14 @@ namespace
         const auto           atmosphere = CloudTestAtmosphere();
 
         const CloudGpuPayload payload = PackCloudParams( data, material, &shape, 1u, atmosphere, wind,
-                                                         CloudRegionBinding{ regionOrigin, 30.0f } );
+                                                         [&]
+                                                         {
+                                                             CloudRegionBinding region;
+                                                             for ( glm::vec4& level : region.Levels )
+                                                                 level = glm::vec4( regionOrigin, 1.0f / 30.0f,
+                                                                                    30.0f / 256.0f );
+                                                             return region;
+                                                         }() );
         return CloudEnvironmentFingerprint( payload, /*marched=*/true, skyOcclusionValid, shapeGeneration,
                                             mediumVariant, mediumValues );
     }

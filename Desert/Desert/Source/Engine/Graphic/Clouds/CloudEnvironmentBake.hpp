@@ -270,8 +270,11 @@ namespace Desert::Graphic
         key.Wind.x   = 0.0f;
         key.Wind.y   = 0.0f;
         key.Wind.z   = 0.0f;
-        key.Region.x = 0.0f;
-        key.Region.y = 0.0f;
+        for ( glm::vec4& level : key.Level )
+        {
+            level.x = 0.0f;
+            level.y = 0.0f;
+        }
 
         // FNV-1a over the block's bytes. The block is packed to exactly 268 bytes with no padding (the
         // static_asserts in CloudPayload.hpp pin every offset), so there are no uninitialised holes for

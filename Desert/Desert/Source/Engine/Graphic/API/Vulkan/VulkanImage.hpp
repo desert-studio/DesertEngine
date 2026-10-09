@@ -332,6 +332,7 @@ namespace Desert::Graphic::API::Vulkan
 
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
+        NO_DISCARD Common::BoolResultStr WriteRegions( const std::vector<RegionWrite>& regions ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override

@@ -62,14 +62,18 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     //
     // xy the region's minimum corner in world kilometres, SNAPPED to the lump lattice; z the RECIPROCAL of
     // its horizontal side; w the erosion's period in kilometres.
-    vec4  u_CloudRegion;
+    // CLIP-2: THE CLIPMAP'S LEVELS, finest first (Graphic::CloudProceduralClipmap::LevelUniforms): xy the
+    // level's minimum corner, world km; z 1 / its side; w its voxel, km. Level k lives in rows
+    // [32k, 32k + 32) of the modelling volume, TOROIDALLY: world point p (km) is at texel coordinate p * z
+    // (REPEAT). The last level is periodic and is the far path.
+    vec4  u_CloudLevel[3];
     // w is HOW MANY SPECIES this layer carries, 0..4, and it is the bound of the march's per-species loop.
     // It is a count rather than a mask because the slots are filled from the front by PackCloudParams.
     //
     // z HELD THE SCALAR SCATTERING ALBEDO and holds nothing now: the albedo became a colour and moved to
     // u_CloudAlbedo below. Written zero by the packer and read by nobody — see Graphic::kCloudUnreadSlots,
     // which is where its row lives.
-    vec4  u_CloudDetail;    // x detail strength, y density scale, z UNREAD, w species count
+    vec4  u_CloudDetail;    // x detail strength, y density scale, z detail tile (km), w species count
     vec4  u_CloudWind;      // xyz accumulated wind offset (km), w phase g
     vec4  u_CloudSun;       // xyz TOWARD the sun (normalized), w light march distance (km)
     vec4  u_CloudSunColour; // rgb sun irradiance (linear), w light march sample count
@@ -162,7 +166,7 @@ CloudLayer CloudUnpackLayer()
 CloudFieldParams CloudUnpackFieldParams()
 {
     CloudFieldParams p;
-    p.DetailTileKm   = u_CloudRegion.w;
+    p.DetailTileKm   = u_CloudDetail.z;
     p.DetailStrength = u_CloudDetail.x;
     p.DensityScale   = u_CloudDetail.y;
     p.SpeciesCount   = int( clamp( u_CloudDetail.w, 0.0f, float( CLOUD_SPECIES_SLOTS ) ) );
@@ -180,8 +184,10 @@ CloudFieldParams CloudUnpackFieldParams()
         p.SpeciesWispTop[slot]  = u_CloudSpeciesWispTop[slot];
     }
 
-    p.RegionOriginKm  = vec2( u_CloudRegion.x, u_CloudRegion.y );
-    p.InvRegionSizeKm = u_CloudRegion.z;
+    // The last level's window IS the periodic region (sky occlusion, the far path). CLIP-3 adds the
+    // per-level fields to CloudFieldParams and fills them here from u_CloudLevel[k].
+    p.RegionOriginKm  = u_CloudLevel[2].xy;
+    p.InvRegionSizeKm = u_CloudLevel[2].z;
     p.Weather         = u_CloudWeather.yw;
     p.LayoutPlace     = u_CloudLayoutPlace;
     p.LayoutStrength  = u_CloudLayoutStrength.xy;

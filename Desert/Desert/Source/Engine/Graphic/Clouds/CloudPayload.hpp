@@ -17,6 +17,11 @@
 
 namespace Desert::Graphic
 {
+    /// How many clip levels the block carries (CloudGpuPayload::Level, u_CloudLevel). Pinned equal to
+    /// Assets::kCloudProceduralClipLevels in CloudProceduralClipmap.cpp; a number here because this header
+    /// is the GPU layout and does not pull the bake in.
+    inline constexpr uint32_t kCloudClipLevelSlots = 3u;
+
     /**
      * The GPU side of VolumetricCloudData, and the ONLY place the component is turned into bytes.
      *
@@ -69,10 +74,13 @@ namespace Desert::Graphic
         // xy the region's minimum corner in world kilometres, SNAPPED to the lump lattice by
         // Assets::CloudProceduralRegionOriginKm; z the RECIPROCAL of its horizontal side, because the march
         // only ever divides by it; w the erosion's period, unchanged.
-        glm::vec4 Region;
+        // CLIP-2: THE CLIPMAP'S THREE LEVELS, finest first (Graphic::CloudProceduralClipmap::LevelUniforms):
+        // xy the level's minimum corner on the device, world km; z 1 / its side; w its voxel, km. The detail
+        // tile that shared the old region vec4 moved to Detail.z, the slot the scalar albedo vacated.
+        glm::vec4 Level[kCloudClipLevelSlots];
         // z HELD THE SCALAR SCATTERING ALBEDO and holds nothing now — the albedo became a colour and moved
         // to its own vec4 below. It is not reused and not renamed to a pad: kUnreadSlots carries its row.
-        glm::vec4 Detail;       // x detail strength, y density scale, z UNREAD, w species count
+        glm::vec4 Detail;       // x detail strength, y density scale, z detail tile (km), w species count
         glm::vec4 Wind;         // xyz accumulated wind offset (km), w phase g
         glm::vec4 Sun;          // xyz TOWARD the sun (normalized), w light march distance (km)
         glm::vec4 SunColour;    // rgb sun irradiance (linear), w light march sample count
@@ -155,32 +163,32 @@ namespace Desert::Graphic
 
     static_assert( offsetof( CloudGpuPayload, Layer ) == 0 );
     static_assert( offsetof( CloudGpuPayload, March ) == 16 );
-    static_assert( offsetof( CloudGpuPayload, Region ) == 32 );
-    static_assert( offsetof( CloudGpuPayload, Detail ) == 48 );
-    static_assert( offsetof( CloudGpuPayload, Wind ) == 64 );
-    static_assert( offsetof( CloudGpuPayload, Sun ) == 80 );
-    static_assert( offsetof( CloudGpuPayload, SunColour ) == 96 );
-    static_assert( offsetof( CloudGpuPayload, Ambient ) == 112 );
-    static_assert( offsetof( CloudGpuPayload, MultiScatter ) == 128 );
-    static_assert( offsetof( CloudGpuPayload, Phase ) == 144 );
-    static_assert( offsetof( CloudGpuPayload, Fade ) == 160 );
+    static_assert( offsetof( CloudGpuPayload, Level ) == 32 );
+    static_assert( offsetof( CloudGpuPayload, Detail ) == 80 );
+    static_assert( offsetof( CloudGpuPayload, Wind ) == 96 );
+    static_assert( offsetof( CloudGpuPayload, Sun ) == 112 );
+    static_assert( offsetof( CloudGpuPayload, SunColour ) == 128 );
+    static_assert( offsetof( CloudGpuPayload, Ambient ) == 144 );
+    static_assert( offsetof( CloudGpuPayload, MultiScatter ) == 160 );
+    static_assert( offsetof( CloudGpuPayload, Phase ) == 176 );
+    static_assert( offsetof( CloudGpuPayload, Fade ) == 192 );
     // The species array sits BEFORE the trailing vec3 rather than after it, and that is the only reason it
     // is there rather than appended. std430 aligns an array of vec4 to 16; appended after a vec3 that ends
     // at 188 it would start at 192 and leave four bytes nobody wrote — which is a reserved slot with extra
     // steps. Both sides of the layout move together in one commit and the offsets below are what makes a
     // half-move a build error rather than a frame read from the wrong place.
-    static_assert( offsetof( CloudGpuPayload, SpeciesEdge ) == 176 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesEdge ) == 208 );
     // The noise index array sits between the species array and the trailing vec3 for the reason the
     // species array itself sits there: std430 aligns a vec4 to 16, and after a vec3 that ends at 252 it
     // would start at 256 and leave four bytes nobody wrote.
-    static_assert( offsetof( CloudGpuPayload, SpeciesNoise ) == 240 );
-    static_assert( offsetof( CloudGpuPayload, Albedo ) == 256 );
-    static_assert( offsetof( CloudGpuPayload, Weather ) == 272 );
-    static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 288 );
-    static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 304 );
-    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 320 );
-    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 336 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 352 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesNoise ) == 272 );
+    static_assert( offsetof( CloudGpuPayload, Albedo ) == 288 );
+    static_assert( offsetof( CloudGpuPayload, Weather ) == 304 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 320 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 336 );
+    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 352 );
+    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 368 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 384 );
     // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
     // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
@@ -201,8 +209,8 @@ namespace Desert::Graphic
     // reaching the march at all; until it was paid, three of a layer's four slots could name a volume the frame
     // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
     // the smallest shape three contiguous components fit in.
-    static_assert( sizeof( CloudGpuPayload ) == 364,
-                   "Eleven vec4s, a vec4[4], seven more vec4s and a vec3 — the shader reads exactly this and "
+    static_assert( sizeof( CloudGpuPayload ) == 396,
+                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s and a vec3 — the shader reads exactly this and "
                    "nothing more." );
 
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
@@ -236,12 +244,8 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 5> kCloudUnreadSlots = {
-         { { "u_CloudDetail", 'z',
-             "held the scalar scattering albedo until the albedo became a colour and moved to "
-             "u_CloudAlbedo; not reused, because a slot repurposed without a schema parameter behind it is "
-             "how a value reaches the GPU with no name, no range and no tooltip" },
-           { "u_CloudLayoutStrength", 'z',
+    inline constexpr std::array<CloudUnreadSlot, 4> kCloudUnreadSlots = {
+         { { "u_CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
            { "u_CloudLayoutStrength", 'w', "as z" },
@@ -646,8 +650,11 @@ namespace Desert::Graphic
     /// jumping by a lattice cell for one frame.
     struct CloudRegionBinding
     {
-        glm::vec2 OriginKm{ 0.0f }; ///< the region's minimum corner, world kilometres
-        float     SideKm = 1.0f;    ///< its horizontal side, and the period the volume tiles with
+        /// Per clip level, finest first: xy the minimum corner (km), z 1 / side (1/km), w voxel (km) —
+        /// CloudProceduralClipmap::LevelUniforms of the clipmap the march reads. The default is finite.
+        std::array<glm::vec4, kCloudClipLevelSlots> Levels{ glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ),
+                                                            glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ),
+                                                            glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) };
         /// The cut the march makes against the bake's rank — Assets::CloudFarWeatherUniform of the SAME
         /// parameters the bound volume was baked from, so the cover and the softness belong to the bytes
         /// they are compared with. Zero (the default) keeps nothing: no bake, no cut to make.
@@ -923,18 +930,15 @@ namespace Desert::Graphic
         p.March = glm::vec4( static_cast<float>( std::clamp( data.MaxSteps, 8, 512 ) ), stopTransmittance,
                              std::max( data.TracingStartDistance, 0.0f ) / kCloudWorldUnitsPerKm,
                              std::max( material.ExtinctionScale, 0.0f ) );
-        // Floored so the reciprocal is finite for a caller that has not bound a region yet — the frames
-        // before the first bake finishes, where the species count is what stops the volume being read.
-        const float regionSideKm = std::max( region.SideKm, 1e-3f );
-
-        p.Region = glm::vec4( region.OriginKm.x, region.OriginKm.y, 1.0f / regionSideKm,
-                              std::max( material.DetailTileSize, 1.0f ) / kCloudWorldUnitsPerKm );
-        // .z IS ZERO AND UNREAD — it held the scalar albedo. Written zero rather than left indeterminate:
-        // the payload is memcpy'd to the GPU, and an uninitialised byte in a buffer that is otherwise
-        // deterministic would make two identical frames differ, which is the noise floor this subsystem's
-        // whole verification method rests on. kCloudUnreadSlots carries its row.
+        // The levels as the clipmap reports them; z floored so the reciprocal side stays finite whatever a
+        // caller hands in.
+        for ( uint32_t level = 0; level < kCloudClipLevelSlots; ++level )
+            p.Level[level] = glm::vec4( region.Levels[level].x, region.Levels[level].y,
+                                        std::max( region.Levels[level].z, 1e-6f ), region.Levels[level].w );
         p.Detail = glm::vec4( std::clamp( material.DetailStrength, 0.0f, 1.0f ),
-                              std::max( material.DensityScale, 0.0f ), 0.0f, static_cast<float>( species ) );
+                              std::max( material.DensityScale, 0.0f ),
+                              std::max( material.DetailTileSize, 1.0f ) / kCloudWorldUnitsPerKm,
+                              static_cast<float>( species ) );
 
         // THE MEDIUM'S ALBEDO, PER COLOUR, clamped per channel. Clamped rather than trusted for the reason
         // every other clamp here gives — a scene file is a text file — and per CHANNEL because an albedo
