@@ -67,6 +67,104 @@ namespace Desert::UI
              n );
     }
 
+    LayoutGroupParams LayoutParamsOf( const UILayoutGroupData& g, float scale )
+    {
+        LayoutGroupParams p;
+        switch ( g.Type )
+        {
+            case UILayoutType::Vertical:
+                p.Type = LayoutGroupType::Vertical;
+                break;
+            case UILayoutType::Horizontal:
+                p.Type = LayoutGroupType::Horizontal;
+                break;
+            case UILayoutType::Grid:
+                p.Type = LayoutGroupType::Grid;
+                break;
+            case UILayoutType::Wrap:
+                p.Type = LayoutGroupType::Wrap;
+                break;
+            case UILayoutType::Overlay:
+                p.Type = LayoutGroupType::Overlay;
+                break;
+            case UILayoutType::UniformGrid:
+                p.Type = LayoutGroupType::UniformGrid;
+                break;
+            case UILayoutType::SizeBox:
+                p.Type = LayoutGroupType::SizeBox;
+                break;
+            case UILayoutType::ScaleBox:
+                p.Type = LayoutGroupType::ScaleBox;
+                break;
+        }
+        p.PaddingL     = g.Padding.x * scale;
+        p.PaddingT     = g.Padding.y * scale;
+        p.PaddingR     = g.Padding.z * scale;
+        p.PaddingB     = g.Padding.w * scale;
+        p.Spacing      = g.Spacing * scale;
+        p.StretchCross = g.StretchCross;
+        p.CellSize     = g.CellSize * scale;
+        p.Columns      = g.Columns;
+        p.WrapSize     = g.WrapSize * scale;
+        p.WrapVertical = g.WrapVertical;
+        p.MinSlotSize  = g.MinSlotSize * scale;
+        // An unset (negative) SizeBox bound stays negative after scaling, which is all "unset" needs.
+        p.SizeMin          = g.SizeMin * scale;
+        p.SizeMax          = g.SizeMax * scale;
+        p.SizeOverride     = g.SizeOverride * scale;
+        p.Stretch          = static_cast<LayoutScaleStretch>( g.Stretch );
+        p.StretchDirection = static_cast<LayoutScaleDirection>( g.StretchDirection );
+        p.UserScale        = g.UserScale;
+        return p;
+    }
+
+    glm::vec2 SlotPreferredPx( const IUITree& tree, NodeId e, float scale )
+    {
+        glm::vec2 pref( 0.0f );
+        if ( tree.Has<UILayoutData>( e ) )
+        {
+            const auto& L = *tree.Get<UILayoutData>( e );
+            pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin ) * scale;
+        }
+        if ( tree.Has<UILayoutGroupData>( e ) )
+        {
+            const auto& g = *tree.Get<UILayoutGroupData>( e );
+            if ( g.Type == UILayoutType::SizeBox )
+            {
+                std::vector<glm::vec2> sizes;
+                for ( const LayoutSlot& s : GatherLayoutSlots( tree, e, scale ) )
+                    sizes.push_back( s.Pref );
+                pref = MeasureLayoutGroup( LayoutParamsOf( g, scale ), sizes );
+            }
+        }
+        return pref;
+    }
+
+    std::vector<LayoutSlot> GatherLayoutSlots( const IUITree& tree, NodeId e, float scale,
+                                               std::vector<NodeId>* kids )
+    {
+        std::vector<LayoutSlot> slots;
+        for ( std::size_t i = 0, count = tree.ChildCount( e ); i < count; ++i )
+        {
+            const NodeId c = tree.ChildAt( e, i );
+            if ( !tree.Valid( c ) || !TakesLayoutSpace( tree, c ) )
+                continue; // Collapsed: no slot, so no place in the group and no part of its content size
+            LayoutSlot s;
+            s.Pref = SlotPreferredPx( tree, c, scale );
+            if ( tree.Has<UILayoutData>( c ) )
+            {
+                const auto& L = *tree.Get<UILayoutData>( c );
+                s.Min         = L.CustomMinimumSize * scale;
+                s.Grow        = L.FlexGrow;
+                s.Shrink      = L.FlexShrink;
+            }
+            slots.push_back( s );
+            if ( kids )
+                kids->push_back( c );
+        }
+        return slots;
+    }
+
     bool TakesLayoutSpace( const IUITree& tree, NodeId e )
     {
         const auto* L = tree.Valid( e ) ? tree.Get<UILayoutData>( e ) : nullptr;
@@ -147,76 +245,24 @@ namespace Desert::UI
         {
             if ( !tree.Has<UILayoutGroupData>( e ) )
                 return { 0.0f, 0.0f };
-            const auto&            g = *tree.Get<UILayoutGroupData>( e );
             std::vector<glm::vec2> sizes;
-            for ( std::size_t i = 0, count = tree.ChildCount( e ); i < count; ++i )
-            {
-                const NodeId c = tree.ChildAt( e, i );
-                if ( !tree.Valid( c ) || !TakesLayoutSpace( tree, c ) )
-                    continue; // a Collapsed child is not in the group, so it is not in its content size
-                glm::vec2 pref( 0.0f );
-                if ( tree.Has<UILayoutData>( c ) )
-                {
-                    const auto& L = *tree.Get<UILayoutData>( c );
-                    pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
-                }
-                sizes.push_back( pref * scale );
-            }
-            LayoutGroupParams params;
-            params.Type     = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                              : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                 : LayoutGroupType::Vertical;
-            params.PaddingL = g.Padding.x * scale;
-            params.PaddingT = g.Padding.y * scale;
-            params.PaddingR = g.Padding.z * scale;
-            params.PaddingB = g.Padding.w * scale;
-            params.Spacing  = g.Spacing * scale;
-            params.CellSize = g.CellSize * scale;
-            params.Columns  = g.Columns;
-            return MeasureLayoutGroup( params, sizes );
+            for ( const LayoutSlot& s : GatherLayoutSlots( tree, e, scale ) )
+                sizes.push_back( s.Pref );
+            return MeasureLayoutGroup( LayoutParamsOf( *tree.Get<UILayoutGroupData>( e ), scale ), sizes );
         }
 
         // If `e` is an auto-layout container, solve its children's rects exactly like the renderer's
-        // DrawElement does — so hit-testing / handles match the drawn positions (children of a VBox/HBox/Grid
-        // are placed by the group, NOT their own anchors). Fills kids + one rect each; empty when not a group.
+        // DrawElement does — so hit-testing / handles match the drawn positions (children of a group are
+        // placed by the group, NOT their own anchors). Fills kids + one arranged slot each (rect + the layout
+        // scale a ScaleBox hands its child); empty when not a group.
         void SolveGroupChildren( const IUITree& tree, NodeId e, const Rect& container, float scale,
-                                 std::vector<NodeId>& kids, std::vector<Rect>& rects )
+                                 std::vector<NodeId>& kids, std::vector<ArrangedSlot>& arranged )
         {
             if ( !tree.Has<UILayoutGroupData>( e ) )
                 return;
-            const auto&            g = *tree.Get<UILayoutGroupData>( e );
-            std::vector<glm::vec2> sizes;
-            std::vector<float>     flex;
-            for ( std::size_t i = 0, count = tree.ChildCount( e ); i < count; ++i )
-            {
-                const NodeId c = tree.ChildAt( e, i );
-                if ( !tree.Valid( c ) || !TakesLayoutSpace( tree, c ) )
-                    continue; // Collapsed: no slot here, exactly as in the renderer's own group solve
-                glm::vec2 pref( 0.0f );
-                float     fg = 0.0f;
-                if ( tree.Has<UILayoutData>( c ) )
-                {
-                    const auto& L = *tree.Get<UILayoutData>( c );
-                    pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
-                    fg            = L.FlexGrow;
-                }
-                kids.push_back( c );
-                sizes.push_back( pref * scale );
-                flex.push_back( fg );
-            }
-            LayoutGroupParams params;
-            params.Type         = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                                  : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                     : LayoutGroupType::Vertical;
-            params.PaddingL     = g.Padding.x * scale;
-            params.PaddingT     = g.Padding.y * scale;
-            params.PaddingR     = g.Padding.z * scale;
-            params.PaddingB     = g.Padding.w * scale;
-            params.Spacing      = g.Spacing * scale;
-            params.StretchCross = g.StretchCross;
-            params.CellSize     = g.CellSize * scale;
-            params.Columns      = g.Columns;
-            rects               = SolveLayoutGroup( container, params, sizes, flex );
+            const auto slots = GatherLayoutSlots( tree, e, scale, &kids );
+            arranged = ArrangeLayoutGroup( container, LayoutParamsOf( *tree.Get<UILayoutGroupData>( e ), scale ),
+                                           slots );
         }
 
         // The element's accumulated transform: its parent's, with its own composed inside it. THE SAME
@@ -545,10 +591,11 @@ namespace Desert::UI
             else if ( tree.Has<UILayoutGroupData>( e ) )
             {
                 std::vector<NodeId>       kids;
-                std::vector<Rect>         rects;
-                SolveGroupChildren( tree, e, childParent, scale, kids, rects );
+                std::vector<ArrangedSlot> arranged;
+                SolveGroupChildren( tree, e, childParent, scale, kids, arranged );
                 for ( std::size_t i = 0; i < kids.size(); ++i )
-                    EnumRecurse( tree, kids[i], child, scale, viewportPx, ctx, out, order, &rects[i] );
+                    EnumRecurse( tree, kids[i], child, scale * arranged[i].Scale, viewportPx, ctx, out, order,
+                                 &arranged[i].R );
 
                 // A Collapsed child is given NO SLOT by the group, so it has no position to report — and
                 // reporting it at its anchored rect would be a lie about where it is not. It is still
