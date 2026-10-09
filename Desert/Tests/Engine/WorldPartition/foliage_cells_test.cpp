@@ -3,6 +3,7 @@
 
 #include <Engine/World/Foliage/FoliageCells.hpp>
 
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -244,8 +245,9 @@ namespace
     std::map<std::string, std::string> Snapshot( const std::filesystem::path& root )
     {
         std::map<std::string, std::string> files;
+        // The descriptor index is derived from the entity files and rewritten with them; only authored files count.
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
-            if ( entry.is_regular_file() )
+            if ( entry.is_regular_file() && entry.path().filename() != Desert::Core::DescriptorIndex::kFileName )
             {
                 std::ifstream      in( entry.path(), std::ios::binary );
                 std::ostringstream bytes;
