@@ -40,15 +40,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "Skybox": {
-                "SkyboxHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "Intensity": 1.0,
-                "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
-            },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
@@ -97,6 +88,15 @@
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             }
         },
         {
@@ -106,9 +106,6 @@
             "Translation": [-250.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "Primitive": "Sphere"
-            },
             "Material": {
                 "Shader": {
                     "Guid": "40293d62f22f46a49912f44c6c024d06",
@@ -120,6 +117,9 @@
                         "Value": [0.0, 0.0, 0.0, 0.0]
                     }
                 ]
+            },
+            "StaticMesh": {
+                "Primitive": "Sphere"
             }
         },
         {
@@ -129,9 +129,6 @@
             "Translation": [0.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "Primitive": "Sphere"
-            },
             "Material": {
                 "Shader": {
                     "Guid": "40293d62f22f46a49912f44c6c024d06",
@@ -143,6 +140,9 @@
                         "Value": [0.5, 0.0, 0.0, 0.0]
                     }
                 ]
+            },
+            "StaticMesh": {
+                "Primitive": "Sphere"
             }
         },
         {
@@ -152,9 +152,6 @@
             "Translation": [250.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "Primitive": "Sphere"
-            },
             "Material": {
                 "Shader": {
                     "Guid": "40293d62f22f46a49912f44c6c024d06",
@@ -166,6 +163,9 @@
                         "Value": [1.0, 0.0, 0.0, 0.0]
                     }
                 ]
+            },
+            "StaticMesh": {
+                "Primitive": "Sphere"
             }
         },
         {

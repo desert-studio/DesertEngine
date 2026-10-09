@@ -23,6 +23,7 @@
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
@@ -235,6 +236,9 @@ TEST( SceneMigratorWritePath, EveryCommittedSceneIsAlreadyTheSaversCanonicalText
              << scene << ": " << report.BlocksRestated << " reflected block(s) are not in the saver's text ("
              << report.KeysAdded << " key(s) missing, " << report.ValuesRestated
              << " value(s) spelled otherwise) - run scripts/Dev/migrate.sh --write Projects/Desert/Content";
+        EXPECT_EQ( report.RecordsRekeyed, 0 )
+             << scene << ": " << report.RecordsRekeyed
+             << " record(s) state their component keys out of key order - run scripts/Dev/migrate.sh --write";
 
         const auto rewritten = Common::Json::TextDocument::Parse( rfl::json::write( parsed.value() ) );
         ASSERT_TRUE( rewritten ) << scene << ": " << rewritten.GetError();
@@ -254,4 +258,35 @@ TEST( SceneMigratorWritePath, EveryCommittedSceneIsAlreadyTheSaversCanonicalText
              << scene << ": read, canonicalised and written back, the scene is not its own file";
     }
     EXPECT_TRUE( sawOne ) << "no .desce below " << assets;
+}
+
+// THE RECORD'S KEY ORDER (SCR-API-2c): a record states its component blocks sorted by key, as the engine
+// writes them. The migrator sorts a record whose blocks are out of order, counts it once, and a second pass
+// finds nothing to move; a prefab override's blocks are sorted with their record.
+TEST( SceneMigratorWritePath, ARecordsComponentKeysAreSortedOnceAndASecondPassMovesNothing )
+{
+    const auto keysOf = []( const Common::Json::KeyedValues& blocks )
+    {
+        std::vector<std::string> keys;
+        for ( const auto& [key, value] : blocks )
+            keys.push_back( key );
+        return keys;
+    };
+
+    std::vector<Desert::Assets::EntityData> records( 2 );
+    records[0].Components.insert( std::string( "Script" ), Common::Json::Value( std::string( "s" ) ) );
+    records[0].Components.insert( std::string( "Camera" ), Common::Json::Value( std::string( "c" ) ) );
+    records[1].Components.insert( std::string( "Camera" ), Common::Json::Value( std::string( "c" ) ) );
+    records[1].Components.insert( std::string( "Script" ), Common::Json::Value( std::string( "s" ) ) );
+    Desert::Assets::PrefabOverrideData override;
+    override.Components.insert( std::string( "Transform" ), Common::Json::Value( std::string( "t" ) ) );
+    override.Components.insert( std::string( "Light" ), Common::Json::Value( std::string( "l" ) ) );
+    records[1].PrefabOverrides = std::vector<Desert::Assets::PrefabOverrideData>{ override };
+
+    EXPECT_EQ( Desert::Migration::SortComponentKeys( records ), 2 );
+    EXPECT_EQ( keysOf( records[0].Components ), ( std::vector<std::string>{ "Camera", "Script" } ) );
+    EXPECT_EQ( keysOf( records[1].Components ), ( std::vector<std::string>{ "Camera", "Script" } ) );
+    EXPECT_EQ( keysOf( records[1].PrefabOverrides->front().Components ),
+               ( std::vector<std::string>{ "Light", "Transform" } ) );
+    EXPECT_EQ( Desert::Migration::SortComponentKeys( records ), 0 );
 }

@@ -5,18 +5,21 @@
 // metadata) into Desert::Reflection::ReflectionRegistry at static-init time.
 //
 // Usage:
-//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor <Name>]]
+//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor
+//   <Name>]]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
 //     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates).
-//     --reflect      REFLECT()/PROPERTY()/FUNCTION() registration of <source-root>/<scan-subdir> into <output-file>.
+//     --reflect      REFLECT()/PROPERTY()/FUNCTION() registration of <source-root>/<scan-subdir> into
+//     <output-file>.
 //     --reflect-anchor <Name>  after --reflect: the force-link function the output defines (default
 //                    ForceLinkGeneratedReflection; a second generated set in one image names its own).
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
 //
-//     --reflect-components  after --reflect: the COMPONENT(...) rows as a header (ReflectedComponentBlocks.gen.hpp).
+//     --reflect-components  after --reflect: the COMPONENT(...) rows as a header
+//     (ReflectedComponentBlocks.gen.hpp).
 // The annotation macros (REFLECT/PROPERTY) expand to nothing during normal compilation; only this
 // tool reads them. See Engine/Reflection/ReflectionMacros.hpp.
 
@@ -26,6 +29,8 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <ToolMain.hpp>
 
+#include "Source/AnnotationText.hpp"
+#include "Source/ComponentBlocks.hpp"
 #include "Source/HeaderScan.hpp"
 
 #include <cctype>
@@ -36,7 +41,6 @@
 #include <set>
 #include <utility>
 #include <optional>
-#include <regex>
 #include <sstream>
 #include <charconv>
 #include <string_view>
@@ -47,6 +51,12 @@ namespace fs = std::filesystem;
 
 namespace
 {
+    using Desert::HeaderTool::ComponentBlock;
+    using Desert::HeaderTool::ExtractStringLiteral;
+    using Desert::HeaderTool::ParenIdent;
+    using Desert::HeaderTool::SplitTopLevel;
+    using Desert::HeaderTool::Trimmed;
+
     // --------------------------------------------------------------------- data model
 
     struct Metadata
@@ -120,20 +130,6 @@ namespace
         std::vector<Field>    fields;
         std::vector<Function> functions;
         std::string        headerInclude; // include path relative to source root
-    };
-
-    // A COMPONENT(...)-marked ECS component (Engine/Reflection/ReflectionMacros.hpp): one row of the generated
-    // ReflectedComponentBlocks.gen.hpp. The component struct itself is NOT reflected; its Block( Member ) is.
-    struct ComponentBlock
-    {
-        std::string fqn;           // the component, fully qualified
-        std::string key;           // Key( "..." ): the block's key in a scene record
-        std::string member;        // Block( Member ); empty for Whole
-        std::string memberType;    // the member's declared type spelling, read from the struct body
-        std::string run;           // Run( ... ): a ReflectedBlockRun enumerator
-        std::string typeName;      // the reflected type's registry name, resolved once every header is parsed
-        std::string headerInclude; // include path relative to source root
-        std::string where;         // file:line of the marker, for diagnostics
     };
 
     // --------------------------------------------------------------------- helpers
@@ -402,74 +398,6 @@ namespace
         return nullptr;
     }
 
-    // Reads the attribute's string argument, CONCATENATING adjacent literals ("a" "b" -> "ab").
-    // Reading only the first one silently truncated every annotation long enough for clang-format to wrap
-    // it at the 115-column limit — the symptom was a tooltip that ended mid-sentence in the generated file
-    // ("...NOT a photometric unit (lux/candela): ") with nothing in the source looking wrong.
-    // Escapes are preserved verbatim, because the text is re-emitted straight back into a C++ literal.
-    std::string ExtractStringLiteral( const std::string& s )
-    {
-        std::string out;
-        size_t      i = 0;
-        while ( true )
-        {
-            const auto a = s.find( '"', i );
-            if ( a == std::string::npos )
-                break;
-
-            size_t b = a + 1;
-            while ( b < s.size() && s[b] != '"' )
-                b += ( s[b] == '\\' && b + 1 < s.size() ) ? 2 : 1;
-            if ( b >= s.size() )
-                break;
-
-            out += s.substr( a + 1, b - a - 1 );
-
-            // Only whitespace may separate adjacent literals; anything else ends this attribute.
-            size_t j = b + 1;
-            while ( j < s.size() && std::isspace( (unsigned char)s[j] ) )
-                ++j;
-            if ( j >= s.size() || s[j] != '"' )
-                break;
-            i = j;
-        }
-        return out;
-    }
-
-    // Splits the contents of PROPERTY( ... ) by top-level commas (ignoring commas inside (), <>, "").
-    std::vector<std::string> SplitTopLevel( const std::string& s )
-    {
-        std::vector<std::string> out;
-        std::string cur;
-        int paren = 0, angle = 0;
-        bool inStr = false;
-        for ( size_t i = 0; i < s.size(); ++i )
-        {
-            char c = s[i];
-            if ( inStr )
-            {
-                cur += c;
-                if ( c == '"' ) inStr = false;
-                continue;
-            }
-            switch ( c )
-            {
-                case '"': inStr = true; cur += c; break;
-                case '(': ++paren; cur += c; break;
-                case ')': --paren; cur += c; break;
-                case '<': ++angle; cur += c; break;
-                case '>': --angle; cur += c; break;
-                case ',':
-                    if ( paren == 0 && angle == 0 ) { out.push_back( cur ); cur.clear(); }
-                    else cur += c;
-                    break;
-                default: cur += c; break;
-            }
-        }
-        if ( !cur.empty() ) out.push_back( cur );
-        return out;
-    }
-
     Metadata ParseMetadata( const std::string& argsRaw )
     {
         Metadata m;
@@ -549,15 +477,6 @@ namespace
         std::optional<ComponentBlock> component = {}; // its COMPONENT(...) marker, if any
     };
 
-    std::string Trimmed( std::string v )
-    {
-        while ( !v.empty() && std::isspace( (unsigned char)v.front() ) )
-            v.erase( v.begin() );
-        while ( !v.empty() && std::isspace( (unsigned char)v.back() ) )
-            v.pop_back();
-        return v;
-    }
-
     // FUNCTION( ScriptCallable, Category( "..." ), Tooltip( "..." ) ). An unknown token is an error, not a
     // silently ignored attribute: a misspelt ScriptCallable would otherwise hide the function from every language.
     FunctionMeta ParseFunctionMeta( const std::string& argsRaw, std::string& error )
@@ -578,47 +497,6 @@ namespace
                 error = "FUNCTION: unknown attribute '" + tok + "' (ScriptCallable, Category(\"...\"), Tooltip(\"...\"))";
         }
         return m;
-    }
-
-    // The identifier inside "Word( Ident )", or empty.
-    std::string ParenIdent( const std::string& tok )
-    {
-        const auto open  = tok.find( '(' );
-        const auto close = tok.rfind( ')' );
-        if ( open == std::string::npos || close == std::string::npos || close <= open )
-            return {};
-        return Trimmed( tok.substr( open + 1, close - open - 1 ) );
-    }
-
-    // COMPONENT( Key( "Camera" ), Block( Data ) | Whole, Run( ActorsAndUI ) ). Every attribute is required and an
-    // unknown one is an error: a block without a key or a run cannot be registered anywhere.
-    ComponentBlock ParseComponentMeta( const std::string& argsRaw, std::string& error )
-    {
-        ComponentBlock c;
-        bool           whole = false;
-        for ( const auto& tokRaw : SplitTopLevel( argsRaw ) )
-        {
-            const std::string tok = Trimmed( tokRaw );
-            if ( tok.empty() )
-                continue;
-            if ( tok == "Whole" )
-                whole = true;
-            else if ( tok.rfind( "Key", 0 ) == 0 )
-                c.key = ExtractStringLiteral( tok );
-            else if ( tok.rfind( "Block", 0 ) == 0 )
-                c.member = ParenIdent( tok );
-            else if ( tok.rfind( "Run", 0 ) == 0 )
-                c.run = ParenIdent( tok );
-            else
-                error = "COMPONENT: unknown attribute '" + tok + "' (Key(\"...\"), Block( Member ) | Whole, Run( ... ))";
-        }
-        if ( error.empty() && c.key.empty() )
-            error = "COMPONENT: Key(\"...\") is required";
-        else if ( error.empty() && c.run.empty() )
-            error = "COMPONENT " + c.key + ": Run( ... ) is required";
-        else if ( error.empty() && whole == !c.member.empty() )
-            error = "COMPONENT " + c.key + ": exactly one of Block( Member ) and Whole";
-        return c;
     }
 
     // The trailing identifier of `text` ("const std::string& name" -> "name"), or empty.
@@ -878,7 +756,7 @@ namespace
                         continue;
                     }
                     std::string    error;
-                    ComponentBlock c = ParseComponentMeta( args, error );
+                    ComponentBlock c = Desert::HeaderTool::ParseComponentMeta( args, error );
                     if ( !error.empty() )
                     {
                         fail( start, error );
@@ -886,8 +764,8 @@ namespace
                     }
                     const auto line =
                          std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( start ), '\n' ) + 1;
-                    c.where                   = file.generic_string() + ":" + std::to_string( line );
-                    c.headerInclude           = headerInclude;
+                    c.where                 = file.generic_string() + ":" + std::to_string( line );
+                    c.headerInclude         = headerInclude;
                     scopes.back().component = std::move( c );
                     continue;
                 }
@@ -1004,10 +882,8 @@ namespace
                         {
                             // The member's declared type, from the struct's own body: "<type> <Member> ;|=|{".
                             const std::string body = raw.substr( sc.open, i - sc.open );
-                            const std::regex  decl( "([A-Za-z_][A-Za-z0-9_:]*)\\s+" + c.member + "\\s*[;={]" );
-                            std::smatch       m;
-                            if ( std::regex_search( body, m, decl ) )
-                                c.memberType = m[1].str();
+                            if ( auto type = Desert::HeaderTool::DeclaredMemberType( body, c.member ) )
+                                c.memberType = std::move( *type );
                             else
                                 errors.push_back( c.where + ": COMPONENT " + c.key + ": no member '" + c.member +
                                                   "' declared in " + sc.name );
@@ -1217,44 +1093,6 @@ namespace
         return Common::MakeSuccess( true );
     }
 
-    // Each COMPONENT's reflected type by registry name: its Block member's type, or the component itself
-    // (Whole). Unknown types and a key stated twice are errors; the rows end up ordered by key, so the list does
-    // not depend on the order the directory iterator hands the headers out in.
-    void ResolveComponents( const std::vector<ReflectedType>& types, std::vector<ComponentBlock>& components,
-                            std::vector<std::string>& errors )
-    {
-        for ( auto& c : components )
-        {
-            if ( c.member.empty() )
-            {
-                const auto found = std::find_if( types.begin(), types.end(),
-                                                 [&]( const ReflectedType& t ) { return t.fqn == c.fqn; } );
-                if ( found == types.end() )
-                    errors.push_back( c.where + ": COMPONENT " + c.key + " is Whole but " + c.fqn +
-                                      " is not a REFLECT() type with properties" );
-                else
-                    c.typeName = found->registryName;
-                continue;
-            }
-            const auto        colon = c.memberType.rfind( "::" );
-            const std::string shortName =
-                 colon == std::string::npos ? c.memberType : c.memberType.substr( colon + 2 );
-            const auto matches = std::count_if( types.begin(), types.end(),
-                                                [&]( const ReflectedType& t ) { return t.registryName == shortName; } );
-            if ( matches != 1 )
-                errors.push_back( c.where + ": COMPONENT " + c.key + ": " + c.member + "'s type '" + c.memberType +
-                                  ( matches == 0 ? "' is not a REFLECT() type" : "' names several reflected types" ) );
-            else
-                c.typeName = shortName;
-        }
-        std::sort( components.begin(), components.end(),
-                   []( const ComponentBlock& a, const ComponentBlock& b ) { return a.key < b.key; } );
-        for ( size_t k = 1; k < components.size(); ++k )
-            if ( components[k].key == components[k - 1].key )
-                errors.push_back( components[k].where + ": COMPONENT key '" + components[k].key +
-                                  "' is also stated at " + components[k - 1].where );
-    }
-
     Common::Json::Value ComponentsModel( const std::vector<ComponentBlock>& components )
     {
         std::vector<std::string> includes;
@@ -1331,7 +1169,11 @@ namespace
         std::vector<std::string>    errors;
         for ( const auto& h : headers )
             ParseFile( h, request.SourceRoot, types, components, enums, errors );
-        ResolveComponents( types, components, errors );
+        std::vector<Desert::HeaderTool::ReflectedTypeName> typeNames;
+        typeNames.reserve( types.size() );
+        for ( const ReflectedType& t : types )
+            typeNames.push_back( { t.fqn, t.registryName } );
+        Desert::HeaderTool::ResolveComponents( typeNames, components, errors );
         for ( const std::string& error : errors )
             std::cerr << error << "\n";
         if ( !errors.empty() )
@@ -1356,7 +1198,8 @@ namespace
         if ( request.Components.empty() )
             return 0;
 
-        auto blocks = RenderTemplate( templateDir, "ReflectedComponentBlocks.gen.hpp.tpl", ComponentsModel( components ) );
+        auto blocks =
+             RenderTemplate( templateDir, "ReflectedComponentBlocks.gen.hpp.tpl", ComponentsModel( components ) );
         if ( !blocks.IsSuccess() )
         {
             std::cerr << "[DesertHeaderTool] " << blocks.GetError() << "\n";
