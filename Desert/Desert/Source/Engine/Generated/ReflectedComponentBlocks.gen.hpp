@@ -15,6 +15,7 @@
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
+#include <Engine/ECS/WaterBodyComponent.hpp>
 
 namespace Desert::Core::Serialize
 {
@@ -78,6 +79,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::UIToggleComponent, decltype( ::Desert::ECS::UIToggleComponent::Data )>{ "UIToggle", "UIToggleData", &::Desert::ECS::UIToggleComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<::Desert::ECS::UITweenComponent, decltype( ::Desert::ECS::UITweenComponent::Data )>{ "UITween", "UITweenData", &::Desert::ECS::UITweenComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<::Desert::ECS::VolumetricCloudComponent, decltype( ::Desert::ECS::VolumetricCloudComponent::Data )>{ "VolumetricCloud", "VolumetricCloudData", &::Desert::ECS::VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<::Desert::ECS::WaterBodyComponent, decltype( ::Desert::ECS::WaterBodyComponent::Data )>{ "WaterBody", "WaterBodyData", &::Desert::ECS::WaterBodyComponent::Data, R::SkyAndAtmosphere } );
     }
 } // namespace Desert::Core::Serialize
 // NOLINTEND
