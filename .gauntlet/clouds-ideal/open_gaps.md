@@ -7,3 +7,4 @@ One gap per round. Everything else waits here with the round it was seen in.
 - r03: base/top gradient — refused uniform lever (MultiScatterOcclusion); needs a directional ambient (sky from above vs ground bounce from below) — CloudRaymarch.shader:602-611 ambientRadiance, :744-783 occlusion
 - r04: Demo (Cumulus_Congestus) bodies are round balls — no flat base, bellies lit by the sun behind camera; ambient OFF still gives base/top 0.94. Lever: congestus type's vertical profile (bottom rounding/sharp base), assets:Clouds/Types/Cumulus_Congestus.decloudtype
 - r04: ground bounce from below (UE Ground Albedo) not ported — only matters once bases are flat
+- r05: congestus round undersides NOT from the density ramp (refused r05). Next lever: small-body shape — CloudProceduralVolume.cpp:1406-1411 fullness/stack for size<1, lump aspect, base lump centred on base (:1513, :1577-1585); compare a single-lump body from below

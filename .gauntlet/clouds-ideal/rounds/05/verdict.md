@@ -10,3 +10,12 @@ ramp than its core — a bowl whose radius is the ramp height (0.2 x band: ~0.7 
 which is why Showcase reads flat and Demo does not).
 Change (Nubis height gradient as a CAP, CSG intersection with the band): profile = min(depth, density).
 Expected: Demo bodies gain a flat floor with a sharp-ish corner; Showcase nearly unchanged (ramp 0.2 km already small).
+
+## After the change (seen): rounds/05/before_after.jpg (top r04, bottom r05; Demo h, Demo m, Showcase h)
+REFUSED. Fresh bake (DDC miss, v0x17) and the frames look the same: Demo bodies are still balls. basetop.py
+Demo h 1.042->1.037, Demo m 0.844->0.852, Showcase h 0.689->0.717 area-wt / biggest 0.422->0.426, Showcase m 0.470->0.482:
+all within ~1-4 %, with no shape change. The prediction was wrong: the density ramp multiply is not what rounds the
+congestus. The undersides we see are the lumps themselves: small bodies (size<1 -> fullness 0.15+0.85*size,
+CloudProceduralVolume.cpp:1406-1411) are one or two ellipsoid lumps whose base-plane cut sits at (1-g)*bodyDepth
+above the base, and the cut's corner is hidden under the round lump flanks (aspect kLumpVerticalOverHorizontal) seen
+from below/side. Reverted to r04 code; the ledger keeps the round.

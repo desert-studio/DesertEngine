@@ -811,27 +811,15 @@ namespace Desert::Assets
     /// CloudProceduralColumnKept takes, because a column's remap reads the weather of the species that wins it.
     glm::vec4 CloudProceduralLocalWeathers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
 
-    /// THE ALTITUDE DENSITY H (H-BASE) that caps a species' profile at altitude @p altitudeKm
-    /// (CloudProceduralFloorProfile): the type's Profile.Density at the height fraction of its own band.
-    /// Unreal's altitude curve and Nubis' height gradient, applied BEFORE the march's coverage remap so the
-    /// threshold lifts the floor off the base. Zero outside the band would be a second clamp of what the lumps
-    /// already respect, so the curve is simply clamped at its ends.
+    /// THE ALTITUDE DENSITY H (H-BASE) the bake multiplies a species' profile by at altitude @p altitudeKm:
+    /// the type's Profile.Density at the height fraction of its own band. Unreal's altitude curve and Nubis'
+    /// height gradient, applied BEFORE the march's coverage remap so the threshold eats the base and its
+    /// corners first. Zero outside the band would be a second clamp of what the lumps already respect, so
+    /// the curve is simply clamped at its ends.
     inline float CloudProceduralAltitudeDensity( const Graphic::CloudTypeShape& shape, float altitudeKm )
     {
         const float bandKm = std::max( shape.TopAltitudeKm - shape.BaseAltitudeKm, 1e-4f );
         return Graphic::CloudProfileDensity( shape.Profile, ( altitudeKm - shape.BaseAltitudeKm ) / bandKm );
-    }
-
-    /// THE FLOOR OF A BODY IS A PLANE (CLOUD-GAUNTLET-c): the altitude density CAPS the depth profile —
-    /// `min(depth, density)`, the intersection of the body with the band's height gradient — and does not
-    /// multiply it. A product's iso-surface `depth * density = 1 - g` is a bowl: the shallow edge of a body
-    /// clears the remap only higher up the ramp than its core, so every body's underside curved up into its
-    /// flanks over the ramp's height (a fifth of the band: ~0.7 km on a congestus, round balls). With the cap
-    /// every point deeper than the density at its altitude holds the same value, so the remap cuts one level
-    /// floor across the body and its corner is the join's own, not the ramp's.
-    inline float CloudProceduralFloorProfile( float depthProfile, float altitudeDensity )
-    {
-        return depthProfile < altitudeDensity ? depthProfile : altitudeDensity;
     }
 
     /// THE CLUSTER'S REACH (CUT-AT-BAKE), the bake's per-cluster decision: g = saturate((Coverage - rank) /
@@ -917,7 +905,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000017ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000016ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
