@@ -2,6 +2,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Editor/Import/DdsSource.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 // STB_IMAGE(_WRITE)_IMPLEMENTATION is compiled into stb_image.cpp; declarations only here.
@@ -25,8 +26,10 @@ namespace Desert::Editor
         struct Pixels
         {
             std::unique_ptr<uint8_t, void ( * )( void* )> Data{ nullptr, stbi_image_free };
+            std::vector<unsigned char>                    Owned; // a DDS's decoded texels (stb owns no buffer)
             int                                           Width  = 0;
             int                                           Height = 0;
+            [[nodiscard]] const uint8_t*                  Texels() const { return Data ? Data.get() : Owned.data(); }
         };
     } // namespace
 
@@ -65,13 +68,32 @@ namespace Desert::Editor
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
                                                                     slot.Slot, part.Source.generic_string(),
                                                                     bytes.GetError() ) );
-            // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
-            // the bytes reach it only through this cast.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-            image.Data.reset( stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
+            const std::vector<std::byte>& raw = bytes.GetValue();
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - the file's bytes viewed as characters
+            const std::string_view rawText( reinterpret_cast<const char*>( raw.data() ), raw.size() );
+            // A DDS (a Lumberyard Bistro / ORCA packed map) is decoded by the one DDS reader, as the texture cook
+            // does; stb has no DDS decoder and would refuse it as an "unknown image type".
+            if ( IsDdsSource( rawText, part.Source.generic_string() ) )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - bytes viewed as unsigned char
+                auto dds = DecodeDdsSource( reinterpret_cast<const unsigned char*>( raw.data() ), raw.size() );
+                if ( !dds.IsSuccess() || dds.GetValue().IsFloat )
+                    return Common::MakeError<PackOutcome>( std::format(
+                         "[Import] slot '{}': cannot read '{}' ({})", slot.Slot, part.Source.generic_string(),
+                         dds.IsSuccess() ? "a float DDS is not a packable 8-bit map" : dds.GetError() ) );
+                DdsSourceImage decoded = dds.ExtractValue();
+                image.Width            = static_cast<int>( decoded.Width );
+                image.Height           = static_cast<int>( decoded.Height );
+                image.Owned            = std::move( decoded.Rgba8 );
+            }
+            else
+                // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
+                // the bytes reach it only through this cast.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                image.Data.reset( stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
                                                      static_cast<int>( bytes.GetValue().size() ), &image.Width,
                                                      &image.Height, &components, 4 ) );
-            if ( !image.Data )
+            if ( !image.Data && image.Owned.empty() )
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
                                                                     slot.Slot, part.Source.generic_string(),
                                                                     stbi_failure_reason() ) );
@@ -89,7 +111,7 @@ namespace Desert::Editor
         for ( std::size_t p = 0; p < slot.Parts.size(); ++p )
         {
             const std::string_view channels = slot.Parts[p].Channels.empty() ? kChannels : slot.Parts[p].Channels;
-            const uint8_t*         source   = images[p].Data.get();
+            const uint8_t*         source   = images[p].Texels();
             for ( const char c : channels )
                 for ( std::size_t i = kChannels.find( c ); i < packed.size(); i += 4 )
                     packed[i] = source[i];

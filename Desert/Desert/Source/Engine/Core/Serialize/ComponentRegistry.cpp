@@ -991,15 +991,18 @@ namespace Desert::Core::Serialize
                 // NO `Load()` ANYWHERE HERE, and that order was a defect of its own. `MeshService::Register`
                 // parses before it builds (Г15), so a `Load()` after it could only ever run once an empty
                 // mesh had been cached under a live handle for the life of the process.
-                const auto a = ResolveSceneReference(
-                     [&] { return mgr.FindByPath<Assets::MeshAsset>( path ); },
+                // The locator is the stable key ToPath writes (StoredAssetForm::StableKey); the key expands to
+                // the file it names under its root, so the scene names no machine.
+                const std::filesystem::path file = Common::AssetHandle::PathForStableKey( path );
+                const auto                  a    = ResolveSceneReference(
+                     [&] { return mgr.FindByPath<Assets::MeshAsset>( file ); },
                      [&]
                      {
                          return type == "SkinnedMeshAsset"
-                                     ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
-                                            path, /*loadAfterCreate=*/false ) )
-                                     : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
-                                            path, /*loadAfterCreate=*/false ) );
+                                                         ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
+                                            file, /*loadAfterCreate=*/false ) )
+                                                         : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
+                                            file, /*loadAfterCreate=*/false ) );
                      },
                      [&m]( const Assets::Asset<Assets::MeshAsset>& mesh, ReferenceOrigin )
                      { Runtime::EnsureMeshRegistered( mesh, m ); } );

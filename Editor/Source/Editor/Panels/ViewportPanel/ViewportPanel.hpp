@@ -3,6 +3,7 @@
 #include <Editor/Panels/ViewportPanel/ViewportCommands.hpp>
 #include <functional>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +34,7 @@
 
 namespace Desert::Editor
 {
+    struct PlacedNodeMesh; // one node of a split source (Import/NodeActors.hpp)
     class AsyncMeshLoader; // async cook of dropped meshes (defined in Import/AsyncMeshLoader.hpp)
 
     // Which handle of a selected UI element is being dragged in the viewport (in-scene UI editing).
@@ -244,6 +246,12 @@ namespace Desert::Editor
         // <stem>.demat next to the mesh, else any *.demat in the mesh's folder, else in the parent folder
         // (the collection root). Assigns it to every material slot. No-op if none found.
         void ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath );
+        // A split source's drop (Combine Meshes off): the pending entity @p rootId becomes the source's root and
+        // each node its child at the node's placement (NodeActors.hpp); the root rests the record's box on the
+        // drop surface.
+        void PlaceSplitSource( uint64_t rootId, const std::string& sourcePath,
+                               std::span<const PlacedNodeMesh>         nodes,
+                               const std::optional<ActorDrop::Target>& dropTarget );
 
         // Viewport material DnD: raycast the mesh under the cursor and assign the dropped .demat
         // to its material elements (all of them — the hit carries no submesh id yet).

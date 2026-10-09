@@ -46,12 +46,17 @@ Shader "StandardSurface"
         "fbx.EmissiveColor"             -> EmissiveColor
         "fbx.EmissiveColor"             -> u_EmissiveTexture
         "fbx.TransparentColor"          -> u_OpacityTexture
+        "fbx.OcclusionRoughnessMetallic" -> MetallicFactor
+        "fbx.RoughnessMetallic"         -> MetallicFactor
         "fbx.Metalness"                 -> MetallicFactor
         "fbx.Metalness"                 -> u_ORMTexture.b
+        "fbx.OcclusionRoughnessMetallic" -> RoughnessFactor
+        "fbx.RoughnessMetallic"         -> RoughnessFactor
         "fbx.Roughness"                 -> RoughnessFactor
         "fbx.Roughness"                 -> u_ORMTexture.g
         "fbx.AmbientOcclusion"          -> u_ORMTexture.r
         "fbx.OcclusionRoughnessMetallic" -> u_ORMTexture.rgb
+        "fbx.RoughnessMetallic"         -> u_ORMTexture.gb
         "fbx.alphaCutoff"               -> AlphaCutoff
     }
 

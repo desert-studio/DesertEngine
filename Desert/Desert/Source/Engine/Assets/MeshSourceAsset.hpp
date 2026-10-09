@@ -63,11 +63,14 @@ namespace Desert::Assets
     // defines it as a specular-colour image and UE links it to the material's Specular input
     // (FFbxImporter::CreateUnrealMaterial); the file states nothing else, so a different use is the user's
     // statement: `OcclusionRoughnessMetallic` = the image packs ambient occlusion in R, roughness in G and
-    // metalness in B (Amazon Lumberyard Bistro / NVIDIA ORCA, Falcor's metal-rough convention).
+    // metalness in B; `RoughnessMetallic` = roughness in G and metalness in B with R carrying NO occlusion
+    // (Falcor's metal-rough convention, as Amazon Lumberyard Bistro / NVIDIA ORCA ship it: R is 0 in all 201 of
+    // its Specular maps, so read as occlusion it blacks out every surface's ambient light).
     enum class FbxSpecularMap : uint8_t
     {
         Specular,
         OcclusionRoughnessMetallic,
+        RoughnessMetallic,
     };
     // THE UNIT ONE LENGTH OF THE SOURCE FILE IS IN, AS THE USER STATES IT (UE: the import's unit conversion
     // beside Import Uniform Scale - that one says "how much bigger", this one says "in what unit"). The question

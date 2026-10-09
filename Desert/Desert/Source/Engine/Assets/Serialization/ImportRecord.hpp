@@ -15,6 +15,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Desert::Assets::Serialization
 {
@@ -66,6 +67,15 @@ namespace Desert::Assets::Serialization
     [[nodiscard]] Common::ResultStr<Assets::SourceImportSettings>
     ImportSettingsFromText( const SourceImportSettingsText& text );
 
+    /// One node a split import wrote (ImportRecordData::Nodes).
+    struct ImportRecordNode
+    {
+        std::string          Name;
+        std::array<float, 3> Placement{};
+
+        friend bool operator==( const ImportRecordNode&, const ImportRecordNode& ) = default;
+    };
+
     struct ImportRecordData
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -88,7 +98,13 @@ namespace Desert::Assets::Serialization
         // THE NODE MESHES THE LAST SPLIT IMPORT WROTE (THM1j), by node name: <stem>_<node>.stmesh beside the
         // source (NodeMeshSplit). Present only when the source was split; then there is NO combined mesh, and
         // the import's freshness is these files' (each states the source's hash), not a combined envelope's.
-        std::optional<std::vector<std::string>> Nodes;
+        // Each entry also states where its node stands (IMP-NODES; UE: FbxSceneImport places one
+        // StaticMeshActor per node at the node's transform): `Placement`, in centimetres in the ENGINE's space
+        // (the options applied), is the offset of the node mesh's pivot from the source's origin - the
+        // translation a placed node takes under the placed source's root, so the nodes stand as the file
+        // arranged them. The node's rotation and scale are in its mesh (the importer bakes the node's world
+        // transform into the vertices; NodeMeshSplit rebases them onto the pivot).
+        std::optional<std::vector<ImportRecordNode>> Nodes;
 
         // THE SOURCE'S BYTES THE LAST SKINNED, SKELETON OR CLIP IMPORT READ (UE UAssetImportData's source file
         // hash, HashMeshSourceFile): such an import is current when this states the source's current hash. It
@@ -140,10 +156,10 @@ namespace Desert::Assets::Serialization
     /// unreadable.
     Common::ResultStr<std::optional<ImportRecordData>> ReadImportRecord( const std::filesystem::path& source );
 
-    /// Rewrites the record's `Nodes` (THM1j): the node names a split import wrote, nullopt for a combined import.
-    /// The record must exist (EnsureImportRecord runs first); written only when the list changes.
-    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
-                                                const std::optional<std::vector<std::string>>& nodes );
+    /// Rewrites the record's `Nodes` (THM1j): the nodes a split import wrote (name and placement), nullopt for a
+    /// combined import. The record must exist (EnsureImportRecord runs first); written only when the list changes.
+    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                        source,
+                                                const std::optional<std::vector<ImportRecordNode>>& nodes );
 
     /// Rewrites the record's `SourceHash`: the import of @p source that read bytes of @p hash completed. The
     /// record must exist (EnsureImportRecord runs first); written only when the hash changes.

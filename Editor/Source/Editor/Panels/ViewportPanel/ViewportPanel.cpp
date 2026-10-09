@@ -17,6 +17,8 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/NodeActors.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Common/Content/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
@@ -369,6 +371,11 @@ namespace Desert::Editor
                 m_PendingDrops.erase( pending );
             }
             const auto resolved = MeshDnD::ResolveOrImportMesh( mgr, done.SourcePath );
+            if ( !resolved.Nodes.empty() )
+            {
+                PlaceSplitSource( done.UserData, done.SourcePath, resolved.Nodes, dropTarget );
+                continue;
+            }
             if ( resolved.Handle.IsNull() )
                 continue;
             // The mesh and its registry closure (its materials, their textures) are read by the loader's
@@ -2588,6 +2595,40 @@ namespace Desert::Editor
                 break;
         }
         return false;
+    }
+
+    void ViewportPanel::PlaceSplitSource( const uint64_t rootId, const std::string& sourcePath,
+                                          std::span<const PlacedNodeMesh>         nodes,
+                                          const std::optional<ActorDrop::Target>& dropTarget )
+    {
+        auto ref = m_Scene->FindEntityByID( Common::UUID( rootId ) );
+        if ( !ref )
+            return; // the pending root was undone before the import finished
+        ECS::Entity root = ref->get();
+        // The root is the source (UE: the scene import's root actor); it draws nothing itself.
+        if ( root.HasComponent<ECS::StaticMeshComponent>() )
+            root.RemoveComponent<ECS::StaticMeshComponent>();
+        for ( ECS::Entity child : PlaceNodeActors( *m_Scene, root, nodes ) )
+        {
+            (void)Runtime::AwaitAssetClosure( child.GetComponent<ECS::StaticMeshComponent>().MeshHandle,
+                                              Common::Content::ContentKind::StaticMesh );
+            ApplySidecarMaterial( child, sourcePath );
+        }
+        // THE SOURCE'S BOX RESTS ON THE SURFACE (UE FActorPositioning), the box its record states - every node at
+        // its placement, in the engine's space (ImportRecord.hpp `Bounds`). A root the user already moved keeps
+        // where they put it.
+        auto& transform = root.GetComponent<ECS::TransformComponent>();
+        if ( !dropTarget || transform.Translation != dropTarget->Point )
+            return;
+        const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
+        if ( !record || !record.GetValue() || !record.GetValue()->Bounds )
+            return;
+        const auto& box = *record.GetValue()->Bounds;
+        transform.Translation =
+             ActorDrop::PlacedOrigin( *dropTarget,
+                                      ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
+                                                            glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
+                                      transform.Scale );
     }
 
     void ViewportPanel::ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath )
