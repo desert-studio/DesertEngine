@@ -59,8 +59,8 @@ namespace Desert::Scripting::LuauBinder
         {
             void* instance = object.Resolve ? object.Resolve() : nullptr;
             if ( instance == nullptr )
-                luaL_errorL( L, "the %s bound as '%s' is gone", object.Type != nullptr ? object.Type->Name.c_str() : "entity",
-                             object.Name.c_str() );
+                luaL_errorL( L, "the %s bound as '%s' is gone",
+                             object.Type != nullptr ? object.Type->Name.c_str() : "entity", object.Name.c_str() );
             return instance;
         }
 
@@ -263,7 +263,8 @@ namespace Desert::Scripting::LuauBinder
                 lua_pushnil( L );
                 return 1;
             }
-            PushOf( L, view.Field->ElementType, view.Field->ContainerGet( at, static_cast<std::size_t>( index - 1 ) ) );
+            PushOf( L, view.Field->ElementType,
+                    view.Field->ContainerGet( at, static_cast<std::size_t>( index - 1 ) ) );
             return 1;
         }
 
@@ -416,7 +417,8 @@ namespace Desert::Scripting::LuauBinder
         {
             const LuauBinding& object = *CheckObject( L, 1 );
             lua_pushstring(
-                 L, std::format( "{} '{}'", object.Type != nullptr ? object.Type->Name : "entity", object.Name ).c_str() );
+                 L, std::format( "{} '{}'", object.Type != nullptr ? object.Type->Name : "entity", object.Name )
+                         .c_str() );
             return 1;
         }
 
@@ -662,8 +664,8 @@ namespace Desert::Scripting::LuauBinder
                 // The handle a read returned (kAssetHandleTag); its id travels as the UInt WriteField takes.
                 if ( type != LUA_TLIGHTUSERDATA || lua_lightuserdatatag( L, index ) != kAssetHandleTag )
                     return got( "an asset handle" );
-                return Value::UInt( static_cast<std::uint64_t>(
-                     reinterpret_cast<std::uintptr_t>( lua_tolightuserdatatagged( L, index, kAssetHandleTag ) ) ) );
+                return Value::UInt( static_cast<std::uint64_t>( reinterpret_cast<std::uintptr_t>(
+                     lua_tolightuserdatatagged( L, index, kAssetHandleTag ) ) ) );
             case FieldType::Unknown:
             case FieldType::Struct:
                 break;
@@ -682,7 +684,8 @@ namespace Desert::Scripting
         auto present = [entity, &row]() -> LuauEntityRef
         {
             LuauEntityRef ref = entity ? entity() : LuauEntityRef{};
-            if ( ref.Registry == nullptr || !ref.Registry->valid( ref.Entity ) || !row.Has( *ref.Registry, ref.Entity ) )
+            if ( ref.Registry == nullptr || !ref.Registry->valid( ref.Entity ) ||
+                 !row.Has( *ref.Registry, ref.Entity ) )
                 return {};
             return ref;
         };
