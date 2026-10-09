@@ -3,6 +3,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Reflection/Value.hpp>
 
+#include <entt/entity/fwd.hpp>
+#include <entt/entity/entity.hpp>
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -15,6 +18,11 @@
 namespace Desert::Reflection
 {
     struct TypeInfo;
+}
+
+namespace Desert::ECS
+{
+    struct ReflectedComponent;
 }
 
 namespace Desert::Scripting
@@ -38,12 +46,36 @@ namespace Desert::Scripting
     ///
     /// Resolve answers "where is the instance NOW" on every access and returns nullptr once it is gone (a
     /// destroyed entity, a removed component): the script then gets an error naming it, never a dangling read.
+    ///
+    /// Changed runs after a write through the object lands (a field, a nested struct's field, a container
+    /// element): a component's binding fires its on_update there (ECS::ReflectedComponent::NotifyChanged).
+    ///
+    /// AN ENTITY is an object with no Type and an Entity resolver instead: `entity:component("PointLight")`
+    /// reaches a component BY ITS RECORD KEY through ECS::ReflectedComponents — the one component<->type table,
+    /// so a script reaches exactly the components the scene file stores as reflection.
+    struct LuauEntityRef
+    {
+        entt::registry* Registry = nullptr; // null once the entity's world is gone
+        entt::entity    Entity   = entt::null;
+    };
+
     struct LuauBinding
     {
-        std::string                 Name;
-        const Reflection::TypeInfo* Type = nullptr;
-        std::function<void*()>      Resolve;
+        std::string                    Name;
+        const Reflection::TypeInfo*    Type = nullptr;
+        std::function<void*()>         Resolve;
+        std::function<void()>          Changed;
+        std::function<LuauEntityRef()> Entity;
     };
+
+    /// The script object of the component `row` on the entity `entity` resolves to: null once the entity, its
+    /// world or the component is gone (resolved again on every access, never held); a write fires the
+    /// component's on_update.
+    [[nodiscard]] LuauBinding ComponentBinding( std::string name, std::function<LuauEntityRef()> entity,
+                                                const ECS::ReflectedComponent& row );
+
+    /// The script object of `entity` (no fields of its own; `entity:component(key)`).
+    [[nodiscard]] LuauBinding EntityBinding( std::string name, std::function<LuauEntityRef()> resolve );
 
     using LuauSlot = std::uint32_t;
 

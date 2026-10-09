@@ -177,9 +177,17 @@ namespace Desert::Reflection
                 return LoadFloats<Value::Float3>( field, at, &Value::Vec3 );
             case FieldType::Vec4:
                 return LoadFloats<Value::Float4>( field, at, &Value::Vec4 );
+            case FieldType::AssetHandle:
+            {
+                // The 64-bit handle id as a UInt Value — the form the serializer stores and a container element
+                // of handles travels as (ContainerAccess.hpp).
+                Common::ResultStr<std::uint64_t> bits = LoadUnsigned( field, at );
+                if ( !bits.IsSuccess() )
+                    return Common::MakeError<Value>( bits.GetError() );
+                return Common::MakeSuccess( Value::UInt( bits.GetValue() ) );
+            }
             case FieldType::Unknown:
             case FieldType::Struct:
-            case FieldType::AssetHandle:
                 break;
         }
         return Common::MakeError<Value>(
@@ -193,7 +201,9 @@ namespace Desert::Reflection
         if ( field.IsContainer )
             return Common::MakeError<bool>(
                  std::format( "{} is a container: it has no Value form", Where( field ) ) );
-        if ( value.Type() != field.Type )
+        // An asset handle is written as its UInt id (the form ReadField gives it).
+        const FieldType carried = field.Type == FieldType::AssetHandle ? FieldType::UInt : field.Type;
+        if ( value.Type() != carried )
             return Common::MakeError<bool>( std::format( "{} is {}, got {}", Where( field ),
                                                          FieldTypeName( field.Type ),
                                                          FieldTypeName( value.Type() ) ) );
@@ -225,9 +235,10 @@ namespace Desert::Reflection
                 return StoreFloats( field, at, value.Get<Value::Float3>() );
             case FieldType::Vec4:
                 return StoreFloats( field, at, value.Get<Value::Float4>() );
+            case FieldType::AssetHandle:
+                return StoreUnsigned( field, at, *value.Get<std::uint64_t>() );
             case FieldType::Unknown:
             case FieldType::Struct:
-            case FieldType::AssetHandle:
                 break;
         }
         return Common::MakeError<bool>(

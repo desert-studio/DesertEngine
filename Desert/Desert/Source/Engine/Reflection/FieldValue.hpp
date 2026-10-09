@@ -14,7 +14,9 @@ namespace Desert::Reflection
     /// The integer width is the field's own (Size 1/2/4/8), not an assumption of int32: an int64_t field
     /// reads all of its bits and a write that does not fit the field's width is refused, not wrapped.
     ///
-    /// Struct, AssetHandle and container fields have no Value form and are refused with that reason.
+    /// An AssetHandle field reads and writes as its 64-bit id, a UInt Value. A Struct field is reached through
+    /// its StructType's fields at Offset, a container through FieldInfo::ContainerGet/Set (ContainerAccess.hpp):
+    /// neither has a Value form, and both are refused here with that reason.
 
     /// The value of `field` inside `object`.
     [[nodiscard]] Common::ResultStr<Value> ReadField( const FieldInfo& field, const void* object );
