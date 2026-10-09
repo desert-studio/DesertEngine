@@ -72,8 +72,9 @@ namespace Desert::Assets
         /// lumpy ball; the heads on the heads are what make it read as cumulus.
         constexpr float kCloudShapeBillowCellOfShape = 0.4f;
 
-        /// The cauliflower octave's growth at the type's top, in the lump's shape reach; it falls to zero at
-        /// the base, so the floor stays flat and calm and the crown boils. The sum with the coarse octave
+        /// The cauliflower octave's growth at the type's top, in the lump's shape reach; it falls to
+        /// kCloudShapeNoiseAtBase of this at the base (CLOUD-SHAPE-f: from zero, which left the flanks smooth),
+        /// growth only, so the floor's own flat cut stays where it is and the crown boils hardest. The sum with the coarse octave
         /// is clamped to [-1, 1], the range the bake's boxes are grown by.
         constexpr float kCloudShapeBillowAtTop = 1.0f;
 
@@ -1852,7 +1853,11 @@ namespace Desert::Assets
         const float heads = CloudShapeNoiseGlsl::CloudAlligator01( pointKm * ( billowCells / params.RegionSizeKm ),
                                                                    billowCells, HashCombine( seed, 0x2u ) );
         const float headGrowth = std::clamp( ( heads - 0.5f ) / 0.5f, 0.0f, 1.0f );
-        return std::clamp( coarse - kCloudShapeBillowAtTop * height * headGrowth, -1.0f, 1.0f );
+        // ON THE FLANKS TOO (CLOUD-SHAPE-f): from kCloudShapeNoiseAtBase of its share at the base to all of it at
+        // the top, as the coarse octave's growth does. Rising from nothing, every lump's sides kept the smooth
+        // ellipsoid and the silhouette read as a cotton ball with heads only on its cap.
+        const float headReach = kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height;
+        return std::clamp( coarse - kCloudShapeBillowAtTop * headReach * headGrowth, -1.0f, 1.0f );
     }
 
     namespace

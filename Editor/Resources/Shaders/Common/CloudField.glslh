@@ -211,6 +211,15 @@ struct CloudFieldParams
 // A WHOLE NUMBER because the volume repeats on the tile; a fraction would seam at every tile boundary.
 // The weight is the share of the composite the fine octave carries — the coarse one still decides where
 // a body's big lobes are, the fine one only breaks their surfaces.
+//
+// THE COARSE OCTAVE READS THE VOLUME AT HALF THE TILE'S FREQUENCY (CLOUD-SHAPE-f, CLOUD_DETAIL_LF_RATIO).
+// At the tile's own frequency both octaves were grain against the modelling volume's lumps: a deeper cut
+// (Detail Strength 0.85) only shrank each lump into a smaller fuzzy ball, and a sharper contrast on the
+// noise turned the grain into sparkle (probe frames, CLOUD-SHAPE-f/probe). Read at half the frequency the
+// coarse octave's billows are the size of a head on a lump, so the cut separates heads in the silhouette,
+// and the fine octave (four times finer again, 500 m on the shipped 1 km tile) grains the heads. A HALF so
+// that two tiles hold one whole period of the volume: no seam, as with the whole-number HF ratio.
+#define CLOUD_DETAIL_LF_RATIO  0.5f
 #define CLOUD_DETAIL_HF_RATIO  4.0f
 #define CLOUD_DETAIL_HF_WEIGHT 0.5f
 

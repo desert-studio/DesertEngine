@@ -82,7 +82,11 @@ int CloudNoiseSlotOf( float slot )
 float CloudDefaultErosionComposite( CloudFieldSample field, vec4 noise )
 {
     float wispy   = mix( noise.x, noise.y, field.Profile );
-    float billowy = mix( noise.z, noise.w, pow( field.Profile, 0.25f ) );
+    // THE BILLOWY PAIR IS CUT WHERE IT IS LOW (CLOUD-SHAPE-f). Its channels are billows — high at a
+    // billow's centre — and an erosion that cuts where its value is high cut each billow's centre, a pit,
+    // so a lump's surface read as pocked cotton with its round outline untouched. Inverted, the cut lands
+    // in the gaps BETWEEN billows and leaves rounded heads standing, which is the cauliflower silhouette.
+    float billowy = 1.0f - mix( noise.z, noise.w, pow( field.Profile, 0.25f ) );
     return clamp( mix( wispy, billowy, clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f, 1.0f );
 }
 
@@ -107,7 +111,7 @@ float CloudDefaultDensity( CloudFieldParams params, CloudFieldSample field, vec3
     // THE VOLUME IS THE WINNING SPECIES', not the layer's. Until this argument existed there was one
     // `sampler3D` on the march and a Cirrus standing beside a Cumulus was cut from the cumulus' volume —
     // the last recorded debt of the cloud programme, and a dead setting in three of a layer's four slots.
-    vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos );
+    vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * CLOUD_DETAIL_LF_RATIO );
 
     // A SECOND, FINER READ OF THE SAME VOLUME (Nubis Cubed's high-frequency octave). The tile's period is
     // chosen against a body, so its lobes are the size of the lumps the modelling volume already placed —
@@ -116,7 +120,7 @@ float CloudDefaultDensity( CloudFieldParams params, CloudFieldSample field, vec3
     // on the billows. It is the same volume and not a second texture, so a cloud type's `.dcnv` still
     // decides the character of both octaves, and the wispy-at-the-base / billowy-at-the-crown relation
     // carries over through DetailType unchanged.
-    vec4 fineNoise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * CLOUD_DETAIL_HF_RATIO );
+    vec4 fineNoise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * ( CLOUD_DETAIL_LF_RATIO * CLOUD_DETAIL_HF_RATIO ) );
 
     float detailField = mix( CloudDefaultErosionComposite( field, noise ),
                              CloudDefaultErosionComposite( field, fineNoise ), CLOUD_DETAIL_HF_WEIGHT );
