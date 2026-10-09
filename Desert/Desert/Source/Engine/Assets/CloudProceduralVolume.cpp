@@ -528,9 +528,8 @@ namespace Desert::Assets
 
     float CloudProceduralLumpFloorKm( const CloudProceduralFieldParams& params )
     {
-        // TWO BOUNDS AND THE VOLUME'S IS THE LARGER ONE, which is the whole finding — see the header.
-        const float voxelKm = params.RegionSizeKm / static_cast<float>( params.VolumeSideVoxels );
-        return std::max( 0.5f * params.ResolvableChordKm, voxelKm );
+        // TWO BOUNDS, the march's and the FINEST clip level's voxel (CLIP-1) — see the header.
+        return std::max( 0.5f * params.ResolvableChordKm, CloudProceduralLevelVoxelKm( params, 0u ) );
     }
 
     glm::vec2 CloudProceduralCellExtentKm( const CloudProceduralFieldParams& params,
@@ -1128,6 +1127,16 @@ namespace Desert::Assets
                                                                    uint32_t slot, const glm::vec2& regionOriginKm,
                                                                    CloudProceduralLumpSet set )
     {
+        return GenerateCloudProceduralLumpsInWindow( params, slot, regionOriginKm,
+                                                     glm::vec2( params.RegionSizeKm ), set );
+    }
+
+    std::vector<CloudProceduralLump>
+    GenerateCloudProceduralLumpsInWindow( const CloudProceduralFieldParams& params, uint32_t slot,
+                                          const glm::vec2& windowMinKm, const glm::vec2& windowSizeKm,
+                                          CloudProceduralLumpSet set )
+    {
+        const glm::vec2&                 regionOriginKm = windowMinKm;
         std::vector<CloudProceduralLump> blobs;
 
         if ( slot >= params.Species.size() )
@@ -1151,7 +1160,6 @@ namespace Desert::Assets
         // indices is found by mapping the region's four corners into that frame and taking the extremes.
         // An index range that is a superset costs a rejected containment test per cell and never a wrong
         // cloud; a subset would cut a band off the sky.
-        const float side = params.RegionSizeKm;
 
         float minU = 0.0f;
         float maxU = 0.0f;
@@ -1159,8 +1167,8 @@ namespace Desert::Assets
         float maxV = 0.0f;
         for ( int corner = 0; corner < 4; ++corner )
         {
-            const glm::vec2 point =
-                 regionOriginKm + glm::vec2( ( corner & 1 ) ? side : 0.0f, ( corner & 2 ) ? side : 0.0f );
+            const glm::vec2 point = regionOriginKm + glm::vec2( ( corner & 1 ) ? windowSizeKm.x : 0.0f,
+                                                                ( corner & 2 ) ? windowSizeKm.y : 0.0f );
             const float u = point.x * along.x + point.y * along.y;
             const float v = point.x * across.x + point.y * across.y;
 
@@ -1267,8 +1275,7 @@ namespace Desert::Assets
                 // CloudProceduralFieldParams::PlacementScatter, and it is a strip at the region's edge
                 // 24 km from the camera.
                 const glm::vec2 local = centre - regionOriginKm;
-                if ( local.x < 0.0f || local.x >= params.RegionSizeKm || local.y < 0.0f ||
-                     local.y >= params.RegionSizeKm )
+                if ( local.x < 0.0f || local.x >= windowSizeKm.x || local.y < 0.0f || local.y >= windowSizeKm.y )
                     continue;
 
                 // THE CELL'S IDENTITY IS ITS ABSOLUTE LATTICE INDEX, which is what makes the field
@@ -1609,7 +1616,7 @@ namespace Desert::Assets
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
                         blob.DensityScale = 1.0f;
 
-                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ } );
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ, centre } );
                         if ( step == stackCount - 1 )
                         {
                             crownCentreKm = blob.CentreKm;
@@ -1638,7 +1645,7 @@ namespace Desert::Assets
                         blob.Weight       = 1.0f;
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
                         blob.DensityScale = 1.0f;
-                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ } );
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ, centre } );
                     };
                     // The height of an ellipsoid's upper surface over its centre at a horizontal offset given
                     // in its own frame (along, across) — 0 past its rim.
@@ -1756,7 +1763,7 @@ namespace Desert::Assets
                         // per-voxel field over the crease between the anvil and the body.
                         anvil.DensityScale = std::clamp( shape.AnvilStrength, 0.0f, 1.0f );
 
-                        blobs.push_back( CloudProceduralLump{ anvil, bodyRank, massifXZ } );
+                        blobs.push_back( CloudProceduralLump{ anvil, bodyRank, massifXZ, centre } );
                     }
                 }
             }
@@ -2045,6 +2052,33 @@ namespace Desert::Assets
         return BakeCloudProceduralVolume( params, regionOriginKm, CloudProceduralBakeProgressFn{} );
     }
 
+    namespace
+    {
+        /// WHAT ONE BAKE WRITES, stated apart from how the voxels are found — the one loop below serves the
+        /// periodic region bake (BakeCloudProceduralVolume) and the clip-level box bake
+        /// (BakeCloudProceduralBox), which differ only in these fields.
+        struct CloudProceduralGrid
+        {
+            /// World kilometres of each written column's voxel centre; the box is XKm.size() x ZKm.size().
+            std::vector<float> XKm;
+            std::vector<float> ZKm;
+            /// The rectangle a lump's box must reach to be placed, world kilometres.
+            glm::vec2 ClipMinKm{ 0.0f };
+            glm::vec2 ClipMaxKm{ 0.0f };
+            /// The period a lump is repeated with (the region's), or zero for the world field itself.
+            float WrapPeriodKm = 0.0f;
+            /// The side of one spatial bin, kilometres.
+            float BinKm = 1.0f;
+        };
+
+        using CloudProceduralLumpSource = std::function<std::vector<CloudProceduralLump>( uint32_t slot )>;
+
+        Common::ResultStr<std::vector<unsigned char>>
+        BakeCloudProceduralGrid( const CloudProceduralFieldParams& params, const CloudProceduralGrid& grid,
+                                 const CloudProceduralLumpSource&     lumpsOf,
+                                 const CloudProceduralBakeProgressFn& onProgress );
+    } // namespace
+
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                const CloudProceduralBakeProgressFn& onProgress )
@@ -2053,309 +2087,513 @@ namespace Desert::Assets
             return Common::MakeFormattedError<std::vector<unsigned char>>( "parameters are not usable: {}",
                                                                            valid.GetError() );
 
-        const uint32_t width  = params.VolumeSideVoxels;
-        const uint32_t height = kCloudProceduralVolumeHeight;
-        const uint32_t depth  = params.VolumeSideVoxels;
-
-        std::vector<unsigned char> voxels(
-             static_cast<size_t>( CloudProceduralVoxelBytes( params.VolumeSideVoxels ) ), 0u );
-
-        // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
-        // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
-        const uint32_t slices = std::max<uint32_t>( 1u, static_cast<uint32_t>( params.Species.size() ) * depth );
-        uint32_t       sliceDone = 0u;
-
-        // THE XZ SLICES ARE ALSO THE UNIT OF PARALLELISM, and it is the same boundary because it is the
-        // same independence: a slice reads the species' lump bin and writes `height x width` voxels that
-        // no other slice touches. Slice z owns the bytes [z*height*width*4, (z+1)*height*width*4), which
-        // are contiguous and 64 KiB wide at the shipped grid — disjoint by construction, not by luck, and
-        // too far apart to share a cache line.
-        //
-        // WHY THE BAKE AND NOT ITS CALLER DOES THIS. The per-species setup — the lumps, their wrapped
-        // copies, the bin — is a third of nothing and all of it would be repeated if the caller split the
-        // volume up and baked the pieces. Splitting inside also means the tools, the tests and both
-        // renderers get it without each remembering to.
-        //
-        // PROGRESS AND CANCELLATION MOVE UNDER ONE LOCK. The hook is at most `4 x side` calls over a bake
-        // of seconds, so serialising them is free, and it buys two properties the header promises: the
-        // fraction is still strictly monotone (the counter advances in lock order, whichever slice got
-        // there), and exactly ONE call can be the one told to stop — every later slice tests the flag
-        // under the same lock and never reaches the callback. Without that, a cancelled bake would call
-        // the hook once per participant and "the bake carried on past a callback that said stop" would be
-        // reported against a bake that did no such thing.
-        std::mutex progressMutex;
-        bool       cancelled = false;
-
-        const float voxelXKm = params.RegionSizeKm / static_cast<float>( width );
-        const float voxelZKm = params.RegionSizeKm / static_cast<float>( depth );
-        const float voxelYKm = params.LayerThicknessKm / static_cast<float>( height );
-
-        // How far a lump reaches before its term in the join is below the quantisation floor. See
-        // kJoinCutoffRadii. A voxel INSIDE the body lies inside one of its lumps' boxes, so nothing is
-        // added for depth.
-        const float influenceKm = params.BlendRadiusKm * kJoinCutoffRadii;
-
-        const float invBlend = 1.0f / params.BlendRadiusKm;
-
-        for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
+        // THE PERIODIC REGION: every lump of the cells whose centres lie in it, repeated at the region's
+        // period, so REPEAT sampling shows no seam (the file note).
+        CloudProceduralGrid grid;
+        const float         voxelKm = params.RegionSizeKm / static_cast<float>( params.VolumeSideVoxels );
+        grid.XKm.resize( params.VolumeSideVoxels );
+        grid.ZKm.resize( params.VolumeSideVoxels );
+        for ( uint32_t i = 0; i < params.VolumeSideVoxels; ++i )
         {
-            const std::vector<CloudProceduralLump> blobs =
-                 GenerateCloudProceduralLumps( params, slot, regionOriginKm, CloudProceduralLumpSet::KeptCells );
-            const float softness = CloudProceduralRankSoftness( params );
+            grid.XKm[i] = regionOriginKm.x + ( static_cast<float>( i ) + 0.5f ) * voxelKm;
+            grid.ZKm[i] = regionOriginKm.y + ( static_cast<float>( i ) + 0.5f ) * voxelKm;
+        }
+        grid.ClipMinKm    = regionOriginKm;
+        grid.ClipMaxKm    = regionOriginKm + glm::vec2( params.RegionSizeKm );
+        grid.WrapPeriodKm = params.RegionSizeKm;
+        grid.BinKm        = params.RegionSizeKm / 32.0f;
 
-            if ( blobs.empty() )
+        return BakeCloudProceduralGrid(
+             params, grid,
+             [&]( uint32_t slot ) {
+                 return GenerateCloudProceduralLumps( params, slot, regionOriginKm,
+                                                      CloudProceduralLumpSet::KeptCells );
+             },
+             onProgress );
+    }
+
+    namespace
+    {
+        Common::ResultStr<std::vector<unsigned char>>
+        BakeCloudProceduralGrid( const CloudProceduralFieldParams& params, const CloudProceduralGrid& grid,
+                                 const CloudProceduralLumpSource&     lumpsOf,
+                                 const CloudProceduralBakeProgressFn& onProgress )
+        {
+            const uint32_t width  = static_cast<uint32_t>( grid.XKm.size() );
+            const uint32_t height = kCloudProceduralVolumeHeight;
+            const uint32_t depth  = static_cast<uint32_t>( grid.ZKm.size() );
+
+            std::vector<unsigned char> voxels(
+                 static_cast<size_t>( width ) * height * depth * kCloudProceduralBytesPerVoxel, 0u );
+
+            // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
+            // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
+            const uint32_t slices =
+                 std::max<uint32_t>( 1u, static_cast<uint32_t>( params.Species.size() ) * depth );
+            uint32_t sliceDone = 0u;
+
+            // THE XZ SLICES ARE ALSO THE UNIT OF PARALLELISM, and it is the same boundary because it is the
+            // same independence: a slice reads the species' lump bin and writes `height x width` voxels that
+            // no other slice touches. Slice z owns the bytes [z*height*width*4, (z+1)*height*width*4), which
+            // are contiguous and 64 KiB wide at the shipped grid — disjoint by construction, not by luck, and
+            // too far apart to share a cache line.
+            //
+            // WHY THE BAKE AND NOT ITS CALLER DOES THIS. The per-species setup — the lumps, their wrapped
+            // copies, the bin — is a third of nothing and all of it would be repeated if the caller split the
+            // volume up and baked the pieces. Splitting inside also means the tools, the tests and both
+            // renderers get it without each remembering to.
+            //
+            // PROGRESS AND CANCELLATION MOVE UNDER ONE LOCK. The hook is at most `4 x side` calls over a bake
+            // of seconds, so serialising them is free, and it buys two properties the header promises: the
+            // fraction is still strictly monotone (the counter advances in lock order, whichever slice got
+            // there), and exactly ONE call can be the one told to stop — every later slice tests the flag
+            // under the same lock and never reaches the callback. Without that, a cancelled bake would call
+            // the hook once per participant and "the bake carried on past a callback that said stop" would be
+            // reported against a bake that did no such thing.
+            std::mutex progressMutex;
+            bool       cancelled = false;
+
+            const float voxelYKm = params.LayerThicknessKm / static_cast<float>( height );
+
+            // NO WRAP IS ONE COPY: a clip level is the world field and places each lump once.
+            const int wrapRange = grid.WrapPeriodKm > 0.0f ? kWrapRange : 0;
+
+            // How far a lump reaches before its term in the join is below the quantisation floor. See
+            // kJoinCutoffRadii. A voxel INSIDE the body lies inside one of its lumps' boxes, so nothing is
+            // added for depth.
+            const float influenceKm = params.BlendRadiusKm * kJoinCutoffRadii;
+
+            const float invBlend = 1.0f / params.BlendRadiusKm;
+
+            for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
             {
-                sliceDone += depth;
-                continue;
-            }
+                const std::vector<CloudProceduralLump> blobs    = lumpsOf( slot );
+                const float                            softness = CloudProceduralRankSoftness( params );
 
-            // EVERY LUMP AT EVERY WRAP THAT REACHES THE REGION. This is what makes the volume periodic and
-            // therefore what makes REPEAT sampling seamless — see the header note. A lump in the middle of
-            // the region produces exactly one entry; one against a face produces two; one in a corner four.
-            struct Placed
-            {
-                CloudModellingPreparedBlob Blob;
-                glm::vec3                  MinKm;
-                glm::vec3                  MaxKm;
-                /// The cluster's reach past the slider (CloudProceduralClusterReach): its own remap threshold.
-                float Reach = 0.0f;
-                /// The cluster this copy belongs to — the lumps' cluster site at this wrap. The smooth
-                /// minimum joins only lumps of one cluster (JOIN-PER-CLUSTER).
-                uint32_t Cluster = 0u;
-                /// 1 / the cluster's CloudProceduralBodyDepthKm (PROFILE-BODY).
-                float InvDepth = 0.0f;
-                /// CloudProceduralShapeReachKm of the lump (SHAPE-NOISE).
-                float ShapeReachKm = 0.0f;
-            };
-
-            // EACH CLUSTER'S BODY DEPTH over all its kept lumps, before a wrap or a bin culls one — the same
-            // set and the same function the preview (EvaluateCloudProceduralProfile) uses.
-            CloudClusterSites depthSites;
-            CloudClusterBodyDepths( params, blobs, depthSites );
-
-            std::vector<Placed> placed;
-            placed.reserve( blobs.size() * 2u );
-
-            // ONE ID PER CLUSTER AT EACH WRAP, in order of first appearance — the lumps are canonically
-            // ordered, so the ids are too. A cluster's site is exact (the lattice site plus its scatter, one
-            // float pair shared by its lumps), so equality of the pair is identity of the cluster.
-            std::unordered_map<uint64_t, uint32_t> clusterKeys;
-            const auto                             clusterOf = [&clusterKeys]( uint32_t site, int wx, int wz )
-            {
-                constexpr uint64_t kWraps = 2u * kWrapRange + 1u;
-                const uint64_t     key =
-                     ( static_cast<uint64_t>( site ) * kWraps + static_cast<uint64_t>( wz + kWrapRange ) ) *
-                          kWraps +
-                     static_cast<uint64_t>( wx + kWrapRange );
-                return clusterKeys.try_emplace( key, static_cast<uint32_t>( clusterKeys.size() ) ).first->second;
-            };
-
-            for ( const CloudProceduralLump& lump : blobs )
-            {
-                const CloudModellingBlob& blob   = lump.Blob;
-                const float     reach  = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
-                const uint32_t            site   = depthSites.Of( lump.ClusterKm );
-                const float               invDepth = depthSites.InvDepths[site];
-                // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
-                // reaches that much past its own ellipsoid (SHAPE-NOISE).
-                const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
-                const glm::vec3 extent =
-                     CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm + shapeReachKm );
-
-                for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
+                if ( blobs.empty() )
                 {
-                    for ( int wx = -kWrapRange; wx <= kWrapRange; ++wx )
+                    sliceDone += depth;
+                    continue;
+                }
+
+                // EVERY LUMP AT EVERY WRAP THAT REACHES THE REGION. This is what makes the volume periodic and
+                // therefore what makes REPEAT sampling seamless — see the header note. A lump in the middle of
+                // the region produces exactly one entry; one against a face produces two; one in a corner four.
+                struct Placed
+                {
+                    CloudModellingPreparedBlob Blob;
+                    glm::vec3                  MinKm;
+                    glm::vec3                  MaxKm;
+                    /// The cluster's reach past the slider (CloudProceduralClusterReach): its own remap threshold.
+                    float Reach = 0.0f;
+                    /// The cluster this copy belongs to — the lumps' cluster site at this wrap. The smooth
+                    /// minimum joins only lumps of one cluster (JOIN-PER-CLUSTER).
+                    uint32_t Cluster = 0u;
+                    /// 1 / the cluster's CloudProceduralBodyDepthKm (PROFILE-BODY).
+                    float InvDepth = 0.0f;
+                    /// CloudProceduralShapeReachKm of the lump (SHAPE-NOISE).
+                    float ShapeReachKm = 0.0f;
+                };
+
+                // EACH CLUSTER'S BODY DEPTH over all its kept lumps, before a wrap or a bin culls one — the same
+                // set and the same function the preview (EvaluateCloudProceduralProfile) uses.
+                CloudClusterSites depthSites;
+                CloudClusterBodyDepths( params, blobs, depthSites );
+
+                std::vector<Placed> placed;
+                placed.reserve( blobs.size() * 2u );
+
+                // ONE ID PER CLUSTER AT EACH WRAP, in order of first appearance — the lumps are canonically
+                // ordered, so the ids are too. A cluster's site is exact (the lattice site plus its scatter, one
+                // float pair shared by its lumps), so equality of the pair is identity of the cluster.
+                std::unordered_map<uint64_t, uint32_t> clusterKeys;
+                const auto                             clusterOf = [&clusterKeys]( uint32_t site, int wx, int wz )
+                {
+                    constexpr uint64_t kWraps = 2u * kWrapRange + 1u;
+                    const uint64_t     key =
+                         ( static_cast<uint64_t>( site ) * kWraps + static_cast<uint64_t>( wz + kWrapRange ) ) *
+                              kWraps +
+                         static_cast<uint64_t>( wx + kWrapRange );
+                    return clusterKeys.try_emplace( key, static_cast<uint32_t>( clusterKeys.size() ) )
+                         .first->second;
+                };
+
+                for ( const CloudProceduralLump& lump : blobs )
+                {
+                    const CloudModellingBlob& blob = lump.Blob;
+                    const float    reach    = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
+                    const uint32_t site     = depthSites.Of( lump.ClusterKm );
+                    const float    invDepth = depthSites.InvDepths[site];
+                    // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
+                    // reaches that much past its own ellipsoid (SHAPE-NOISE).
+                    const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
+                    const glm::vec3 extent =
+                         CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm + shapeReachKm );
+
+                    for ( int wz = -wrapRange; wz <= wrapRange; ++wz )
                     {
-                        CloudModellingBlob shifted = blob;
-                        shifted.CentreKm.x += static_cast<float>( wx ) * params.RegionSizeKm;
-                        shifted.CentreKm.z += static_cast<float>( wz ) * params.RegionSizeKm;
+                        for ( int wx = -wrapRange; wx <= wrapRange; ++wx )
+                        {
+                            CloudModellingBlob shifted = blob;
+                            shifted.CentreKm.x += static_cast<float>( wx ) * grid.WrapPeriodKm;
+                            shifted.CentreKm.z += static_cast<float>( wz ) * grid.WrapPeriodKm;
 
-                        const glm::vec3 minKm = shifted.CentreKm - extent;
-                        const glm::vec3 maxKm = shifted.CentreKm + extent;
+                            const glm::vec3 minKm = shifted.CentreKm - extent;
+                            const glm::vec3 maxKm = shifted.CentreKm + extent;
 
-                        // Reject the copies that cannot touch the region at all, which is seven of the nine
-                        // for a lump in the middle of it.
-                        if ( maxKm.x <= regionOriginKm.x || minKm.x >= regionOriginKm.x + params.RegionSizeKm )
-                            continue;
-                        if ( maxKm.z <= regionOriginKm.y || minKm.z >= regionOriginKm.y + params.RegionSizeKm )
-                            continue;
-                        if ( maxKm.y <= params.LayerBottomKm ||
-                             minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
-                            continue;
+                            // Reject the copies that cannot touch the region at all, which is seven of the nine
+                            // for a lump in the middle of it.
+                            if ( maxKm.x <= grid.ClipMinKm.x || minKm.x >= grid.ClipMaxKm.x )
+                                continue;
+                            if ( maxKm.z <= grid.ClipMinKm.y || minKm.z >= grid.ClipMaxKm.y )
+                                continue;
+                            if ( maxKm.y <= params.LayerBottomKm ||
+                                 minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
+                                continue;
 
-                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, reach,
-                                                  clusterOf( site, wx, wz ), invDepth, shapeReachKm } );
+                            placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, reach,
+                                                      clusterOf( site, wx, wz ), invDepth, shapeReachKm } );
+                        }
                     }
                 }
-            }
 
-            if ( placed.empty() )
-            {
-                sliceDone += depth;
-                continue;
-            }
+                if ( placed.empty() )
+                {
+                    sliceDone += depth;
+                    continue;
+                }
 
-            // A COARSE XZ BIN OVER THE REGION, so a voxel asks about the lumps that can reach it rather
-            // than about all of them. Without it the bake is `voxels x lumps` — two million by a thousand —
-            // and with it the inner list is the handful of lumps whose boxes overlap this bin.
-            //
-            // THE LISTS STAY IN THE LUMPS' CANONICAL ORDER because `placed` is walked in that order and a
-            // lump is appended to each bin it touches. That is what carries phase Э4's order-independence
-            // into this bake: the sum a voxel performs is over an ascending subsequence of one sorted list,
-            // whatever the lattice loop did.
-            const uint32_t bins   = 32u;
-            const float    binKm  = params.RegionSizeKm / static_cast<float>( bins );
-            const float    invBin = 1.0f / binKm;
+                // A COARSE XZ BIN OVER THE REGION, so a voxel asks about the lumps that can reach it rather
+                // than about all of them. Without it the bake is `voxels x lumps` — two million by a thousand —
+                // and with it the inner list is the handful of lumps whose boxes overlap this bin.
+                //
+                // THE LISTS STAY IN THE LUMPS' CANONICAL ORDER because `placed` is walked in that order and a
+                // lump is appended to each bin it touches. That is what carries phase Э4's order-independence
+                // into this bake: the sum a voxel performs is over an ascending subsequence of one sorted list,
+                // whatever the lattice loop did.
+                const float     invBin = 1.0f / grid.BinKm;
+                const glm::vec2 clipKm = grid.ClipMaxKm - grid.ClipMinKm;
+                const uint32_t  binsX =
+                     std::max( 1u, static_cast<uint32_t>( std::ceil( clipKm.x * invBin - 1e-4f ) ) );
+                const uint32_t binsZ =
+                     std::max( 1u, static_cast<uint32_t>( std::ceil( clipKm.y * invBin - 1e-4f ) ) );
 
-            std::vector<std::vector<uint32_t>> binList( static_cast<size_t>( bins ) * bins );
+                std::vector<std::vector<uint32_t>> binList( static_cast<size_t>( binsX ) * binsZ );
 
-            for ( uint32_t index = 0; index < placed.size(); ++index )
-            {
-                const Placed& item = placed[index];
+                for ( uint32_t index = 0; index < placed.size(); ++index )
+                {
+                    const Placed& item = placed[index];
 
-                const int firstX =
-                     std::max( 0, static_cast<int>( std::floor( ( item.MinKm.x - regionOriginKm.x ) * invBin ) ) );
-                const int lastX =
-                     std::min( static_cast<int>( bins ) - 1,
-                               static_cast<int>( std::floor( ( item.MaxKm.x - regionOriginKm.x ) * invBin ) ) );
-                const int firstZ =
-                     std::max( 0, static_cast<int>( std::floor( ( item.MinKm.z - regionOriginKm.y ) * invBin ) ) );
-                const int lastZ =
-                     std::min( static_cast<int>( bins ) - 1,
-                               static_cast<int>( std::floor( ( item.MaxKm.z - regionOriginKm.y ) * invBin ) ) );
+                    const int firstX = std::max(
+                         0, static_cast<int>( std::floor( ( item.MinKm.x - grid.ClipMinKm.x ) * invBin ) ) );
+                    const int lastX = std::min(
+                         static_cast<int>( binsX ) - 1,
+                         static_cast<int>( std::floor( ( item.MaxKm.x - grid.ClipMinKm.x ) * invBin ) ) );
+                    const int firstZ = std::max(
+                         0, static_cast<int>( std::floor( ( item.MinKm.z - grid.ClipMinKm.y ) * invBin ) ) );
+                    const int lastZ = std::min(
+                         static_cast<int>( binsZ ) - 1,
+                         static_cast<int>( std::floor( ( item.MaxKm.z - grid.ClipMinKm.y ) * invBin ) ) );
 
-                for ( int bz = firstZ; bz <= lastZ; ++bz )
-                    for ( int bx = firstX; bx <= lastX; ++bx )
-                        binList[static_cast<size_t>( bz ) * bins + bx].push_back( index );
-            }
+                    for ( int bz = firstZ; bz <= lastZ; ++bz )
+                        for ( int bx = firstX; bx <= lastX; ++bx )
+                            binList[static_cast<size_t>( bz ) * binsX + bx].push_back( index );
+                }
 
-            // ONE SLICE PER CLAIM. Slices differ in cost by an order of magnitude — one crossing a cluster
-            // does the full join at every column, one over clear sky rejects at the bin — so handing out
-            // equal blocks in advance would leave most participants idle behind the unlucky one. A grain
-            // of 1 is worth its claim here: a slice is tens of milliseconds of work against a mutex.
-            Common::JobSystem::Get().ParallelRanges(
-                 depth, 1u,
-                 [&]( size_t zBegin, size_t zEnd )
-                 {
-                     DESERT_PROFILE_SCOPE( "Clouds: modelling bake XZ slice" );
-
-                     // PER RANGE AND NOT PER BAKE: these are the scratch the inner loops refill, and one
-                     // shared pair would be the only write two slices could ever contend on.
-                     std::vector<CloudClusterCandidate> candidates;
-                     std::vector<uint32_t>              column;
-
-                     for ( uint32_t z = static_cast<uint32_t>( zBegin ); z < static_cast<uint32_t>( zEnd ); ++z )
+                // ONE SLICE PER CLAIM. Slices differ in cost by an order of magnitude — one crossing a cluster
+                // does the full join at every column, one over clear sky rejects at the bin — so handing out
+                // equal blocks in advance would leave most participants idle behind the unlucky one. A grain
+                // of 1 is worth its claim here: a slice is tens of milliseconds of work against a mutex.
+                Common::JobSystem::Get().ParallelRanges(
+                     depth, 1u,
+                     [&]( size_t zBegin, size_t zEnd )
                      {
-                         // BETWEEN SLICES AND NOT INSIDE THEM, exactly as the sculpted bake does it and for the
-                         // same arithmetic: at most `4 x side` calls over a bake of seconds is a check whose cost
-                         // is unmeasurable, where a call per voxel would be millions of indirect calls through a
-                         // std::function and would dominate the work it is reporting on. At the shipped 256 that
-                         // is one check every ~40 ms of Debug bake, which is the granularity a cancel is honoured
-                         // at.
-                         if ( onProgress )
+                         DESERT_PROFILE_SCOPE( "Clouds: modelling bake XZ slice" );
+
+                         // PER RANGE AND NOT PER BAKE: these are the scratch the inner loops refill, and one
+                         // shared pair would be the only write two slices could ever contend on.
+                         std::vector<CloudClusterCandidate> candidates;
+                         std::vector<uint32_t>              column;
+
+                         for ( uint32_t z = static_cast<uint32_t>( zBegin ); z < static_cast<uint32_t>( zEnd );
+                               ++z )
                          {
-                             std::lock_guard<std::mutex> lk( progressMutex );
-                             if ( cancelled )
-                                 return;
-                             if ( !onProgress( static_cast<float>( sliceDone ) / static_cast<float>( slices ) ) )
+                             // BETWEEN SLICES AND NOT INSIDE THEM, exactly as the sculpted bake does it and for
+                             // the same arithmetic: at most `4 x side` calls over a bake of seconds is a check
+                             // whose cost is unmeasurable, where a call per voxel would be millions of indirect
+                             // calls through a std::function and would dominate the work it is reporting on. At
+                             // the shipped 256 that is one check every ~40 ms of Debug bake, which is the
+                             // granularity a cancel is honoured at.
+                             if ( onProgress )
                              {
-                                 cancelled = true;
-                                 return;
+                                 std::lock_guard<std::mutex> lk( progressMutex );
+                                 if ( cancelled )
+                                     return;
+                                 if ( !onProgress( static_cast<float>( sliceDone ) /
+                                                   static_cast<float>( slices ) ) )
+                                 {
+                                     cancelled = true;
+                                     return;
+                                 }
+                                 ++sliceDone;
                              }
-                             ++sliceDone;
-                         }
 
-                         const float worldZ = regionOriginKm.y + ( static_cast<float>( z ) + 0.5f ) * voxelZKm;
-                         const int   binZ = std::clamp( static_cast<int>( ( worldZ - regionOriginKm.y ) * invBin ),
-                                                        0, static_cast<int>( bins ) - 1 );
+                             const float worldZ = grid.ZKm[z];
+                             const int   binZ =
+                                  std::clamp( static_cast<int>( ( worldZ - grid.ClipMinKm.y ) * invBin ), 0,
+                                              static_cast<int>( binsZ ) - 1 );
 
-                         for ( uint32_t x = 0; x < width; ++x )
-                         {
-                             const float worldX = regionOriginKm.x + ( static_cast<float>( x ) + 0.5f ) * voxelXKm;
-                             const int   binX =
-                                  std::clamp( static_cast<int>( ( worldX - regionOriginKm.x ) * invBin ), 0,
-                                              static_cast<int>( bins ) - 1 );
-
-                             const std::vector<uint32_t>& list =
-                                  binList[static_cast<size_t>( binZ ) * bins + binX];
-                             if ( list.empty() )
-                                 continue;
-
-                             // THE COLUMN'S OWN CANDIDATES, decided once for all 32 rows above this ground
-                             // position. The horizontal half of the box test does not depend on the altitude, and
-                             // performing it inside the y loop repeated it thirty-two times for the same answer —
-                             // measured at 642 ms per bake for one species, most of it in rejections. The list
-                             // stays in the lumps' canonical order because `list` is, which is what carries the
-                             // join's order-independence through this optimisation.
-                             column.clear();
-                             for ( uint32_t index : list )
+                             for ( uint32_t x = 0; x < width; ++x )
                              {
-                                 const Placed& item = placed[index];
-                                 if ( worldX < item.MinKm.x || worldX > item.MaxKm.x || worldZ < item.MinKm.z ||
-                                      worldZ > item.MaxKm.z )
+                                 const float worldX = grid.XKm[x];
+                                 const int   binX =
+                                      std::clamp( static_cast<int>( ( worldX - grid.ClipMinKm.x ) * invBin ), 0,
+                                                  static_cast<int>( binsX ) - 1 );
+
+                                 const std::vector<uint32_t>& list =
+                                      binList[static_cast<size_t>( binZ ) * binsX + binX];
+                                 if ( list.empty() )
                                      continue;
-                                 column.push_back( index );
-                             }
 
-                             if ( column.empty() )
-                                 continue;
-
-                             for ( uint32_t y = 0; y < height; ++y )
-                             {
-                                 const float worldY =
-                                      params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm;
-
-                                 const glm::vec3 point( worldX, worldY, worldZ );
-
-                                 // THE VOXEL IS CloudProceduralCutJoin's (CUT-AT-BAKE-b), the one home the preview
-                                 // (EvaluateCloudProceduralProfile) shares: the lumps of each cluster joined by
-                                 // the smooth minimum, each cluster cut by its reach, clusters met by `max`
-                                 // (JOIN-PER-CLUSTER).
-                                 // The silhouette noise moves every lump's distance BEFORE the join
-                                 // (SHAPE-NOISE), the preview's CloudProceduralShapeNoise at this point.
-                                 const float shape = CloudProceduralShapeNoise( params, slot, point );
-
-                                 candidates.clear();
-                                 for ( uint32_t index : column )
+                                 // THE COLUMN'S OWN CANDIDATES, decided once for all 32 rows above this ground
+                                 // position. The horizontal half of the box test does not depend on the altitude,
+                                 // and performing it inside the y loop repeated it thirty-two times for the same
+                                 // answer — measured at 642 ms per bake for one species, most of it in rejections.
+                                 // The list stays in the lumps' canonical order because `list` is, which is what
+                                 // carries the join's order-independence through this optimisation.
+                                 column.clear();
+                                 for ( uint32_t index : list )
                                  {
                                      const Placed& item = placed[index];
-                                     candidates.push_back( CloudClusterCandidate{
-                                          point.y < item.MinKm.y || point.y > item.MaxKm.y
-                                               ? std::numeric_limits<float>::infinity()
-                                               : CloudModellingBlobDistanceKm( item.Blob, point ) +
-                                                      item.ShapeReachKm * shape,
-                                          item.Blob.Weight, item.Cluster, item.Reach, item.InvDepth } );
+                                     if ( worldX < item.MinKm.x || worldX > item.MaxKm.x ||
+                                          worldZ < item.MinKm.z || worldZ > item.MaxKm.z )
+                                         continue;
+                                     column.push_back( index );
                                  }
 
-                                 const float cut = CloudProceduralCutJoin(
-                                      candidates,
-                                      CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY ),
-                                      invBlend, params.BlendRadiusKm,
-                                      params.Species[slot].Shape.BaseAltitudeKm - worldY );
-
-                                 if ( cut <= 0.0f )
+                                 if ( column.empty() )
                                      continue;
 
-                                 const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
-                                                   kCloudProceduralBytesPerVoxel;
-                                 voxels[at + slot] = Common::Math::QuantiseUnitToByte( cut );
+                                 for ( uint32_t y = 0; y < height; ++y )
+                                 {
+                                     const float worldY =
+                                          params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm;
+
+                                     const glm::vec3 point( worldX, worldY, worldZ );
+
+                                     // THE VOXEL IS CloudProceduralCutJoin's (CUT-AT-BAKE-b), the one home the
+                                     // preview (EvaluateCloudProceduralProfile) shares: the lumps of each cluster
+                                     // joined by the smooth minimum, each cluster cut by its reach, clusters met
+                                     // by `max` (JOIN-PER-CLUSTER). The silhouette noise moves every lump's
+                                     // distance BEFORE the join (SHAPE-NOISE), the preview's
+                                     // CloudProceduralShapeNoise at this point.
+                                     const float shape = CloudProceduralShapeNoise( params, slot, point );
+
+                                     candidates.clear();
+                                     for ( uint32_t index : column )
+                                     {
+                                         const Placed& item = placed[index];
+                                         candidates.push_back( CloudClusterCandidate{
+                                              point.y < item.MinKm.y || point.y > item.MaxKm.y
+                                                   ? std::numeric_limits<float>::infinity()
+                                                   : CloudModellingBlobDistanceKm( item.Blob, point ) +
+                                                          item.ShapeReachKm * shape,
+                                              item.Blob.Weight, item.Cluster, item.Reach, item.InvDepth } );
+                                     }
+
+                                     const float cut = CloudProceduralCutJoin(
+                                          candidates,
+                                          CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY ),
+                                          invBlend, params.BlendRadiusKm,
+                                          params.Species[slot].Shape.BaseAltitudeKm - worldY );
+
+                                     if ( cut <= 0.0f )
+                                         continue;
+
+                                     const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
+                                                       kCloudProceduralBytesPerVoxel;
+                                     voxels[at + slot] = Common::Math::QuantiseUnitToByte( cut );
+                                 }
                              }
                          }
-                     }
-                 } );
+                     } );
 
-            // ASKED AFTER THE LOOP AND NOT INSIDE IT. ParallelRanges returns only once every claimed slice
-            // has finished, so this is the first moment at which "somebody said stop" is a settled fact
-            // rather than a value another participant is still deciding.
-            if ( cancelled )
-                return Common::MakeError<std::vector<unsigned char>>(
-                     "the procedural modelling bake was cancelled before it finished" );
+                // ASKED AFTER THE LOOP AND NOT INSIDE IT. ParallelRanges returns only once every claimed slice
+                // has finished, so this is the first moment at which "somebody said stop" is a settled fact
+                // rather than a value another participant is still deciding.
+                if ( cancelled )
+                    return Common::MakeError<std::vector<unsigned char>>(
+                         "the procedural modelling bake was cancelled before it finished" );
+            }
+
+            if ( onProgress )
+                onProgress( 1.0f );
+
+            return Common::MakeSuccess( std::move( voxels ) );
+        }
+    } // namespace
+
+    float CloudProceduralLevelSideKm( const CloudProceduralFieldParams& params, uint32_t level )
+    {
+        // A halving per level below the last, so the last level IS the region and the ratio is 2 throughout.
+        return std::ldexp( params.RegionSizeKm,
+                           static_cast<int>( level ) - static_cast<int>( kCloudProceduralClipLevels - 1u ) );
+    }
+
+    float CloudProceduralLevelVoxelKm( const CloudProceduralFieldParams& params, uint32_t level )
+    {
+        return CloudProceduralLevelSideKm( params, level ) / static_cast<float>( params.VolumeSideVoxels );
+    }
+
+    glm::ivec2 CloudProceduralLevelOriginVoxel( const CloudProceduralFieldParams& params, uint32_t level,
+                                                float cameraXKm, float cameraZKm )
+    {
+        // FLOOR, as CloudProceduralRegionOriginKm does: the corner is a monotone step function of the camera
+        // and one voxel of travel is one column. In double so a camera thousands of kilometres out still
+        // lands on the voxel it is in.
+        const double voxel = static_cast<double>( CloudProceduralLevelVoxelKm( params, level ) );
+        const double half  = 0.5 * static_cast<double>( CloudProceduralLevelSideKm( params, level ) );
+        return glm::ivec2(
+             static_cast<int32_t>( std::floor( ( static_cast<double>( cameraXKm ) - half ) / voxel ) ),
+             static_cast<int32_t>( std::floor( ( static_cast<double>( cameraZKm ) - half ) / voxel ) ) );
+    }
+
+    glm::vec2 CloudProceduralLevelOriginKm( const CloudProceduralFieldParams& params, uint32_t level,
+                                            float cameraXKm, float cameraZKm )
+    {
+        const glm::ivec2 voxel = CloudProceduralLevelOriginVoxel( params, level, cameraXKm, cameraZKm );
+        return glm::vec2( voxel ) * CloudProceduralLevelVoxelKm( params, level );
+    }
+
+    Common::ResultStr<std::vector<unsigned char>> BakeCloudProceduralBox( const CloudProceduralFieldParams& params,
+                                                                          uint32_t                          level,
+                                                                          const glm::ivec2& originVoxel,
+                                                                          const CloudProceduralVoxelBox& box )
+    {
+        return BakeCloudProceduralBox( params, level, originVoxel, box, CloudProceduralBakeProgressFn{} );
+    }
+
+    Common::ResultStr<std::vector<unsigned char>>
+    BakeCloudProceduralBox( const CloudProceduralFieldParams& params, uint32_t level,
+                            const glm::ivec2& originVoxel, const CloudProceduralVoxelBox& box,
+                            const CloudProceduralBakeProgressFn& onProgress )
+    {
+        using Bytes = std::vector<unsigned char>;
+        if ( auto valid = ValidateCloudProceduralParams( params ); !valid )
+            return Common::MakeFormattedError<Bytes>( "parameters are not usable: {}", valid.GetError() );
+        if ( level >= kCloudProceduralClipLevels )
+            return Common::MakeFormattedError<Bytes>( "clip level {} does not exist: there are {}", level,
+                                                      kCloudProceduralClipLevels );
+        const uint32_t side = params.VolumeSideVoxels;
+        if ( box.Width == 0u || box.Depth == 0u || box.X + box.Width > side || box.Z + box.Depth > side )
+            return Common::MakeFormattedError<Bytes>(
+                 "the box [{}, {}) x [{}, {}) is empty or leaves the level's {} texels", box.X, box.X + box.Width,
+                 box.Z, box.Z + box.Depth, side );
+
+        // THE VOXEL CENTRE FROM THE WORLD INDEX ALONE — never origin plus offset — so a texel shared by two
+        // origins is the same float, and therefore the same bytes, under both.
+        const float         voxelKm = CloudProceduralLevelVoxelKm( params, level );
+        CloudProceduralGrid grid;
+        grid.XKm.resize( box.Width );
+        grid.ZKm.resize( box.Depth );
+        for ( uint32_t i = 0; i < box.Width; ++i )
+            grid.XKm[i] =
+                 ( static_cast<float>( CloudProceduralLevelWorldVoxel( box.X + i, originVoxel.x, side ) ) +
+                   0.5f ) *
+                 voxelKm;
+        for ( uint32_t i = 0; i < box.Depth; ++i )
+            grid.ZKm[i] =
+                 ( static_cast<float>( CloudProceduralLevelWorldVoxel( box.Z + i, originVoxel.y, side ) ) +
+                   0.5f ) *
+                 voxelKm;
+        const auto [minX, maxX] = std::minmax_element( grid.XKm.begin(), grid.XKm.end() );
+        const auto [minZ, maxZ] = std::minmax_element( grid.ZKm.begin(), grid.ZKm.end() );
+        grid.ClipMinKm          = glm::vec2( *minX, *minZ ) - glm::vec2( 0.5f * voxelKm );
+        grid.ClipMaxKm          = glm::vec2( *maxX, *maxZ ) + glm::vec2( 0.5f * voxelKm );
+        grid.WrapPeriodKm       = 0.0f;
+        grid.BinKm              = CloudProceduralLevelSideKm( params, level ) / 32.0f;
+
+        // THE LUMPS THAT CAN REACH THE BOX, from the generator's window widened by their reach. The reach is
+        // MEASURED on what was emitted (the lump's box as the bake places it, from the centre of the cell that
+        // owns it) and the window is accepted only when it is twice that, so a cell outside it would have to
+        // throw a lump twice as far as any of the thousands inside did. Lumps past the box are culled by the
+        // bake's own box test, so a wider window changes nothing but the time.
+        const float                                   influenceKm = params.BlendRadiusKm * kJoinCutoffRadii;
+        std::vector<std::vector<CloudProceduralLump>> lumps( params.Species.size() );
+        for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
+        {
+            const glm::vec2 cell    = CloudProceduralCellExtentKm( params, params.Species[slot] );
+            float           margin  = 2.0f * std::max( cell.x, cell.y );
+            bool            settled = false;
+            for ( int attempt = 0; attempt < 8 && !settled; ++attempt )
+            {
+                lumps[slot] = GenerateCloudProceduralLumpsInWindow(
+                     params, slot, grid.ClipMinKm - glm::vec2( margin ),
+                     grid.ClipMaxKm - grid.ClipMinKm + glm::vec2( 2.0f * margin ),
+                     CloudProceduralLumpSet::KeptCells );
+                float reach = 0.0f;
+                for ( const CloudProceduralLump& lump : lumps[slot] )
+                {
+                    const glm::vec3 extent = CloudModellingBlobHalfExtentKm( lump.Blob ) +
+                                             glm::vec3( influenceKm + CloudProceduralShapeReachKm( lump.Blob ) );
+                    reach = std::max( { reach, std::abs( lump.Blob.CentreKm.x - lump.CellKm.x ) + extent.x,
+                                        std::abs( lump.Blob.CentreKm.z - lump.CellKm.y ) + extent.z } );
+                }
+                settled = 2.0f * reach <= margin;
+                margin  = std::max( margin, 2.0f * reach );
+            }
+            if ( !settled )
+                return Common::MakeFormattedError<Bytes>(
+                     "species {} throws lumps further than a {} km window settles on; the clip-level bake cannot "
+                     "bound the cells that reach its box",
+                     slot, margin );
         }
 
-        if ( onProgress )
-            onProgress( 1.0f );
+        return BakeCloudProceduralGrid(
+             params, grid, [&lumps]( uint32_t slot ) { return lumps[slot]; }, onProgress );
+    }
 
-        return Common::MakeSuccess( std::move( voxels ) );
+    uint64_t CloudProceduralLevelCacheKey( const CloudProceduralFieldParams& params, uint32_t level,
+                                           const glm::ivec2& originVoxel, const Common::DDC::Deriver& deriver )
+    {
+        std::string inputs = SerializeCloudProceduralBakeInputs(
+             params, glm::vec2( originVoxel ) * CloudProceduralLevelVoxelKm( params, level ) );
+        KeyU32( inputs, level );
+        KeyU32( inputs, static_cast<uint32_t>( originVoxel.x ) );
+        KeyU32( inputs, static_cast<uint32_t>( originVoxel.y ) );
+        return Common::DDC::MakeKey( deriver, 0u, inputs.data(), inputs.size() );
+    }
+
+    Common::ResultStr<CloudProceduralCachedBake>
+    BakeCloudProceduralLevelCached( const CloudProceduralFieldParams& params, uint32_t level,
+                                    const glm::ivec2&                    originVoxel,
+                                    const CloudProceduralBakeProgressFn& onProgress )
+    {
+        const CloudProceduralVoxelBox whole{ 0u, 0u, params.VolumeSideVoxels, params.VolumeSideVoxels };
+        CloudProceduralCachedBake     result;
+        result.Key = CloudProceduralLevelCacheKey( params, level, originVoxel );
+        if ( auto hit = Common::DDC::Get( kCloudModellingDeriver, result.Key ); hit.has_value() )
+        {
+            const uint64_t expected = CloudProceduralBoxBytes( whole );
+            if ( hit->size() != expected )
+                return Common::MakeFormattedError<CloudProceduralCachedBake>(
+                     "the cached clip level '{}' holds {} bytes where a {}-voxel level is {} — the entry is "
+                     "damaged; delete it to re-bake",
+                     Common::DDC::PathFor( kCloudModellingDeriver, result.Key ).string(), hit->size(),
+                     params.VolumeSideVoxels, expected );
+            result.Voxels.assign( hit->begin(), hit->end() );
+            result.FromCache = true;
+            return Common::MakeSuccess( std::move( result ) );
+        }
+        auto baked = BakeCloudProceduralBox( params, level, originVoxel, whole, onProgress );
+        if ( !baked.IsSuccess() )
+            return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
+        result.Voxels = baked.GetValue();
+        const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ),
+                                      result.Voxels.size() );
+        if ( auto put = Common::DDC::Put( kCloudModellingDeriver, result.Key, bytes ); !put.IsSuccess() )
+            result.CacheWriteError = put.GetError();
+        return Common::MakeSuccess( std::move( result ) );
     }
 
     float CloudProceduralCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
@@ -2529,10 +2767,10 @@ namespace Desert::Assets
         // Phi(weather) is uniform over the sky because the weather is standard normal; the busy end is low.
         const float u = static_cast<float>( NormalCdf( static_cast<double>( weather ) ) );
 
-        // OCCUPIED OR CLEAR, WITH A NARROW SHORE (FIELD-GRAIN-b): a fraction f = 1 - s of the sky is weather at
-        // W = 1 — the Coverage slider is then the cover there, not a fraction of it — and s is clear, the two
-        // joined by a smoothstep 2 delta wide in rank. delta = 0.15 min(f, 1 - f) keeps the shore inside both
-        // sides at every s, so E[W] = f exactly and the true zeros are a fraction s - delta. The shader's
+        // OCCUPIED OR CLEAR, WITH A NARROW SHORE (FIELD-GRAIN-b): a fraction f = 1 - s of the sky is weather
+        // at W = 1 — the Coverage slider is then the cover there, not a fraction of it — and s is clear, the
+        // two joined by a smoothstep 2 delta wide in rank. delta = 0.15 min(f, 1 - f) keeps the shore inside
+        // both sides at every s, so E[W] = f exactly and the true zeros are a fraction s - delta. The shader's
         // CloudLocalWeather is the same expression.
         const float f     = 1.0f - s;
         const float delta = kCloudWeatherShore * std::min( f, s );

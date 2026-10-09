@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 using Desert::Assets::BakeCloudProceduralVolume;
@@ -611,12 +612,22 @@ TEST( CloudProceduralField, NoGeneratedLumpIsThinnerThanTheMarchCanFindAtAnyTier
 // voxels is "the narrowest cluster the volume can carry with an inside and two edges". A cluster is six
 // lobes, so that bound says nothing about a lobe — at that exact cell a third of the lobes were under two
 // voxels. The floor below is what makes the cell floor's own sentence true.
-TEST( CloudProceduralField, NoGeneratedLumpIsNarrowerThanTheVolumeCanCarry )
+//
+// THE VOXEL IS THE FINEST CLIP LEVEL'S (CLIP-1): one lump set serves every level, so the floor is what the
+// level that draws the nearest sky can carry, and a floor still at the region's voxel is the "stacked balls"
+// r05-r08 were refused for.
+// MUTATION: CloudProceduralLumpFloorKm back to RegionSizeKm / VolumeSideVoxels -> the last EXPECT is red.
+TEST( CloudProceduralField, NoGeneratedLumpIsNarrowerThanTheFinestLevelCanCarry )
 {
     const CloudProceduralFieldParams shipped = MakeParams();
 
-    const float voxelKm = shipped.RegionSizeKm / static_cast<float>( kCloudProceduralVolumeSide );
+    const float voxelKm = Desert::Assets::CloudProceduralLevelVoxelKm( shipped, 0u );
     const float floorKm = Desert::Assets::CloudProceduralLumpFloorKm( shipped );
+
+    EXPECT_LT( floorKm, Desert::Assets::CloudProceduralLevelVoxelKm(
+                             shipped, Desert::Assets::kCloudProceduralClipLevels - 1u ) )
+         << "the lump floor is still the coarsest level's voxel, so the finest level is handed bodies swollen "
+            "to a size only the far sky needed";
 
     std::printf( "[CloudProceduralField] voxel %.1f m; the volume expresses %.0f m, the march finds %.0f m; "
                  "the lump floor is %.0f m across\n",
@@ -682,6 +693,175 @@ TEST( CloudProceduralField, NoGeneratedLumpIsNarrowerThanTheVolumeCanCarry )
              << " lumps are narrower than the two voxels the volume can express — the narrowest is "
              << 2000.0f * narrowestKm << " m against " << 2000.0f * voxelKm << " m";
     }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 3b. CLIP LEVELS (CLIP-1): a level scrolls by re-baking the columns that enter it, and every level is the
+//     same sky
+// ---------------------------------------------------------------------------------------------------
+namespace
+{
+    using Desert::Assets::BakeCloudProceduralBox;
+    using Desert::Assets::CloudProceduralLevelOriginVoxel;
+    using Desert::Assets::CloudProceduralLevelTexel;
+    using Desert::Assets::CloudProceduralLevelVoxelKm;
+    using Desert::Assets::CloudProceduralVoxelBox;
+    using Desert::Assets::kCloudProceduralClipLevels;
+
+    /// The texel runs a run of world voxels [first, first + count) occupies on the torus — one run, or two
+    /// when it crosses the image's edge.
+    std::vector<std::pair<uint32_t, uint32_t>> TexelRuns( int32_t first, uint32_t count, uint32_t side )
+    {
+        std::vector<std::pair<uint32_t, uint32_t>> runs;
+        const uint32_t                             start = CloudProceduralLevelTexel( first, side );
+        const uint32_t                             head  = std::min( count, side - start );
+        runs.emplace_back( start, head );
+        if ( head < count )
+            runs.emplace_back( 0u, count - head );
+        return runs;
+    }
+
+    /// Writes a box's bytes into a whole level's image at the box's texels.
+    void Blit( std::vector<unsigned char>& image, uint32_t side, const CloudProceduralVoxelBox& box,
+               const std::vector<unsigned char>& bytes )
+    {
+        for ( uint32_t z = 0; z < box.Depth; ++z )
+            for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+            {
+                const size_t from =
+                     ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * box.Width ) * 4u;
+                const size_t to =
+                     ( ( static_cast<size_t>( box.Z + z ) * kCloudProceduralVolumeHeight + y ) * side + box.X ) *
+                     4u;
+                std::copy( bytes.begin() + static_cast<std::ptrdiff_t>( from ),
+                           bytes.begin() + static_cast<std::ptrdiff_t>( from + box.Width * 4u ),
+                           image.begin() + static_cast<std::ptrdiff_t>( to ) );
+            }
+    }
+
+    /// The fraction of a box's columns with any cloud of species 0 — the top-down cover.
+    double ColumnCover( const std::vector<unsigned char>& bytes, uint32_t width, uint32_t depth )
+    {
+        size_t covered = 0;
+        for ( uint32_t z = 0; z < depth; ++z )
+            for ( uint32_t x = 0; x < width; ++x )
+                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+                    if ( bytes[( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * width + x ) *
+                               4u] != 0u )
+                    {
+                        ++covered;
+                        break;
+                    }
+        return static_cast<double>( covered ) / static_cast<double>( static_cast<size_t>( width ) * depth );
+    }
+} // namespace
+
+// THE SCROLL IS EXACT. A level at origin O, moved to O' by re-baking only the columns and rows that entered,
+// is byte for byte the level baked whole at O' — at every level, with the entering runs crossing the torus'
+// edge, at the coarsest grid the component offers so the six whole-level bakes stay cheap.
+// MUTATION: CloudProceduralLevelWorldVoxel returns one voxel further (originVoxel + 1 + ...) -> red;
+//           the box bake's lump window without the measured reach (margin 0) -> red at the box's edges.
+TEST( CloudProceduralField, SlabBakeEqualsTheFullBakeOfTheShiftedLevel )
+{
+    CloudProceduralFieldParams params  = MakeParams();
+    params.VolumeSideVoxels            = kCloudProceduralVolumeSideMin;
+    const uint32_t                side = params.VolumeSideVoxels;
+    const CloudProceduralVoxelBox whole{ 0u, 0u, side, side };
+
+    for ( uint32_t level = 0; level < kCloudProceduralClipLevels; ++level )
+    {
+        // THE ORIGIN FOLLOWS THE CAMERA ONE VOXEL PER VOXEL: a camera moved by whole voxels moves the corner by
+        // exactly as many, which is what makes the entering slab the columns counted here.
+        const float      voxelKm = CloudProceduralLevelVoxelKm( params, level );
+        const glm::ivec2 atZero = CloudProceduralLevelOriginVoxel( params, level, 0.3f * voxelKm, 0.3f * voxelKm );
+        const glm::ivec2 moved = CloudProceduralLevelOriginVoxel( params, level, 9.3f * voxelKm, -6.7f * voxelKm );
+        EXPECT_EQ( moved - atZero, glm::ivec2( 9, -7 ) )
+             << "level " << level << " origin does not track the camera";
+
+        // An origin whose entering runs cross the image's edge on both axes.
+        const glm::ivec2 before( static_cast<int32_t>( side ) * 3 - 4, -static_cast<int32_t>( side ) - 2 );
+        const glm::ivec2 shift( 9, -7 );
+        const glm::ivec2 after = before + shift;
+
+        auto old = BakeCloudProceduralBox( params, level, before, whole );
+        ASSERT_TRUE( old ) << old.GetError();
+        auto fresh = BakeCloudProceduralBox( params, level, after, whole );
+        ASSERT_TRUE( fresh ) << fresh.GetError();
+
+        std::vector<unsigned char> image         = old.GetValue();
+        size_t                     enteringBytes = 0;
+
+        // Columns entering on +x: world [before.x + side, after.x + side), every row of z.
+        for ( const auto& [texel, count] : TexelRuns( before.x + static_cast<int32_t>( side ), 9u, side ) )
+        {
+            const CloudProceduralVoxelBox box{ texel, 0u, count, side };
+            auto                          slab = BakeCloudProceduralBox( params, level, after, box );
+            ASSERT_TRUE( slab ) << slab.GetError();
+            ASSERT_EQ( slab.GetValue().size(), Desert::Assets::CloudProceduralBoxBytes( box ) );
+            enteringBytes += static_cast<size_t>( std::count_if( slab.GetValue().begin(), slab.GetValue().end(),
+                                                                 []( unsigned char b ) { return b != 0u; } ) );
+            Blit( image, side, box, slab.GetValue() );
+        }
+        // Rows entering on -z: world [after.y, before.y), every column of x.
+        for ( const auto& [texel, count] : TexelRuns( after.y, 7u, side ) )
+        {
+            const CloudProceduralVoxelBox box{ 0u, texel, side, count };
+            auto                          slab = BakeCloudProceduralBox( params, level, after, box );
+            ASSERT_TRUE( slab ) << slab.GetError();
+            enteringBytes += static_cast<size_t>( std::count_if( slab.GetValue().begin(), slab.GetValue().end(),
+                                                                 []( unsigned char b ) { return b != 0u; } ) );
+            Blit( image, side, box, slab.GetValue() );
+        }
+
+        size_t differing = 0;
+        for ( size_t i = 0; i < image.size(); ++i )
+            differing += image[i] != fresh.GetValue()[i] ? 1u : 0u;
+        size_t changed = 0;
+        for ( size_t i = 0; i < image.size(); ++i )
+            changed += old.GetValue()[i] != fresh.GetValue()[i] ? 1u : 0u;
+
+        std::printf( "[CloudProceduralField] level %u: %zu bytes changed by the shift, %zu non-zero entering, %zu "
+                     "differ from the whole bake\n",
+                     level, changed, enteringBytes, differing );
+
+        EXPECT_GT( changed, 0u ) << "level " << level << ": the shift changed nothing, so the test proves nothing";
+        EXPECT_EQ( differing, 0u ) << "level " << level
+                                   << ": re-baking the entering slabs is not the whole bake of the moved level";
+    }
+}
+
+// EVERY LEVEL IS THE SAME SKY. Over the finest level's window, the fraction of columns with cloud is the same
+// at every level's voxel to within the estimator's own noise (0.3177 against 0.3163 for 256 against 128 over
+// one region, ACoarserGridIsTheSameSkySampledMoreCoarsely) — one field, one lump set, sampled more coarsely.
+// MUTATION: a level-dependent lump floor (CloudProceduralLumpFloorKm from the region's voxel when baking the
+//           coarser levels) swells the coarse levels' bodies -> red.
+TEST( CloudProceduralField, EveryLevelCoversTheSameSkyTopDown )
+{
+    CloudProceduralFieldParams params = MakeParams();
+    params.Coverage                   = 0.6f;
+    const uint32_t side               = params.VolumeSideVoxels;
+
+    // THE FINEST WINDOW: [-L0/2, +L0/2) on both axes, which is whole voxels of every level (side divides by
+    // 2^levels), baked at each level as the box whose first texel is the window's first voxel.
+    const float         windowKm = Desert::Assets::CloudProceduralLevelSideKm( params, 0u );
+    std::vector<double> cover;
+    for ( uint32_t level = 0; level < kCloudProceduralClipLevels; ++level )
+    {
+        const float    voxelKm = CloudProceduralLevelVoxelKm( params, level );
+        const int32_t  first   = static_cast<int32_t>( std::lround( -0.5f * windowKm / voxelKm ) );
+        const uint32_t span    = side >> level;
+        auto           baked   = BakeCloudProceduralBox( params, level, glm::ivec2( first ),
+                                                         CloudProceduralVoxelBox{ 0u, 0u, span, span } );
+        ASSERT_TRUE( baked ) << baked.GetError();
+        cover.push_back( ColumnCover( baked.GetValue(), span, span ) );
+        std::printf( "[CloudProceduralField] level %u (%.1f m voxel): %.4f of the finest window covered\n", level,
+                     1000.0f * voxelKm, cover.back() );
+    }
+
+    ASSERT_GT( cover[0], 0.05 ) << "the finest window holds almost no cloud, so the comparison proves nothing";
+    for ( uint32_t level = 1; level < kCloudProceduralClipLevels; ++level )
+        EXPECT_NEAR( cover[level], cover[0], 0.03 )
+             << "level " << level << " covers a different fraction of the same sky than the finest level does";
 }
 
 // ---------------------------------------------------------------------------------------------------

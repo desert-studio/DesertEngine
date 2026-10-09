@@ -556,6 +556,12 @@ namespace Desert::Assets
      * whose legal range produces a field the container cannot express is the dead-setting shape §1.3 of the
      * contract names, one level down.
      *
+     * THE VOXEL IS THE FINEST CLIP LEVEL'S (CLIP-1), not the region's: one lump set serves every level, so
+     * the floor is what the level that draws the nearest sky can carry — `max( 0.5 * ResolvableChordKm,
+     * CloudProceduralLevelVoxelKm( params, 0 ) )`, 62.5 m at the shipped 48 km / 256 where the region's
+     * voxel was 187.5 m. A lump the coarser levels cannot carry is a smear there, which is the far sky,
+     * where it is a few pixels; at the old floor it was a smear everywhere (r05-r08's "stacked balls").
+     *
      * WHY THE VERTICAL AXIS IS NOT FLOORED BY THE VOLUME. The horizontal voxel is `RegionSize / Width` and
      * is a constant of the subsystem. The vertical one is `LayerThickness / Height` — the layer's own
      * thickness spread over 32 rows — so it is 12.5 m for a stratus-only layer and 312 m for a layer that
@@ -905,7 +911,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000016ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001bULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
@@ -943,6 +949,107 @@ namespace Desert::Assets
     BakeCloudProceduralVolumeCached( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                      const CloudProceduralBakeProgressFn& onProgress );
 
+    // ---------------------------------------------------------------------------------------------------
+    // CLIP LEVELS (CLIP-1): one field, one lump set, three windows of the same grid around the camera
+    // ---------------------------------------------------------------------------------------------------
+    //
+    // Level k covers RegionSizeKm / 2^(levels-1-k) with the same VolumeSideVoxels per side, so level 0 is the
+    // finest (12 km, 46.9 m at the shipped 48 km / 256) and the last level is the region itself (48 km,
+    // 187.5 m). Every level is the WORLD field — the lumps of absolute lattice cells, placed once, never
+    // wrapped — so a voxel's bytes depend on where it is in the world and on nothing else, which is what lets
+    // a level scroll by re-baking only the columns that enter it. The image is addressed TOROIDALLY: world
+    // voxel i of a level lives at texel i mod side, whatever the origin (CloudProceduralLevelTexel).
+
+    inline constexpr uint32_t kCloudProceduralClipLevels = 3u;
+
+    /// The horizontal side of clip level @p level, kilometres: RegionSizeKm halved once per level below the last.
+    float CloudProceduralLevelSideKm( const CloudProceduralFieldParams& params, uint32_t level );
+
+    /// One voxel of clip level @p level, kilometres: its side over VolumeSideVoxels.
+    float CloudProceduralLevelVoxelKm( const CloudProceduralFieldParams& params, uint32_t level );
+
+    /// The level's minimum corner in WHOLE VOXELS of that level, for a camera (minus the wind's offset, as the
+    /// region origin is chosen today) at @p cameraXKm, @p cameraZKm: the window is centred on the camera and
+    /// snapped to the level's own voxel, so one voxel of travel moves it by exactly one column and nothing
+    /// inside it changes. Integer so that a voxel's world position is computed from its index alone.
+    glm::ivec2 CloudProceduralLevelOriginVoxel( const CloudProceduralFieldParams& params, uint32_t level,
+                                                float cameraXKm, float cameraZKm );
+
+    /// The same corner in world kilometres (CloudProceduralLevelOriginVoxel times the level's voxel).
+    glm::vec2 CloudProceduralLevelOriginKm( const CloudProceduralFieldParams& params, uint32_t level,
+                                            float cameraXKm, float cameraZKm );
+
+    /// The texel world voxel @p worldVoxel occupies on an axis of @p side texels — the torus.
+    inline uint32_t CloudProceduralLevelTexel( int32_t worldVoxel, uint32_t side )
+    {
+        const int32_t s = static_cast<int32_t>( side );
+        return static_cast<uint32_t>( ( ( worldVoxel % s ) + s ) % s );
+    }
+
+    /// The world voxel texel @p texel holds when the level's minimum corner is voxel @p originVoxel: the one
+    /// index in [originVoxel, originVoxel + side) congruent to the texel.
+    inline int32_t CloudProceduralLevelWorldVoxel( uint32_t texel, int32_t originVoxel, uint32_t side )
+    {
+        return originVoxel + static_cast<int32_t>(
+                                  CloudProceduralLevelTexel( static_cast<int32_t>( texel ) - originVoxel, side ) );
+    }
+
+    /// A box of TEXELS of one level, the full height of the volume: [X, X + Width) x [Z, Z + Depth), inside
+    /// [0, VolumeSideVoxels). A slab that crosses the torus' edge is two boxes, each one sub-region upload.
+    struct CloudProceduralVoxelBox
+    {
+        uint32_t X     = 0u;
+        uint32_t Z     = 0u;
+        uint32_t Width = 0u;
+        uint32_t Depth = 0u;
+    };
+
+    /// Exactly the bytes BakeCloudProceduralBox returns for @p box: Width x 32 x Depth RGBA8, x fastest,
+    /// then y, then z — the layout of a Graphic::Image3D sub-region.
+    inline constexpr uint64_t CloudProceduralBoxBytes( const CloudProceduralVoxelBox& box )
+    {
+        return static_cast<uint64_t>( box.Width ) * kCloudProceduralVolumeHeight * box.Depth *
+               kCloudProceduralBytesPerVoxel;
+    }
+
+    /**
+     * @brief Bakes one box of texels of clip level @p level whose minimum corner is @p originVoxel.
+     *
+     * BYTE-EQUAL TO THE FULL LEVEL BAKE: the box of a whole-level bake at the same origin holds exactly these
+     * bytes, and a texel shared by two origins holds the same bytes under both — the voxel is the world field
+     * at the world voxel the texel holds. So a camera move re-bakes only the entering columns
+     * (Desert/Tests/Engine/CloudProceduralField: SlabBakeEqualsTheFullBakeOfTheShiftedLevel).
+     *
+     * The lumps are those of every cell near enough to reach the box: the generator's window is the box
+     * widened by the furthest any emitted lump reaches from its own cell, re-measured on every call and
+     * widened again (doubling) until the lumps it emitted all reach less than half of it.
+     *
+     * @return exactly CloudProceduralBoxBytes( box ) bytes, or an error naming what was wrong (invalid
+     *         parameters, a level past kCloudProceduralClipLevels, a box outside the level, cancellation).
+     */
+    Common::ResultStr<std::vector<unsigned char>> BakeCloudProceduralBox( const CloudProceduralFieldParams& params,
+                                                                          uint32_t                          level,
+                                                                          const glm::ivec2& originVoxel,
+                                                                          const CloudProceduralVoxelBox& box );
+
+    Common::ResultStr<std::vector<unsigned char>>
+    BakeCloudProceduralBox( const CloudProceduralFieldParams& params, uint32_t level,
+                            const glm::ivec2& originVoxel, const CloudProceduralVoxelBox& box,
+                            const CloudProceduralBakeProgressFn& onProgress );
+
+    /// The DDC key of one WHOLE clip level at one origin — the region's settings block plus the level and the
+    /// origin in voxels, because a level's texels hold different world voxels at a different origin.
+    uint64_t CloudProceduralLevelCacheKey( const CloudProceduralFieldParams& params, uint32_t level,
+                                           const glm::ivec2&           originVoxel,
+                                           const Common::DDC::Deriver& deriver = kCloudModellingDeriver );
+
+    /// BakeCloudProceduralBox of the whole level behind the derived-data cache, as
+    /// BakeCloudProceduralVolumeCached is for the region: a cold start reads the three levels back.
+    Common::ResultStr<CloudProceduralCachedBake>
+    BakeCloudProceduralLevelCached( const CloudProceduralFieldParams& params, uint32_t level,
+                                    const glm::ivec2&                    originVoxel,
+                                    const CloudProceduralBakeProgressFn& onProgress );
+
     /// Which cells GenerateCloudProceduralLumps emits: every cell (the placement measured apart from the
     /// slider) or only those the Coverage slider keeps (CloudProceduralClusterReach > 0) — what the bake
     /// draws, and the view the panels use.
@@ -961,11 +1068,22 @@ namespace Desert::Assets
         /// massif's rim carries the massif's site, so the bake joins and cuts the two as one cloud) — so the
         /// placement can be measured apart from the shape drawn around it.
         glm::vec2 ClusterKm{ 0.0f };
+        /// The centre of the lattice cell the lump was born in — what decides which window emits it, so a
+        /// clip-level bake can measure how far a lump reaches from the cell that owns it.
+        glm::vec2 CellKm{ 0.0f };
     };
 
     std::vector<CloudProceduralLump> GenerateCloudProceduralLumps( const CloudProceduralFieldParams& params,
                                                                    uint32_t slot, const glm::vec2& regionOriginKm,
                                                                    CloudProceduralLumpSet set );
+
+    /// The same generator over any rectangle: the lumps of every cell whose centre lies in
+    /// [windowMinKm, windowMinKm + windowSizeKm). The region form above is this with a square of RegionSizeKm;
+    /// a clip level asks for its box widened by the lumps' reach (BakeCloudProceduralBox).
+    std::vector<CloudProceduralLump>
+    GenerateCloudProceduralLumpsInWindow( const CloudProceduralFieldParams& params, uint32_t slot,
+                                          const glm::vec2& windowMinKm, const glm::vec2& windowSizeKm,
+                                          CloudProceduralLumpSet set );
 
     /**
      * @brief What the bake writes for species @p slot at one point, gathered over @p lumps — 0 outside the
