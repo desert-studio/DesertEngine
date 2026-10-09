@@ -398,7 +398,8 @@ namespace Desert::Core::ExternalEntities
                 continue;
             const auto tag = record.AsDocument<RecordTag>();
             return Common::MakeFormattedError(
-                 "entity '{}' ({}) differs from its file {} but nothing marked it modified - an edit that bypassed "
+                 "entity '{}' ({}) differs from its file {} but nothing marked it modified - an edit that "
+                 "bypassed "
                  "Scene::MarkModified and the command history would be lost by this save",
                  tag && tag.GetValue().Tag ? *tag.GetValue().Tag : std::string( "Entity" ), Bits( id ),
                  onDisk ? file.string() : fmt::format( "{} (unreadable: {})", file.string(), onDisk.GetError() ) );

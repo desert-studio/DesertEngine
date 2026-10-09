@@ -794,10 +794,10 @@ namespace Desert::Core
         // saved to serializes and writes only the entities that differ from their files, plus the header and the
         // files of deleted entities; anything else is the whole save, as before.
         const std::vector<LiveEntity> live = LiveEntities();
-        auto saved = SaveThroughPackages( path, *m_Scene->Packages(), live, m_Scene->GetWorldPartition().has_value(),
-                                          [this]( const std::unordered_set<std::uint64_t>* only )
-                                          { return SerializeToDocument( only ); },
-                                          kEditorCleanCheck );
+        auto                          saved = SaveThroughPackages(
+             path, *m_Scene->Packages(), live, m_Scene->GetWorldPartition().has_value(),
+             [this]( const std::unordered_set<std::uint64_t>* only ) { return SerializeToDocument( only ); },
+             kEditorCleanCheck );
         if ( !saved )
             return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(), saved.GetError() );
         m_LastSave = saved.GetValue();
