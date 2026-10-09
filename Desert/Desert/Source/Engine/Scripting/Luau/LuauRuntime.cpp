@@ -242,10 +242,18 @@ namespace Desert::Scripting
                                                    std::vector<LuauBinding> bindings )
     {
         Impl& impl = *m_Impl;
+        // Two shapes, nothing in between (LuauRuntime.hpp LuauBinding): an object (Type + Resolve) or an entity
+        // (Entity resolver, no Type / Resolve).
         for ( const LuauBinding& binding : bindings )
-            if ( binding.Type == nullptr || !binding.Resolve )
+        {
+            const bool object = binding.Type != nullptr && binding.Resolve && !binding.Entity;
+            const bool entity = binding.Type == nullptr && !binding.Resolve && binding.Entity;
+            if ( !object && !entity )
                 return Common::MakeError<LuauSlot>( std::format(
-                     "{}: binding '{}' has no reflected type or no resolver", script, binding.Name ) );
+                     "{}: binding '{}' is neither an object (reflected type + resolver) nor an entity (entity "
+                     "resolver only)",
+                     script, binding.Name ) );
+        }
 
         Common::ResultStr<Impl::Script*> code = impl.Prototype( script, source );
         if ( !code.IsSuccess() )
