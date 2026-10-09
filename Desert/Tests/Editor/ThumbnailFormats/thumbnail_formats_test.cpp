@@ -173,7 +173,7 @@ TEST( ThumbnailFormats, EveryEngineAssetFormatIsTypedByTheBrowser )
 // ---------------------------------------------------------------------------------------------------
 // 2b. EVERY CONTENT KIND HAS A PRODUCER (THM-FIXB, owner 09-29 "all assets on the splash"). Each kind of
 // the content registry either makes a picture, is an icon by decision (TypeIcon, with its reason), or is
-// named in the NotYetProduced register — which the splash then says aloud (ThumbnailWarmup::UnproducedKinds).
+// named in the NotYetProduced register — which the editor then says aloud (ThumbnailCensus::UnproducedKinds).
 // The skeletal kinds are pinned by name: the live check found .anim and .skeleton without pictures.
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailFormats, EveryContentKindHasAProducerOrANamedDebt )
