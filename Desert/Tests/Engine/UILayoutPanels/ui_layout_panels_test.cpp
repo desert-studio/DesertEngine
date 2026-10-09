@@ -198,10 +198,11 @@ namespace
         const auto object = Desert::Reflection::SerializeReflected( Type( typeName ), &written, nullptr );
         const auto parsed = Common::Json::Read<Common::Json::Object>( Common::Json::Write( object ) );
         EXPECT_TRUE( parsed.IsSuccess() );
+        const Common::Json::Value value( parsed.GetValue() ); // Root() refuses a temporary
         T                    read;
         Common::Json::Issues issues;
         Desert::Reflection::DeserializeReflected( Type( typeName ), &read,
-                                                  Common::Json::Root( Common::Json::Value( parsed.GetValue() ) ),
+                                                  Common::Json::Root( value ),
                                                   issues, nullptr );
         for ( const auto& issue : issues )
             ADD_FAILURE() << Common::Json::Describe( issue );
