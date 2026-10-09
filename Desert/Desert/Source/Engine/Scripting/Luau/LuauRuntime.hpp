@@ -3,8 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Reflection/Value.hpp>
 
-#include <entt/entity/fwd.hpp>
-#include <entt/entity/entity.hpp>
+#include <entt/entt.hpp>
 
 #include <chrono>
 #include <cstddef>

@@ -14,7 +14,7 @@
 
 #include <VM/include/lualib.h>
 
-#include <entt/entity/registry.hpp>
+#include <entt/entt.hpp>
 
 namespace Desert::Scripting::LuauBinder
 {
