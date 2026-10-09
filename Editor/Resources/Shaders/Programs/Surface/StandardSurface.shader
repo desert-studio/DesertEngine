@@ -77,7 +77,7 @@ Shader "StandardSurface"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
-        Texture2D   u_AlbedoTexture ("Albedo Map", Category("Textures"))
+        Texture2D   u_AlbedoTexture ("Albedo Map", Category("Textures"), Intent(Colour))
         // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
         // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
         // whereas (0.5,0.5,1) decodes to +Z, which is what "this surface has no normal detail" means.
@@ -85,11 +85,11 @@ Shader "StandardSurface"
         // `textureSize(u_NormalTexture,0).x > 1` and skip a 1x1, so this changes no pixel today; it is
         // written down so the guard is a fast path rather than the only thing standing between an empty
         // slot and a wrong normal.
-        Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
-        Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
+        Texture2D   u_NormalTexture ("Normal Map", Category("Textures"), Intent(NormalMap)) = "normal"
+        Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"), Intent(Mask))
         // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
-        Texture2D   u_ORMTexture ("ORM Map", Category("Textures"))
-        Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
+        Texture2D   u_ORMTexture ("ORM Map", Category("Textures"), Intent(Data))
+        Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"), Intent(Colour))
     }
 
     // The surface maps: the template declares its own samplers (the cells add no material textures).

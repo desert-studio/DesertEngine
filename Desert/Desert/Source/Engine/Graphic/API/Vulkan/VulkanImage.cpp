@@ -318,8 +318,8 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
         TransitionLayout( cmd, finalLayout );
 
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-        allocator->RT_DestroyBuffer( staging, stagingAlloc );
+        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+        allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
 
         return BOOLSUCCESS;
     }
@@ -613,7 +613,10 @@ namespace Desert::Graphic::API::Vulkan
 
             TransitionLayout( cmd, finalDefaultLayout );
 
-            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            // The bytes are in the staging copy now; the image keeps no second copy of them (ImageFormat.hpp).
+            Core::Formats::ReleaseUploadedPixels( m_Specification );
+            const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+            allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
         }
         else
         {
@@ -663,9 +666,8 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
             TransitionLayout( cmd, finalDefaultLayout );
+            CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
         }
-
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
 
         m_IsLoaded           = true;
         m_ResourceGeneration = NextResourceGeneration();
@@ -1140,9 +1142,9 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         TransitionLayout( cmd, finalDefaultLayout );
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
         if ( staging != VK_NULL_HANDLE )
-            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
 
         return Common::MakeSuccess( true );
     }
@@ -1516,14 +1518,14 @@ namespace Desert::Graphic::API::Vulkan
 
             TransitionLayout( cmd, finalDefaultLayout );
 
-            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+            allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
         }
         else
         {
             TransitionLayout( cmd, finalDefaultLayout );
+            CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
         }
-
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
 
         return Common::MakeSuccess( true );
     }

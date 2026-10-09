@@ -18,7 +18,7 @@ namespace Desert::Editor
     // A frame is recorded when nothing the picture depends on is still in flight:
     //   - no scene load is pending and the staged boot is over,
     //   - the splash is off the screen (the editor window is what the user would see),
-    //   - the content the scene asked for has settled,
+    //   - the content the scene asked for has settled, its textures included (start only),
     //   - the viewport has kept the same, non-empty size for kStableFrames such frames, this one included
     //     (any frame on which something above is still pending restarts the count).
     // Once the first frame is recorded the size is FIXED for the rest of the capture: a frame of another
@@ -38,6 +38,12 @@ namespace Desert::Editor
         // that photographs an empty scene (Bistro, GI-BISTRO2). Once recording, a cook landing mid-capture is
         // part of what is being recorded, as a streamed cell is in a flight.
         bool     AssetsCompiling  = false;
+        // Textures the scene asked for that are not on the GPU yet (TextureService::InFlight: read, cook or
+        // upload outstanding). Each draws its slot's white default with no alpha cut until it lands, so a capture
+        // begun under them photographs white foliage cards (Bistro night_street_a: 78 of 229 textures in at the
+        // start). UE flushes the same before a HighResShot (FlushAsyncLoading +
+        // IStreamingManager::BlockTillAllRequestsFinished). Holds the START only, as AssetsCompiling does.
+        bool     TexturesStreaming = false;
         uint32_t ViewportWidth    = 0;
         uint32_t ViewportHeight   = 0;
     };
@@ -58,7 +64,8 @@ namespace Desert::Editor
             // viewport had under the splash says nothing about the size of the window once it is shown.
             const bool settled = !frame.SceneLoadPending && !frame.StartupLoading && !frame.SplashOnScreen &&
                                  !frame.ContentSettling && !( frame.AssetsCompiling && !m_Recording ) &&
-                                 frame.ViewportWidth > 0 && frame.ViewportHeight > 0;
+                                 !( frame.TexturesStreaming && !m_Recording ) && frame.ViewportWidth > 0 &&
+                                 frame.ViewportHeight > 0;
             const bool sameSize = frame.ViewportWidth == m_LastWidth && frame.ViewportHeight == m_LastHeight;
             if ( !settled )
                 m_StableFrames = 0;

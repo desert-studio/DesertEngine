@@ -303,3 +303,43 @@ TEST( ImageFormatBlocks, BC4SpendsHalfOfWhatEveryOtherBlockFormatSpends )
     EXPECT_EQ( CalculateImageSize( 2048, 2048, ImageFormat::BC4_UNORM ),
                CalculateImageSize( 2048, 2048, ImageFormat::BC7_UNORM ) / 2u );
 }
+
+// ── An uploaded image keeps no second copy of its pixels (SHOT-SETTLE-b) ────────────────────────────
+//
+// The backend image holds its specification for its whole life. With the pixels still in it, every
+// streamed texture was resident twice on unified memory, and night_street_a passed the 6 GB cap while the
+// shot waited for Bistro's textures. After the upload the content is gone and the shape is not: a
+// recreation makes the same chain, and a recreation of a supplied chain is not refused as "a mip table
+// with no pixel data".
+TEST( ImageUploadedPixels, TheUploadReleasesThePixelsAndKeepsTheChainsShape )
+{
+    Formats::Image2DSpecification spec{ .Tag        = "chain",
+                                        .Width      = 4,
+                                        .Height     = 4,
+                                        .Format     = ImageFormat::RGBA8F,
+                                        .Data       = std::vector<unsigned char>( 64u + 16u + 4u, 0x7f ),
+                                        .Usage      = Formats::Image2DUsage::Image2D,
+                                        .Properties = Formats::Sample,
+                                        .MipLevels  = { { 0, 64 }, { 64, 16 }, { 80, 4 } } };
+
+    EXPECT_EQ( Formats::ReleaseUploadedPixels( spec ), 84u );
+    EXPECT_FALSE( Formats::HasData( spec.Data ) ) << "the pixels outlived their upload";
+    EXPECT_EQ( spec.Mips, 3u ) << "the chain's level count must survive into Mips";
+    EXPECT_TRUE( spec.MipLevels.empty() ) << "a table with no data behind it is refused on recreation";
+    EXPECT_EQ( spec.Width, 4u );
+    EXPECT_EQ( spec.Height, 4u );
+}
+
+TEST( ImageUploadedPixels, AnImageWithoutPixelsIsLeftAsItWas )
+{
+    Formats::Image2DSpecification spec{ .Tag        = "target",
+                                        .Width      = 8,
+                                        .Height     = 8,
+                                        .Format     = ImageFormat::RGBA8F,
+                                        .Mips       = 4,
+                                        .Usage      = Formats::Image2DUsage::Image2D,
+                                        .Properties = Formats::Sample };
+
+    EXPECT_EQ( Formats::ReleaseUploadedPixels( spec ), 0u );
+    EXPECT_EQ( spec.Mips, 4u );
+}

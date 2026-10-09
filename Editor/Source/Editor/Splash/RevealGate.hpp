@@ -22,12 +22,13 @@ namespace Desert::Editor::Splash
         bool SceneLoadPending = false; // a scene load is queued and has not started its settle wait
         bool ContentSettling  = false; // the loaded scene's content is still arriving
         bool RealFrameDrawn   = false; // a frame of the editor itself (not a loading frame) was presented
+        bool TexturesStreaming = false; // a texture the drawn scene asked for is still read, cooked or uploaded
     };
 
     [[nodiscard]] constexpr bool MayReveal( const RevealState& s )
     {
         return s.HasSplash && !s.Revealed && !s.StartupLoading && !s.SceneLoadPending && !s.ContentSettling &&
-               s.RealFrameDrawn;
+               s.RealFrameDrawn && !s.TexturesStreaming;
     }
 
     /// Decoding thumbnails that are ALREADY on disk (ThumbnailPrefetch) is allowed in every state, splash

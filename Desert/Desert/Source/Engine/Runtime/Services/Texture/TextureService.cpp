@@ -8,6 +8,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <chrono>
 
 namespace Desert::Runtime
@@ -78,6 +79,13 @@ namespace Desert::Runtime
         // decodes; the GPU image is created by PumpUploads, under the per-frame budget.
         entry.Cooking    = true;
         entry.CookTicket = ++m_NextCookTicket;
+        // Still Pending either way; a cook past the admission capacity starts when PumpUploads frees a slot.
+        if ( m_CookAdmission.TryAdmit( handle ) )
+            SubmitCook( handle, entry );
+    }
+
+    void TextureService::SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const
+    {
         struct CookJob
         {
             Assets::AssetHandle             Handle;
@@ -275,7 +283,26 @@ namespace Desert::Runtime
             const Assets::AssetHandle handle = item.Handle;
             FinishCook( handle, it->second, std::move( item.Data ) );
         }
+        // Every taken result, stale ones included, was one admitted cook: its decoded pixels are gone now.
+        for ( std::size_t released = 0; released < taken.size(); ++released )
+            m_CookAdmission.Release();
+        StartAdmittedCooks();
         return taken.size();
+    }
+
+    void TextureService::StartAdmittedCooks()
+    {
+        while ( const std::optional<Assets::AssetHandle> next = m_CookAdmission.NextToStart() )
+        {
+            const auto it = m_Entries.find( *next );
+            // Cleared or settled while it waited: no job will ever push for it, so the slot goes straight back.
+            if ( it == m_Entries.end() || !it->second.Cooking )
+            {
+                m_CookAdmission.Release();
+                continue;
+            }
+            SubmitCook( *next, it->second );
+        }
     }
 
     std::size_t TextureService::PendingUploads() const
@@ -283,9 +310,20 @@ namespace Desert::Runtime
         return m_Uploads->Pending();
     }
 
+    std::size_t TextureService::InFlight() const
+    {
+        return static_cast<std::size_t>(
+             std::count_if( m_Entries.begin(), m_Entries.end(), []( const auto& row )
+                            { return row.second.Request.IsValid() || row.second.Cooking; } ) );
+    }
+
     void TextureService::Clear()
     {
-        m_Uploads->Clear();
+        // The cooks already on a worker keep their slots until their (now stale) results are taken; the results
+        // already queued are dropped here, and so are their slots.
+        for ( std::size_t released = m_Uploads->TakeWithinBudget( UINT64_MAX ).size(); released > 0; --released )
+            m_CookAdmission.Release();
+        m_CookAdmission.DropWaiting();
         m_Retiring.Clear();
         m_Entries.clear();
         m_ReportedMissing.clear();

@@ -2,6 +2,7 @@
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 
@@ -56,6 +57,9 @@ namespace Desert::Editor
         // The Properties the shader declares as textures: a row into one of these takes its key's Texture
         // half, a row into any other Property its Value half ("the Property's kind decides").
         std::set<std::string, std::less<>> TextureProperties;
+        // The `Intent(...)` each texture Property declares (absent = it does not say): what the importer
+        // writes into a texture asset it creates for that slot (UE: the sampler type sets TC_Normalmap).
+        std::map<std::string, ::Desert::Core::Formats::TextureIntent, std::less<>> TextureIntents;
         std::string                        Guid;    // the shader's header GUID (the .demat's Shader reference)
         std::string                        Locator; // "engine:Shaders/..." — the reference's Path half
     };
