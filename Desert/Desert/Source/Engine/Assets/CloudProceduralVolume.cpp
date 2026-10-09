@@ -1932,7 +1932,9 @@ namespace Desert::Assets
         /// THE CLOUD BASE IS A PLANE (CLOUD-SHAPE): @p belowBaseKm is the point's signed distance under the
         /// species' BaseAltitudeKm (positive below it), and each cluster's joined distance is intersected with
         /// that half-space AFTER the join and the silhouette noise, so neither rounds the floor. The bodies'
-        /// base lumps are centred on the base for exactly this cut to leave a flat underside.
+        /// base lumps are centred on the base for exactly this cut to leave a flat underside. The altitude
+        /// @p density then CAPS the normalised profile (CloudProceduralFloorProfile) rather than scaling it, so
+        /// the ramp lifts that floor level instead of bending it into a bowl.
         float CloudProceduralCutJoin( const std::vector<CloudClusterCandidate>& candidates, float density,
                                       float invBlend, float blendRadiusKm, float belowBaseKm )
         {
@@ -1963,7 +1965,8 @@ namespace Desert::Assets
                      std::max( CloudModellingJoinKm( nearest, sum, blendRadiusKm ), belowBaseKm );
                 if ( clusterJoined >= 0.0f )
                     continue;
-                const float profile = std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f ) * density;
+                const float profile = CloudProceduralFloorProfile(
+                     std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f ), density );
                 cut                 = std::max( cut, CloudProceduralCoverRemap( profile, candidates[k].Reach ) );
             }
             return cut;

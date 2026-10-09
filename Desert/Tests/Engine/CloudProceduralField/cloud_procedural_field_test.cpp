@@ -36,6 +36,7 @@ using Desert::Assets::CloudModellingJoinTerm;
 using Desert::Assets::CloudModellingPreparedBlob;
 using Desert::Assets::CloudProceduralColumnKept;
 using Desert::Assets::CloudProceduralFieldParams;
+using Desert::Assets::CloudProceduralFloorProfile;
 using Desert::Assets::CloudProceduralLocalWeathers;
 using Desert::Assets::CloudProceduralLump;
 using Desert::Assets::CloudProceduralLumpSet;
@@ -460,11 +461,10 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
             "not one anybody would look at";
 }
 
-// H-BASE: THE CROSS-SECTION SHRINKS TOWARDS THE BASE. The altitude density multiplies the profile before the
-// coverage remap, so at the base row of a type's band the area that clears the remap's threshold is smaller
-// than a fifth of the band up, where the curve is full — the base is rounded, not the floor of a box.
-// Mutation: drop the `* CloudProceduralAltitudeDensity(...)` factor in the bake (CloudProceduralVolume.cpp,
-// the profile line) and the two areas come out equal or inverted.
+// H-BASE: THE CROSS-SECTION SHRINKS TOWARDS THE BASE. The altitude density caps the profile before the
+// coverage remap (CloudProceduralFloorProfile), so at the base row of a type's band the area that clears the
+// remap's threshold is smaller than a quarter of the band up, where the curve is full — the floor is lifted
+// off the base plane by the ramp. That the lifted floor is LEVEL is TheFloorIsLevelAcrossTheBody's.
 TEST( CloudProceduralField, TheCrossSectionShrinksTowardsTheBase )
 {
     const CloudProceduralFieldParams params = MakeParams();
@@ -504,6 +504,25 @@ TEST( CloudProceduralField, TheCrossSectionShrinksTowardsTheBase )
     ASSERT_GT( bodyArea, 0u ) << "nothing clears the threshold a quarter up the band, so there is no body";
     EXPECT_LT( static_cast<double>( baseArea ), 0.5 * static_cast<double>( bodyArea ) )
          << "the base is as wide as the body: the altitude density is not reaching the profile";
+}
+
+// THE FLOOR IS LEVEL ACROSS THE BODY (CLOUD-GAUNTLET-c). At one altitude inside the base ramp, the core of a
+// body and a point near its edge — both deeper than the altitude density there — hold the SAME profile, so the
+// coverage remap cuts one level floor under the whole body. A product `depth * density` gave the shallower
+// point less, its threshold crossed higher up the ramp, and every congestus underside curved into a ball.
+// Mutation: make CloudProceduralFloorProfile return `depthProfile * altitudeDensity` -> red.
+TEST( CloudProceduralField, TheFloorIsLevelAcrossTheBody )
+{
+    const float density = 0.4f;
+    const float core    = CloudProceduralFloorProfile( 0.9f, density );
+    const float edge    = CloudProceduralFloorProfile( 0.45f, density );
+    EXPECT_EQ( core, edge ) << "two points deeper than the altitude density at one altitude differ: the floor bows";
+    EXPECT_EQ( core, density ) << "the density does not cap the profile";
+
+    // Shallower than the cap, the body's own depth still decides — the silhouette is not flattened sideways.
+    EXPECT_EQ( CloudProceduralFloorProfile( 0.1f, density ), 0.1f );
+    // Above the ramp (density 1) the profile is untouched.
+    EXPECT_EQ( CloudProceduralFloorProfile( 0.7f, 1.0f ), 0.7f );
 }
 
 // ---------------------------------------------------------------------------------------------------
