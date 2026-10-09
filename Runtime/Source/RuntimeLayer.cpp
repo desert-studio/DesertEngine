@@ -51,6 +51,7 @@
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
@@ -544,6 +545,7 @@ namespace Desert::Player
         m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
+        m_Scene->AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
         m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::LevelSequenceSystem>( m_Scene.get(), m_AssetManager.get() );

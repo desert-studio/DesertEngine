@@ -132,12 +132,29 @@ namespace
         FunctionMeta                                     meta;
     };
 
+    // EVENT(...) attributes (Engine/Reflection/ReflectionMacros.hpp).
+    struct EventMeta
+    {
+        std::string category;
+        std::string tooltip;
+    };
+
+    // An EVENT(...)-annotated signature, `using Name = void( <params> );`. As for a FUNCTION, only the names and
+    // the attributes are read here; the kinds come from T::Name in the generated file (MakeEvent).
+    struct Event
+    {
+        std::string                                      name;
+        std::vector<std::pair<std::string, std::string>> params; // { name, C++ spelling }
+        EventMeta                                        meta;
+    };
+
     struct ReflectedType
     {
         std::string           fqn;          // fully-qualified C++ name, e.g. Desert::Assets::SurfaceMaterialData
         std::string           registryName; // short name used as the registry key, e.g. SurfaceMaterialData
         std::vector<Field>    fields;
         std::vector<Function> functions;
+        std::vector<Event>    events;
         std::string        headerInclude; // include path relative to source root
         std::string        module;        // BuildScripts/DesertModules.lua module of the header
     };
@@ -483,6 +500,7 @@ namespace
         std::vector<Field> fields =
              {}; // the two `scopes.push_back( { name, depth, isStruct } )` below stop here on purpose
         std::vector<Function> functions = {};
+        std::vector<Event>    events    = {};
         size_t                        open      = 0;  // the position just after the struct's '{'
         std::optional<ComponentBlock> component = {}; // its COMPONENT(...) marker, if any
     };
@@ -519,6 +537,87 @@ namespace
         return text.substr( b, e - b );
     }
 
+    // The parameter list opening at `open` ('('): each parameter's { name, spelling }, a default value dropped.
+    // Returns the index of the closing ')'. A parameter without a name is an error naming `what`.
+    size_t ParseParams( const std::string& raw, size_t open, const std::string& what,
+                        std::vector<std::pair<std::string, std::string>>& params, std::string& error )
+    {
+        size_t close = open;
+        for ( int p = 0; close < raw.size(); ++close )
+        {
+            if ( raw[close] == '(' )
+                ++p;
+            else if ( raw[close] == ')' && --p == 0 )
+                break;
+        }
+        const std::string list = Trimmed( raw.substr( open + 1, close - open - 1 ) );
+        if ( list.empty() || list == "void" )
+            return close;
+        for ( const auto& paramRaw : SplitTopLevel( list ) )
+        {
+            std::string param = paramRaw;
+            if ( const size_t eq = param.find( '=' ); eq != std::string::npos )
+                param = param.substr( 0, eq );
+            param                   = Trimmed( param );
+            const std::string pname = TrailingIdent( param );
+            const std::string ptype = Trimmed( param.substr( 0, param.size() - pname.size() ) );
+            if ( pname.empty() || ptype.empty() )
+            {
+                error = what + ": parameter '" + param + "' has no name (a caller sees every parameter by its name)";
+                return close;
+            }
+            params.emplace_back( pname, ptype );
+        }
+        return close;
+    }
+
+    // EVENT( Category( "..." ), Tooltip( "..." ) ). An unknown token is an error, as for FUNCTION.
+    EventMeta ParseEventMeta( const std::string& argsRaw, std::string& error )
+    {
+        EventMeta m;
+        for ( const auto& tokRaw : SplitTopLevel( argsRaw ) )
+        {
+            const std::string tok = Trimmed( tokRaw );
+            if ( tok.empty() )
+                continue;
+            if ( tok.rfind( "Category", 0 ) == 0 )
+                m.category = ExtractStringLiteral( tok );
+            else if ( tok.rfind( "Tooltip", 0 ) == 0 )
+                m.tooltip = ExtractStringLiteral( tok );
+            else
+                error = "EVENT: unknown attribute '" + tok + "' (Category(\"...\"), Tooltip(\"...\"))";
+        }
+        return m;
+    }
+
+    // Reads an EVENT-annotated signature starting at `start`: `using Name = void( <params> );`. Returns the index
+    // just past its ';'. Anything else after the annotation is an error: an event is a signature, not a member.
+    size_t ParseEventDecl( const std::string& raw, size_t start, Event& ev, std::string& error )
+    {
+        const size_t semi = raw.find( ';', start );
+        const size_t open = raw.find( '(', start );
+        if ( semi == std::string::npos || open == std::string::npos || open > semi )
+        {
+            error = "EVENT: expected 'using <Name> = void( <params> );' after the annotation";
+            return raw.size();
+        }
+        const std::string head = Trimmed( raw.substr( start, open - start ) ); // "using OnHit = void"
+        const size_t      eq   = head.find( '=' );
+        if ( head.rfind( "using ", 0 ) != 0 || eq == std::string::npos || Trimmed( head.substr( eq + 1 ) ) != "void" )
+        {
+            error = "EVENT: expected 'using <Name> = void( <params> );' after the annotation (an event returns nothing)";
+            return semi + 1;
+        }
+        ev.name = Trimmed( head.substr( 6, eq - 6 ) );
+        if ( ev.name.empty() || TrailingIdent( ev.name ) != ev.name )
+        {
+            error = "EVENT: '" + ev.name + "' is not a name";
+            return semi + 1;
+        }
+        const size_t close = ParseParams( raw, open, "EVENT " + ev.name, ev.params, error );
+        return std::max( close, semi ) + 1;
+    }
+
     // Reads a FUNCTION-annotated declaration starting at `start` ("[[nodiscard]] static float Name( int a ) const
     // { ... }" or "...;"). Returns the index just past it (past the body's closing brace when it has one).
     size_t ParseFunctionDecl( const std::string& raw, size_t start, Function& fn, std::string& error )
@@ -545,34 +644,9 @@ namespace
             return raw.size();
         }
 
-        size_t close = open;
-        for ( int p = 0; close < raw.size(); ++close )
-        {
-            if ( raw[close] == '(' )
-                ++p;
-            else if ( raw[close] == ')' && --p == 0 )
-                break;
-        }
-        const std::string list = Trimmed( raw.substr( open + 1, close - open - 1 ) );
-        if ( !list.empty() && list != "void" )
-        {
-            for ( const auto& paramRaw : SplitTopLevel( list ) )
-            {
-                std::string param = paramRaw;
-                if ( const size_t eq = param.find( '=' ); eq != std::string::npos )
-                    param = param.substr( 0, eq );
-                param                   = Trimmed( param );
-                const std::string pname = TrailingIdent( param );
-                const std::string ptype = Trimmed( param.substr( 0, param.size() - pname.size() ) );
-                if ( pname.empty() || ptype.empty() )
-                {
-                    error = "FUNCTION " + fn.name + ": parameter '" + param +
-                            "' has no name (a caller sees every parameter by its name)";
-                    return raw.size();
-                }
-                fn.params.emplace_back( pname, ptype );
-            }
-        }
+        const size_t close = ParseParams( raw, open, "FUNCTION " + fn.name, fn.params, error );
+        if ( !error.empty() )
+            return raw.size();
 
         size_t j = close + 1;
         while ( j < raw.size() && raw[j] != ';' && raw[j] != '{' )
@@ -621,6 +695,8 @@ namespace
 
         FunctionMeta pendingFunction;
         bool         hasPendingFunction = false;
+        EventMeta    pendingEvent;
+        bool         hasPendingEvent = false;
         const auto   fail = [&]( size_t at, const std::string& message )
         {
             const auto line = std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( at ), '\n' ) + 1;
@@ -737,6 +813,56 @@ namespace
                     if ( !error.empty() )
                         fail( start, error );
                     hasPendingFunction = true;
+                    continue;
+                }
+                if ( word == "EVENT" )
+                {
+                    SkipWs( raw, i );
+                    if ( i >= raw.size() || raw[i] != '(' )
+                        continue; // the word, not the marker
+                    const size_t s0 = i;
+                    int          p  = 0;
+                    do
+                    {
+                        if ( raw[i] == '(' )
+                            ++p;
+                        else if ( raw[i] == ')' )
+                            --p;
+                        ++i;
+                    } while ( i < raw.size() && p > 0 );
+                    const std::string args = raw.substr( s0 + 1, ( i - 1 ) - ( s0 + 1 ) );
+                    if ( scopes.empty() || !scopes.back().isStruct || !scopes.back().reflected )
+                    {
+                        fail( start, "EVENT outside a REFLECT() type" );
+                        continue;
+                    }
+                    std::string error;
+                    pendingEvent = ParseEventMeta( args, error );
+                    if ( !error.empty() )
+                        fail( start, error );
+                    hasPendingEvent = true;
+                    continue;
+                }
+                if ( hasPendingEvent )
+                {
+                    Event       ev;
+                    std::string error;
+                    ev.meta         = pendingEvent;
+                    i               = ParseEventDecl( raw, start, ev, error );
+                    hasPendingEvent = false;
+                    if ( !error.empty() )
+                    {
+                        fail( start, error );
+                        continue;
+                    }
+                    auto& events = scopes.back().events;
+                    if ( std::any_of( events.begin(), events.end(),
+                                      [&]( const Event& other ) { return other.name == ev.name; } ) )
+                    {
+                        fail( start, "EVENT " + ev.name + " is declared twice in this type" );
+                        continue;
+                    }
+                    events.push_back( std::move( ev ) );
                     continue;
                 }
                 if ( word == "COMPONENT" )
@@ -900,7 +1026,7 @@ namespace
                         }
                         components.push_back( std::move( c ) );
                     }
-                    if ( sc.isStruct && sc.reflected && ( !sc.fields.empty() || !sc.functions.empty() ) )
+                    if ( sc.isStruct && sc.reflected && ( !sc.fields.empty() || !sc.functions.empty() || !sc.events.empty() ) )
                     {
                         ReflectedType t;
                         t.registryName  = sc.name;
@@ -909,6 +1035,7 @@ namespace
                                              : JoinScopes( scopes ) + "::" + sc.name;
                         t.fields        = sc.fields;
                         t.functions     = sc.functions;
+                        t.events        = sc.events;
                         t.headerInclude = headerInclude;
                         out.push_back( std::move( t ) );
                     }
@@ -995,6 +1122,20 @@ namespace
              .Build();
     }
 
+    Common::Json::Value EventModel( const Event& ev )
+    {
+        Common::Json::Value::Array params;
+        for ( const auto& [name, cppType] : ev.params )
+            params.emplace_back( Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
+        return Common::Json::ObjectBuilder()
+             .Set( "name", ev.name )
+             .Set( "paramCount", static_cast<long long>( ev.params.size() ) )
+             .Set( "params", Common::Json::Value( std::move( params ) ) )
+             .Set( "category", ev.meta.category )
+             .Set( "tooltip", ev.meta.tooltip )
+             .Build();
+    }
+
     Common::Json::Value ReflectionModel( const std::string& module, const std::vector<ReflectedType>& types )
     {
         // Each header is included once, in first-use order.
@@ -1014,12 +1155,16 @@ namespace
             Common::Json::Value::Array functions;
             for ( const auto& fn : t.functions )
                 functions.push_back( FunctionModel( fn ) );
-            hasFunctions = hasFunctions || !t.functions.empty();
+            Common::Json::Value::Array events;
+            for ( const auto& ev : t.events )
+                events.push_back( EventModel( ev ) );
+            hasFunctions = hasFunctions || !t.functions.empty() || !t.events.empty();
             typeValues.emplace_back( Common::Json::ObjectBuilder()
                                           .Set( "fqn", t.fqn )
                                           .Set( "registryName", t.registryName )
                                           .Set( "fields", Common::Json::Value( std::move( fields ) ) )
                                           .Set( "functions", Common::Json::Value( std::move( functions ) ) )
+                                          .Set( "events", Common::Json::Value( std::move( events ) ) )
                                           .Build() );
         }
         return Common::Json::ObjectBuilder()

@@ -207,12 +207,32 @@ namespace Desert::Reflection
         Common::BoolResultStr Invoke( void* self, const Value* args, std::size_t argc, Value* rets ) const;
     };
 
+    /// EVENT(...) attributes, parsed by DesertHeaderTool exactly as FUNCTION(...) ones are.
+    struct EventMetadata
+    {
+        std::string Category; // EVENT(Category("...")) — grouping in a browser or a palette
+        std::string Tooltip;  // EVENT(Tooltip("..."))  — hover help
+    };
+
+    /// A REFLECTED EVENT — UE's sparse multicast delegate signature (FComponentHitSignature on
+    /// UPrimitiveComponent::OnComponentHit): what an instance of the type announces, and the payload it carries.
+    /// Only the description lives here; who listens to which instance is the subscriber table's
+    /// (ECS/ComponentEvents.hpp), so a type whose events nobody binds costs nothing.
+    struct EventInfo
+    {
+        std::string            Name;
+        std::string            Owner; // registry name of the reflected type that declares it
+        std::vector<ParamInfo> Params;
+        EventMetadata          Meta;
+    };
+
     struct TypeInfo
     {
         std::string               Name;
         std::size_t               Size = 0;
         std::vector<FieldInfo>    Fields;
         std::vector<FunctionInfo> Functions; // FUNCTION(...) members, in declaration order
+        std::vector<EventInfo>    Events;    // EVENT(...) signatures, in declaration order
 
         /// The function named `name`, or nullptr. Names are unique within a type (the header tool refuses an
         /// overload: a language calls by name, and two C++ signatures under one name would be a guess).
@@ -221,6 +241,15 @@ namespace Desert::Reflection
             for ( const FunctionInfo& function : Functions )
                 if ( function.Name == name )
                     return &function;
+            return nullptr;
+        }
+
+        /// The event named `name`, or nullptr (names are unique within a type, as functions' are).
+        [[nodiscard]] const EventInfo* FindEvent( std::string_view name ) const
+        {
+            for ( const EventInfo& event : Events )
+                if ( event.Name == name )
+                    return &event;
             return nullptr;
         }
 

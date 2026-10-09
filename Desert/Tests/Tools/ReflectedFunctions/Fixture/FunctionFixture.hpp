@@ -7,6 +7,7 @@
 
 #include <Engine/Reflection/ReflectionMacros.hpp>
 
+#include <entt/entity/fwd.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
@@ -62,6 +63,11 @@ namespace ReflectedFunctionsFixture
         {
             Count = value;
         }
+
+        // An EVENT(...) signature (SCR-API-3): no body, no storage — a description the tool registers as an
+        // EventInfo whose kinds MakeEvent deduces from the alias.
+        EVENT( Category( "Counter" ), Tooltip( "The count reached a mark." ) )
+        using OnReached = void( int mark, entt::entity by, const glm::vec3& where );
 
         FUNCTION()
         void Toggle( bool on, std::uint16_t times )
