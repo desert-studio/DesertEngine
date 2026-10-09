@@ -5,6 +5,7 @@
 
 #include <Engine/Reflection/TypeRegistrar.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ContainerAccess.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Reflection/FunctionThunk.hpp>
 #include <cstddef>

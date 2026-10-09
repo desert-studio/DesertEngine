@@ -177,14 +177,14 @@ namespace
     constexpr const char* kRegistry = "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp";
     constexpr const char* kEntity   = "Desert/Desert/Source/Engine/Core/Serialize/EntitySerializer.cpp";
     constexpr const char* kReflectedBlocks =
-         "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp";
+         "Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp";
 
     // WHAT THE REGISTRY WRITES. Most serializers name their component as `ECS::X` in ComponentRegistry.cpp,
-    // but the blocks whose file form is their reflection alone are ROWS of ReflectedComponentBlocks.hpp
-    // (`ReflectedMemberBlock<X, Data>` / `ReflectedWholeBlock<X>`), which the registry registers by walking
-    // ForEachReflectedComponentBlock. Those rows are read from the header itself — the one list both the
-    // registry and the migrator use — and only when the registry still walks it, so a registry that stopped
-    // registering them is not credited with them.
+    // but the blocks whose file form is their reflection alone are ROWS of ReflectedComponentBlocks.gen.hpp
+    // (`ReflectedMemberBlock<::Desert::ECS::X, Data>` / `ReflectedWholeBlock<::Desert::ECS::X>`), generated from
+    // the COMPONENT(...) markers, which the registry registers by walking ForEachReflectedComponentBlock. Those
+    // rows are read from the generated header itself — the one list both the registry and the migrator use —
+    // and only when the registry still walks it, so a registry that stopped registering them is not credited.
     std::set<std::string> RegisteredComponents( const std::string& root, const std::string& registrySource )
     {
         std::set<std::string> registered = ComponentsNamedIn( registrySource );
@@ -200,7 +200,13 @@ namespace
                 std::size_t cursor = at + opener.size();
                 while ( cursor < header.size() && ( header[cursor] == ' ' || header[cursor] == '\t' ) )
                     ++cursor;
-                const std::string name = Identifier( header, cursor );
+                // The generated rows spell the type fully qualified; the component is the last segment.
+                std::string name = Identifier( header, cursor );
+                while ( header.compare( cursor, 2, "::" ) == 0 )
+                {
+                    cursor += 2;
+                    name = Identifier( header, cursor );
+                }
                 if ( NamesAComponent( name ) )
                     registered.insert( name );
             }

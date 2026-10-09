@@ -274,13 +274,13 @@ TEST( SceneMigratorWritePath, ARecordsComponentKeysAreSortedOnceAndASecondPassMo
     };
 
     std::vector<Desert::Assets::EntityData> records( 2 );
-    records[0].Components.insert( "Script", Common::Json::Value( std::string( "s" ) ) );
-    records[0].Components.insert( "Camera", Common::Json::Value( std::string( "c" ) ) );
-    records[1].Components.insert( "Camera", Common::Json::Value( std::string( "c" ) ) );
-    records[1].Components.insert( "Script", Common::Json::Value( std::string( "s" ) ) );
+    records[0].Components.insert( std::string( "Script" ), Common::Json::Value( std::string( "s" ) ) );
+    records[0].Components.insert( std::string( "Camera" ), Common::Json::Value( std::string( "c" ) ) );
+    records[1].Components.insert( std::string( "Camera" ), Common::Json::Value( std::string( "c" ) ) );
+    records[1].Components.insert( std::string( "Script" ), Common::Json::Value( std::string( "s" ) ) );
     Desert::Assets::PrefabOverrideData override;
-    override.Components.insert( "Transform", Common::Json::Value( std::string( "t" ) ) );
-    override.Components.insert( "Light", Common::Json::Value( std::string( "l" ) ) );
+    override.Components.insert( std::string( "Transform" ), Common::Json::Value( std::string( "t" ) ) );
+    override.Components.insert( std::string( "Light" ), Common::Json::Value( std::string( "l" ) ) );
     records[1].PrefabOverrides = std::vector<Desert::Assets::PrefabOverrideData>{ override };
 
     EXPECT_EQ( Desert::Migration::SortComponentKeys( records ), 2 );

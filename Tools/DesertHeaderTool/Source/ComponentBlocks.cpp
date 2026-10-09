@@ -16,13 +16,15 @@ namespace Desert::HeaderTool
             const std::string tok = Trimmed( tokRaw );
             if ( tok.empty() )
                 continue;
+            // The attribute is the whole name before its '(' — a prefix match would take "Runn(" for "Run(".
+            const std::string name = Trimmed( tok.substr( 0, tok.find( '(' ) ) );
             if ( tok == "Whole" )
                 whole = true;
-            else if ( tok.rfind( "Key", 0 ) == 0 )
+            else if ( name == "Key" )
                 c.key = ExtractStringLiteral( tok );
-            else if ( tok.rfind( "Block", 0 ) == 0 )
+            else if ( name == "Block" )
                 c.member = ParenIdent( tok );
-            else if ( tok.rfind( "Run", 0 ) == 0 )
+            else if ( name == "Run" )
                 c.run = ParenIdent( tok );
             else
                 error = "COMPONENT: unknown attribute '" + tok +
