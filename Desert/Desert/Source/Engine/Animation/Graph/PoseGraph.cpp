@@ -352,6 +352,30 @@ namespace Desert::Animation::Graph
         }
 
         /// The rules of the linked-layer kinds: which scope may hold them, and what a call names.
+        /// Empty when `state` plays one clip or a playable blend space on a declared Float axis; otherwise why
+        /// not.
+        std::string StateBlendSpaceError( const AnimGraph& graph, const State& state, const GraphScope scope )
+        {
+            if ( !state.BlendSpace )
+                return {};
+            if ( !state.Clip.empty() )
+                return std::format( "it names clip '{}' and a blend space; a state plays one of them",
+                                    state.Clip );
+            if ( std::string error = BlendSpace1DError( state.BlendSpace->Space ); !error.empty() )
+                return std::format( "its blend space: {}", error );
+            // A layer graph's machines are sampled by the link's clocks (one clip per state), as its nodes are.
+            if ( scope == GraphScope::Layer )
+                return "it plays a blend space in a layer graph; blend spaces play in the host graph only";
+            const auto axis =
+                 std::find_if( graph.Parameters.begin(), graph.Parameters.end(),
+                               [&]( const Parameter& p ) { return p.Name == state.BlendSpace->Axis; } );
+            if ( axis == graph.Parameters.end() || static_cast<ParamType>( axis->Type ) != ParamType::Float )
+                return std::format( "its blend space's axis '{}' is no declared Float parameter. The graph "
+                                    "declares: {}",
+                                    state.BlendSpace->Axis, DeclaredParameterList( graph ) );
+            return {};
+        }
+
         std::string LinkedKindError( const AnimGraph& graph, const PoseNode& node, GraphScope scope )
         {
             const auto kind = static_cast<PoseNodeKind>( node.Kind );
@@ -481,6 +505,11 @@ namespace Desert::Animation::Graph
                 return std::format( "AnimGraph '{}': node '{}' ({}) carries a state machine, which only a "
                                     "StateMachine node has",
                                     graph.Name, node.Name, KindName( kind ) );
+            if ( node.Machine )
+                for ( const State& state : node.Machine->States )
+                    if ( std::string error = StateBlendSpaceError( graph, state, scope ); !error.empty() )
+                        return std::format( "AnimGraph '{}': state '{}' of '{}': {}", graph.Name, state.Name,
+                                            node.Name, error );
             if ( kind == PoseNodeKind::LayeredBlendPerBone && !node.LayeredBlend )
                 return std::format( "AnimGraph '{}': node '{}' is a LayeredBlendPerBone node with no layer setup "
                                     "in it",

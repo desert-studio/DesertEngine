@@ -266,7 +266,18 @@ namespace Desert::Animation::Graph
                 const State& state = machine.States[si];
 
                 // ── W1 ────────────────────────────────────────────────────────────────────────────────────
-                if ( state.Clip.empty() )
+                if ( state.BlendSpace )
+                {
+                    // A blend-space state plays its samples' clips: each must be one the skeleton has.
+                    for ( const BlendSample& sample : state.BlendSpace->Space.Samples )
+                        if ( clips.Known && std::find( clips.Names.begin(), clips.Names.end(), sample.Clip ) ==
+                                                 clips.Names.end() )
+                            warnings.push_back(
+                                 { WarningKind::StateClipNotAvailable, state.Name, -1,
+                                   fmt::format( "'{}' blends clip '{}', which this skeleton has no animation for.",
+                                                state.Name, sample.Clip ) } );
+                }
+                else if ( state.Clip.empty() )
                 {
                     warnings.push_back(
                          { WarningKind::StateHasNoClip, state.Name, -1,
