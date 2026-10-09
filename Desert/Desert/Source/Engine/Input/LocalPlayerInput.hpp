@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/Common.hpp>
 #include <Engine/Input/EnhancedInputSubsystem.hpp>
 
 #include <Common/Core/ResultStr.hpp>

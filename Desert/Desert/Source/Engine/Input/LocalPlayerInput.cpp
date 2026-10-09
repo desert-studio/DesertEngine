@@ -218,7 +218,8 @@ namespace Desert::Input
         }
         if ( auto added = m_Subsystem.AddMappingContext( context, priority ); !added )
             return added;
-        m_ContextNames[name] = Common::Content::AssetGuidFromText( context.Header->Guid ).GetValue();
+        const auto guid      = Common::Content::AssetGuidFromText( context.Header->Guid );
+        m_ContextNames[name] = guid.GetValue();
         return BOOLSUCCESS;
     }
 
