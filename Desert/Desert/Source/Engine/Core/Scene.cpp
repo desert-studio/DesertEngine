@@ -7,6 +7,7 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/FracturePreviewComponent.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -758,6 +759,8 @@ namespace Desert::Core
         r.prepare<ECS::ColliderComponent>();
         r.prepare<ECS::RigidBodyComponent>();
         r.prepare<ECS::DestructibleComponent>();
+        // The editor's Fracture preview: viewed by FracturePieceDraw inside MeshECSSystem's parallel group.
+        r.prepare<ECS::FracturePreviewComponent>();
         r.prepare<ECS::RadialImpulseFieldComponent>();
         r.prepare<ECS::StrainFieldComponent>();
         r.prepare<ECS::KillFieldComponent>();

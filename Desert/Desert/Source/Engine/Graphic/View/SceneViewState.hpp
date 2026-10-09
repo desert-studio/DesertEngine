@@ -114,6 +114,12 @@ namespace Desert::Graphic
         bool operator==( const MotionKey& ) const = default;
     };
 
+    // A Slot with this bit set is not a submission index but a STABLE PART of the entity the draw named itself
+    // (MotionRecord::Part; a fracture piece is its node + 1): parts move independently and appear or vanish
+    // from one frame to the next, so numbering them by submission order would hand one piece another's
+    // previous transform. The two ranges cannot meet: no entity submits 2^31 primitives.
+    inline constexpr uint32_t kMotionPartSlotBit = 1u << 31;
+
     struct MotionKeyHash
     {
         [[nodiscard]] std::size_t operator()( const MotionKey& key ) const noexcept

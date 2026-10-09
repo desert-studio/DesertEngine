@@ -2,6 +2,7 @@
 
 #include "System.hpp"
 #include "SystemRules.hpp"
+#include "FracturePieceDraw.hpp"
 #include "WindField.hpp"
 
 #include <Engine/ECS/Components.hpp>
@@ -49,6 +50,36 @@ namespace Desert::ECS
                  Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion();
 
             /* =========================
+               FRACTURED ENTITIES (DST-06): their pieces go out as static-mesh draws, through the same
+               instanced path below; the entities Record returns do not draw their static mesh.
+               ========================= */
+            FracturePieceDraw::Services pieceServices;
+            pieceServices.SourceSlots = []( const Assets::AssetHandle& meshHandle )
+            {
+                std::vector<Assets::AssetHandle> slots;
+                AdoptMeshMaterialSlots( slots, meshHandle );
+                return slots;
+            };
+            pieceServices.Instance = []( const Assets::AssetHandle& material )
+            { return Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance( material ); };
+            pieceServices.DefaultInstance = [this]()
+            { return DefaultInstance( Graphic::MeshVertexPath::Static ); };
+            pieceServices.MaterialByGuid = []( const Common::Content::AssetGuid& guid )
+            {
+                return Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal(
+                     Assets::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+            };
+            pieceServices.SlotMaterial = []( const Graphic::MaterialInstance* instance )
+            { return CustomSlotMaterial( instance ); };
+            pieceServices.Fracture = []( const Assets::AssetHandle& fracture )
+            {
+                auto read = Runtime::ResourceRegistry::GetFractureService()->Get( fracture );
+                return read.IsSuccess() ? read.GetValue() : std::shared_ptr<const Destruction::FractureData>();
+            };
+            const auto drawnAsPieces =
+                 m_Pieces.Record( registry, renderCommandBuffer, materialsVersion, pieceServices );
+
+            /* =========================
                STATIC MESHES
                ========================= */
             {
@@ -66,6 +97,10 @@ namespace Desert::ECS
                              return;
 
                          if ( !mesh.RuntimeMesh && !mesh.Primitive.has_value() && !mesh.MeshHandle )
+                             return;
+
+                         // Its pieces stand in for it (FracturePieceDraw).
+                         if ( drawnAsPieces.contains( entity ) )
                              return;
 
                          Desert::Mesh* targetMesh = nullptr;
@@ -259,80 +294,33 @@ namespace Desert::ECS
                          // Submesh i uses slot min(i, slots-1). Submeshes whose slot material is
                          // a custom-shader material (DataDrivenMaterial) leave the batched lit
                          // path and are drawn per-slot through the generic path; the lit draw
-                         // masks them out. Materials are MaterialService-owned -> pointers are
-                         // stable for the frame.
-                         uint64_t customMask = 0;
-                         struct SlotDraw
-                         {
-                             Graphic::Material* Mat;
-                             uint64_t           Mask;
-                         };
-                         std::vector<SlotDraw> slotDraws;
-
+                         // masks them out (Rules::SplitMeshSlotDraws, the rule fracture pieces split by too).
                          const size_t submeshCount =
                               std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 );
                          const size_t materialSlotCount = mesh.RuntimeMaterialInstances.size();
-                         for ( size_t si = 0; si < submeshCount && materialSlotCount > 0; ++si )
-                         {
-                             const size_t slot = std::min( si, materialSlotCount - 1 );
-                             auto* inst = mesh.RuntimeMaterialInstances[slot].get();
-                             auto* parent = inst ? inst->GetParentMaterial() : nullptr;
-                             // A material allocated from a mesh-table cell is drawn by the batched path;
-                             // any other (a DSL surface's own cell) goes per slot through the generic one.
-                             if ( const auto* surface = dynamic_cast<const Graphic::DataDrivenMaterial*>( parent );
-                                  surface == nullptr || Graphic::MeshCellPath( surface->GetShaderName() ) )
-                                 continue;
+                         const auto   split             = Rules::SplitMeshSlotDraws<Graphic::Material*>(
+                              submeshCount, mesh.HiddenSubmeshes, mesh.CastShadows,
+                              [&]( size_t si ) -> Graphic::Material*
+                              {
+                                  if ( materialSlotCount == 0 )
+                                      return nullptr;
+                                  return CustomSlotMaterial(
+                                       mesh.RuntimeMaterialInstances[std::min( si, materialSlotCount - 1 )]
+                                            .get() );
+                              } );
 
-                             customMask |= ( 1ull << si );
-                             bool merged = false;
-                             for ( auto& d : slotDraws )
-                                 if ( d.Mat == parent )
-                                 {
-                                     d.Mask |= ( 1ull << si );
-                                     merged = true;
-                                     break;
-                                 }
-                             if ( !merged )
-                                 slotDraws.push_back( { parent, 1ull << si } );
-                         }
-
-                         // Decided BEFORE anything is emitted, because the caster belongs to the ENTITY:
-                         // the shadow pass draws a mesh whole, so the lit draw and the slot draws are
-                         // candidates for the same silhouette and only one of them may record it.
-                         const uint64_t allMask = submeshCount >= 64 ? ~0ull : ( ( 1ull << submeshCount ) - 1ull );
-                         const uint64_t surfaceHidden  = mesh.HiddenSubmeshes | customMask;
-                         const bool surfaceDrawEmitted = submeshCount == 0 || ( ~surfaceHidden & allMask ) != 0;
-
-                         const auto shadowRoute = Rules::RouteMeshShadowCaster(
-                              mesh.CastShadows, /*shaderOverride*/ false, slotDraws.size(), surfaceDrawEmitted );
-
-                         bool slotCasterPlaced = false;
-                         for ( const auto& d : slotDraws )
-                         {
-                             const uint64_t visible = d.Mask & ~mesh.HiddenSubmeshes;
-                             if ( !visible )
-                                 continue;
-
-                             // "First slot draw" means the first one actually EMITTED — a leading slot
-                             // whose submeshes are all hidden emits nothing, and routing the caster to it
-                             // would drop the entity's shadow instead of moving it.
-                             const bool casts =
-                                  !slotCasterPlaced && shadowRoute == Rules::MeshShadowCaster::FirstSlotDraw;
-                             slotCasterPlaced = slotCasterPlaced || casts;
-
+                         for ( const auto& d : split.SlotDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
-                                  static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat, visible,
-                                  outlined, casts );
-                         }
+                                  static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat,
+                                  d.VisibleMask, outlined, d.CastShadows );
 
                          // Lit path draws the remaining submeshes (skip entirely when every
                          // submesh went custom).
-                         if ( surfaceDrawEmitted )
+                         if ( split.SurfaceDrawEmitted )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawStaticMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots, worldTransform,
-                                  outlined, surfaceHidden, mesh.ForcedLOD, mesh.LODBias,
-                                  shadowRoute == Rules::MeshShadowCaster::SurfaceDraw, mesh.ReceiveShadows,
-                                  mesh.TranslucencySortPriority );
+                                  outlined, split.SurfaceHidden, mesh.ForcedLOD, mesh.LODBias,
+                                  split.SurfaceCastShadows, mesh.ReceiveShadows, mesh.TranslucencySortPriority );
                      } );
             }
 
@@ -586,6 +574,22 @@ namespace Desert::ECS
         }
 
     private:
+        // The pieces of fractured entities, drawn as static meshes (DST-06).
+        FracturePieceDraw m_Pieces;
+
+        // The material a slot instance draws with OFF the batched lit path: its parent when that is a
+        // custom-shader material (a DataDrivenMaterial of a DSL surface's own cell), null when the batched path
+        // draws it (a mesh-table cell's material, or no material). The one test for the static path and the
+        // fracture pieces. Materials are MaterialService-owned -> the pointer is stable for the frame.
+        static Graphic::Material* CustomSlotMaterial( const Graphic::MaterialInstance* instance )
+        {
+            auto* parent = instance ? instance->GetParentMaterial() : nullptr;
+            if ( const auto* surface = dynamic_cast<const Graphic::DataDrivenMaterial*>( parent );
+                 surface == nullptr || Graphic::MeshCellPath( surface->GetShaderName() ) )
+                return nullptr;
+            return parent;
+        }
+
         // A component with no material slot takes its mesh asset's (static and skinned alike).
         // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered later than the mesh)
         // leaves the slots EMPTY so this retries next frame - pushing Null() handles would pass the empty()

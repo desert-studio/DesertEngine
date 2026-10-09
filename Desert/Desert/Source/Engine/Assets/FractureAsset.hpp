@@ -50,6 +50,25 @@ namespace Desert::Assets
         /// absent or not a fracture. The constructor adopts it.
         static Common::Content::AssetGuid ReadFractureGuid( const Common::Filepath& filepath );
 
+        /// ONE UNDO STEP OVER A `.dfrac` (the Fracture mode's Generate and interior-material edits): the file's
+        /// bytes before the edit (empty = there was no file) and after. The bytes are the whole state, so an undo
+        /// restores the previous collection exactly, GUID included.
+        struct FileStep
+        {
+            Common::Filepath           File;
+            std::vector<unsigned char> Before;
+            std::vector<unsigned char> After;
+        };
+
+        /// Save( @p filepath, @p fracture ) and the step that undoes it. Refused by name when the file cannot
+        /// be read or written.
+        static Common::ResultStr<FileStep> WriteStep( const Common::Filepath&          filepath,
+                                                      const Destruction::FractureData& fracture );
+
+        /// Puts @p bytes back as the file (empty: removes it). Undo passes Before, Redo passes After.
+        static Common::BoolResultStr RestoreBytes( const Common::Filepath&           filepath,
+                                                   const std::vector<unsigned char>& bytes );
+
     private:
         Destruction::FractureData m_Fracture;
         bool                      m_Ready = false;

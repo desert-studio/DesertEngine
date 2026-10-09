@@ -468,9 +468,9 @@ namespace Desert::Graphic::System
         records.clear();
         records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + m_SkinnedQueue.size() );
         for ( const auto& data : m_StaticQueue )
-            records.push_back( { .Entity = data.Entity, .World = data.Transform } );
+            records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         for ( const auto& data : m_GenericQueue )
-            records.push_back( { .Entity = data.Entity, .World = data.Transform } );
+            records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         const size_t rigidCount = records.size();
         for ( const auto& data : m_SkinnedQueue )
             records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
@@ -528,6 +528,7 @@ namespace Desert::Graphic::System
             {
                 StaticMeshRenderData staticData;
                 staticData.Entity                   = data.Entity;
+                staticData.MotionPart               = data.MotionPart;
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;

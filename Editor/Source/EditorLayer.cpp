@@ -117,6 +117,7 @@
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
+#include "Editor/Panels/Fracture/FractureCommands.hpp"
 #include "Editor/Panels/Landscape/LandscapeCommands.hpp"
 #include "Editor/LevelEditor/ViewportCommands.hpp"
 #include "Editor/Panels/Clouds/CloudCommands.hpp"
@@ -557,6 +558,8 @@ namespace Desert::Editor
                                  []( Out& out ) { AppendSelectElementsCommand( out ); } );
             m_Commands.Register( "Landscape", [this]( Out& out )
                                  { AppendLandscapeCommands( out, m_Workspace.ActiveScene() ); } );
+            m_Commands.Register( "Fracture", [this]( Out& out )
+                                 { AppendFractureCommands( out, m_Workspace.ActiveScene() ); } );
             m_Commands.Register( "Modeling (Create Shape)", []( Out& out ) { AppendCreateShapeCommands( out ); } );
             m_Commands.Register( "Humanoid", [this]( Out& out )
                                  { AppendHumanoidCommands( out, m_Workspace.ActiveScene() ); } );

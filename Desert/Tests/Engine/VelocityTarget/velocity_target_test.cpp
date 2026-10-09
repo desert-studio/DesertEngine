@@ -1154,3 +1154,29 @@ TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBl
     EXPECT_NE( node.find( "const RDG::TextureRef velocity = textures.Transients.Velocity;" ), std::string::npos );
     EXPECT_NE( node.find( "view->DeclareBindings( pass, velocity );" ), std::string::npos );
 }
+
+// Mutation: number a MotionRecord with a Part by its submission position (or ignore Part) -> red: piece 2 is
+// handed piece 3's previous world as soon as piece 1 starts moving (DST-06b: every fracture piece has its own
+// key).
+TEST( VelocityTarget, AFracturePieceKeepsItsOwnPreviousWorldWhenAnotherPieceStartsMoving )
+{
+    using namespace Desert::Graphic;
+    const auto       At = []( auto x ) { return VelocityTargetTest::At( x ); };
+    MotionHistory    motion;
+    ObjectMotionRows out;
+    {
+        const std::vector<MotionRecord> rigid = { { .Entity = 7, .Part = 1, .World = At( 0 ) },
+                                                  { .Entity = 7, .Part = 2, .World = At( 0 ) },
+                                                  { .Entity = 7, .Part = 3, .World = At( 50 ) } };
+        BuildObjectMotionRows( motion, rigid, {}, out );
+        motion.EndFrame();
+    }
+    const std::vector<MotionRecord> rigid = { { .Entity = 7, .Part = 1, .World = At( 20 ) },
+                                              { .Entity = 7, .Part = 2, .World = At( 0 ) },
+                                              { .Entity = 7, .Part = 3, .World = At( 50 ) } };
+    BuildObjectMotionRows( motion, rigid, {}, out );
+    ASSERT_EQ( out.RecordRows.size(), 3u );
+    EXPECT_EQ( out.Rows[out.RecordRows[0]].PrevWorld, At( 0 ) ) << "the moving piece: its own previous world";
+    EXPECT_EQ( out.Rows[out.RecordRows[1]].PrevWorld, At( 0 ) ) << "a still piece is not handed another's";
+    EXPECT_EQ( out.Rows[out.RecordRows[2]].PrevWorld, At( 50 ) );
+}

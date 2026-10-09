@@ -14,6 +14,9 @@ namespace Desert::Graphic::Render
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
         // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
         uint32_t      Entity;
+        // A stable part of that entity (a fracture piece: node + 1) whose previous transform is its own whatever
+        // else the entity drew (MotionRecord::Part); 0 = the entity's primitives are numbered by submission.
+        uint32_t      MotionPart = 0;
         Desert::Mesh* Mesh;
         // A CO-OWNED handle on the entity's material slots, not a pointer into the component that authored
         // them. A command is recorded by MeshECSSystem, survives every later system — ScriptSystem among
@@ -33,10 +36,12 @@ namespace Desert::Graphic::Render
         DrawStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
                                const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
                                int forcedLOD = -1, int lodBias = 0, bool castShadows = true,
-                               bool receiveShadows = true, int translucencySortPriority = 0 )
-             : Entity( entity ), Mesh( mesh ), MaterialSlots( std::move( materialSlots ) ), Transform( transform ),
-               Outlined( outlined ), HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ),
-               LODBias( lodBias ), CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
+                               bool receiveShadows = true, int translucencySortPriority = 0,
+                               uint32_t motionPart = 0 )
+             : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ),
+               MaterialSlots( std::move( materialSlots ) ), Transform( transform ), Outlined( outlined ),
+               HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ), LODBias( lodBias ),
+               CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
                TranslucencySortPriority( translucencySortPriority )
         {
         }
@@ -46,6 +51,7 @@ namespace Desert::Graphic::Render
             if ( MaterialSlots )
                 renderer.SubmitMesh( Mesh, MaterialSlots, Transform,
                                      { .Entity                   = Entity,
+                                       .MotionPart               = MotionPart,
                                        .BoneMatrices             = {},
                                        .Outlined                 = Outlined,
                                        .HiddenSubmeshes          = HiddenSubmeshes,

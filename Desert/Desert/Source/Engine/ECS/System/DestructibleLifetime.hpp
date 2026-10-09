@@ -50,6 +50,10 @@ namespace Desert::ECS
         /// Adds every destructible entity not simulated yet.
         void Sync( entt::registry& registry, const FractureLookup& lookup );
 
+        /// After a physics step: every simulated destructible's RuntimeNodeWorld from its bodies (UE: the
+        /// component's global matrices pulled from the physics proxy), what its pieces draw at.
+        void WritePoses( entt::registry& registry ) const;
+
     private:
         void OnDestructibleDestroyed( entt::registry& registry, entt::entity entity );
         void Refuse( entt::entity entity, const std::string& reason );
