@@ -98,7 +98,9 @@ namespace Desert::Editor
         // and rebuilt. Everything keyed by the old entities follows the world, in ONE place for all three paths:
         // the render registry is rebuilt and the selection is emptied — as UE's USelection is on a world change.
         // A UUID that survives the swap (a template opened twice, a snapshot restore) names an entity of a
-        // different world; keeping it would leave Outliner "1 selected" and Details "Entity not found".
+        // different world; keeping it would leave Outliner "1 selected" and Details "Entity not found". Stop is
+        // the one caller that re-selects afterwards: its snapshot is the authored world the selection came from
+        // (PlaySession::Stop, as UE's EndPlayMap selects the PIE selection's editor counterparts).
         void ActiveSceneReplaced();
 
         // The standard ECS systems, shared by the primary scene and every extra document.
