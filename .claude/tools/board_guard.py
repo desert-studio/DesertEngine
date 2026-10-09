@@ -146,7 +146,8 @@ def main():
 
     if event == "PostToolUse" and tool in ("Bash", "Edit", "Write"):
         text = str(tin.get("command") or tin.get("file_path") or "")
-        if "REMAINDER.md" in text and (">>" in text or tool != "Bash"):
+        writes_remainder = re.search(r">>?\s*\S*REMAINDER\.md", text) if tool == "Bash" else text.endswith("REMAINDER.md")
+        if writes_remainder:
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
                   "[board_guard] Решение тимлида в REMAINDER — продублируй В ТЕЛО КАРТОЧКИ задачи (владелец 10-09); "
                   "REMAINDER агенту, карточка владельцу."}})
