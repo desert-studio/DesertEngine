@@ -39,6 +39,7 @@ namespace Desert::UI::Walk
         auto& mn        = frame.Mn;
         auto& mx        = frame.Mx;
         auto& hot       = frame.Hot;
+        auto& focused    = frame.Focused;
 
         auto&       sl    = *tree.GetState<UISliderData>( e );
         const float range = std::max( 0.0001f, sl.MaxValue - sl.MinValue );
@@ -54,6 +55,17 @@ namespace Desert::UI::Walk
                               glm::vec4( st.Color( StyleSlot::SliderFill, sl.FillColor ), 1.0f ), pill );
         dl.AddRectFilled( { fillX - hs, cy - hs }, { fillX + hs, cy + hs },
                           glm::vec4( st.Color( StyleSlot::SliderHandle, sl.HandleColor ), 1.0f ), hs );
+
+        // Keyboard (SSlider::OnKeyDown): Left / Right step the focused slider by StepSize, and the keys are
+        // the slider's — consumed, so they do not also move focus.
+        if ( input && frame.Interactive && focused && *focused == e )
+            for ( const UIKeyEvent& k : input->Keys )
+                if ( k.Key == Common::KeyCode::Left || k.Key == Common::KeyCode::Right )
+                {
+                    const float step = k.Key == Common::KeyCode::Left ? -sl.StepSize : sl.StepSize;
+                    sl.Value         = std::clamp( sl.Value + step, sl.MinValue, sl.MaxValue );
+                    ctx.View.ConsumeKey( k.Key );
+                }
 
         const bool hover = input && hot;
         if ( hover && input->MouseDown )

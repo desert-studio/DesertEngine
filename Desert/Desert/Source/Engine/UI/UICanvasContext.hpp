@@ -7,6 +7,7 @@
 #include <Engine/UI/UICanvasResources.hpp>
 #include <Engine/UI/UIAnimationSource.hpp>
 #include <Engine/UI/UIDataStore.hpp>
+#include <Engine/UI/UIFocus.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
 #include <Engine/UI/UIRenderTextureSource.hpp>
@@ -364,7 +365,29 @@ namespace Desert::UI
 
         // Every focusable control the frame drew, in draw order across every canvas — Tab advances through
         // this one list, so focus can leave a HUD canvas and enter an overlay. Rebuilt each frame.
-        std::vector<NodeId> Focusables;
+        // Each carries its on-screen box: spatial navigation (UIFocus.hpp) picks by geometry.
+        std::vector<FocusEntry> Focusables;
+        // The boxes of this frame's elements that carry UINavigationData (the boundary their rule acts in),
+        // and the visible box of every scrolling container drawn (scroll-to-focus). Rebuilt each frame.
+        std::vector<NavigationBox> NavigationBoxes;
+        std::vector<ScrollPort>    ScrollPorts;
+        // Keys a control used this frame (Slate's FReply::Handled): a focused slider's Left/Right, an open
+        // dropdown's Up/Down/Enter/Escape. Navigation and the overlay Escape skip them. Cleared each frame.
+        std::vector<Common::KeyCode> ConsumedKeys;
+        // Which control each screen / overlay / canvas last had focused, and which scopes were up last frame.
+        FocusMemory Focus;
+        // The option an open dropdown's keyboard highlight is on (view state: two views of one dropdown each
+        // keep their own). Erased when the list closes.
+        std::unordered_map<NodeId, int> DropdownHighlight;
+
+        void ConsumeKey( Common::KeyCode key )
+        {
+            ConsumedKeys.push_back( key );
+        }
+        NO_DISCARD bool KeyConsumed( Common::KeyCode key ) const
+        {
+            return std::find( ConsumedKeys.begin(), ConsumedKeys.end(), key ) != ConsumedKeys.end();
+        }
         // Messages a widget raised during the walk (an input field's OnChanged / OnCommitted). The walk has
         // only the one-slot `outClicked`, and a field can change AND commit in one frame, so they queue here
         // and EndUIFrame hands them out through the same channel as the pointer events, in walk order.
@@ -511,6 +534,11 @@ namespace Desert::UI
             Drag        = UIDragState{};
             Focusables.clear();
             WalkMessages.clear();
+            NavigationBoxes.clear();
+            ScrollPorts.clear();
+            ConsumedKeys.clear();
+            Focus = FocusMemory{};
+            DropdownHighlight.clear();
             Tint           = glm::vec4( 1.0f );
             WarnedMaterial = Assets::AssetHandle{};
             ViewportPx     = Rect{};

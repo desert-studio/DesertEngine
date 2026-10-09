@@ -70,6 +70,11 @@ namespace Desert::UI
         PROPERTY( DisplayName( "Max" ), Category( "UI Slider" ) )
         float MaxValue = 1.0f;
 
+        // USlider::StepSize: one Left / Right press while the slider holds focus moves Value by this much.
+        PROPERTY( DisplayName( "Step Size" ), Category( "UI Slider" ), Range( 0.0001f, 1000.0f ),
+                  Tooltip( "How far one Left / Right key press moves the value while the slider is focused" ) )
+        float StepSize = 0.01f;
+
         PROPERTY( DisplayName( "Track Color" ), Category( "UI Slider" ), Color )
         glm::vec3 TrackColor = glm::vec3( 0.12f, 0.13f, 0.16f );
 

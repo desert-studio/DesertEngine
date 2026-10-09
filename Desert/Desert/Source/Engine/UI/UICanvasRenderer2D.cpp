@@ -61,9 +61,9 @@ namespace Desert::UI
         // NOLINTNEXTLINE(misc-no-recursion)
         void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
-                          NodeId* focused, std::vector<PopupInfo>* popups,
-                          std::vector<NodeId>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
-                          HitScope scope, const Rect* forcedRect )
+                          NodeId* focused, std::vector<PopupInfo>* popups, std::vector<FocusEntry>* focusables,
+                          const Graphic::Render2D::ClipRegion2D& clipRegion, HitScope scope,
+                          const Rect* forcedRect )
         {
             // The visibility axis, before anything else is computed. Hidden and Collapsed both stop here
             // and take the whole sub-tree with them — nothing drawn, nothing hit-tested, no tween clock
@@ -85,7 +85,7 @@ namespace Desert::UI
                     if ( dl.HasTransform() )
                         mask.PushTransform( dl.GetTransform() );
                     std::vector<PopupInfo>    noPopups;
-                    std::vector<NodeId> noFocus;
+                    std::vector<FocusEntry>   noFocus;
                     std::string               noClick;
                     NodeId              noFocused = NodeId::Null;
                     const NodeId        outer     = ctx.MaskCapture;
@@ -396,10 +396,16 @@ namespace Desert::UI
                 // GATED BY THE SAME PREDICATE THE POINTER USES. An ungated list is what let Tab walk into a
                 // Blocking panel and hand Enter a target the mouse could never have reached; it is also why
                 // Tab now steps OVER such a control rather than sticking on it.
+                // A navigation rule's boundary is this element's box, focusable or not (a container's rule
+                // bounds the controls inside it).
+                if ( focusables && tree.Has<UINavigationData>( e ) )
+                    ctx.View.NavigationBoxes.push_back(
+                         { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
                 if ( interactive && IsFocusable( tree, e ) )
                 {
                     if ( focusables )
-                        focusables->push_back( e );
+                        focusables->push_back(
+                             { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
                     if ( focused && *focused == e && !tree.Has<UIInputFieldData>( e ) )
                         dl.AddRect(
                              mn, mx,
@@ -412,22 +418,6 @@ namespace Desert::UI
             // is entered with no children too: an empty list is still a box on screen (UIListView).
             if ( tree.ChildCount( e ) != 0 || tree.Has<UIListViewData>( e ) || tree.Has<UIScrollViewData>( e ) )
                 DrawChildren( frame );
-        }
-
-        // The directional focus step a frame's keys ask for: -1 = previous focusable (Up / W), +1 = next
-        // (Down / S), 0 = none. A menu is walked with the arrows the way UE's Slate navigation walks it. When
-        // both directions arrive in one frame the LAST event wins — the order the host saw them in.
-        int NavigateStep( const UIInput& input )
-        {
-            int step = 0;
-            for ( const UIKeyEvent& k : input.Keys )
-            {
-                if ( k.Key == Common::KeyCode::Down || k.Key == Common::KeyCode::S )
-                    step = 1;
-                else if ( k.Key == Common::KeyCode::Up || k.Key == Common::KeyCode::W )
-                    step = -1;
-            }
-            return step;
         }
     } // namespace Walk
 
@@ -472,6 +462,9 @@ namespace Desert::UI
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
         view.HotNext = NodeId::Null;
         view.Focusables.clear();
+        view.NavigationBoxes.clear();
+        view.ScrollPorts.clear();
+        view.ConsumedKeys.clear();
 
         // Where this view draws, for the whole frame. Stated once here rather than handed to each canvas,
         // so the walks, the overlay placement and the drag ghost cannot be looking at different rectangles.
@@ -834,7 +827,10 @@ namespace Desert::UI
                 const Rect row{ popup.X, popup.Y + static_cast<float>( i ) * rowH, popup.W, rowH };
                 const bool hover = input && input->MousePx.x >= row.X && input->MousePx.x <= row.X + row.W &&
                                    input->MousePx.y >= row.Y && input->MousePx.y <= row.Y + row.H;
-                if ( hover )
+                const auto keyHl = ctx.View.DropdownHighlight.find( pi.Entity );
+                const bool keyed =
+                     keyHl != ctx.View.DropdownHighlight.end() && keyHl->second == static_cast<int>( i );
+                if ( hover || keyed )
                     dl.AddRectFilled(
                          { row.X, row.Y }, { row.X + row.W, row.Y + row.H },
                          glm::vec4( pi.Style.Color( StyleSlot::DropdownHighlight, d.Highlight ), 1.0f ) );
@@ -1105,23 +1101,29 @@ namespace Desert::UI
         // than here, so it stays readable between the two.
         view.Hot = view.HotNext;
 
-        // Tab and Down/S advance keyboard focus to the next focusable control, Up/W steps back (both wrap;
-        // effective next frame). The list spans every canvas of the frame, so focus can leave a HUD and enter
-        // an overlay. With nothing focused, either direction lands on the FIRST control — the top of a menu.
-        int step = 0;
-        if ( input != nullptr )
-            step = input->Pressed( Common::KeyCode::Tab ) ? 1 : NavigateStep( *input );
-        if ( focused != nullptr && step != 0 && !view.Focusables.empty() )
+        // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
+        // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.
+        // Effective next frame. With nothing focused, any request lands on the FIRST control.
+        // Explicit rules and per-container boundaries come from UINavigationData (ResolveNavigation); keys a
+        // control already used this frame are not navigation, and neither are W/S typed into a text field.
+        // Then the focus scopes (UpdateFocusScopes): an overlay or screen that appeared takes focus, one that
+        // closed gives it back. Whatever focus ends on is scrolled into view.
+        if ( focused != nullptr )
         {
-            const std::size_t n   = view.Focusables.size();
-            std::size_t       idx = 0; // not-found -> focus the first
-            for ( std::size_t i = 0; i < n; ++i )
-                if ( view.Focusables[i] == *focused )
-                {
-                    idx = step > 0 ? ( i + 1 ) % n : ( i + n - 1 ) % n;
-                    break;
-                }
-            *focused = view.Focusables[idx];
+            const NodeId before = *focused;
+            if ( input != nullptr )
+            {
+                const bool textEntry =
+                     *focused != NodeId::Null && tree.Valid( *focused ) && tree.Has<UIInputFieldData>( *focused );
+                const NodeId next =
+                     ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
+                                        NavigationOf( *input, textEntry, view.ConsumedKeys ), view.ViewportPx );
+                if ( next != NodeId::Null )
+                    *focused = next;
+            }
+            *focused = UpdateFocusScopes( tree, view.Focusables, *focused, view.Focus );
+            if ( *focused != before )
+                ScrollIntoView( tree, view.Focusables, view.ScrollPorts, *focused );
         }
 
         view.WalkMessages.clear();

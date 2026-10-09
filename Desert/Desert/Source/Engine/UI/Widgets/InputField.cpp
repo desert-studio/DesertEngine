@@ -164,6 +164,13 @@ namespace Desert::UI::Walk
                 send( f.OnChangedMessage );
             if ( outcome.Committed )
                 send( f.OnCommittedMessage );
+            // The caret keys are the field's (SEditableText::OnKeyDown returns Handled): Left / Right always,
+            // Up / Down only when the field has lines to move between — a single-line field lets them
+            // navigate, as UE's does.
+            for ( const UIKeyEvent& k : input->Keys )
+                if ( k.Key == Common::KeyCode::Left || k.Key == Common::KeyCode::Right ||
+                     ( f.MultiLine && ( k.Key == Common::KeyCode::Up || k.Key == Common::KeyCode::Down ) ) )
+                    ctx.View.ConsumeKey( k.Key );
         }
         if ( edit.HadFocus && !isFocused )
             send( f.OnCommittedMessage ); // UE ETextCommit::OnUserMovedFocus

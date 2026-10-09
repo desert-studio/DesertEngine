@@ -71,9 +71,38 @@ namespace Desert::UI::Walk
 
         const bool hover     = input && hot;
         const bool isFocused = interactive && focused && *focused == e;
-        if ( input &&
+        // Keyboard on an open list (SComboBox): Up / Down move the highlight, Enter commits it, Escape closes
+        // the list and is NOT also the overlay stack's Escape. All four are the dropdown's (consumed).
+        const int optionCount = static_cast<int>( options.size() );
+        bool      keyHandled  = false;
+        if ( input && isFocused && d.Open )
+        {
+            int& hl = ctx.View.DropdownHighlight.try_emplace( e, d.SelectedIndex ).first->second;
+            for ( const UIKeyEvent& k : input->Keys )
+            {
+                if ( k.Key == Common::KeyCode::Up )
+                    hl = std::max( 0, hl - 1 );
+                else if ( k.Key == Common::KeyCode::Down )
+                    hl = std::min( optionCount - 1, hl + 1 );
+                else if ( k.Key == Common::KeyCode::Enter )
+                {
+                    if ( hl >= 0 && hl < optionCount )
+                        d.SelectedIndex = hl;
+                    d.Open = false;
+                }
+                else if ( k.Key == Common::KeyCode::Escape )
+                    d.Open = false;
+                else
+                    continue;
+                ctx.View.ConsumeKey( k.Key );
+                keyHandled = true;
+            }
+        }
+        if ( !keyHandled && input &&
              ( ( hover && input->MouseReleased ) || ( isFocused && input->Pressed( Common::KeyCode::Enter ) ) ) )
             d.Open = !d.Open;
+        if ( !d.Open )
+            ctx.View.DropdownHighlight.erase( e );
         if ( d.Open && popups )
             // Deferred to draw on top of everything — which means it is drawn AFTER the walk,
             // outside every transform, so what it is anchored to has to be a screen box and

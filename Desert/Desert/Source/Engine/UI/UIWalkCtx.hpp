@@ -119,7 +119,7 @@ namespace Desert::UI::Walk
         std::string*                           OutClicked;
         NodeId*                          Focused;
         std::vector<PopupInfo>*                Popups;
-        std::vector<NodeId>*             Focusables;
+        std::vector<FocusEntry>*               Focusables;
         const Graphic::Render2D::ClipRegion2D& ClipRegion;
         const HitScope                         ChildScope;
         const ElementStyle&                    St;
@@ -174,7 +174,7 @@ namespace Desert::UI::Walk
     // recurses into the children.
     void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                       Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
-                      NodeId* focused, std::vector<PopupInfo>* popups, std::vector<NodeId>* focusables,
+                      NodeId* focused, std::vector<PopupInfo>* popups, std::vector<FocusEntry>* focusables,
                       const Graphic::Render2D::ClipRegion2D& clipRegion, HitScope scope,
                       const Rect* forcedRect = nullptr );
 } // namespace Desert::UI::Walk

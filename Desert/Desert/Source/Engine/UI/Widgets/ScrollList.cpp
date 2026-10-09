@@ -138,6 +138,14 @@ namespace Desert::UI::Walk
             clip           = true;
         }
 
+        // The visible box of a scrolling container, for scroll-to-focus (UIFocus.hpp ScrollIntoView): screen
+        // pixels per design pixel of ScrollY is the canvas scale times whatever the transform does to height.
+        if ( tree.Has<UIScrollViewData>( e ) || isList )
+        {
+            const Rect screen = ScreenBoundsOf( dl, rect );
+            ctx.View.ScrollPorts.push_back( { e, screen, rect.H > 0.0f ? scale * ( screen.H / rect.H ) : scale } );
+        }
+
         if ( clip )
             dl.PushClipRect( { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H } );
 

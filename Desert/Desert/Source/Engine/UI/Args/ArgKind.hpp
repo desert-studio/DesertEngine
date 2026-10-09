@@ -37,6 +37,7 @@ namespace Desert::UI
         DropTarget,
         Overlay,
         OverlayTrigger,
+        Navigation,
         Count
     };
 } // namespace Desert::UI
