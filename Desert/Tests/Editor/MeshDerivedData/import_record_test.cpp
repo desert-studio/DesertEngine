@@ -388,7 +388,7 @@ TEST( ImportRecord, ASplitRecordIsParsedOnceAndAgainOnlyWhenItsFileChanges )
     {
         ++settles;
         fs::last_write_time( record, fs::file_time_type::clock::now() -
-                                         ( 2 + settles ) * Common::Utils::kRacyWriteWindow );
+                                          ( 2 + settles ) * Common::Utils::kRacyWriteWindow );
     };
     writeRecord( "StringLight_Wind_20" );
     settle();
