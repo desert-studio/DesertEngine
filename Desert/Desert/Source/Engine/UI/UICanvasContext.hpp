@@ -7,6 +7,7 @@
 #include <Engine/UI/UICanvasResources.hpp>
 #include <Engine/UI/UIAnimationSource.hpp>
 #include <Engine/UI/UIDataStore.hpp>
+#include <Engine/UI/UIFocus.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
 #include <Engine/UI/UIRenderTextureSource.hpp>
@@ -359,7 +360,8 @@ namespace Desert::UI
 
         // Every focusable control the frame drew, in draw order across every canvas — Tab advances through
         // this one list, so focus can leave a HUD canvas and enter an overlay. Rebuilt each frame.
-        std::vector<NodeId> Focusables;
+        // Each carries its on-screen box: spatial navigation (UIFocus.hpp) picks by geometry.
+        std::vector<FocusEntry> Focusables;
 
         // --- The frame's viewport, stated ONCE --------------------------------------------------------
         // Where this view draws, in pixels. It used to be a parameter of every RenderCanvas2D call, so a

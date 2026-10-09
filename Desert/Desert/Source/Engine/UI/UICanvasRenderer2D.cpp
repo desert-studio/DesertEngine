@@ -62,7 +62,7 @@ namespace Desert::UI
         void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
                           NodeId* focused, std::vector<PopupInfo>* popups,
-                          std::vector<NodeId>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
+                          std::vector<FocusEntry>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
                           HitScope scope, const Rect* forcedRect )
         {
             // The visibility axis, before anything else is computed. Hidden and Collapsed both stop here
@@ -85,7 +85,7 @@ namespace Desert::UI
                     if ( dl.HasTransform() )
                         mask.PushTransform( dl.GetTransform() );
                     std::vector<PopupInfo>    noPopups;
-                    std::vector<NodeId> noFocus;
+                    std::vector<FocusEntry> noFocus;
                     std::string               noClick;
                     NodeId              noFocused = NodeId::Null;
                     const NodeId        outer     = ctx.MaskCapture;
@@ -399,7 +399,7 @@ namespace Desert::UI
                 if ( interactive && IsFocusable( tree, e ) )
                 {
                     if ( focusables )
-                        focusables->push_back( e );
+                        focusables->push_back( { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
                     if ( focused && *focused == e && !tree.Has<UIInputFieldData>( e ) )
                         dl.AddRect(
                              mn, mx,
@@ -412,22 +412,6 @@ namespace Desert::UI
             // is entered with no children too: an empty list is still a box on screen (UIListView).
             if ( tree.ChildCount( e ) != 0 || tree.Has<UIListViewData>( e ) || tree.Has<UIScrollViewData>( e ) )
                 DrawChildren( frame );
-        }
-
-        // The directional focus step a frame's keys ask for: -1 = previous focusable (Up / W), +1 = next
-        // (Down / S), 0 = none. A menu is walked with the arrows the way UE's Slate navigation walks it. When
-        // both directions arrive in one frame the LAST event wins — the order the host saw them in.
-        int NavigateStep( const UIInput& input )
-        {
-            int step = 0;
-            for ( const UIKeyEvent& k : input.Keys )
-            {
-                if ( k.Key == Common::KeyCode::Down || k.Key == Common::KeyCode::S )
-                    step = 1;
-                else if ( k.Key == Common::KeyCode::Up || k.Key == Common::KeyCode::W )
-                    step = -1;
-            }
-            return step;
         }
     } // namespace Walk
 
@@ -1103,23 +1087,15 @@ namespace Desert::UI
         // than here, so it stays readable between the two.
         view.Hot = view.HotNext;
 
-        // Tab and Down/S advance keyboard focus to the next focusable control, Up/W steps back (both wrap;
-        // effective next frame). The list spans every canvas of the frame, so focus can leave a HUD and enter
-        // an overlay. With nothing focused, either direction lands on the FIRST control — the top of a menu.
-        int step = 0;
-        if ( input != nullptr )
-            step = input->Pressed( Common::KeyCode::Tab ) ? 1 : NavigateStep( *input );
-        if ( focused != nullptr && step != 0 && !view.Focusables.empty() )
+        // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
+        // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.
+        // Effective next frame. With nothing focused, any request lands on the FIRST control.
+        if ( input != nullptr && focused != nullptr )
         {
-            const std::size_t n   = view.Focusables.size();
-            std::size_t       idx = 0; // not-found -> focus the first
-            for ( std::size_t i = 0; i < n; ++i )
-                if ( view.Focusables[i] == *focused )
-                {
-                    idx = step > 0 ? ( i + 1 ) % n : ( i + n - 1 ) % n;
-                    break;
-                }
-            *focused = view.Focusables[idx];
+            const NodeId next =
+                 FindNextFocusable( view.Focusables, *focused, NavigationOf( *input ), view.ViewportPx );
+            if ( next != NodeId::Null )
+                *focused = next;
         }
 
         view.FrameOpen = false;
