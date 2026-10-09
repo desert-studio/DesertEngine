@@ -1,8 +1,16 @@
 // DST-03: a two-piece fracture on headless Jolt. Below its threshold a hit leaves it whole; above, it breaks;
 // the pieces keep the velocity the whole had; an anchored piece stays where it was; a broken piece that sleeps
-// is removed.
+// is removed. A break is destruction's own event: named by the destructible entity in DestructionEventQueue
+// (UE UGeometryCollectionComponent::OnChaosBreakEvent), never in the physics contact queue.
+//
+// Mutations this suite must turn red:
+//   * DestructionEvents.hpp NameBreakEvents — drop the `!= Break` filter          (RemovedAndUnownedNameNothing)
+//   * DestructibleLifetime.cpp PublishEvents — drop `queue.Breaks.clear()`        (BreakIsNamedByItsEntity)
 
 #include <Engine/Destruction/DestructionWorld.hpp>
+#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/DestructionEvents.hpp>
+#include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
@@ -10,6 +18,8 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 using namespace Desert;
 using namespace Desert::Destruction;
@@ -165,4 +175,48 @@ TEST( DestructionBreak, RemoveOnSleep )
     for ( const DestructionEvent& event : f.destruction->GetEvents() )
         removed += event.Kind == DestructionEventKind::Removed ? 1 : 0;
     EXPECT_EQ( removed, 2 );
+}
+
+TEST( DestructionBreak, BreakIsNamedByItsEntity )
+{
+    Fixture f( 0.0f );
+    auto    added = f.destruction->Add( TwoCubes( 1.0e4f ), DestructibleDesc{} );
+    ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
+
+    entt::registry registry;
+    const auto     entity       = registry.create();
+    auto&          destructible = registry.emplace<ECS::DestructibleComponent>( entity );
+    destructible.RuntimeObject  = added.GetValue();
+    ECS::DestructibleLifetime owner( *f.destruction );
+
+    f.Run( 5 );
+    owner.PublishEvents( registry );
+    EXPECT_TRUE( registry.ctx<ECS::DestructionEventQueue>().Breaks.empty() ) << "zero at zero: nothing broke";
+
+    f.Throw( 1000.0f );
+    f.Run( 30 );
+    owner.PublishEvents( registry );
+    const auto& breaks = registry.ctx<ECS::DestructionEventQueue>().Breaks;
+    ASSERT_FALSE( breaks.empty() );
+    EXPECT_EQ( breaks.front().Self, entity );
+    EXPECT_EQ( breaks.front().Node, 1 ) << "the hit piece breaks off";
+
+    // Published again with nothing new: the queue is the frame's, not an accumulation.
+    f.destruction->ClearEvents();
+    owner.PublishEvents( registry );
+    EXPECT_TRUE( registry.ctx<ECS::DestructionEventQueue>().Breaks.empty() );
+}
+
+TEST( DestructionBreak, RemovedAndUnownedNameNothing )
+{
+    const DestructibleHandle object = 7;
+    const DestructionEvent   removed{ DestructionEventKind::Removed, object, 1 };
+    const DestructionEvent   unowned{ DestructionEventKind::Break, object + 1, 2 };
+    const DestructionEvent   events[] = { removed, unowned };
+
+    entt::registry                                             registry;
+    const std::unordered_map<DestructibleHandle, entt::entity> objects = { { object, registry.create() } };
+    std::vector<ECS::DestructionBreakEvent>                    out;
+    ECS::NameBreakEvents( events, objects, out );
+    EXPECT_TRUE( out.empty() ) << "Removed is the simulation's bookkeeping; an object with no entity names no one";
 }

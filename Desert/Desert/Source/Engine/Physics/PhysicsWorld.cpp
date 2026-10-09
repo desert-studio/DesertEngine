@@ -35,6 +35,7 @@
 #include <mutex>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -343,12 +344,37 @@ namespace Desert::Physics
             const CollisionProfiles*    Profiles = nullptr;
             std::mutex                  Mutex;
             std::vector<ContactImpulse> Contacts;
+            std::vector<ContactEvent>   Events; // this step's, under Mutex; sorted and handed over after the step
 
             void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
                                  const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
             {
                 Respond( body1, body2, settings );
                 Record( body1, body2, manifold, settings );
+                RecordAdded( body1, body2, manifold, settings );
+            }
+
+            // The bodies cannot be read here (one may be gone): the shape pair is looked up among the overlaps
+            // RecordAdded counted, and the body pair's last shape pair to part ends its overlap.
+            void OnContactRemoved( const JPH::SubShapeIDPair& pair ) override
+            {
+                const std::lock_guard lock( Mutex );
+                const auto            shapes = SensorShapes.find( ShapePairKey( pair ) );
+                if ( shapes == SensorShapes.end() )
+                    return;
+                const uint64_t bodies = shapes->second;
+                SensorShapes.erase( shapes );
+                const auto count = OverlapCounts.find( bodies );
+                if ( count == OverlapCounts.end() || --count->second > 0u )
+                    return;
+                OverlapCounts.erase( count );
+                ContactEvent event;
+                event.Kind    = ContactEventKind::EndOverlap;
+                event.Body1   = static_cast<BodyHandle>( bodies >> 32u );
+                event.Body2   = static_cast<BodyHandle>( bodies & 0xFFFFFFFFu );
+                event.Notify1 = true;
+                event.Notify2 = true;
+                Events.push_back( event );
             }
             void OnContactPersisted( const JPH::Body& body1, const JPH::Body& body2,
                                      const JPH::ContactManifold& manifold,
@@ -359,6 +385,85 @@ namespace Desert::Physics
             }
 
         private:
+            struct ShapePair
+            {
+                uint32_t Body1, Sub1, Body2, Sub2;
+                bool     operator==( const ShapePair& ) const = default;
+            };
+            struct ShapePairHash
+            {
+                size_t operator()( const ShapePair& k ) const
+                {
+                    const uint64_t a = ( uint64_t( k.Body1 ) << 32u ) | k.Sub1;
+                    const uint64_t b = ( uint64_t( k.Body2 ) << 32u ) | k.Sub2;
+                    return std::hash<uint64_t>{}( a ) ^ ( std::hash<uint64_t>{}( b ) * 0x9E3779B97F4A7C15ull );
+                }
+            };
+            static ShapePair ShapePairKey( const JPH::SubShapeIDPair& pair )
+            {
+                return { pair.GetBody1ID().GetIndexAndSequenceNumber(), pair.GetSubShapeID1().GetValue(),
+                         pair.GetBody2ID().GetIndexAndSequenceNumber(), pair.GetSubShapeID2().GetValue() };
+            }
+            static uint64_t BodyPairKey( BodyHandle a, BodyHandle b )
+            {
+                return ( uint64_t( a ) << 32u ) | b;
+            }
+
+            // The overlapping shape pairs, each with its body pair; how many shape pairs each body pair has.
+            std::unordered_map<ShapePair, uint64_t, ShapePairHash> SensorShapes;
+            std::unordered_map<uint64_t, uint32_t>                 OverlapCounts;
+
+            // A new contact becomes an event (UE: a Hit when a blocking contact begins, a BeginOverlap when the
+            // first shape pair of an overlapping body pair touches).
+            void RecordAdded( const JPH::Body& body1, const JPH::Body& body2, const JPH::ContactManifold& manifold,
+                              const JPH::ContactSettings& settings )
+            {
+                const CollisionProfileId profile1 = ProfileOf( body1.GetObjectLayer() );
+                const CollisionProfileId profile2 = ProfileOf( body2.GetObjectLayer() );
+                ContactEvent             event;
+                event.Body1  = body1.GetID().GetIndexAndSequenceNumber();
+                event.Body2  = body2.GetID().GetIndexAndSequenceNumber();
+                event.Normal = ToGlm( manifold.mWorldSpaceNormal );
+                glm::vec3 point( 0.0f );
+                for ( JPH::uint i = 0; i < manifold.mRelativeContactPointsOn1.size(); ++i )
+                    point += ToGlm( manifold.GetWorldSpaceContactPointOn1( i ) );
+                if ( !manifold.mRelativeContactPointsOn1.empty() )
+                    event.Point = point / static_cast<float>( manifold.mRelativeContactPointsOn1.size() );
+
+                if ( settings.mIsSensor )
+                {
+                    if ( !Profiles->GeneratesOverlapEvents( profile1 ) ||
+                         !Profiles->GeneratesOverlapEvents( profile2 ) )
+                        return;
+                    event.Kind    = ContactEventKind::BeginOverlap;
+                    event.Notify1 = true;
+                    event.Notify2 = true;
+                    const JPH::SubShapeIDPair pair( body1.GetID(), manifold.mSubShapeID1, body2.GetID(),
+                                                    manifold.mSubShapeID2 );
+                    const std::lock_guard lock( Mutex );
+                    const uint64_t        bodies = BodyPairKey( event.Body1, event.Body2 );
+                    if ( !SensorShapes.emplace( ShapePairKey( pair ), bodies ).second )
+                        return;
+                    if ( OverlapCounts[bodies]++ == 0u )
+                        Events.push_back( event );
+                    return;
+                }
+
+                event.Notify1 = Profiles->GeneratesHitEvents( profile1 );
+                event.Notify2 = Profiles->GeneratesHitEvents( profile2 );
+                if ( ( !event.Notify1 && !event.Notify2 ) || manifold.mRelativeContactPointsOn1.empty() )
+                    return;
+                event.Kind = ContactEventKind::Hit;
+                JPH::CollisionEstimationResult estimate;
+                JPH::EstimateCollisionResponse(
+                     body1, body2, manifold, estimate, settings.mCombinedFriction, settings.mCombinedRestitution,
+                     System->GetPhysicsSettings().mMinVelocityForRestitution, kImpulseEstimateIterations );
+                for ( JPH::uint i = 0; i < manifold.mRelativeContactPointsOn1.size(); ++i )
+                    event.Impulse += estimate.mContactImpulse[i];
+                const std::lock_guard lock( Mutex );
+                Events.push_back( event );
+            }
+
             // An Overlap pair's contact is a sensor contact: Jolt finds it and does not solve it (UE: the
             // bodies pass through each other; the overlap itself is reported by the event queue).
             void Respond( const JPH::Body& body1, const JPH::Body& body2, JPH::ContactSettings& settings ) const
@@ -432,6 +537,7 @@ namespace Desert::Physics
 
         ImpulseListener              Impulses;
         std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
+        std::vector<ContactEvent>    StepEvents;   // the last Step call's, handed out by GetContactEvents
         std::function<void( float )> PreStepCallback;
         std::function<void( float )> StepCallback;
 
@@ -597,6 +703,7 @@ namespace Desert::Physics
         constexpr auto kStep = static_cast<double>( kFixedStepSeconds );
         world.Bank += static_cast<double>( dt );
         uint32_t taken = 0;
+        world.StepEvents.clear();
         while ( world.Bank >= kStep && taken < kMaxStepsPerFrame )
         {
             world.KeepPoses();
@@ -614,6 +721,19 @@ namespace Desert::Physics
             ++world.StepCount;
             ++taken;
             world.StepContacts.swap( world.Impulses.Contacts );
+            {
+                // The solver's threads found the contacts in no fixed order: sorted, the events of a step are
+                // the same on every machine that took it.
+                std::vector<ContactEvent>& events = world.Impulses.Events;
+                std::stable_sort( events.begin(), events.end(),
+                                  []( const ContactEvent& a, const ContactEvent& b )
+                                  {
+                                      return std::tie( a.Body1, a.Body2, a.Kind ) <
+                                             std::tie( b.Body1, b.Body2, b.Kind );
+                                  } );
+                world.StepEvents.insert( world.StepEvents.end(), events.begin(), events.end() );
+                events.clear();
+            }
             if ( world.StepCallback )
                 world.StepCallback( kFixedStepSeconds );
         }
@@ -664,6 +784,13 @@ namespace Desert::Physics
         if ( !m_Impl )
             return {};
         return m_Impl->StepContacts;
+    }
+
+    std::span<const ContactEvent> PhysicsWorld::GetContactEvents() const
+    {
+        if ( !m_Impl )
+            return {};
+        return m_Impl->StepEvents;
     }
 
     Common::ResultStr<BodyHandle> PhysicsWorld::CreateCompoundBody( const CompoundBodyDesc& desc )
