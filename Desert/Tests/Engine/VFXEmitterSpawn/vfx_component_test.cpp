@@ -13,14 +13,20 @@
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
+#include <Engine/VFX/VFXSystemLookup.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -214,5 +220,90 @@ TEST( VFXComponent, NothingIsPlannedWhenNotActivatedOrTheSystemIsUnknown )
                                                         { vfx.Data.AutoActivate = false; } );
         world.Tick( played.registry, kTick );
         EXPECT_EQ( world.FindSystemEmitter( played.Uuid, 0 ), nullptr );
+    }
+}
+
+// VFX-03d. The lookup the hosts hand a scene's VFXWorld answers a handle the AssetManager holds with that
+// system's data, and anything else with nullptr. Red without MakeAssetSystemLookup (or if it answers a system
+// not loaded, or the wrong one).
+TEST( VFXComponent, TheAssetLookupAnswersTheManagersSystemByHandle )
+{
+    const auto path = std::filesystem::temp_directory_path() / "desert_vfx03d_lookup.dfx";
+    ASSERT_TRUE(
+         Desert::Assets::VFXSystemAsset::Save( Common::Filepath( path ), TwoEmitterSystem() ).IsSuccess() );
+
+    Desert::Assets::AssetManager manager;
+    const auto system = manager.CreateAsset<Desert::Assets::VFXSystemAsset>( Common::Filepath( path ) );
+    ASSERT_TRUE( system && system->IsReadyForUse() );
+
+    const VFX::VFXSystemLookup lookup = VFX::MakeAssetSystemLookup( manager );
+    ASSERT_TRUE( static_cast<bool>( lookup ) );
+    const S::VFXSystemData* found = lookup( system->GetMetadata().Handle );
+    ASSERT_EQ( found, &system->GetData() );
+    EXPECT_EQ( found->Emitters.size(), 2u );
+    EXPECT_EQ( lookup( Desert::Assets::AssetHandle( 0x0BAD0BAD0BAD0BADull ) ), nullptr );
+
+    std::error_code ec;
+    std::filesystem::remove( path, ec );
+}
+
+namespace
+{
+    std::string RepoRoot()
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 6; ++up )
+        {
+            if ( std::ifstream( prefix + "Desert/Desert/Source/Engine/ECS/Components.hpp" ) )
+                return prefix;
+            prefix += "../";
+        }
+        return {};
+    }
+
+    // The body of `Owner::Function(` in @p file: from the definition's opening brace to its matching close.
+    std::string FunctionBody( const std::string& file, const std::string& definition )
+    {
+        std::ifstream      in( file );
+        std::ostringstream text;
+        text << in.rdbuf();
+        const std::string s    = text.str();
+        const auto        at   = s.find( definition );
+        const auto        open = at == std::string::npos ? std::string::npos : s.find( '{', at );
+        if ( open == std::string::npos )
+            return {};
+        int depth = 0;
+        for ( auto i = open; i < s.size(); ++i )
+        {
+            depth += s[i] == '{' ? 1 : s[i] == '}' ? -1 : 0;
+            if ( depth == 0 )
+                return s.substr( open, i - open + 1 );
+        }
+        return {};
+    }
+} // namespace
+
+// VFX-03d. Every host that owns an AssetManager and builds a scene's systems gives the scene's VFXWorld the
+// asset lookup there; without it a VFXComponent spawns nothing in that host. Red when either host drops the
+// call (the editor's SceneWorkspace or the packaged game's RuntimeLayer).
+TEST( VFXComponent, EveryHostThatBuildsSceneSystemsGivesTheWorldItsSystemLookup )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "repository root not found from the working directory";
+    struct Host
+    {
+        const char* File;
+        const char* Definition;
+    };
+    const Host hosts[] = {
+         { "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp", "void SceneWorkspace::BuildSceneSystems(" },
+         { "Runtime/Source/RuntimeLayer.cpp", "void RuntimeLayer::BuildGameplaySystems(" },
+    };
+    for ( const Host& host : hosts )
+    {
+        const std::string body = FunctionBody( root + host.File, host.Definition );
+        ASSERT_FALSE( body.empty() ) << host.File << ": " << host.Definition << " not found";
+        EXPECT_NE( body.find( "GetVFXWorld().SetSystemLookup(" ), std::string::npos ) << host.File;
+        EXPECT_NE( body.find( "MakeAssetSystemLookup(" ), std::string::npos ) << host.File;
     }
 }

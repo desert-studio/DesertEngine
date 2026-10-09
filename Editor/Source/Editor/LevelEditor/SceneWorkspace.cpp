@@ -18,6 +18,7 @@
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/ECS/System/GameModeSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/VFX/VFXSystemLookup.hpp>
 
 #include <array>
 #include <format>
@@ -81,6 +82,8 @@ namespace Desert::Editor
         // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
         // evaluates sequences after the actors' own tick).
         scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_Assets.get() );
+        // A VFXComponent names its system by handle; the scene has no asset manager, the host does.
+        scene.GetVFXWorld().SetSystemLookup( Desert::VFX::MakeAssetSystemLookup( *m_Assets ) );
     }
 
     void SceneWorkspace::SetActiveScene( uint64_t id )
