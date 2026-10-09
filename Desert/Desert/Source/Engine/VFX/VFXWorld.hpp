@@ -2,7 +2,9 @@
 
 #include <Engine/VFX/VFXClock.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
+#include <Engine/VFX/VFXCurveLUT.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <glm/glm.hpp>
 
@@ -55,6 +57,14 @@ namespace Desert::VFX
         std::vector<VFXChannelSpawnRequest> ChannelSpawns;
         VFXChannelSpawnReport               ChannelReport;
         std::uint64_t                       ChannelOverflowTotal = 0;
+
+        // A VFXComponent emitter's compiled stack and what its simulation program reads (null / empty for a
+        // ParticleEmitterComponent, which ParticleSimulate runs): the parameter rows (BuildEmitterParams, this
+        // tick's values), the system's curve atlas and the particles its range of the pool holds.
+        std::shared_ptr<const VFXCompiledEmitter> Stack;
+        std::vector<glm::vec4>                    Params;
+        std::vector<float>                        Curves;
+        std::uint32_t                             Capacity = 0;
 
         bool Seen = false; // visited by the current Tick; instances not visited are dropped
     };
@@ -149,6 +159,12 @@ namespace Desert::VFX
         [[nodiscard]] const EmitterInstance* FindSystemEmitter( std::uint64_t entityUuid,
                                                                 std::uint32_t emitterIndex ) const;
 
+        // Every instance this tick planned, by key (the renderer runs the system emitters' stacks from here).
+        [[nodiscard]] const std::unordered_map<EmitterKey, EmitterInstance, EmitterKeyHash>& GetEmitters() const
+        {
+            return m_Emitters;
+        }
+
         // Unset = no VFXComponent plays: each is reported once (naming the entity) and spawns nothing.
         void SetSystemLookup( VFXSystemLookup lookup )
         {
@@ -194,6 +210,16 @@ namespace Desert::VFX
         std::unordered_map<EmitterKey, EmitterInstance, EmitterKeyHash> m_Emitters;
         VFXSystemLookup                                                 m_SystemLookup;
         std::unordered_set<EmitterKey, EmitterKeyHash>                  m_Reported;
+        // The compiled stack of each playing system emitter and the system data it was compiled from: compiled
+        // again when the lookup hands other data (the asset reloaded) or the instance restarts (the editor's
+        // Restart after an edit), never per tick - the compile reads the engine's module files.
+        struct CompiledStack
+        {
+            const Assets::Serialization::VFXSystemData* Source = nullptr;
+            std::shared_ptr<const VFXCompiledEmitter>   Stack;
+            VFXCurveAtlas                               Curves;
+        };
+        std::unordered_map<EmitterKey, CompiledStack, EmitterKeyHash> m_Stacks;
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;
         VFXDataChannels                                    m_Channels;

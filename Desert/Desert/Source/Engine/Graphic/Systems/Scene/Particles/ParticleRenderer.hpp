@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Core
@@ -148,9 +149,11 @@ namespace Desert::Graphic::System
         struct ViewPool
         {
             RDG::ExternalBuffer ParticlesImport;
+            RDG::ExternalBuffer SlotsImport;
             RDG::ExternalBuffer FreeImport;
             RDG::ExternalBuffer AliveImport;
             RDG::BufferRef      ParticlesRef;
+            RDG::BufferRef      SlotsRef;
             RDG::BufferRef      FreeRef;
             RDG::BufferRef      AliveRef;
             bool                Declared = false;
@@ -209,6 +212,8 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::unique_ptr<SpriteDraw>> m_Sprites;
         // Per emitter (raw entt entity value), per view.
         std::unordered_map<uint32_t, EmitterMaterial> m_Materials;
+        // VFXComponent emitters (a compiled stack) this view does not run yet, each said once by key.
+        std::unordered_set<uint64_t>                  m_ReportedStacks;
         const ParticleWorldGpu*                       m_World     = nullptr;
         bool                                          m_Simulates = false;
         std::vector<ViewEmitter>                      m_ViewEmitters;

@@ -34,6 +34,25 @@ namespace Desert::Graphic::System
         glm::uvec4 Counts;     // range count, step index into the step table, range pool base, local-space
     };
 
+    // A compiled stack's VFX/Simulate push constant (VFXSimulationProgram.cpp): Time = (dt, emitter age, 0, 0),
+    // Counts = (range particles, step index, range pool base, 0), Bases = (float, int, param row, curve float)
+    // starts of the emitter in the pool's Floats / Ints and its own Params / Curves.
+    struct VFXStackSimPush
+    {
+        glm::vec4  Time;
+        glm::uvec4 Counts;
+        glm::uvec4 Bases;
+    };
+
+    // One pool slot's liveness (Common/ParticlePool.glslh VFXSlotState): written by every simulation program,
+    // read by ParticleCompact.
+    struct VFXSlotStateGpu
+    {
+        uint32_t Id    = 0;
+        uint32_t Alive = 0;
+    };
+    static_assert( sizeof( VFXSlotStateGpu ) == 8 );
+
     // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = flags
     // (kParticleCompactReset, kParticleCompactFullScan).
     struct ParticleCompactPush
@@ -98,6 +117,14 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> ChannelSpawns; // this tick's Spawn from Channel particles
 
         ParticlePoolRange Range;
+        // A compiled stack's state (VFXComponent emitters): its parameter rows and curve atlas, and where its
+        // range's attribute components start in the pool's Floats / Ints (PoolRangeOf of its layout).
+        std::shared_ptr<ShaderResources::StorageBuffer> Params;
+        std::shared_ptr<ShaderResources::StorageBuffer> Curves;
+        uint32_t                                        ParamsCapacity = 0; // rows Params holds
+        uint32_t                                        CurvesCapacity = 0; // floats Curves holds
+        ParticlePoolRange                               FloatRange;
+        ParticlePoolRange                               IntRange;
         uint32_t          StepCapacity    = 0;
         uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
         uint64_t          Generation   = 0;    // the VFXWorld instance generation this state belongs to
@@ -108,18 +135,29 @@ namespace Desert::Graphic::System
     struct ParticleFrameEmitter
     {
         uint32_t            EntityId = 0;
+        uint64_t            Key      = 0; // ParticleEmitterKey
         ParticleEmitterGpu* Gpu      = nullptr;
-        ParticleSimPush     Push;
+        // Null: a ParticleEmitterComponent, simulated by ParticleSimulate with Push. Set: a VFXComponent emitter,
+        // simulated by its stack's program (ShaderService::AcquireSimulationProgram) with StackPush.
+        std::shared_ptr<const VFX::VFXCompiledEmitter> Stack;
+        ParticleSimPush                                Push;
+        VFXStackSimPush                                StackPush;
         // The emitter's ParticleEmitterData::Material (null = the default sprite template); the drawing view
         // resolves its ParticleSprite.Forward cell and reads the blend mode off it.
         Common::AssetHandle Material;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 
-    // The pool's buffers: particles, the free list (one entry per particle) and the alive list (two per particle).
+    // The pool's buffers: particles, the free list (one entry per particle), the alive list (two per particle),
+    // every slot's liveness (Slots) and the compiled stacks' attributes as SoA float / int components.
     struct ParticlePoolBuffers
     {
         std::shared_ptr<ShaderResources::StorageBuffer> Particles;
+        std::shared_ptr<ShaderResources::StorageBuffer> Slots;
+        std::shared_ptr<ShaderResources::StorageBuffer> Floats;
+        std::shared_ptr<ShaderResources::StorageBuffer> Ints;
+        uint32_t                                        FloatCapacity = 0;
+        uint32_t                                        IntCapacity   = 0;
         std::shared_ptr<ShaderResources::StorageBuffer> FreeList;
         std::shared_ptr<ShaderResources::StorageBuffer> AliveList;
         uint32_t                                        Capacity = 0;
@@ -152,12 +190,22 @@ namespace Desert::Graphic::System
 
     private:
         // Grows the pool to hold @p particles (recreating it: every emitter restarts); false when it failed.
-        bool                EnsurePoolCapacity( uint32_t particles );
-        ParticleEmitterGpu& GetOrCreate( uint32_t entityId, uint32_t stepCapacity );
+        // Grows the pool to hold @p particles, @p floats and @p ints components (recreating it: every emitter
+        // restarts); false when it failed.
+        bool                EnsurePoolCapacity( uint32_t particles, uint32_t floats, uint32_t ints );
+        ParticleEmitterGpu& GetOrCreate( uint64_t key, uint32_t stepCapacity );
+        // What every emitter shares: its state, range, step table, channel spawns and counters for this tick.
+        // Null when the emitter sits out (said in the log); @p stepCount is the steps it runs.
+        ParticleEmitterGpu* PrepareEmitter( uint64_t key, const VFX::EmitterInstance& instance, uint32_t capacity,
+                                            uint32_t stepCapacity, uint32_t& stepCount );
+        // A VFXComponent emitter's stack state: its attribute ranges and its parameter and curve uploads.
+        bool PrepareStack( uint64_t key, ParticleEmitterGpu& gpu, const VFX::EmitterInstance& instance );
 
-        std::unordered_map<uint32_t, ParticleEmitterGpu> m_Emitters;
+        std::unordered_map<uint64_t, ParticleEmitterGpu> m_Emitters;
         std::vector<ParticleFrameEmitter>                m_FrameEmitters;
         ParticlePoolRanges                               m_Ranges;
+        ParticlePoolRanges                               m_FloatRanges;
+        ParticlePoolRanges                               m_IntRanges;
         ParticlePoolBuffers                              m_Pool;
         ParticleTickClaim                                m_Claim;
     };

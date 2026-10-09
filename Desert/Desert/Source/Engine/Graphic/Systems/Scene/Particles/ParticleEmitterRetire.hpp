@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ParticlePool.hpp"
+
 #include <Engine/ECS/Components.hpp>
 
 #include <entt/entt.hpp>
@@ -31,6 +33,25 @@ namespace Desert::Graphic::System
                                   const auto entity = static_cast<entt::entity>( entry.first );
                                   return !registry.valid( entity ) ||
                                          !registry.has<ECS::ParticleEmitterComponent>( entity );
+                              } );
+    }
+
+    // The same for GPU state keyed by ParticleEmitterKey: a system emitter's state goes with its entity's
+    // VFXComponent, a ParticleEmitterComponent's with that component.
+    template <class Value>
+    std::size_t RetireDestroyedEmitters( std::unordered_map<uint64_t, Value>& emitters,
+                                         const entt::registry&                registry )
+    {
+        return std::erase_if( emitters,
+                              [&registry]( const auto& entry )
+                              {
+                                  const auto entity =
+                                       static_cast<entt::entity>( ParticleEmitterKey::Entity( entry.first ) );
+                                  if ( !registry.valid( entity ) )
+                                      return true;
+                                  return ParticleEmitterKey::System( entry.first )
+                                              ? !registry.has<ECS::VFXComponent>( entity )
+                                              : !registry.has<ECS::ParticleEmitterComponent>( entity );
                               } );
     }
 } // namespace Desert::Graphic::System

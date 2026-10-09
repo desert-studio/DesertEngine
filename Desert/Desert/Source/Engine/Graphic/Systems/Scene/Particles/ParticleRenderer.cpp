@@ -103,6 +103,7 @@ namespace Desert::Graphic::System
         LOG_INFO( "[Particles] Released {} emitter material instance(s) belonging to the previous scene.",
                   m_Materials.size() );
         m_Materials.clear();
+        m_ReportedStacks.clear();
     }
 
     void ParticleRenderer::PrepareFrame( const ::Desert::Core::Scene& scene )
@@ -193,7 +194,7 @@ namespace Desert::Graphic::System
             if ( !RunsCompact( ve, compact ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
-                 .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
+                 .Storage( "Slots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
                  .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageWrite )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
@@ -282,6 +283,7 @@ namespace Desert::Graphic::System
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
                  .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
+                 .Storage( "Slots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -300,6 +302,7 @@ namespace Desert::Graphic::System
         const ParticlePoolBuffers& pool = m_World->Pool();
         for ( const auto& [buffer, import, name] :
               { std::tuple{ &pool.Particles, &m_Pool.ParticlesImport, "ParticlePool" },
+                std::tuple{ &pool.Slots, &m_Pool.SlotsImport, "ParticleSlots" },
                 std::tuple{ &pool.FreeList, &m_Pool.FreeImport, "ParticleFreeList" },
                 std::tuple{ &pool.AliveList, &m_Pool.AliveImport, "ParticleAliveList" } } )
         {
@@ -312,13 +315,25 @@ namespace Desert::Graphic::System
             }
         }
         m_Pool.ParticlesRef = graph.RegisterExternal( m_Pool.ParticlesImport, "ParticlePool" );
+        m_Pool.SlotsRef     = graph.RegisterExternal( m_Pool.SlotsImport, "ParticleSlots" );
         m_Pool.FreeRef      = graph.RegisterExternal( m_Pool.FreeImport, "ParticleFreeList" );
         m_Pool.AliveRef     = graph.RegisterExternal( m_Pool.AliveImport, "ParticleAliveList" );
         m_Pool.Declared     = true;
 
         for ( size_t i = 0; i < m_ViewEmitters.size(); ++i )
         {
-            ViewEmitter&                ve       = m_ViewEmitters[i];
+            ViewEmitter& ve = m_ViewEmitters[i];
+            if ( ve.Frame->Stack )
+            {
+                // The world prepares its pool ranges, rows and curves (ParticleWorldGpu::PrepareStack); the
+                // nodes do not dispatch its program and the sprite does not read its layout yet.
+                if ( m_ReportedStacks.insert( ve.Frame->Key ).second )
+                    LOG_ERROR( "[Particles] emitter {} of entity {} plays a compiled stack ({}), which this view "
+                               "does not simulate or draw yet",
+                               ParticleEmitterKey::Emitter( ve.Frame->Key ), ve.Frame->EntityId,
+                               ve.Frame->Stack->ShaderName );
+                continue;
+            }
             const ParticleEmitterGpu&   gpu      = *ve.Frame->Gpu;
             const Common::BoolResultStr counters = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
             if ( !counters )

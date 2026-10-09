@@ -1,6 +1,7 @@
 #include "VFXWorld.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/VFX/VFXCurveLUT.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -206,14 +207,61 @@ namespace Desert::VFX
                                         plan.GetError() );
                          continue;
                      }
+                     CompiledStack& compiled = m_Stacks[key];
+                     if ( compiled.Source != system || restart || !compiled.Stack )
+                     {
+                         compiled   = {};
+                         auto stack = CompileEmitterStack( *system, i, EngineModuleDir() );
+                         if ( !stack )
+                         {
+                             if ( FirstReport( key ) )
+                                 LOG_ERROR(
+                                      "[VFX] Entity {}: emitter {} of its VFX system sits out, its stack does "
+                                      "not compile: {}",
+                                      uuid, index, stack.GetError() );
+                             m_Stacks.erase( key );
+                             continue;
+                         }
+                         auto atlas = BuildCurveAtlas( *system );
+                         if ( !atlas )
+                         {
+                             if ( FirstReport( key ) )
+                                 LOG_ERROR(
+                                      "[VFX] Entity {}: emitter {} of its VFX system sits out, its curves do "
+                                      "not bake: {}",
+                                      uuid, index, atlas.GetError() );
+                             m_Stacks.erase( key );
+                             continue;
+                         }
+                         compiled.Source = system;
+                         compiled.Stack =
+                              std::make_shared<const VFXCompiledEmitter>( std::move( stack.GetValue() ) );
+                         compiled.Curves = std::move( atlas.GetValue() );
+                     }
+                     // The rows carry this tick's input values: an edited value reaches the GPU without a compile.
+                     auto params = BuildEmitterParams( *compiled.Stack, *system, i, compiled.Curves );
+                     if ( !params )
+                     {
+                         if ( FirstReport( key ) )
+                             LOG_ERROR(
+                                  "[VFX] Entity {}: emitter {} of its VFX system sits out, its parameters do "
+                                  "not build: {}",
+                                  uuid, index, params.GetError() );
+                         continue;
+                     }
                      EmitterInstance& instance =
                           Visit( key, MakeEmitterSeed( system->Seed, uuid, index ), restart );
                      PlanEmitterSteps( instance, plan.GetValue(), m_Plan.StepCount, stepSeconds, m_Channels,
                                        emitterCm );
+                     instance.Stack    = compiled.Stack;
+                     instance.Params   = std::move( params.GetValue() );
+                     instance.Curves   = compiled.Curves.Floats;
+                     instance.Capacity = system->Emitters[i].Capacity;
                  }
              } );
 
         std::erase_if( m_Emitters, []( const auto& entry ) { return !entry.second.Seen; } );
+        std::erase_if( m_Stacks, [this]( const auto& entry ) { return !m_Emitters.contains( entry.first ); } );
         m_Channels.ClearEntries(); // a channel holds one frame of entries (UE: a data channel is cleared per tick)
     }
 } // namespace Desert::VFX

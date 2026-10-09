@@ -13,12 +13,13 @@ Shader "ParticleCompact"
         // the pool is never zeroed on the CPU.
         LocalSize(64, 1, 1);
 
-        #include <Common/ParticleState.glslh>
         #include <Common/ParticlePool.glslh>
 
-        Buffer(0) Particles
+        // Liveness of every pool slot, whichever program simulates its range (ParticleSimulate or a compiled
+        // stack): the compact does not read the particles' attributes, so it serves every layout.
+        Buffer(0) Slots
         {
-            Particle u_Particles[];
+            VFXSlotState u_SlotState[];
         };
 
         Buffer(1) FreeList
@@ -55,7 +56,7 @@ Shader "ParticleCompact"
                     return;
                 i = base + t;
                 if ( ( u_Range.w & 1u ) != 0u )
-                    u_Particles[i] = Particle( vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ) );
+                    u_SlotState[i] = VFXSlotState( 0u, 0u );
             }
             else
             {
@@ -66,7 +67,7 @@ Shader "ParticleCompact"
                 i = u_Alive[2u * base + ( 1u - slot ) * count + t];
             }
 
-            if ( u_Particles[i].VelLife.w > 0.0 )
+            if ( u_SlotState[i].Alive != 0u )
                 u_Alive[2u * base + slot * count + atomicAdd( u_Slots[slot].VertexCount, 6u ) / 6u] = i;
             else
                 u_Free[base + atomicAdd( u_Slots[slot].FreeCount, 1u )] = i;
