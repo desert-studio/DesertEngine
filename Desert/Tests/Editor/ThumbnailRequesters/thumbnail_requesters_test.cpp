@@ -235,6 +235,10 @@ namespace
          { "Editor/Source/Editor/LevelEditor/EditorStartup.cpp",
            "drives the service — EditorStartup::TickThumbnails is the one pump per frame, gated by the "
            "splash's reveal state. It owns no row and draws no picture; it is the clock, not a consumer" },
+         { "Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp",
+           "names the picture each tile will ask for (ThumbnailPngFor, MeshPictureFor) and hands the visible "
+           "folder's to the decode workers (PrefetchFolder). It draws nothing, writes no PNG and queues no "
+           "render: the AssetTileThumbnail Shows rows above are the ones that ask the service" },
 
          // ThumbnailCache.cpp WAS excused here as "where DiskPath is DEFINED" and no longer is: M11 moved
          // the cache-path rule to Editor/Widgets/ThumbnailKey.hpp, beside the rule that names the file,

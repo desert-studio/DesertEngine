@@ -200,12 +200,17 @@ namespace
            "there': a mounted .dpak cannot change under a running process, so its half has nothing to "
            "watch, and ListFilesRecursive returns files, not the directory mtimes the poll compares.",
            "" },
+         { "Desert/Common/Source/Common/Content/AssetTrash.cpp", Verdict::NotContent,
+           "lists the slots of <Project>/Saved/Trash - the editor's machine-local recycle bin of deleted assets, "
+           "gitignored with the rest of Saved/. What is in the trash is no longer content; a package has none.",
+           "" },
          { "Runtime/Source/PackagedContent.cpp", Verdict::NotContent,
            "finds the .dpak files THEMSELVES. It cannot go through the mount it is about to create.", "" },
 
          // ── debt: these really do walk this project's content ───────────────────────────────────────
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", Verdict::Debt,
-           "the content browser itself - the editor's own window onto the content world, showing only "
+         { "Editor/Source/Editor/Panels/FileExplorer/ContentDirectoryModel.cpp", Verdict::Debt,
+           "the content browser's directory model (EDL-C1 lifted it out of FileExplorerPanel) - the editor's "
+           "own window onto the content world, showing only "
            "the loose half of it. Measured at 0 rows against 8 with a pak mounted; see kBrowserOwner "
            "above for why swapping the walk alone would make it worse rather than better.",
            kBrowserOwner },

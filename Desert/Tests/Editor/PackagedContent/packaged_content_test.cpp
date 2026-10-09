@@ -1625,6 +1625,7 @@ namespace
              { "FONTS_PATH", &P::FONTS_PATH, RootVerdict::Packaged, "" },
              { "ICONS_PATH", &P::ICONS_PATH, RootVerdict::Packaged, "" },
              { "CONFIG_PATH", &P::CONFIG_PATH, RootVerdict::Packaged, "" },
+             { "PROJECT_CONFIG_PATH", &P::PROJECT_CONFIG_PATH, RootVerdict::Packaged, "" },
              { "ENGINE_CONTENT_PATH", &P::ENGINE_CONTENT_PATH, RootVerdict::Packaged, "" },
 
              // --- project content: every row is derived from the assets or cooked root, and both of

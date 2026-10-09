@@ -328,6 +328,10 @@ namespace
          // frame as a failure.
          { "ShaderParam", "Timing", kMatEditStates, nullptr },
 
+         // THE TEXTURE SLOT'S DECLARED INTENT (IMP-DDS-BLOCKS / MAT-SLOT-PARTIAL): the importer's contract reads
+         // it to state which block format and colour space a source image cooks to for this slot.
+         { "ShaderParam", "SlotIntent", "Editor/Source/Editor/Import/MaterialImportContract.cpp", nullptr },
+
          { "ShaderParam", "Tooltip", kMatEdit, nullptr },
          { "ShaderParam", "Type", kMatEditStates, nullptr },
          { "ShaderParam", "Widget", kMatEdit, nullptr },

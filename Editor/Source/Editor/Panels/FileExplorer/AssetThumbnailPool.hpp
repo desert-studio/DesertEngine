@@ -97,6 +97,7 @@ namespace Desert::Editor
         struct MeshSourceRead
         {
             std::filesystem::file_time_type Written;
+            bool                            Racy = true; // stamped inside the racy window: re-read next time
             std::string                     Source;
         };
         std::unordered_map<std::string, MeshSourceRead> m_MeshSourceOf;
@@ -105,6 +106,7 @@ namespace Desert::Editor
         struct SourcePictureRead
         {
             std::filesystem::file_time_type Written;
+            bool                            Racy = true; // stamped inside the racy window: re-read next time
             std::optional<MeshPicture>      Picture;
         };
         std::unordered_map<std::string, SourcePictureRead> m_SourcePictureOf;

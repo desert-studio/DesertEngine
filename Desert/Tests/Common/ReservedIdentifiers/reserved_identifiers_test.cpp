@@ -1057,7 +1057,9 @@ namespace
     constexpr WriteTimeRow kWriteTimeRegister[] = {
          { "Editor/Source/Editor/Panels/Logs/LogsPanel.cpp",
            "a tail follower: the log only grows, so a missed tick is read with the next append" },
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", "display and sort order only" },
+         { "Editor/Source/Editor/Panels/FileExplorer/ContentDirectoryModel.cpp",
+           "EDL-C1: the tile's LastWriteTime is display and sort order only, and DirectorySignature folds stamps "
+           "into a rescan trigger for the LISTING (names added or removed); nothing is cached by the stamp" },
          { "Editor/Source/Editor/Core/AutosavePaths.hpp",
            "ChooseRecovery picks the newest recovery copy: ordering, not identity; nothing caches by it" },
          { "Editor/Source/Editor/Import/Blend/BlendImporter.hpp", "blend-newer-than-fbx ordering, not identity" },

@@ -16,6 +16,7 @@
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -102,10 +103,13 @@ namespace Desert::Editor
             return assetPath;
         if ( m_FailedThumbs.contains( assetPath ) )
             return std::nullopt;
+        // Sampled before the stat: a rewrite inside one file-system tick keeps the stamp, so a memo taken while
+        // the stamp was racy is re-read rather than trusted (Common::Utils::IsRacyWriteTime).
+        const auto                            readBegan = std::filesystem::file_time_type::clock::now();
         std::error_code                       ec;
         const std::filesystem::file_time_type written = std::filesystem::last_write_time( assetPath, ec );
         if ( const auto it = m_MeshSourceOf.find( assetPath );
-             it != m_MeshSourceOf.end() && !ec && it->second.Written == written )
+             it != m_MeshSourceOf.end() && !ec && !it->second.Racy && it->second.Written == written )
             return it->second.Source;
         const auto source = ThumbnailFoliage::ReadMeshSource( assetPath, Common::Constants::Path::ASSETS_PATH );
         if ( !source )
@@ -116,7 +120,7 @@ namespace Desert::Editor
             return std::nullopt;
         }
         std::string mesh          = source.GetValue().generic_string();
-        m_MeshSourceOf[assetPath] = { written, mesh };
+        m_MeshSourceOf[assetPath] = { written, Common::Utils::IsRacyWriteTime( written, readBegan ), mesh };
         return mesh;
     }
 
@@ -133,13 +137,14 @@ namespace Desert::Editor
              Common::Content::kRawMeshSourceExtensions.end() )
             return MeshPicture{ CookPaths::MeshAsset( *source ).generic_string(), false }; // its own cooked form
 
+        const auto                            readBegan = std::filesystem::file_time_type::clock::now();
         std::error_code                       ec;
         const std::filesystem::file_time_type written =
              std::filesystem::last_write_time( Common::Content::ImportRecordPathFor( *source ), ec );
         if ( ec )
             return std::nullopt; // not imported yet: a source is not an asset, its tile is the type icon
         if ( const auto it = m_SourcePictureOf.find( *source );
-             it != m_SourcePictureOf.end() && it->second.Written == written )
+             it != m_SourcePictureOf.end() && !it->second.Racy && it->second.Written == written )
             return it->second.Picture;
 
         std::optional<MeshPicture> picture;
@@ -167,7 +172,7 @@ namespace Desert::Editor
                     break; // clips only: each clip has its own tile; the source keeps its type icon
             }
         }
-        m_SourcePictureOf[*source] = { written, picture };
+        m_SourcePictureOf[*source] = { written, Common::Utils::IsRacyWriteTime( written, readBegan ), picture };
         return picture;
     }
 } // namespace Desert::Editor
