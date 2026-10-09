@@ -81,6 +81,10 @@ namespace Desert::Core
         Stamp Touch( Common::UUID id );
         // Undo/redo: entity `id` is back at revision `revision`.
         void Restore( Common::UUID id, Revision revision );
+        // An edit to entity `id` made OUTSIDE the history (a tool's direct write, an editor system, an import's
+        // rebind - UE's Modify()/MarkPackageDirty without a transaction): no undo record can put it back, so the
+        // entity stays dirty until a save or an open takes the baseline, whatever undo/redo does to its revision.
+        void MarkModified( Common::UUID id );
         // An edit whose entities were not named: the next save is whole.
         void TouchAll();
         // Load or Clear: nothing is known about any file.
@@ -106,6 +110,7 @@ namespace Desert::Core
 
         Revision                                       m_Next = 1;
         std::unordered_map<std::uint64_t, Revision>    m_Current; // absent = 0 (never edited)
+        std::unordered_set<std::uint64_t>              m_Unrecorded; // MarkModified since the baseline
         bool                                           m_Whole = false;
         std::optional<std::filesystem::path>           m_BaselinePath;
         std::unordered_map<std::uint64_t, Revision>    m_SavedRevision; // every live entity at the baseline
@@ -125,9 +130,26 @@ namespace Desert::Core
     using ComposeScene = std::function<Common::ResultStr<Common::Json::TextDocument>(
          const std::unordered_set<std::uint64_t>* only )>;
 
+    // Whether a delta save proves the entities it skips (ExternalEntities::VerifyCleanRecords).
+    enum class CleanCheck : std::uint8_t
+    {
+        Trust,        // Release: the packages are the truth; only the changed records are composed
+        AgainstFiles, // Debug: every record is composed, and each clean one must be its file's bytes
+    };
+
+    // The editor's choice: the check costs a serialization and a file read per clean entity.
+#if defined( DESERT_CONFIG_DEBUG )
+    inline constexpr CleanCheck kEditorCleanCheck = CleanCheck::AgainstFiles;
+#else
+    inline constexpr CleanCheck kEditorCleanCheck = CleanCheck::Trust;
+#endif
+
     // THE SAVE OF A SCENE FILE THROUGH ITS PACKAGES: plans, composes what the plan names, writes it
     // (ExternalEntities::WriteSceneFile whole, WriteSceneDelta otherwise), and on success takes the baseline.
+    // With CleanCheck::AgainstFiles a delta save first refuses - writing nothing - when an entity it would skip
+    // differs from its file: an edit that marked nothing.
     [[nodiscard]] Common::ResultStr<PackageSaveOutcome>
     SaveThroughPackages( const std::filesystem::path& scenePath, EntityPackages& packages,
-                         std::span<const LiveEntity> live, bool partitioned, const ComposeScene& compose );
+                         std::span<const LiveEntity> live, bool partitioned, const ComposeScene& compose,
+                         CleanCheck check );
 } // namespace Desert::Core

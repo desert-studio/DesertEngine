@@ -450,6 +450,24 @@ namespace Desert::Core
             return m_Packages;
         }
 
+        // UE's Modify(): EVERY editor path that changes entity `id` outside the command history (a tool's direct
+        // write, an editor system, an import's rebind, a script) calls this, or a save of a partitioned world
+        // skips the entity's file and the change is lost. A Debug save refuses an entity that differs from its
+        // file without a mark (EntityPackages.hpp, CleanCheck). Recorded edits stamp through CommandHistory.
+        void MarkModified( Common::UUID id ) const
+        {
+            m_Packages->MarkModified( id );
+        }
+
+        // MarkModified for `root` and every entity below it (a recursive toggle: lock, unpack).
+        void MarkModifiedSubtree( ECS::Entity root ) const;
+
+        // An edit outside the history whose entities cannot be named: the next save writes the whole world.
+        void MarkModifiedAll() const
+        {
+            m_Packages->TouchAll();
+        }
+
         // WHETHER THIS WORLD IS PARTITIONED, AND WITH WHAT — held on the live scene, which is what makes
         // it editable at all.
         //

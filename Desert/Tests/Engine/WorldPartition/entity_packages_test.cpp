@@ -55,10 +55,10 @@ namespace
             return live;
         }
 
-        PackageSaveOutcome Save()
+        Common::ResultStr<PackageSaveOutcome> TrySave( CleanCheck check )
         {
-            const auto live  = Live();
-            auto       saved = SaveThroughPackages(
+            const auto live = Live();
+            return SaveThroughPackages(
                  Scene, Packages, live, true,
                  [&]( const std::unordered_set<std::uint64_t>* only )
                       -> Common::ResultStr<Common::Json::TextDocument>
@@ -78,7 +78,13 @@ namespace
                      return Common::Json::TextDocument::Parse(
                           R"({"SceneName":"World","Entities":[)" + records +
                           R"(],"WorldPartition":{"Grids":[{"CellSize":12800.0,"LoadingRange":25600.0}]}})" );
-                 } );
+                 },
+                 check );
+        }
+
+        PackageSaveOutcome Save( CleanCheck check = CleanCheck::Trust )
+        {
+            auto saved = TrySave( check );
             EXPECT_TRUE( saved ) << ( saved ? "" : saved.GetError() );
             return saved ? saved.GetValue() : PackageSaveOutcome{};
         }
@@ -190,4 +196,49 @@ TEST( EntityPackages, ASaveToAnotherFileIsWhole )
     const PackageSavePlan plan = world.Packages.Plan( world.Root / "Other.desce", world.Live(), true );
     EXPECT_TRUE( plan.Whole );
     EXPECT_EQ( plan.Changed.size(), 3u );
+}
+
+// UE's Modify() without a transaction: an edit outside the history marks its entity, and the delta save writes
+// it. Undo of an earlier recorded edit cannot make it unmodified - nothing recorded the unrecorded change.
+TEST( EntityPackages, AnUnrecordedEditMarkedModifiedIsWrittenAndSurvivesAnUndo )
+{
+    ModelWorld world;
+    world.Save();
+
+    const auto stamp = world.Packages.Touch( UUID( 30 ) );
+    world.Packages.MarkModified( UUID( 30 ) );
+    world.Tags[30] = "C2";
+    world.Packages.Restore( stamp.Id, stamp.Before ); // undo of the recorded edit
+
+    const auto delta = world.Save();
+    EXPECT_FALSE( delta.Whole );
+    EXPECT_EQ( delta.Files.Written, 1u );
+    EXPECT_NE( world.Joined().find( "C2" ), std::string::npos );
+
+    // The save took the baseline: the mark is spent.
+    EXPECT_FALSE( world.Packages.IsDirty( UUID( 30 ) ) );
+}
+
+// The Debug safety net: an edit that marked nothing is a refusal naming the entity, and nothing is written.
+TEST( EntityPackages, AnUnmarkedEditIsRefusedByTheCheckAgainstFiles )
+{
+    ModelWorld world;
+    world.Save();
+
+    world.Packages.Touch( UUID( 10 ) ); // a recorded edit elsewhere keeps the save a delta
+    world.Tags[10] = "A2";
+    world.Tags[20] = "Bypassed"; // changed without Touch or MarkModified
+
+    const auto refused = world.TrySave( CleanCheck::AgainstFiles );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "Bypassed" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "20" ), std::string::npos ) << refused.GetError();
+    EXPECT_EQ( world.Joined().find( "A2" ), std::string::npos ); // the refusal wrote nothing
+
+    // Marked, the same edit passes the check and lands.
+    world.Packages.MarkModified( UUID( 20 ) );
+    const auto delta = world.Save( CleanCheck::AgainstFiles );
+    EXPECT_FALSE( delta.Whole );
+    EXPECT_EQ( delta.Files.Written, 2u );
+    EXPECT_NE( world.Joined().find( "Bypassed" ), std::string::npos );
 }

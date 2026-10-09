@@ -377,6 +377,8 @@ namespace Desert::Editor
             if ( auto ref = m_Scene->FindEntityByID( Common::UUID( done.UserData ) ); ref )
             {
                 ECS::Entity e = ref->get(); // Entity is a lightweight value handle -> copy to operate mutably
+                // The bind lands frames after the recorded create, outside any command (WP17).
+                m_Scene->MarkModified( Common::UUID( done.UserData ) );
                 if ( resolved.Skinned )
                 {
                     // Swap the pending StaticMeshComponent for a skinned one + an Animator, so the rig renders

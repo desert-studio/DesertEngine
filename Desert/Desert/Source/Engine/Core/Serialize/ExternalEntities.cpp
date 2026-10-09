@@ -24,6 +24,10 @@ namespace Desert::Core::ExternalEntities
         {
             std::optional<std::uint64_t> id;
         };
+        struct RecordTag
+        {
+            std::optional<std::string> Tag;
+        };
         struct HeaderList
         {
             std::vector<std::uint64_t> ExternalEntities;
@@ -365,6 +369,46 @@ namespace Desert::Core::ExternalEntities
         if ( !indexed )
             return Common::MakeError<WriteOutcome>( indexed.GetError() );
         return Common::MakeSuccess( outcome );
+    }
+
+    Common::BoolResultStr VerifyCleanRecords( const std::filesystem::path&      scenePath,
+                                              const Common::Json::TextDocument& scene,
+                                              std::span<const Common::UUID>     clean )
+    {
+        auto split = Split( scene, scenePath.string() );
+        if ( !split )
+            return Common::MakeError( split.GetError() );
+
+        std::unordered_set<std::uint64_t> wanted;
+        for ( const Common::UUID id : clean )
+            wanted.insert( Bits( id ) );
+        std::unordered_set<std::uint64_t> seen;
+        for ( const auto& [id, record] : split.GetValue().Records )
+        {
+            if ( !wanted.contains( Bits( id ) ) )
+                continue;
+            seen.insert( Bits( id ) );
+            const std::filesystem::path file = FileOf( scenePath, id );
+            const auto                  text = Common::Json::WriteCanonical( record );
+            if ( !text )
+                return Common::MakeFormattedError( "could not lay out entity {} ({}) as text: {}", Bits( id ),
+                                                   file.string(), text.GetError() );
+            const auto onDisk = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( onDisk && onDisk.GetValue() == text.GetValue() )
+                continue;
+            const auto tag = record.AsDocument<RecordTag>();
+            return Common::MakeFormattedError(
+                 "entity '{}' ({}) differs from its file {} but nothing marked it modified - an edit that bypassed "
+                 "Scene::MarkModified and the command history would be lost by this save",
+                 tag && tag.GetValue().Tag ? *tag.GetValue().Tag : std::string( "Entity" ), Bits( id ),
+                 onDisk ? file.string() : fmt::format( "{} (unreadable: {})", file.string(), onDisk.GetError() ) );
+        }
+        for ( const Common::UUID id : clean )
+            if ( !seen.contains( Bits( id ) ) )
+                return Common::MakeFormattedError(
+                     "'{}': entity {} is held clean but the scene composed no record for it", scenePath.string(),
+                     Bits( id ) );
+        return BOOLSUCCESS;
     }
 
     Common::ResultStr<WriteOutcome> WriteSceneText( const std::filesystem::path& scenePath, std::string_view json )

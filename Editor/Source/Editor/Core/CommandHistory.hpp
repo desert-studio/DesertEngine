@@ -81,7 +81,7 @@ namespace Desert::Editor
         // Desert/Tests/Editor/PropertyUndoPolicy.
         void Push( void* target, const void* oldBytes, const void* newBytes, std::size_t size )
         {
-            PushCommand( std::make_unique<ByteCommand>( target, oldBytes, newBytes, size ) );
+            PushFieldEdit( std::make_unique<ByteCommand>( target, oldBytes, newBytes, size ) );
         }
 
         // Reflected-property STRING edit: before/after VALUES, restored by assignment. The value and the
@@ -89,8 +89,28 @@ namespace Desert::Editor
         // being stored (see Push above).
         void PushString( std::string* target, std::string oldValue, std::string newValue )
         {
-            PushCommand( std::make_unique<StringCommand>( target, std::move( oldValue ), std::move( newValue ) ) );
+            PushFieldEdit(
+                 std::make_unique<StringCommand>( target, std::move( oldValue ), std::move( newValue ) ) );
         }
+
+        // THE ENTITY A FIELD EDIT BELONGS TO (WP17). The reflected-property builder writes raw field addresses
+        // and cannot say whose they are; the panel that draws an entity's components can. While a scope is
+        // alive, Push/PushString are recorded as edits of its entity (PushEntityEdit) - only that entity's file
+        // is rewritten - instead of edits of the whole scene. Scopes nest; the innermost names the entity.
+        class FieldSubject
+        {
+        public:
+            explicit FieldSubject( Common::UUID entity )
+            {
+                Get().m_FieldSubjects.push_back( entity );
+            }
+            ~FieldSubject()
+            {
+                Get().m_FieldSubjects.pop_back();
+            }
+            FieldSubject( const FieldSubject& )            = delete;
+            FieldSubject& operator=( const FieldSubject& ) = delete;
+        };
 
         // The entity ledger of the scene the scene commands edit (Commands::SetContext binds it). Held weakly: a
         // record outliving its scene stamps nothing.
@@ -126,6 +146,14 @@ namespace Desert::Editor
         }
 
     private:
+        void PushFieldEdit( std::unique_ptr<ICommand> command )
+        {
+            if ( m_FieldSubjects.empty() )
+                PushCommand( std::move( command ) );
+            else
+                PushEntityEdit( std::move( command ), { m_FieldSubjects.back() } );
+        }
+
         static void ApplyStamps( const ICommand& command, bool undo )
         {
             const auto ledger = command.m_Ledger.lock();
@@ -428,6 +456,7 @@ namespace Desert::Editor
         std::vector<std::unique_ptr<ICommand>> m_Undo;
         std::vector<std::unique_ptr<ICommand>> m_Redo;
         std::weak_ptr<::Desert::Core::EntityPackages>    m_Packages;
+        std::vector<Common::UUID>                        m_FieldSubjects; // FieldSubject scopes, innermost last
         uint64_t                               m_Revision = 0;
     };
 } // namespace Desert::Editor

@@ -796,7 +796,8 @@ namespace Desert::Core
         const std::vector<LiveEntity> live = LiveEntities();
         auto saved = SaveThroughPackages( path, *m_Scene->Packages(), live, m_Scene->GetWorldPartition().has_value(),
                                           [this]( const std::unordered_set<std::uint64_t>* only )
-                                          { return SerializeToDocument( only ); } );
+                                          { return SerializeToDocument( only ); },
+                                          kEditorCleanCheck );
         if ( !saved )
             return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(), saved.GetError() );
         m_LastSave = saved.GetValue();

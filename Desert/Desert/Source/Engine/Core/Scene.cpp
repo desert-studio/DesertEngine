@@ -1108,6 +1108,8 @@ namespace Desert::Core
             entity.GetComponent<ECS::VisibilityComponent>().Visible = visible;
         else
             entity.AddComponent<ECS::VisibilityComponent>().Visible = visible;
+        if ( entity.HasComponent<ECS::UUIDComponent>() )
+            MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
 
         if ( entity.HasComponent<ECS::RelationshipComponent>() )
         {
@@ -1115,6 +1117,18 @@ namespace Desert::Core
             for ( auto childHandle : rel.Children )
                 SetVisibleRecursive( ECS::Entity( childHandle, m_Registry ), visible );
         }
+    }
+
+    void Scene::MarkModifiedSubtree( ECS::Entity root ) const
+    {
+        if ( !root )
+            return;
+        if ( root.HasComponent<ECS::UUIDComponent>() )
+            MarkModified( root.GetComponent<ECS::UUIDComponent>().UUID );
+        if ( root.HasComponent<ECS::RelationshipComponent>() )
+            for ( const auto child : root.GetComponent<ECS::RelationshipComponent>().Children )
+                if ( m_Registry.valid( child ) )
+                    MarkModifiedSubtree( ECS::Entity( child, const_cast<entt::registry&>( m_Registry ) ) );
     }
 
     void Scene::DestroyEntity( ECS::Entity entity )

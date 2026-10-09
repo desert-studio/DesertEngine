@@ -110,6 +110,16 @@ namespace Desert::Core::ExternalEntities
                                                                    std::span<const Common::UUID>     changed,
                                                                    std::span<const Common::UUID>     removed );
 
+    // THE SAFETY NET OF A DELTA SAVE (WP17): every record of `scene` whose id is in `clean` - an entity the
+    // packages hold to be what its file says, so the delta save will not write it - must lay out as exactly the
+    // bytes of its file. One that does not was changed without Scene::MarkModified (or a recorded edit naming
+    // it), and the delta save would lose that change: refused, naming the entity's tag, its id and its file.
+    // A clean id the document states no record for is refused too. Reads one file per clean record, so the
+    // editor runs it in Debug builds only (SceneSerializer::SaveToFile).
+    [[nodiscard]] Common::BoolResultStr VerifyCleanRecords( const std::filesystem::path&      scenePath,
+                                                            const Common::Json::TextDocument& scene,
+                                                            std::span<const Common::UUID>     clean );
+
     // WriteSceneFile of a scene held as TEXT (the autosave's and the device-lost save's SerializeToJson output,
     // WorldGen's typed writer): parsed, then written the same way. Text that is not JSON is refused naming
     // `scenePath`.

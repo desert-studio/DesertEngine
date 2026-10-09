@@ -36,6 +36,11 @@ namespace Desert::Core
         m_Current[Bits( id )] = revision;
     }
 
+    void EntityPackages::MarkModified( Common::UUID id )
+    {
+        m_Unrecorded.insert( Bits( id ) );
+    }
+
     void EntityPackages::TouchAll()
     {
         m_Whole = true;
@@ -44,6 +49,7 @@ namespace Desert::Core
     void EntityPackages::Forget()
     {
         m_Current.clear();
+        m_Unrecorded.clear();
         m_Whole = false;
         m_BaselinePath.reset();
         m_SavedRevision.clear();
@@ -53,6 +59,7 @@ namespace Desert::Core
     void EntityPackages::Baseline( const std::filesystem::path& scenePath, std::span<const LiveEntity> live )
     {
         m_Whole        = false;
+        m_Unrecorded.clear();
         m_BaselinePath = scenePath.lexically_normal();
         m_SavedRevision.clear();
         m_SavedRecords.clear();
@@ -66,6 +73,8 @@ namespace Desert::Core
 
     bool EntityPackages::IsDirty( Common::UUID id ) const
     {
+        if ( m_Unrecorded.contains( Bits( id ) ) )
+            return true;
         const auto saved = m_SavedRevision.find( Bits( id ) );
         return saved == m_SavedRevision.end() || saved->second != CurrentOf( Bits( id ) );
     }
@@ -104,7 +113,16 @@ namespace Desert::Core
             if ( IsDirty( entity.Id ) )
                 changed.insert( Bits( entity.Record ) );
             if ( Bits( entity.Record ) != Bits( entity.Id ) )
+            {
+                // A record that stopped being one (its entity was taken into a prefab instance): its file goes,
+                // and the record that now states it is rewritten.
+                if ( m_SavedRecords.contains( Bits( entity.Id ) ) )
+                {
+                    plan.Removed.push_back( entity.Id );
+                    changed.insert( Bits( entity.Record ) );
+                }
                 continue;
+            }
             const auto saved = m_SavedRecords.find( Bits( entity.Id ) );
             if ( saved == m_SavedRecords.end() || saved->second.Parent != Bits( entity.Parent ) ||
                  saved->second.SiblingIndex != entity.SiblingIndex )
@@ -134,7 +152,7 @@ namespace Desert::Core
     Common::ResultStr<PackageSaveOutcome> SaveThroughPackages( const std::filesystem::path& scenePath,
                                                                EntityPackages&              packages,
                                                                std::span<const LiveEntity> live, bool partitioned,
-                                                               const ComposeScene& compose )
+                                                               const ComposeScene& compose, CleanCheck check )
     {
         PackageSaveOutcome    outcome;
         const PackageSavePlan plan = packages.Plan( scenePath, live, partitioned );
@@ -143,9 +161,22 @@ namespace Desert::Core
         std::unordered_set<std::uint64_t> only;
         for ( const Common::UUID id : plan.Changed )
             only.insert( Bits( id ) );
-        auto document = compose( plan.Whole ? nullptr : &only );
+        // The check composes every record (WriteSceneDelta ignores the ones it is not asked to write), so the
+        // clean ones can be laid against their files before anything is written.
+        const bool proveClean = !plan.Whole && check == CleanCheck::AgainstFiles;
+        auto       document   = compose( plan.Whole || proveClean ? nullptr : &only );
         if ( !document )
             return Common::MakeError<PackageSaveOutcome>( document.GetError() );
+        if ( proveClean )
+        {
+            std::vector<Common::UUID> clean;
+            for ( const Common::UUID id : plan.Listed )
+                if ( !only.contains( Bits( id ) ) )
+                    clean.push_back( id );
+            if ( auto verified = ExternalEntities::VerifyCleanRecords( scenePath, document.GetValue(), clean );
+                 !verified )
+                return Common::MakeError<PackageSaveOutcome>( verified.GetError() );
+        }
         if ( auto records = document.GetValue().RecordsAt( ExternalEntities::kRecords ) )
             outcome.Serialized = records.GetValue().size();
 

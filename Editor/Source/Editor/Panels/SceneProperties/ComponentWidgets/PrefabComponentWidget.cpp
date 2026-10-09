@@ -7,6 +7,7 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <filesystem>
@@ -20,7 +21,7 @@ namespace Desert::Editor
     {
     }
 
-    void PrefabComponentWidget::Render( ECS::Entity& entity, ::Desert::Core::Scene* /*scene*/ )
+    void PrefabComponentWidget::Render( ECS::Entity& entity, ::Desert::Core::Scene* scene )
     {
         auto& prefab = entity.GetComponent<ECS::PrefabComponent>();
 
@@ -75,6 +76,8 @@ namespace Desert::Editor
             {
                 found->Load();
                 prefab.Prefab = found->GetMetadata().Handle;
+                if ( scene != nullptr )
+                    scene->MarkModifiedSubtree( entity );
             }
         }
 
@@ -116,6 +119,8 @@ namespace Desert::Editor
             {
                 // Remove PrefabComponent from root — children keep their components
                 entity.GetRegistry()->remove<ECS::PrefabComponent>( entity.GetHandle() );
+                if ( scene != nullptr )
+                    scene->MarkModifiedSubtree( entity );
                 Utils::ImGuiUtilities::PopID();
                 return; // component is gone; stop rendering this widget
             }
