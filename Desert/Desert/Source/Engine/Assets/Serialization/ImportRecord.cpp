@@ -204,7 +204,8 @@ namespace Desert::Assets::Serialization
                 return nullptr;
             }
             // Sampled before the stat: a rewrite inside one file-system tick keeps (write time, size), so a parse
-            // taken while the stamp was racy is not held - the next ask parses again (Common::Utils::IsRacyWriteTime).
+            // taken while the stamp was racy is not held - the next ask parses again
+            // (Common::Utils::IsRacyWriteTime).
             const auto        readBegan = std::filesystem::file_time_type::clock::now();
             std::error_code   writtenError;
             std::error_code   sizeError;
