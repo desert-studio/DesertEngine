@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Core/Serialize/EntityPackages.hpp>
+#include <Engine/Core/Serialize/EditStamps.hpp>
 
 #include <Common/Core/UUID.hpp>
 
@@ -49,12 +49,12 @@ namespace Desert::Editor
         }
 
     private:
-        // WHICH ENTITY FILES THIS RECORD MADE DIRTY (WP17, Core/Serialize/EntityPackages.hpp) - UE's transaction
+        // WHICH ENTITY FILES THIS RECORD MADE DIRTY (WP17, Core/Serialize/EditStamps.hpp) - UE's transaction
         // remembering each package's dirty state. Kept and applied by CommandHistory alone: a command never sees
         // them, and a record that named no entities (and is not an asset edit) marks the whole scene.
         friend class CommandHistory;
-        std::weak_ptr<::Desert::Core::EntityPackages>      m_Ledger;
-        std::vector<::Desert::Core::EntityPackages::Stamp> m_Stamps;
+        std::weak_ptr<::Desert::Core::IEditStamps>      m_Ledger;
+        std::vector<::Desert::Core::IEditStamps::Stamp> m_Stamps;
         bool                                     m_StampsWhole = false;
     };
 
@@ -114,7 +114,7 @@ namespace Desert::Editor
 
         // The entity ledger of the scene the scene commands edit (Commands::SetContext binds it). Held weakly: a
         // record outliving its scene stamps nothing.
-        void BindPackages( std::weak_ptr<::Desert::Core::EntityPackages> ledger )
+        void BindPackages( std::weak_ptr<::Desert::Core::IEditStamps> ledger )
         {
             m_Packages = std::move( ledger );
         }
@@ -455,7 +455,7 @@ namespace Desert::Editor
 
         std::vector<std::unique_ptr<ICommand>> m_Undo;
         std::vector<std::unique_ptr<ICommand>> m_Redo;
-        std::weak_ptr<::Desert::Core::EntityPackages>    m_Packages;
+        std::weak_ptr<::Desert::Core::IEditStamps>       m_Packages;
         std::vector<Common::UUID>                        m_FieldSubjects; // FieldSubject scopes, innermost last
         uint64_t                               m_Revision = 0;
     };

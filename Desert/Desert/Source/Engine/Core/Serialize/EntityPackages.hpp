@@ -27,6 +27,7 @@
 // record of its own (a prefab instance's child: the record that stated it cannot be named any more). Each is
 // the ordinary whole save - every record serialized, each file rewritten only if its bytes differ.
 
+#include <Engine/Core/Serialize/EditStamps.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -65,28 +66,18 @@ namespace Desert::Core
         std::vector<Common::UUID> Removed; // records of the baseline the scene no longer has
     };
 
-    class EntityPackages
+    class EntityPackages final : public IEditStamps
     {
     public:
-        using Revision = std::uint64_t;
+        // IEditStamps - what the undo history uses (EditStamps.hpp).
+        Stamp Touch( Common::UUID id ) override;
+        void  Restore( Common::UUID id, Revision revision ) override;
+        void  TouchAll() override;
 
-        struct Stamp
-        {
-            Common::UUID Id;
-            Revision     Before = 0;
-            Revision     After  = 0;
-        };
-
-        // An edit changed entity `id`: a fresh revision, and the one it replaces (for the undo record).
-        Stamp Touch( Common::UUID id );
-        // Undo/redo: entity `id` is back at revision `revision`.
-        void Restore( Common::UUID id, Revision revision );
         // An edit to entity `id` made OUTSIDE the history (a tool's direct write, an editor system, an import's
         // rebind - UE's Modify()/MarkPackageDirty without a transaction): no undo record can put it back, so the
         // entity stays dirty until a save or an open takes the baseline, whatever undo/redo does to its revision.
         void MarkModified( Common::UUID id );
-        // An edit whose entities were not named: the next save is whole.
-        void TouchAll();
         // Load or Clear: nothing is known about any file.
         void Forget();
 
