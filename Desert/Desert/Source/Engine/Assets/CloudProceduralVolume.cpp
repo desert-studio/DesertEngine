@@ -197,6 +197,15 @@ namespace Desert::Assets
         /// multiplier (D-22: the band clamp below still bounds every lump).
         constexpr float kTurretStretch = 0.8f;
 
+        /// A BODY'S HEIGHT OVER ITS WIDTH, AS A LAW OF ITS SIZE (CLOUD-GAUNTLET r07): a fair-weather puff is
+        /// about half as tall as it is wide (Cu humilis), a typical body of its type stands
+        /// `kBodyAspectAtSmall + kBodyAspectGrowth` times its width, and a body larger than typical is
+        /// bounded by the band alone. Without this cap a small body's height came from the type's
+        /// EdgeTopFraction floor of the BAND — 0.54 km on congestus whatever its width — so a 0.6 km body
+        /// stood 1.15 km tall and its six lumps read as balls stacked on one another.
+        constexpr float kBodyAspectAtSmall = 0.5f;
+        constexpr float kBodyAspectGrowth  = 0.7f;
+
         /// HOW FAR THE TURRETS STAND OUT FROM THE BODY'S AXIS at the top of the stack, against the base's
         /// half-cluster-radius disc. The disc used to close to 45 % of it (`1 - 0.55 t`), which piled the
         /// upper lumps onto the axis and made one smooth dome — a ball. At 75 % the crown is several
@@ -1425,7 +1434,13 @@ namespace Desert::Assets
                     // band and nothing else. That is the second half of §RW2's finding — the old stack
                     // stood `band * fullness + 2 * lumpRadius` tall, which is a body that pokes out of the
                     // altitudes its own asset declares.
-                    const float bandFullKm = bandKm * fullness;
+                    // THE BODY'S OWN WIDTH CAPS ITS HEIGHT (kBodyAspectAtSmall): the type's fullness says how
+                    // much of the band a body of this size may reach, and its width says how tall a body that
+                    // wide stands — the smaller of the two, so a small cumulus is a flat-based puff rather than
+                    // a column, and a stratus (band far below its width) is untouched.
+                    const float aspectKm =
+                         ( kBodyAspectAtSmall + kBodyAspectGrowth * shortening ) * 2.0f * clusterRadiusKm;
+                    const float bandFullKm = std::min( bandKm * fullness, aspectKm );
 
                     float lumpT[kBlobsPerCluster];
                     float lumpRadiusKm[kBlobsPerCluster];
