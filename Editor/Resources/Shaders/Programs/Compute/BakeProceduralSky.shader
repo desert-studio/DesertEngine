@@ -289,8 +289,8 @@ Shader "BakeProceduralSky"
             // does not rebake when the camera moves (the irradiance cube is a 65 536-sample cosine
             // convolution per texel: it integrates the arrangement of the field away and responds only to
             // the dome's mean).
-            float regionSizeKm = 1.0f / max(u_CloudRegion.z, 1e-6f);
-            vec2  anchorXz     = u_CloudRegion.xy + vec2(regionSizeKm * 0.5f) +
+            float regionSizeKm = 1.0f / max(u_CloudLevel[2].z, 1e-6f);
+            vec2  anchorXz     = u_CloudLevel[2].xy + vec2(regionSizeKm * 0.5f) +
                              vec2(u_CloudWind.x, u_CloudWind.z);
 
             // The same planet-centred frame the screen march builds, at the same fixed altitude the sky

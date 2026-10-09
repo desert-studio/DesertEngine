@@ -184,10 +184,9 @@ CloudFieldParams CloudUnpackFieldParams()
         p.SpeciesWispTop[slot]  = u_CloudSpeciesWispTop[slot];
     }
 
-    // The last level's window IS the periodic region (sky occlusion, the far path). CLIP-3 adds the
-    // per-level fields to CloudFieldParams and fills them here from u_CloudLevel[k].
-    p.RegionOriginKm  = u_CloudLevel[2].xy;
-    p.InvRegionSizeKm = u_CloudLevel[2].z;
+    // The clip levels' windows, finest first; the last one is periodic (sky occlusion, the far path).
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+        p.ProceduralLevel[level] = u_CloudLevel[level];
     p.Weather         = u_CloudWeather.yw;
     p.LayoutPlace     = u_CloudLayoutPlace;
     p.LayoutStrength  = u_CloudLayoutStrength.xy;

@@ -112,7 +112,7 @@ Shader "CloudSkyOcclusionVolume"
             params.ShadowRay = CLOUD_RAY_SHADOW;
 
             float thicknessKm = max(u_CloudLayer.z, 1e-4f);
-            float regionSideKm = 1.0f / max(u_CloudRegion.z, 1e-9f);
+            float regionSideKm = 1.0f / max(u_CloudLevel[2].z, 1e-9f);
 
             // THE COLUMN'S PLACE IN THE WORLD, through the texel CENTRE. The consumer fetches this volume
             // trilinearly, so a column traced at a texel corner and read at its centre would be a
@@ -124,8 +124,8 @@ Shader "CloudSkyOcclusionVolume"
             // Constructing it this way rather than shifting the fetch is what puts the traced column and
             // the consumer's own CloudSkyOcclusionUvw on exactly the same texel however far the wind has
             // run — they are one mapping used in two directions rather than two mappings.
-            float worldX = u_CloudRegion.x + uv.x * regionSideKm + u_CloudWind.x;
-            float worldZ = u_CloudRegion.y + uv.y * regionSideKm + u_CloudWind.z;
+            float worldX = u_CloudLevel[2].x + uv.x * regionSideKm + u_CloudWind.x;
+            float worldZ = u_CloudLevel[2].y + uv.y * regionSideKm + u_CloudWind.z;
 
             float extinction = max(u_CloudMarch.w, 0.0f);
 

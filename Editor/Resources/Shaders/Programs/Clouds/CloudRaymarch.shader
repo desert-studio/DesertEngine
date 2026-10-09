@@ -311,7 +311,7 @@ Shader "CloudRaymarch"
             //
             // x = 1 when the sky-light occlusion volume was written for THIS frame and must be read. Its
             //     region and side are NOT here: the volume shares the modelling volume's frame exactly, so
-            //     u_CloudRegion already carries both and a second copy would be one fact on the wire twice.
+            //     u_CloudLevel[2] already carries both and a second copy would be one fact on the wire twice.
             // y = 1 when u_CloudSunTransmittanceLut holds this frame's atmosphere AND the layer asked for
             //     per-sample sun transmittance. It also says WHAT u_CloudSunColour.rgb IS: the sun's
             //     outer-space illuminance when 1, the ground-level product when 0.
