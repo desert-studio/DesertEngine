@@ -174,8 +174,10 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
             -- WorldCells holds the world cook's cell partition (the file has no main of its own).
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source/WorldCookMain.cpp",
-            -- HeaderToolChecks: the header tool's scanner.
+            -- HeaderToolChecks: the header tool's scanner and its COMPONENT(...) reader.
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/HeaderScan.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/AnnotationText.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/ComponentBlocks.cpp",
             -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
