@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace Ref = Desert::Tests::SkyMediumRef;
@@ -488,6 +489,89 @@ TEST( SkyGroundTransmittance, AgreesWithTheTransmittanceLutItShares )
         EXPECT_NEAR( cpu.x, gpu.x, 0.01f ) << "elevation " << elevation;
         EXPECT_NEAR( cpu.y, gpu.y, 0.01f ) << "elevation " << elevation;
         EXPECT_NEAR( cpu.z, gpu.z, 0.01f ) << "elevation " << elevation;
+    }
+}
+
+// THE SUN BEHIND THE PLANET GIVES NO LIGHT, IN EITHER SKY MODEL (Graphic::SunLightFactorAtGround). The
+// artistic model once multiplied the sun by exactly 1 at any elevation, so a night scene was lit from
+// below at full strength; the invariant is checked for both models, with the light opted in and out of
+// the atmosphere coupling, so neither gate can reopen it.
+TEST( SkySunLightFactor, IsZeroBelowTheHorizonInBothModels )
+{
+    for ( const auto model :
+          { Desert::ECS::SkyModel::ArtisticGradient, Desert::ECS::SkyModel::PhysicalAtmosphere } )
+        for ( const bool affected : { true, false } )
+        {
+            Desert::Graphic::SkySettings sky{};
+            sky.Model = model;
+
+            // Below the disk's bottom-most reach: the artistic model fades over the disk's angular
+            // radius, so the first sample sits just past it.
+            const float diskRadiusDeg = sky.SunAngularRadius * 180.0f / 3.14159265358979323846f;
+            for ( const float elevation : { -diskRadiusDeg - 0.01f, -5.0f, -34.0f, -90.0f } )
+            {
+                const glm::vec3 f = Desert::Graphic::SunLightFactorAtGround(
+                     sky, SunDirectionAtElevation( elevation ), affected );
+                EXPECT_EQ( f, glm::vec3( 0.0f ) ) << "model " << static_cast<int>( model ) << " affected "
+                                                  << affected << " elevation " << elevation;
+            }
+
+            // Above the horizon the planet takes nothing: an opted-out sun is exactly as authored, the
+            // physical opted-in one is its LUT transmittance.
+            const glm::vec3 noon =
+                 Desert::Graphic::SunLightFactorAtGround( sky, SunDirectionAtElevation( 30.0f ), affected );
+            if ( !affected )
+                EXPECT_EQ( noon, glm::vec3( 1.0f ) ) << "model " << static_cast<int>( model );
+            else if ( model == Desert::ECS::SkyModel::PhysicalAtmosphere )
+                EXPECT_EQ( noon,
+                           Desert::Graphic::SunTransmittanceAtGround( sky, SunDirectionAtElevation( 30.0f ) ) );
+        }
+}
+
+TEST( SkySunLightFactor, ArtisticFadesAcrossTheDiskAndNeverRisesAsTheSunSets )
+{
+    for ( const bool affected : { true, false } )
+    {
+        Desert::Graphic::SkySettings sky{};
+        sky.Model = Desert::ECS::SkyModel::ArtisticGradient;
+
+        // Monotone in elevation, per channel, from below the disk to the zenith.
+        glm::vec3 previous( 0.0f );
+        for ( float elevation = -3.0f; elevation <= 90.0f; elevation += 0.05f )
+        {
+            const glm::vec3 f =
+                 Desert::Graphic::SunLightFactorAtGround( sky, SunDirectionAtElevation( elevation ), affected );
+            for ( int c = 0; c < 3; ++c )
+                EXPECT_GE( f[c], previous[c] ) << "affected " << affected << " elevation " << elevation;
+            previous = f;
+        }
+
+        // A fade, not a switch: with the disk centred on the horizon half of it is lit.
+        const glm::vec3 half =
+             Desert::Graphic::SunLightFactorAtGround( sky, SunDirectionAtElevation( 0.0f ), false );
+        EXPECT_NEAR( half.x, 0.5f, 1e-3f );
+    }
+}
+
+TEST( SkySunLightFactor, ArtisticAirMassAgreesWithThePhysicalLut )
+{
+    // The same medium coefficients: the artistic analytic transmittance (zenith column x Kasten-Young
+    // air mass) tracks the physical LUT's march; the spherical-shell difference grows toward the horizon.
+    Desert::Graphic::SkySettings artistic{};
+    artistic.Model                        = Desert::ECS::SkyModel::ArtisticGradient;
+    Desert::Graphic::SkySettings physical = artistic;
+    physical.Model                        = Desert::ECS::SkyModel::PhysicalAtmosphere;
+
+    for ( const auto& [elevation, relTol] : { std::pair{ 60.0f, 0.02f }, { 20.0f, 0.02f }, { 5.0f, 0.12f } } )
+    {
+        const glm::vec3 a =
+             Desert::Graphic::SunLightFactorAtGround( artistic, SunDirectionAtElevation( elevation ), true );
+        const glm::vec3 p =
+             Desert::Graphic::SunLightFactorAtGround( physical, SunDirectionAtElevation( elevation ), true );
+        for ( int c = 0; c < 3; ++c )
+            EXPECT_NEAR( a[c], p[c], relTol * p[c] ) << "elevation " << elevation << " channel " << c;
+        // Reddened, not just dimmed: blue loses more than red.
+        EXPECT_LT( a.z, a.x ) << "elevation " << elevation;
     }
 }
 
