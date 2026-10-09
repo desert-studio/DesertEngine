@@ -193,15 +193,8 @@ local kRunners = {
         files {
             -- The launcher/engine project-format conformance suite; Engine/ProjectFormat adopts it.
             "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp",
-            -- UICanvasContext: the v40 -> v41 UI lift is the migrator's.
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
-            -- TimelineContract: the generation-3 clip lift and the interp shift are the migrator's.
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
-            -- LevelSequence: keying through the editor's sequence transaction and material tracks.
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
+            -- Nothing of Editor/ or Tools/ is compiled here (TEST-LAYERS; TestRunnerLayout holds it): a suite that
+            -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
         }
         includedirs {
             -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
@@ -210,7 +203,6 @@ local kRunners = {
             -- Header-only tool cores the image and lattice censuses measure with.
             "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/LatticePeak/Source",
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
         }
         externalincludedirs {
             -- FractureBake reads the vendored Voronoi cells (voro++) the engine's fracture bake is built on.

@@ -404,4 +404,62 @@ namespace
             }
         }
     }
+
+    // ── EngineTests compiles nothing of Editor/ or Tools/ (TEST-LAYERS) ───────────────────────────────────
+    //
+    // The Engine runner links Desert and nothing above it: a suite that needs an editor source (a command, a
+    // panel's model) is an Editor suite, one that needs a tool's source (the migrator's lifts) is a Tools suite,
+    // and those runners compile the source once. A file of Editor/ or Tools/ in the Engine runner's `files`
+    // makes the engine's tests depend on the layers built on top of it.
+    std::vector<std::string> RunnerFiles( const std::string& premake, const std::string& layer )
+    {
+        const std::string opener = "    " + layer + " = function(deps)";
+        const size_t      begin  = premake.find( opener );
+        EXPECT_NE( begin, std::string::npos )
+             << "kRunners has no entry '" << layer << "' in Desert/Tests/premake5.lua";
+        if ( begin == std::string::npos )
+            return {};
+        const size_t      end = premake.find( "\n    end,", begin );
+        const std::string body =
+             premake.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+
+        // Lua comments out (`--` to the end of the line), so a comment naming a path is not a compiled file.
+        std::string        code;
+        std::istringstream lines( body );
+        for ( std::string line; std::getline( lines, line ); )
+            code += line.substr( 0, line.find( "--" ) ) + "\n";
+
+        std::vector<std::string> files;
+        static const std::regex  kQuoted( R"re("([^"]*)")re" );
+        for ( size_t at = code.find( "files {" ); at != std::string::npos; at = code.find( "files {", at + 1 ) )
+        {
+            // The list closes at the first `}` outside a string: the paths themselves hold `%{...}`.
+            size_t close  = at + 7;
+            bool   quoted = false;
+            for ( ; close < code.size() && ( quoted || code[close] != '}' ); ++close )
+                quoted = code[close] == '"' ? !quoted : quoted;
+            const std::string list = code.substr( at, close - at );
+            for ( auto it = std::sregex_iterator( list.begin(), list.end(), kQuoted );
+                  it != std::sregex_iterator(); ++it )
+                files.push_back( ( *it )[1].str() );
+        }
+        return files;
+    }
+
+    TEST( TestRunnerLayout, EngineTestsCompilesNothingOfEditorOrTools )
+    {
+        const std::string              premake = ReadFile( RepoRoot() / "Desert" / "Tests" / "premake5.lua" );
+        const std::vector<std::string> files   = RunnerFiles( premake, "Engine" );
+        ASSERT_FALSE( files.empty() ) << "the Engine runner's `files` were not found: the reader is stale";
+        for ( const std::string& file : files )
+        {
+            const bool editor = file.find( "_MAIN_SCRIPT_DIR}/Editor/" ) != std::string::npos;
+            const bool tools  = file.find( "_MAIN_SCRIPT_DIR}/Tools/" ) != std::string::npos;
+            EXPECT_FALSE( editor || tools )
+                 << file << " is compiled into EngineTests: move the suite that needs it to Desert/Tests/"
+                 << ( editor ? "Editor" : "Tools" ) << "/<Suite> (its runner already compiles "
+                 << ( editor ? "editor" : "tool" ) << " sources) and drop the file from the Engine entry of "
+                 << "kRunners";
+        }
+    }
 } // namespace

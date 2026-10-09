@@ -22,7 +22,13 @@
 // three of its translation units among the 275 that no suite compiles.
 
 #include <Engine/Animation/Timeline/Hosts.hpp>
-#include "UILift.hpp" // Tools/SceneMigrator: the clip below is built through the v40 -> v41 scene lift
+#include <Engine/Animation/KeyInterpolation.hpp>
+#include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
+#include <Engine/Animation/Timeline/Channel.hpp>
+#include <Engine/Animation/Timeline/Section.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Animation/Timeline/Track.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -33,6 +39,8 @@
 #include <array>
 #include <cmath>
 #include <optional>
+#include <utility>
+#include <variant>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace
@@ -448,16 +456,40 @@ TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )
     Fixture    f;
     const auto buttonUuid = f.Registry.emplace_or_replace<ECS::UUIDComponent>( f.Button ).UUID.ToString();
 
-    TL::UIAnimationV40 v40;
-    v40.Duration = 1.0F;
-    v40.Tracks.push_back(
-         { /*Offset*/ 0,
-           { { 0.0F, glm::vec4( 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) },
-             { 1.0F, glm::vec4( 100.0F, 0.0F, 0.0F, 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) } } } );
-    auto lifted = TL::LiftUIAnimation( v40, buttonUuid, AN::PROJECT_TICK_RATE, AN::DEFAULT_DISPLAY_RATE );
-    ASSERT_TRUE( lifted ) << lifted.GetError();
+    // The clip as the engine holds it: a Widget binding naming the button, an "Offset" Vector track whose X goes
+    // 0 -> 100 linearly over one second.
+    TL::Sequence sequence;
+    sequence.Host             = TL::SequenceHost::UIAnimation;
+    sequence.TickRate         = AN::PROJECT_TICK_RATE;
+    sequence.DisplayRate      = AN::DEFAULT_DISPLAY_RATE;
+    const AN::FrameNumber end = AN::NearestTick( AN::SecondsToFrameTime( 1.0, sequence.TickRate ) );
+    sequence.Start            = AN::FrameNumber{ 0 };
+    sequence.End              = end;
+    TL::Binding widget;
+    widget.Guid    = TL::BindingGuid::Generate();
+    widget.Kind    = TL::BindingKind::Widget;
+    widget.Locator = buttonUuid;
+    widget.Label   = buttonUuid;
+    sequence.Bindings.push_back( widget );
+    TL::Track offset;
+    offset.Binding         = widget.Guid;
+    offset.Property        = "Offset";
+    offset.Kind            = TL::TrackKind::Vector;
+    TL::Section& section   = TL::AddSection( offset, sequence.Start, end );
+    auto&        x         = std::get<TL::VectorChannel>( std::get<TL::Channel>( section.Content ) ).X;
+    const auto   linearKey = []( const AN::FrameNumber tick, const float value )
+    {
+        AN::ScalarKey key;
+        key.Tick   = tick;
+        key.Value  = value;
+        key.Interp = AN::KeyInterp::Linear;
+        return key;
+    };
+    x.Keys = { linearKey( sequence.Start, 0.0F ), linearKey( end, 100.0F ) };
+    sequence.Tracks.push_back( std::move( offset ) );
+    ASSERT_TRUE( TL::Validate( sequence ).IsSuccess() );
     auto& clip    = f.Registry.emplace<ECS::UIAnimComponent>( f.Canvas ).Data;
-    clip.Sequence = lifted.GetValue().Lifted;
+    clip.Sequence = std::move( sequence );
 
     UIViewContext viewport{ s_Resources };
     UIViewContext preview{ s_Resources };
