@@ -8,9 +8,13 @@
 
 #include <entt/entt.hpp>
 
+#include <Engine/Assets/Common.hpp>
+
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::VFX
@@ -76,8 +80,35 @@ namespace Desert::VFX
         virtual ~WorldGpuState() = default;
     };
 
-    // Today the instances are ParticleEmitterComponents, keyed by entity UUID; their GPU state is the world's
-    // WorldGpuState (VFX-07b), one per scene, not one per view.
+    // How the world turns a VFXComponent's system handle into the system's data. Set once by the host that owns
+    // the AssetManager (the scene has none): it returns the data of a loaded VFXSystemAsset, nullptr otherwise.
+    using VFXSystemLookup = std::function<const Assets::Serialization::VFXSystemData*( Assets::AssetHandle )>;
+
+    // An emitter instance's identity: the entity, the emitter's index in its system, and which component it came
+    // from - a ParticleEmitterComponent (one emitter, index 0) or a VFXComponent's system.
+    struct EmitterKey
+    {
+        std::uint64_t Uuid    = 0;
+        std::uint32_t Emitter = 0;
+        bool          System  = false;
+
+        [[nodiscard]] bool operator==( const EmitterKey& ) const = default;
+    };
+
+    struct EmitterKeyHash
+    {
+        [[nodiscard]] std::size_t operator()( const EmitterKey& k ) const noexcept
+        {
+            std::uint64_t h = k.Uuid * 0x9E3779B97F4A7C15ull;
+            h ^= ( static_cast<std::uint64_t>( k.Emitter ) << 1 | ( k.System ? 1u : 0u ) ) +
+                 0x632BE59BD9B4E019ull + ( h << 6 ) + ( h >> 2 );
+            return static_cast<std::size_t>( h );
+        }
+    };
+
+    // The instances are ParticleEmitterComponents (one emitter each) and the enabled emitters of each
+    // VFXComponent's system, keyed by EmitterKey; their GPU state is the world's WorldGpuState (VFX-07b), one per
+    // scene, not one per view.
     class VFXWorld
     {
     public:
@@ -111,7 +142,18 @@ namespace Desert::VFX
         {
             return m_Plan;
         }
+        // The ParticleEmitterComponent instance of the entity.
         [[nodiscard]] const EmitterInstance* FindEmitter( std::uint64_t entityUuid ) const;
+        // Emitter @p emitterIndex of the system the entity's VFXComponent plays; nullptr when the component is not
+        // activated, the system is unknown, the emitter is disabled or its stack does not compile.
+        [[nodiscard]] const EmitterInstance* FindSystemEmitter( std::uint64_t entityUuid,
+                                                                std::uint32_t emitterIndex ) const;
+
+        // Unset = no VFXComponent plays: each is reported once (naming the entity) and spawns nothing.
+        void SetSystemLookup( VFXSystemLookup lookup )
+        {
+            m_SystemLookup = std::move( lookup );
+        }
 
         // The scene's data channels (VFX-10): gameplay registers channels and writes entries here (C++ Write,
         // Lua VFX.writeChannel); the next Tick spawns from them and clears them.
@@ -143,10 +185,15 @@ namespace Desert::VFX
 
     private:
         void ResetInstance( EmitterInstance& instance );
+        EmitterInstance& Visit( const EmitterKey& key, std::uint32_t seed, bool restart );
+        // True the first time @p key is reported; a report is not repeated every tick.
+        bool FirstReport( const EmitterKey& key );
 
         Clock                                              m_Clock;
         TickPlan                                           m_Plan;
-        std::unordered_map<std::uint64_t, EmitterInstance> m_Emitters;
+        std::unordered_map<EmitterKey, EmitterInstance, EmitterKeyHash> m_Emitters;
+        VFXSystemLookup                                                 m_SystemLookup;
+        std::unordered_set<EmitterKey, EmitterKeyHash>                  m_Reported;
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;
         VFXDataChannels                                    m_Channels;
