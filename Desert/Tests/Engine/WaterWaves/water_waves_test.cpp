@@ -12,7 +12,7 @@
 
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Assets/Serialization/WaterWaves.hpp>
-#include <Engine/Water/WaterWaves.hpp>
+#include <Engine/Water/GerstnerWaterWaves.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
 

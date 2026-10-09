@@ -1,6 +1,6 @@
 // One Gerstner wave — the ONE statement of it, compiled twice from this text:
 //   * as GLSL, by the water surface's vertex displacement and shading (W-7);
-//   * as C++, by Engine/Water/WaterWaves.cpp, which answers every CPU wave query (the water body's Query,
+//   * as C++, by Engine/Water/GerstnerWaterWaves.cpp, which answers every CPU wave query (the water body's Query,
 //     buoyancy, swimming).
 // So the surface the GPU draws and the surface the CPU floats things on are one function, not two that agree
 // until the first edit on either side. The dialect is LandscapeHeight.glslh's: `f`-suffixed literals, no

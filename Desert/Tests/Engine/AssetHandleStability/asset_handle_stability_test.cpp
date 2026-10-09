@@ -1327,6 +1327,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::LevelSequence,
          AssetTypeID::VFXSystem,
          AssetTypeID::Fracture,
+         AssetTypeID::WaterWaves,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1516,6 +1517,21 @@ TEST( AssetHandleStability, AVFXSystemHandleIsHandleForGuidOfItsHeader )
     data.Category = "Probe";
     ASSERT_TRUE( Desert::Assets::VFXSystemAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::VFXSystemAsset>( file, Common::Content::ContentKind::VFXSystem );
+    fs::remove_all( dir );
+}
+
+// WATER-W1: a water body names its wave set by handle, so the handle must be the `.dwaves` header GUID.
+TEST( AssetHandleStability, AWaterWavesHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "WaterW1WavesHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path                                file = dir / "Ocean.dwaves";
+    Desert::Assets::Serialization::WaterWavesData data;
+    data.Generator.Seed = 7;
+    ASSERT_TRUE( Desert::Assets::WaterWavesAsset::Save( file, data ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::WaterWavesAsset>( file, Common::Content::ContentKind::WaterWaves );
     fs::remove_all( dir );
 }
 

@@ -7,7 +7,7 @@
 // waves on every load), so the file cannot hold a wave list that disagrees with its own generator.
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
-#include <Engine/Water/WaterWaves.hpp>
+#include <Engine/Water/GerstnerWaterWaves.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
