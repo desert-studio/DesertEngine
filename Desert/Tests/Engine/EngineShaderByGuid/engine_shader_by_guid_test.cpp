@@ -361,6 +361,9 @@ namespace
            "the DOMAIN's display label, which shares the word with the template" },
          { "Desert/Desert/Source/Engine/Geometry/PrimitiveType.hpp", "Terrain",
            "a primitive type's display name, which shares the word with the template" },
+         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp", "Terrain",
+           "the diagnostic label of the renderer build stage that set up the terrain system (one stage per "
+           "tick, timed by name), not a material's template" },
          { "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp", "NewShaderGraph",
            "the file name a NEW graph document is saved under; the graph compiles to a shader of its own name" },
     };

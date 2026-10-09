@@ -97,7 +97,7 @@ namespace Desert::Scripting
         }
 
         // set( key, value ) — number / string / bool, or ( key, r, g, b ) for a colour.
-        int Set( lua_State* L )
+        int DataSet( lua_State* L )
         {
             const std::string key = luaL_checkstring( L, 1 );
             if ( lua_gettop( L ) >= 4 )
@@ -126,7 +126,7 @@ namespace Desert::Scripting
         }
 
         // get( key ) — returns the value in its natural Lua type, or nil when unset.
-        int Get( lua_State* L )
+        int DataGet( lua_State* L )
         {
             const std::string      key   = luaL_checkstring( L, 1 );
             const UI::UIDataStore& store = Store();
@@ -141,7 +141,7 @@ namespace Desert::Scripting
             return 1;
         }
 
-        int Has( lua_State* L )
+        int DataHas( lua_State* L )
         {
             lua_pushboolean( L, Store().Has( luaL_checkstring( L, 1 ) ) ? 1 : 0 );
             return 1;
@@ -240,9 +240,9 @@ namespace Desert::Scripting
 
     void RegisterUIBindings( lua_State* L )
     {
-        constexpr luaL_Reg kUI[] = { { "set", &Set },
-                                     { "get", &Get },
-                                     { "has", &Has },
+        constexpr luaL_Reg kUI[] = { { "set", &DataSet },
+                                     { "get", &DataGet },
+                                     { "has", &DataHas },
                                      { "clear", &Clear },
                                      { "send", &Send },
                                      { "list_add", &ListAdd },

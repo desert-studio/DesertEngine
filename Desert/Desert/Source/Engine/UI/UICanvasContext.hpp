@@ -519,6 +519,10 @@ namespace Desert::UI
                                 OverlayStack.end() );
             if ( OverlayTooltip != NodeId::Null && gone( OverlayTooltip ) )
                 OverlayTooltip = NodeId::Null;
+
+            // A dropdown destroyed while its list is open never reaches the "list closed" erase in
+            // Dropdown.cpp, and a recycled id would inherit its highlight: dropped the frame the entity dies.
+            std::erase_if( DropdownHighlight, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } );
         }
 
         // Forget everything about the scene drawn so far. BeginUIFrame calls this itself when it notices the

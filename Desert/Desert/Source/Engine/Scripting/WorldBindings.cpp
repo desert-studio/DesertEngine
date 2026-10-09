@@ -162,7 +162,7 @@ namespace Desert::Scripting
         }
 
         // World.set/get/has: script state shared by every script (one table for the VM's lifetime).
-        int Set( lua_State* L )
+        int WorldVarSet( lua_State* L )
         {
             luaL_checkstring( L, 1 );
             lua_getref( L, ScriptEngine::Impl::Of( L ).WorldVars );
@@ -171,7 +171,7 @@ namespace Desert::Scripting
             lua_rawset( L, -3 );
             return 0;
         }
-        int Get( lua_State* L )
+        int WorldVarGet( lua_State* L )
         {
             luaL_checkstring( L, 1 );
             lua_getref( L, ScriptEngine::Impl::Of( L ).WorldVars );
@@ -179,9 +179,9 @@ namespace Desert::Scripting
             lua_rawget( L, -2 );
             return 1;
         }
-        int Has( lua_State* L )
+        int WorldVarHas( lua_State* L )
         {
-            Get( L );
+            WorldVarGet( L );
             lua_pushboolean( L, !lua_isnil( L, -1 ) );
             return 1;
         }
@@ -189,9 +189,10 @@ namespace Desert::Scripting
 
     void RegisterWorldBindings( lua_State* L )
     {
-        constexpr luaL_Reg kWorld[] = { { "find", &Find },   { "raycast", &Raycast },         { "cameraRay", &CameraRay },
-                                        { "spawn", &Spawn }, { "spawnMarker", &SpawnMarker }, { "set", &Set },
-                                        { "get", &Get },     { "has", &Has },                 { nullptr, nullptr } };
+        constexpr luaL_Reg kWorld[] = {
+             { "find", &Find },       { "raycast", &Raycast },         { "cameraRay", &CameraRay },
+             { "spawn", &Spawn },     { "spawnMarker", &SpawnMarker }, { "set", &WorldVarSet },
+             { "get", &WorldVarGet }, { "has", &WorldVarHas },         { nullptr, nullptr } };
         luaL_register( L, "World", kWorld );
         lua_pop( L, 1 );
     }

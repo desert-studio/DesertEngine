@@ -369,6 +369,7 @@ namespace
     constexpr const char* kUIDropdown      = "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp";
     constexpr const char* kUIImage         = "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp";
     constexpr const char* kUIInputField    = "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp";
+    constexpr const char* kUITextEditRules = "Desert/Desert/Source/Engine/UI/UITextEditState.cpp";
     constexpr const char* kUIPanel         = "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp";
     constexpr const char* kUIPath          = "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp";
     constexpr const char* kUIProgressBar   = "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp";
@@ -695,11 +696,18 @@ namespace
          { "FlexGrow", kCanvasLayout },
          { "FitWidth", kCanvasLayout },
          { "FitHeight", kCanvasLayout },
+         { "FlexShrink", kCanvasLayout },
     };
 
     constexpr Row kLayoutGroupRows[] = {
-         { "Type", kCanvasLayout },         { "Padding", kCanvasLayout },  { "Spacing", kCanvasLayout },
-         { "StretchCross", kCanvasLayout }, { "CellSize", kCanvasLayout }, { "Columns", kCanvasLayout },
+         { "Type", kCanvasLayout },        { "Padding", kCanvasLayout },
+         { "Spacing", kCanvasLayout },     { "StretchCross", kCanvasLayout },
+         { "CellSize", kCanvasLayout },    { "Columns", kCanvasLayout },
+         { "WrapSize", kCanvasLayout },    { "WrapVertical", kCanvasLayout },
+         { "MinSlotSize", kCanvasLayout }, { "SizeMin", kCanvasLayout },
+         { "SizeMax", kCanvasLayout },     { "SizeOverride", kCanvasLayout },
+         { "Stretch", kCanvasLayout },     { "StretchDirection", kCanvasLayout },
+         { "UserScale", kCanvasLayout },
     };
 
     constexpr Row kPanelRows[] = {
@@ -942,9 +950,23 @@ namespace
     };
 
     constexpr Row kInputFieldRows[] = {
-         { "Text", kUIInputField },       { "Placeholder", kUIInputField },      { "FontSize", kUIInputField },
-         { "TextColor", kUIInputField },  { "PlaceholderColor", kUIInputField }, { "Background", kUIInputField },
-         { "FocusColor", kUIInputField }, { "CornerRadius", kUIInputField },
+         { "Text", kUIInputField },
+         { "Placeholder", kUIInputField },
+         { "FontSize", kUIInputField },
+         { "TextColor", kUIInputField },
+         { "PlaceholderColor", kUIInputField },
+         { "Background", kUIInputField },
+         { "FocusColor", kUIInputField },
+         { "CornerRadius", kUIInputField },
+         // The edit RULES are read where the field's data becomes UITextEditRules (UITextEditState.cpp);
+         // the widget only forwards them, so that file is the consumer whose absence would ignore them.
+         { "Password", kUITextEditRules },
+         { "MaxLength", kUITextEditRules },
+         { "CharFilter", kUITextEditRules },
+         { "MultiLine", kUITextEditRules },
+         { "NewLineKey", kUITextEditRules },
+         { "OnChangedMessage", kUIInputField },
+         { "OnCommittedMessage", kUIInputField },
     };
 
     constexpr Row kDropdownRows[] = {

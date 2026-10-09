@@ -7,7 +7,7 @@ namespace Desert::Scripting
 {
     namespace
     {
-        int Name( lua_State* L )
+        int ProjectName( lua_State* L )
         {
             lua_pushstring( L, Project::ProjectContext::HasProject() ? Project::ProjectContext::Current().Name.c_str() : "" );
             return 1;
@@ -23,7 +23,8 @@ namespace Desert::Scripting
     // project.name() / project.company() — the open project's identity.
     void RegisterProjectBindings( lua_State* L )
     {
-        constexpr luaL_Reg kProject[] = { { "name", &Name }, { "company", &Company }, { nullptr, nullptr } };
+        constexpr luaL_Reg kProject[] = {
+             { "name", &ProjectName }, { "company", &Company }, { nullptr, nullptr } };
         luaL_register( L, "project", kProject );
         lua_pop( L, 1 );
     }

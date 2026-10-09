@@ -141,6 +141,10 @@ namespace
               "it picks the mesh a collider is built from and carries the entity scale into its "
               "points (M22); it serves PhysicsECSSystem, whose verdict it shares: a hidden body is "
               "still simulated, so hiding must not change the shape it collides with." },
+         Row{ "ComponentEventSystem.hpp", Verdict::MustNot,
+              "SCR-API-3: it delivers physics contacts and destruction breaks to the scripts subscribed to "
+              "the entity they happened to; a hidden body is still simulated (PhysicsECSSystem's verdict), "
+              "so its hits must still reach gameplay -- hiding it in the outliner must not mute its events." },
          Row{ "DestructibleLifetime.hpp", Verdict::MustNot,
               "it adds a destructible's fracture to the destruction world on Play and releases it on "
               "destroy; the pieces are simulated like PhysicsECSSystem's bodies, so a destructible hidden "

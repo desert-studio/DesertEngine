@@ -570,7 +570,8 @@ namespace Desert::Core::Rules
          { "UILayout", ComponentLoading::Spatial },
          { "UILayoutGroup", ComponentLoading::Spatial },
          { "UIListView", ComponentLoading::Spatial },
-         { "UIOverlay", ComponentLoading::Spatial }, // lives on a canvas entity
+         { "UINavigation", ComponentLoading::Spatial }, // UI-FOCUS: per-element navigation rules
+         { "UIOverlay", ComponentLoading::Spatial },    // lives on a canvas entity
          { "UIOverlayTrigger", ComponentLoading::Spatial },
          { "UIPanel", ComponentLoading::Spatial },
          { "UIPath", ComponentLoading::Spatial },

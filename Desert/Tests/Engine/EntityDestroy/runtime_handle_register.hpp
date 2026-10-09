@@ -59,7 +59,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 18> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 21> kEntityTables{ {
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( doomedEntity )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },
@@ -87,6 +87,18 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "UIL1: per-list collection serial inside a canvas's context; goes when the canvas does" },
+         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "TextEdit", Release::OwnerRetired,
+           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+           "per-input-field caret / selection / undo inside a canvas's context; goes when the canvas does" },
+         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "DropdownHighlight", Release::Sweep,
+           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+           "std::erase_if( DropdownHighlight, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } )",
+           "view-level keyboard highlight of an open dropdown; RetireDeadCanvases drops rows of dead entities "
+           "once per frame (a dropdown destroyed while open never reaches Dropdown.cpp's close erase)" },
+         { "Desert/Desert/Source/Engine/UI/UIFocus.hpp", "Restore", Release::Sweep,
+           "Desert/Desert/Source/Engine/UI/UIFocus.cpp",
+           "std::erase_if( memory.Restore, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } )",
+           "scope -> last focused control; the per-frame focus update drops scopes whose entity is gone" },
          { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp", "MaskOf", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
            "WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };",
@@ -110,7 +122,7 @@ namespace Desert::Tests::RuntimeHandles
          // these two; they are listed by hand and their declarations are still checked to exist.
          { "Desert/Desert/Source/Engine/Scripting/Internal/ScriptRuntime.hpp", "Envs", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp", "on_destroy<ScriptComponent>().connect",
-           "Lua environments and timers, ScriptEngine::Release" },
+           "each entity's Luau script slots and their timers (SCR-LUAU-3), ScriptEngine::Impl::ReleaseEntity" },
          { "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.hpp", "m_Tiles", Release::Sweep,
            "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.cpp", "m_Tiles.erase( it )",
            "the tile's R16 heightmap; the per-frame pass drops tiles that are gone, lost the component or "
