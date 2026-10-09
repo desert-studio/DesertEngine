@@ -75,6 +75,8 @@ local function DesertRunnerSettings(deps)
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
+        -- Luau by module path (<VM/include/lua.h>): Engine/Scripting/Internal headers the script suites include.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
     -- Every engine third-party include (Jolt, Luau, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
     -- from the engine's own list so the two stay in sync. pairs() skips the Vulkan keys when no SDK is set.

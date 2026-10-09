@@ -127,9 +127,13 @@ namespace Desert::Scripting
             if ( handle )
             {
                 if ( const auto result = ECS::AnimationECSSystem::LinkAnimLayers( *anim, *handle ); !result )
+                {
                     LOG_ERROR( "[Anim] linkAnimLayers('{}'): {}", path, result.GetError() );
+                }
                 else
+                {
                     linked = true;
+                }
             }
             lua_pushboolean( L, linked );
             return 1;
