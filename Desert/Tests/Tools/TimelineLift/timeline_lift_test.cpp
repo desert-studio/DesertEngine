@@ -1,6 +1,6 @@
 // Group 8 of the timeline contract (timeline_contract_test.cpp): LiftClip + the bone fast path (ANIM-I7).
 
-#include "TimelineFixtures.hpp"
+#include "../../Engine/TimelineContract/TimelineFixtures.hpp"
 
 #include "ClipGeneration3.hpp" // generation 3 and LiftClip live in Tools/SceneMigrator since ANIM-I8a
 #include "ClipInterpShift.hpp"
