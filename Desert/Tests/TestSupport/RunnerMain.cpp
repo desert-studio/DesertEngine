@@ -10,6 +10,9 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#if __has_include( <cxxabi.h> )
+#include <cxxabi.h>
+#endif
 #include <exception>
 #include <format>
 #include <iterator>
@@ -18,6 +21,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -395,6 +399,18 @@ namespace
             }
         }
 
+        // AN EXCEPTION THAT LEAVES A TEST MUST CARRY ITS MESSAGE (CI-MVK). gtest's own catch prints what() of
+        // a std::exception, but anything else - an Objective-C NSException a driver raises through a Vulkan
+        // call, on macOS - comes out as "Unknown C++ exception thrown in the test body" and the reason is
+        // gone: EngineHost and RenderGraphVulkan failed that way on CI for two days with nothing to read.
+        // Uncaught, it reaches main below, which names the test and the type and lets the runtime's
+        // terminate handler print the rest (libobjc: name and reason; libc++abi: type and what()). Set
+        // before InitGoogleTest, so --gtest_catch_exceptions=1 still turns gtest's catch back on. Only where
+        // the C++ runtime is the Itanium one (clang, gcc): under MSVC the same flag also stops gtest catching
+        // SEH faults, which it reports per test today, and a rethrow there prints nothing more.
+#if __has_include( <cxxabi.h> )
+        GTEST_FLAG_SET( catch_exceptions, false );
+#endif
         testing::InitGoogleTest( &argc, argv );
 
         // InitGoogleTest removed its own flags; what is left is ours or a mistake.
@@ -425,9 +441,38 @@ namespace
         }
         return RUN_ALL_TESTS();
     }
+
+    // The test that was running when an exception left it, or the run's own set-up/tear-down.
+    std::string RunningTest()
+    {
+        const testing::TestInfo* test = testing::UnitTest::GetInstance()->current_test_info();
+        return test != nullptr ? std::format( "{}.{}", test->test_suite_name(), test->name() )
+                               : std::string( "the test environment (set-up or tear-down)" );
+    }
+
+    // The thrown type's name, where the C++ runtime can say it (Itanium ABI: clang, gcc).
+    std::string CurrentExceptionType()
+    {
+#if __has_include( <cxxabi.h> )
+        const std::type_info* type = abi::__cxa_current_exception_type();
+        if ( type == nullptr )
+        {
+            return "an unnamed type";
+        }
+        int         status    = 0;
+        char*       demangled = abi::__cxa_demangle( type->name(), nullptr, nullptr, &status );
+        std::string name( status == 0 && demangled != nullptr ? demangled : type->name() );
+        std::free( demangled ); // NOLINT(cppcoreguidelines-no-malloc): __cxa_demangle allocates with malloc
+        return name;
+#else
+        return "a non-standard type";
+#endif
+    }
 } // namespace
 
 // An exception escaping main ends in std::terminate with no word of what failed; this names it instead.
+// A standard one is printed whole. Any other is named here and RETHROWN, because only the runtime that
+// threw it can read its message: libobjc's terminate handler prints an NSException's name and reason.
 int main( int argc, char** argv )
 {
     try
@@ -436,13 +481,21 @@ int main( int argc, char** argv )
     }
     catch ( const std::exception& e )
     {
-        std::fputs( "[desert-runner] uncaught exception: ", stderr );
-        std::fputs( e.what(), stderr );
-        std::fputs( "\n", stderr );
+        std::fputs( std::format( "[desert-runner] uncaught exception in {} ({}): {}\n", RunningTest(),
+                                 CurrentExceptionType(), e.what() )
+                         .c_str(),
+                    stderr );
     }
     catch ( ... )
     {
-        std::fputs( "[desert-runner] uncaught exception of a non-standard type\n", stderr );
+        std::fputs(
+             std::format( "[desert-runner] uncaught exception of type {} in {}; its message follows from the "
+                          "runtime's terminate handler\n",
+                          CurrentExceptionType(), RunningTest() )
+                  .c_str(),
+             stderr );
+        std::fflush( stderr );
+        throw;
     }
     return kRunnerException;
 }
