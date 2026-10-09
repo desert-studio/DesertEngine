@@ -69,6 +69,12 @@
 // same constant on the C++ side. The LIBRARY on disk is not limited by this; a single LAYER is.
 #define CLOUD_SPECIES_SLOTS 4
 
+// HOW MANY CLIP LEVELS THE PROCEDURAL MODELLING VOLUME HAS: one world field, three camera-centred windows
+// of the same 256 x 32 x 256 grid at ratio two, stacked vertically in one image (level k in rows
+// [32k, 32k + 32)). Assets::kCloudProceduralClipLevels is the same number on the C++ side, and
+// Desert/Tests/Engine/CloudField asserts the two agree.
+#define CLOUD_PROCEDURAL_CLIP_LEVELS 3
+
 // What every producer returns and what the whole renderer consumes.
 //
 // THE LAST THREE ARE THE WINNING SPECIES', and they travel here rather than in the parameter block for a
@@ -122,12 +128,14 @@ struct CloudFieldParams
     float SpeciesWispBase[CLOUD_SPECIES_SLOTS];
     float SpeciesWispTop[CLOUD_SPECIES_SLOTS];
 
-    // WHERE THE MODELLING VOLUME IS, and it is two numbers rather than a matrix because the region is
-    // axis-aligned by construction: the minimum corner of the region in world kilometres, and the
-    // reciprocal of its side. Both are the CPU's — Assets::CloudProceduralRegionOriginKm decides the
-    // corner and snaps it to the lump lattice, and the march only maps a position through it.
-    vec2  RegionOriginKm;
-    float InvRegionSizeKm;
+    // WHERE THE MODELLING VOLUME'S THREE CLIP LEVELS ARE (CLIP-3): per level k, xy the minimum corner of the
+    // level's window in world kilometres (in the WIND frame — the window is chosen around the camera minus
+    // the wind), z the reciprocal of the window's side, w unused. All three are the CPU's — Assets::
+    // CloudProceduralLevelOriginKm decides each corner and snaps it to the level's own voxel, and the march
+    // only asks which window a position is inside. Level 0 is the finest (side RegionSize / 4), level
+    // CLOUD_PROCEDURAL_CLIP_LEVELS - 1 is the whole region. Common/CloudParams.glslh fills it from
+    // u_CloudLevel[k].
+    vec4 ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS];
 
     // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather .y and .w): x the weather strength, y 1 / the
     // weather's period in km. A vec2 because the payload's x and z are unread (Graphic::kCloudUnreadSlots) —
@@ -327,30 +335,94 @@ struct CloudFieldParams
 // caught as a macro redefinition rather than as a silently wrong fetch.
 #define CLOUD_PROCEDURAL_VOLUME_HEIGHT 32.0f
 
-// WHERE A WORLD POSITION LANDS IN THE VOLUME.
-//
-// HORIZONTALLY IT IS NOT CLAMPED AND MUST NOT BE. The bake splats every lump at its wrapped positions too,
-// so the volume is exactly periodic — and REPEAT sampling of a periodic volume is the DEGENERATE FAR PATH
-// of §3 point 3: past the region the sky is the region again, at a distance where a cloud's angular size is
-// already below what the march resolves (§4.5). Clamping instead would put a smear of the edge column
-// across everything beyond 24 km.
-//
-// VERTICALLY IT IS CLAMPED TO THE TEXEL CENTRES, and that is not symmetry-breaking for its own sake: the
-// volume spans the shell exactly, every sampler in this engine is REPEAT, and without the clamp a height
-// fraction of 1 wraps to the bottom row — so the top of the layer would grow the bases of its own clouds
-// back on top of itself. The same clamp, for the same reason, that the profile table needed.
-vec3 CloudProceduralVolumeUvw( CloudFieldParams params, float heightFraction, vec3 windPos )
-{
-    float halfV = 0.5f / CLOUD_PROCEDURAL_VOLUME_HEIGHT;
+// THE HORIZONTAL TEXEL COUNT of every level, which the level weight needs to keep a trilinear fetch off the
+// window's edge texel (CloudProceduralLevelWeight). Assets::kCloudProceduralVolumeSide is the same number,
+// asserted by Desert/Tests/Engine/CloudField. Read, unlike the dead width the note above records.
+#define CLOUD_PROCEDURAL_VOLUME_SIDE 256.0f
 
-    return vec3( ( windPos.x - params.RegionOriginKm.x ) * params.InvRegionSizeKm,
-                 clamp( heightFraction, halfV, 1.0f - halfV ),
-                 ( windPos.z - params.RegionOriginKm.y ) * params.InvRegionSizeKm );
+// THE BLEND BAND: over the outermost 12 % of a level's side (measured from its edge) the level fades into
+// the next coarser one, which holds that ground at half the resolution (CLOUD-RES-PLAN §1 point 5). The
+// next level's window is twice as wide and centred on the same camera, so the whole band sits a quarter of
+// its side deep inside it — the coarser fetch never meets its own edge there.
+#define CLOUD_PROCEDURAL_CLIP_BLEND 0.12f
+
+// WHERE A WORLD POSITION LANDS IN LEVEL @p level OF THE STACKED VOLUME.
+//
+// HORIZONTALLY IT IS TOROIDAL AND NOT RELATIVE TO THE WINDOW: world voxel i of a level is stored at texel
+// i mod 256 (Assets::CloudProceduralLevelTexel), so a camera move re-bakes only the entering columns and the
+// address is the world position over the level's side, REPEAT-wrapped by the sampler. The window corner is
+// not part of the address at all — it only decides which level answers (CloudProceduralLevelWeight). Past
+// the coarsest window the fetch wraps onto texels that hold the other side of the window: the degenerate
+// far path of §3 point 3, at a distance where a cloud's angular size is already below what the march
+// resolves (§4.5).
+//
+// VERTICALLY IT IS CLAMPED TO THE LEVEL'S OWN TEXEL CENTRES, and that is not symmetry-breaking for its own
+// sake: a level spans the shell exactly and its rows sit directly on the next level's, so without the clamp
+// a height fraction of 1 would blend with the FLOOR of the level above it in the stack (and level 2's top
+// with level 0's floor, through REPEAT) — the top of the layer would grow the bases of other clouds on top
+// of itself. The same clamp, for the same reason, that the profile table needed.
+vec3 CloudProceduralLevelUvw( CloudFieldParams params, int level, float heightFraction, vec3 windPos )
+{
+    float row       = clamp( heightFraction * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
+                             CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
+    float stackRows = CLOUD_PROCEDURAL_VOLUME_HEIGHT * float( CLOUD_PROCEDURAL_CLIP_LEVELS );
+    float invSide   = params.ProceduralLevel[level].z;
+
+    return vec3( windPos.x * invSide, ( float( level ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT + row ) / stackRows,
+                 windPos.z * invSide );
+}
+
+// HOW MUCH LEVEL @p level ANSWERS FOR THE WIND-SHIFTED COLUMN @p windPosXz: 1 deep inside its window, 0
+// where a trilinear fetch would first reach past the window's edge texel (half a texel in from the edge),
+// linear across the blend band between. Linear and not smoothstepped because the blend is a lerp of two
+// fetches of the same field at two resolutions: a ramp of slope one band keeps the per-metre change of
+// the blended sample within that of its two operands, which is what TheLevelBlendHasNoStep measures.
+float CloudProceduralLevelWeight( CloudFieldParams params, int level, vec2 windPosXz )
+{
+    vec4  window = params.ProceduralLevel[level];
+    vec2  local  = ( windPosXz - vec2( window.x, window.y ) ) * window.z;
+    vec2  edges  = min( local, vec2( 1.0f ) - local );
+    float edge   = min( edges.x, edges.y );
+    float guard  = 0.5f / CLOUD_PROCEDURAL_VOLUME_SIDE;
+
+    return clamp( ( edge - guard ) / ( CLOUD_PROCEDURAL_CLIP_BLEND - guard ), 0.0f, 1.0f );
+}
+
+// THE FINEST LEVEL THAT HOLDS @p windPosXz — the first whose weight is above zero — or the coarsest, which
+// answers everywhere (inside its window from its own bake, beyond it through the far path above).
+int CloudProceduralLevelOf( CloudFieldParams params, vec2 windPosXz )
+{
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1; ++level )
+    {
+        if ( CloudProceduralLevelWeight( params, level, windPosXz ) > 0.0f )
+            return level;
+    }
+    return CLOUD_PROCEDURAL_CLIP_LEVELS - 1;
 }
 
 #if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED ) && \
      defined( CLOUD_SAMPLE_WEATHER ) &&                                                                          \
      defined( CLOUD_SAMPLE_LAYOUT_PATTERN ) && defined( CLOUD_SAMPLE_LAYOUT_MASK )
+
+// THE ONE READ OF THE PROCEDURAL MODELLING VOLUME (CLIP-3): every consumer — the march, the shadow map and
+// the sky occlusion bake through SampleCloudField, the diagnostic view — asks this and never addresses a
+// level itself. The finest level that holds the column answers; inside its blend band it is lerped toward
+// the next coarser level, so a second fetch is paid only in the band. Returns the four species channels.
+vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction, vec3 windPos )
+{
+    vec2 column = vec2( windPos.x, windPos.z );
+    int  level  = CloudProceduralLevelOf( params, column );
+    vec4 fine   = CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level, heightFraction, windPos ) );
+    if ( level == CLOUD_PROCEDURAL_CLIP_LEVELS - 1 )
+        return fine;
+
+    float weight = CloudProceduralLevelWeight( params, level, column );
+    if ( weight >= 1.0f )
+        return fine;
+
+    vec4 coarse = CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level + 1, heightFraction, windPos ) );
+    return mix( coarse, fine, weight );
+}
 
 // ---------------------------------------------------------------------------------------------------
 // THE WEATHER — the GPU half of Assets::CloudProceduralCoverRemap by Assets::CloudProceduralLocalWeather
@@ -475,14 +547,13 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
     result.NoiseSlot = 0;
 
     // THE WIND IS A SHIFT OF THE SAMPLE AND NOT OF THE VOLUME, which is what keeps the wind free: the
-    // region's origin is chosen around the camera MINUS this same offset (Assets::
-    // CloudProceduralRegionOriginKm, called with the shifted camera), so the point being asked about is
+    // level windows are chosen around the camera MINUS this same offset (Assets::
+    // CloudProceduralLevelOriginKm, called with the shifted camera), so the point being asked about is
     // inside the region that was baked for it however far the wind has run.
     vec3 windPos = vec3( positionKm.x - params.WindOffsetKm.x, positionKm.y - params.WindOffsetKm.y,
                          positionKm.z - params.WindOffsetKm.z );
 
-    vec3 uvw    = CloudProceduralVolumeUvw( params, heightFraction, windPos );
-    vec4 volume = CLOUD_SAMPLE_MODELLING( uvw );
+    vec4 volume = CloudSampleProceduralVolume( params, heightFraction, windPos );
 
     int speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
     if ( speciesCount <= 0 )

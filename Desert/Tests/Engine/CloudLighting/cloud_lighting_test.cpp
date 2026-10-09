@@ -620,7 +620,7 @@ TEST( CloudSkyOcclusion, TheAddressingIsTheModellingVolumesOwnFrameAndItsTopSlic
     // THE ADDRESSING IS ONE MAPPING USED IN TWO DIRECTIONS — the producer places its columns on this grid
     // and the march reads them back through this function — so what has to be true is that a point at the
     // region's minimum corner lands at uv 0 and one a full side away lands at uv 1, in the SAME frame the
-    // profile fetch beside it uses (Common/CloudField.glslh, CloudProceduralVolumeUvw).
+    // profile fetch beside it uses (Common/CloudField.glslh, CloudProceduralLevelUvw).
     const vec2  originKm{ -24.0f, 7.0f };
     const float sideKm    = 48.0f;
     const float invSideKm = 1.0f / sideKm;
