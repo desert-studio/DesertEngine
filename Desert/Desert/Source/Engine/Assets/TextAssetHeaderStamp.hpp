@@ -50,6 +50,10 @@ namespace Desert::Assets
     // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
     inline constexpr uint32_t kFoliageTypeSchemaVersion = 7;
+    // A .dwaves: the water wave set file layout (UE UWaterWavesAsset), stated in the header from its first
+    // version (WATER-W1).
+    inline constexpr uint32_t kWaterWavesSchemaTag     = Common::Content::FourCC( "WAVS" );
+    inline constexpr uint32_t kWaterWavesSchemaVersion = 1;
     // A .delayerinfo: the landscape layer info file layout, stated in the header from its first version (LS-12b).
     // v2 (GR-1): the layer named a grass type by {Guid, Path}, the header's one Dependency.
     // v3 (LS-16): that field left with the landscape grass generator; the header states no Dependencies.

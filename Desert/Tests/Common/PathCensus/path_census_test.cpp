@@ -116,7 +116,7 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
     // Byte-for-byte the spellings below a project's assets root. Every asset registry, cooked file and
     // saved scene of every project depends on these exact strings; a census edit that shifts one is a
     // data migration, not a refactor, and must fail here first.
-    const std::array<std::pair<const fs::path*, const char*>, 26> expected = { {
+    const std::array<std::pair<const fs::path*, const char*>, 27> expected = { {
          { &Path::ASSETS_PATH, "Content/" },
          { &Path::MESH_PATH, "Content/Meshes/" },
          { &Path::MATERIAL_PATH, "Content/Materials/" },
@@ -142,6 +142,7 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
          { &Path::LEVEL_SEQUENCE_PATH, "Content/Sequences/" },
          { &Path::VFX_PATH, "Content/VFX/" },
          { &Path::FRACTURE_PATH, "Content/Fractures/" },
+         { &Path::WATER_WAVES_PATH, "Content/Water/Waves/" },
          { &Path::COOKED_PATH, "Cooked/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,

@@ -9,55 +9,14 @@
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 
+#include <Common/Core/Math/RandomStream.hpp>
+
 #include <glm/vec2.hpp>
 
 #include <cstdint>
 
 namespace Desert::World::Foliage::Procedural
 {
-    /**
-     * @brief UE's FRandomStream: the 32-bit linear congruential stream the procedural simulation draws from.
-     *
-     * Integer arithmetic only (wrapping unsigned), so a seed yields the same sequence on every platform.
-     */
-    class RandomStream
-    {
-    public:
-        RandomStream() = default;
-        explicit RandomStream( int32_t seed )
-        {
-            Initialize( seed );
-        }
-
-        void Initialize( int32_t seed )
-        {
-            m_Seed = static_cast<uint32_t>( seed );
-        }
-
-        /// A float in [0, 1).
-        float GetFraction();
-        float FRand()
-        {
-            return GetFraction();
-        }
-        uint32_t GetUnsignedInt();
-        /// A float in [min, max).
-        float FRandRange( float min, float max )
-        {
-            return min + ( max - min ) * FRand();
-        }
-        /// An integer in [min, max].
-        int32_t RandRange( int32_t min, int32_t max );
-
-    private:
-        void MutateSeed()
-        {
-            m_Seed = m_Seed * 196314165u + 907633515u;
-        }
-
-        uint32_t m_Seed = 0;
-    };
-
     /// UE's RAND_MAX as Windows states it: the simulation multiplies by it, so a platform's own RAND_MAX would
     /// make the same seed grow another forest on another platform.
     inline constexpr int32_t kProceduralRandMax = 0x7fff;
@@ -83,7 +42,8 @@ namespace Desert::World::Foliage::Procedural
     [[nodiscard]] float MaxRadius( const Assets::Serialization::FoliageProcedural& type );
     /// ProceduralScale.Min + span * ScaleCurve(clamp(age / MaxAge)); MaxAge 0 reads the curve at 1.
     [[nodiscard]] float ScaleForAge( const Assets::Serialization::FoliageProcedural& type, float age );
-    [[nodiscard]] float InitAge( const Assets::Serialization::FoliageProcedural& type, RandomStream& stream );
+    [[nodiscard]] float InitAge( const Assets::Serialization::FoliageProcedural& type,
+                                 Common::Math::RandomStream&                     stream );
     /// The age after @p numSteps generations: one per step, never past MaxAge.
     [[nodiscard]] float NextAge( const Assets::Serialization::FoliageProcedural& type, float age,
                                  int32_t numSteps );

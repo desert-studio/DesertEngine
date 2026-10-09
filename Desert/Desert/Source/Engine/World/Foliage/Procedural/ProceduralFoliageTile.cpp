@@ -100,7 +100,7 @@ namespace Desert::World::Foliage::Procedural
         // Per DistributionSeed, the largest grown shade radius: types sharing a seed share initial positions.
         std::map<int32_t, float>  maxShadeRadii;
         std::vector<int32_t>      seedsLeft( types.size(), 0 );
-        std::vector<RandomStream> streamPerType( types.size() );
+        std::vector<Common::Math::RandomStream> streamPerType( types.size() );
         std::vector<uint32_t>     typesToSeed;
         for ( uint32_t i = 0; i < types.size(); ++i )
         {
@@ -136,7 +136,7 @@ namespace Desert::World::Foliage::Procedural
             const auto&   type       = types[typeIndex].Procedural;
             const float   age        = InitAge( type, m_Stream );
             const float   scale      = ScaleForAge( type, age );
-            RandomStream& typeStream = streamPerType[typeIndex];
+            Common::Math::RandomStream& typeStream = streamPerType[typeIndex];
             glm::vec2     init{ 0.0f };
             float         neededRadius = 0.0f;
             if ( m_OnlyInShade && lastShadeCaster >= 0 )
@@ -261,7 +261,7 @@ namespace Desert::World::Foliage::Procedural
         else
         {
             // A stream of its own, so a change to one instance's draws does not move every later instance.
-            RandomStream local = m_Stream;
+            Common::Math::RandomStream local = m_Stream;
             (void)m_Stream.GetUnsignedInt();
             instance.YawDegrees   = local.FRandRange( 0.0f, type.RandomYaw ? 360.0f : 0.0f );
             instance.PitchDegrees = local.FRandRange( 0.0f, type.RandomPitchAngle );

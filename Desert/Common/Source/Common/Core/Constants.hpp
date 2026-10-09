@@ -175,6 +175,7 @@ namespace Common::Constants
             LevelSequence,
             VFX,
             Fracture,
+            WaterWaves,
             Cooked,
             COUNT
         };
@@ -273,6 +274,9 @@ namespace Common::Constants
              /* VFX           */ { "VFX/", DirRoot::Assets },
              // Baked fractures (`.dfrac`, UE fractured Geometry Collections) beside the meshes they cut.
              /* Fracture      */ { "Fractures/", DirRoot::Assets },
+             // Water wave sets (`.dwaves`, UE UWaterWavesAsset) get their own folder for the anim graph's
+             // reason: a water body's waves slot offers only what is scanned from here.
+             /* WaterWaves    */ { "Water/Waves/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -617,6 +621,7 @@ namespace Common::Constants
         inline const std::filesystem::path& LEVEL_SEQUENCE_PATH = Detail::Slot( ContentDir::LevelSequence );
         inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
         inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
+        inline const std::filesystem::path& WATER_WAVES_PATH    = Detail::Slot( ContentDir::WaterWaves );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
         // Empty while no project is open (a read of an empty path finds nothing, the reader refuses by name).
         inline const std::filesystem::path& PROJECT_CONFIG_PATH = Detail::s_ProjectConfig;

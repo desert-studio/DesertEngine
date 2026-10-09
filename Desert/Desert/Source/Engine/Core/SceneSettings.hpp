@@ -138,10 +138,6 @@ namespace Desert::Core
         // The retirement is written where it will be found: kRetiredKeys in Tools/SceneMigrator, which
         // drops the three keys from the files at scene schema v19.
 
-        // Water moved OUT of global scene settings: it is a gameplay value, not a render setting. It now
-        // lives on the spawned "Water" entity (World.spawnWater drops a plane at the level); World.waterLevel
-        // reads that entity's height, so the swim script keeps working without a global knob here.
-
         // Time of Day was removed: the sun's single source of truth is the directional-light ENTITY
         // (its position encodes the direction; sky + lighting follow it). Old scene files may still
         // carry the fields — unknown keys are ignored on load.
