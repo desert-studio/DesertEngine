@@ -55,9 +55,6 @@ namespace Desert::Core::Serialize
                 return Common::AssetHandle::PathForStableKey( key ).string();
             }
 
-            case StoredAssetForm::MachinePath:
-                return Common::AssetHandle::PathForStableKey( key ).string();
-
             case StoredAssetForm::ProjectKey:
                 return Common::AssetHandle::IsProjectRelativeKey( key ) ? key : std::string();
         }

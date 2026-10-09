@@ -408,7 +408,9 @@ namespace Desert::UI
                 }
             }
 
-            if ( tree.ChildCount( e ) != 0 )
+            // A scrolling container draws its own background, wheel and scrollbar inside DrawChildren, so it
+            // is entered with no children too: an empty list is still a box on screen (UIListView).
+            if ( tree.ChildCount( e ) != 0 || tree.Has<UIListViewData>( e ) || tree.Has<UIScrollViewData>( e ) )
                 DrawChildren( frame );
         }
 

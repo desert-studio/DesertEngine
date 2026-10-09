@@ -67,6 +67,9 @@
 *.dfx          -text
 *.dfrac        -text
 
+# A water wave spectrum (WATER-W1, .dwaves text document): a content kind the registry sizes.
+*.dwaves       -text
+
 
 # The cooked texture container (B17). It stopped being JSON the day it grew a pixel payload, and a
 # line-ending translation inside a mip chain would not merely resize the file — it would rewrite every
