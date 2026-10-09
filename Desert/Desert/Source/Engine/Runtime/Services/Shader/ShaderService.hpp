@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Graphic/Shader.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <unordered_set>
 
@@ -39,6 +40,13 @@ namespace Desert::Runtime
          * element 0 of the stage list a failed compile leaves empty. An answer a caller cannot use is a
          * refusal; returning it as a success is the "empty successful answer" the contract forbids.
          */
+        /**
+         * @brief The simulation program of a compiled VFX emitter stack (VFXSimulationProgram), built once per
+         * stack key: equal structures (equal layouts) share one program. Null, logged, when the program does not
+         * compose.
+         */
+        std::shared_ptr<Graphic::Shader> AcquireSimulationProgram( const VFX::VFXCompiledEmitter& compiled );
+
         std::shared_ptr<Graphic::Shader> AcquireVariant( const std::string&            name,
                                                          const Graphic::ShaderVariant& variant );
 
@@ -100,6 +108,8 @@ namespace Desert::Runtime
 
     private:
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Graphic::Shader>> m_Shaders;
+        // VFX-03e: generated simulation programs by VFXCompiledEmitter::Key.
+        std::unordered_map<uint64_t, std::shared_ptr<Graphic::Shader>>            m_SimulationPrograms;
         std::unordered_map<std::string, Assets::AssetHandle>                      m_NameToHandleMap;
         // Named passes of multi-pass shaders, keyed "<Shader>/<Pass>". Kept separate from
         // m_Shaders because several programs share one asset handle.

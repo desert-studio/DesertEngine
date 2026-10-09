@@ -56,6 +56,9 @@ namespace Desert::VFX
     /// structure and its layout, so a layout change is a different program.
     [[nodiscard]] std::string SimulationProgramName( const VFXCompiledEmitter& compiled );
 
+    /// Where the program sits for its includes and its cache entry: under the shader root, named by the key.
+    [[nodiscard]] std::filesystem::path SimulationProgramPath( const VFXCompiledEmitter& compiled );
+
     /// The whole `.shader` text of the program: a `Compute` block that defines the contract's storage functions
     /// over the bindings above and runs one fixed step of one range (update every alive particle, spawn the step's
     /// budget). An error when the stack's text is not a Particle fragment.

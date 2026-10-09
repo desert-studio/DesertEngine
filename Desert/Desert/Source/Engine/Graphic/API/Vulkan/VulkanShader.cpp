@@ -40,6 +40,13 @@ namespace Desert::Graphic::API::Vulkan
         Reload();
     }
 
+    VulkanShader::VulkanShader( const std::string& name, std::string source,
+                                const std::filesystem::path& virtualPath )
+         : m_GeneratedSource( std::move( source ) ), m_ShaderPath( virtualPath ), m_ShaderName( name )
+    {
+        Reload();
+    }
+
     VulkanShader::~VulkanShader()
     {
         auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
@@ -52,13 +59,15 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanShader::Reload()
     {
-        auto asset = m_ShaderAsset.lock();
-        if ( !asset ) return Common::MakeError( "Shader asset expired" );
+        // A generated program owns its text; a file program reads its asset's.
+        const auto asset = m_ShaderAsset.lock();
+        if ( m_GeneratedSource.empty() && !asset )
+            return Common::MakeError( "Shader asset expired" );
+        const std::string& source = m_GeneratedSource.empty() ? asset->GetShaderContent() : m_GeneratedSource;
 
         // The CPU half (shader map cache, preprocess, compile) is Core::BuildShaderMap, shared with the cold-start
         // build that runs it on the job system (SHC1); only the device half stays here.
-        auto built = Core::BuildShaderMap(
-             { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
+        auto built = Core::BuildShaderMap( { source, m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
         if ( !built.IsSuccess() )
             return Common::MakeError( built.GetError() );
         m_ProgramMeta = built.GetValue().Meta;

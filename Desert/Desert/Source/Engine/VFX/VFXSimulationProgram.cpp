@@ -126,13 +126,14 @@ namespace Desert::VFX
              "    }}\n"
              "}}\n";
 
-        std::filesystem::path ProgramPath( const VFXCompiledEmitter& compiled )
-        {
-            // Under the shader root, so the includer resolves <Common/...> exactly as for a file program.
-            return Common::Constants::Path::ShaderDir() / "VFX" /
-                   std::format( "Simulate_{:016x}.shader", compiled.Key );
-        }
     } // namespace
+
+    std::filesystem::path SimulationProgramPath( const VFXCompiledEmitter& compiled )
+    {
+        // Under the shader root, so the includer resolves <Common/...> exactly as for a file program.
+        return Common::Constants::Path::ShaderDir() / "VFX" /
+               std::format( "Simulate_{:016x}.shader", compiled.Key );
+    }
 
     VFXPoolRange PoolRangeOf( const VFXDataSetLayout& layout, uint32_t capacity )
     {
@@ -184,6 +185,6 @@ namespace Desert::VFX
         if ( !source.IsSuccess() )
             return Common::MakeError<std::vector<uint32_t>>( source.GetError() );
         return Core::ShaderCompiler::CompileGLSLToSPIRV( Core::Formats::ShaderStage::Compute, source.GetValue(),
-                                                         ProgramPath( compiled ).string() );
+                                                         SimulationProgramPath( compiled ).string() );
     }
 } // namespace Desert::VFX

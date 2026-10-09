@@ -111,6 +111,11 @@ namespace Desert::Graphic
         static std::shared_ptr<Shader> Create( const Assets::Asset<Assets::ShaderAsset>& asset,
                                                const ShaderVariant&                      variant  = {},
                                                const std::string&                        passName = {} );
+        // A GENERATED program: its `.shader` text is made by the engine (a compiled VFX emitter stack's simulation
+        // program, VFXSimulationProgram), not read from a file asset. @p virtualPath sits under the shader root so
+        // includes resolve as for a file program; @p name is the program's name.
+        static std::shared_ptr<Shader> CreateFromSource( const std::string& name, std::string source,
+                                                         const std::filesystem::path& virtualPath );
 
     protected:
         // Called by the backend when a Reload has replaced the code — and only then: a failed recompile keeps the
