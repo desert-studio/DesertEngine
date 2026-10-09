@@ -275,9 +275,9 @@ namespace Desert::Core::ExternalEntities
 
         // The descriptor index follows every save (WP18): the texts just written are its input, so only the
         // entities whose file changed are re-described and an unchanged world leaves the index untouched.
-        const auto indexed = DescriptorIndex::Refresh( scenePath, listed,
-                                                       [&]( Common::UUID id ) -> Common::ResultStr<std::string>
-                                                       { return Common::MakeSuccess( texts.at( Bits( id ) ) ); } );
+        const auto indexed =
+             DescriptorIndex::Refresh( scenePath, listed, [&]( Common::UUID id ) -> Common::ResultStr<std::string>
+                                       { return Common::MakeSuccess( texts.at( Bits( id ) ) ); } );
         if ( !indexed )
             return Common::MakeError<WriteOutcome>( indexed.GetError() );
         return Common::MakeSuccess( outcome );
