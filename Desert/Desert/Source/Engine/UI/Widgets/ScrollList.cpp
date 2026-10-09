@@ -203,40 +203,18 @@ namespace Desert::UI::Walk
         {
             // Auto-layout: the group positions + sizes its children (overriding their anchors). Each
             // child's preferred size = CustomMinimumSize, else its authored offset size (design px).
-            const auto&               g = *tree.Get<UILayoutGroupData>( e );
+            // THE LAYOUT AXIS lives in GatherLayoutSlots: a Collapsed child is not given a slot, so every
+            // sibling after it moves up by that slot's size plus the spacing. A Hidden one is kept there and
+            // stopped at the top of DrawElement, which is what leaves its hole open. The same gather and
+            // arrange serve the pick (UICanvasLayout), so a child is clicked where it is drawn.
+            const auto&         g = *tree.Get<UILayoutGroupData>( e );
             std::vector<NodeId> kids;
-            std::vector<glm::vec2>    sizes;
-            std::vector<float>        flex;
-            for ( auto c : children )
-            {
-                // THE LAYOUT AXIS, and the only place it does anything: a Collapsed child is not
-                // given a slot, so every sibling after it moves up by that slot's size plus the
-                // spacing. A Hidden one is kept here and stopped at the top of DrawElement, which
-                // is what leaves its hole open.
-                if ( !tree.Valid( c ) || !TakesLayoutSpace( tree, c ) )
-                    continue;
-                glm::vec2 pref( 0.0f );
-                float     fg = 0.0f;
-                if ( tree.Has<UILayoutData>( c ) )
-                {
-                    const auto& L = *tree.Get<UILayoutData>( c );
-                    pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
-                    fg            = L.FlexGrow;
-                }
-                kids.push_back( c );
-                sizes.push_back( pref * scale );
-                flex.push_back( fg );
-            }
-
-            LayoutGroupParams params = GroupParams( g, st, scale );
-            params.StretchCross      = g.StretchCross;
-            params.CellSize          = g.CellSize * scale;
-            params.Columns           = g.Columns;
-
-            const auto rects = SolveLayoutGroup( childParent, params, sizes, flex );
+            const auto          slots    = GatherLayoutSlots( tree, e, scale, &kids );
+            const auto          arranged = ArrangeLayoutGroup( childParent, GroupParams( g, st, scale ), slots );
+            // A ScaleBox hands its child a layout scale: text, padding and grandchildren scale with it.
             for ( std::size_t i = 0; i < kids.size(); ++i )
-                DrawElement( ctx, tree, kids[i], childParent, scale, dl, input, outClicked, focused, popups,
-                             focusables, childClip, childScope, &rects[i] );
+                DrawElement( ctx, tree, kids[i], childParent, scale * arranged[i].Scale, dl, input, outClicked,
+                             focused, popups, focusables, childClip, childScope, &arranged[i].R );
         }
         else
         {

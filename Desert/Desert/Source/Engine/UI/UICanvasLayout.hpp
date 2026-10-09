@@ -94,6 +94,21 @@ namespace Desert::UI
     // nothing to say and takes its slot.
     [[nodiscard]] bool TakesLayoutSpace( const IUITree& tree, NodeId e );
 
+    // --- The layout group, stated once --------------------------------------------------------------
+    // The component -> solver mapping (theme-free: the renderer's Walk::GroupParams starts from this and
+    // lays the theme's padding/spacing over it) and the one gather of a group's slots. The renderer's walk,
+    // the pick and the content-size fitter all read these, so a child placed by one is placed by all.
+    [[nodiscard]] LayoutGroupParams LayoutParamsOf( const UILayoutGroupData& g, float scale );
+
+    // The desired size of @p e as a slot of its parent's group, px: Custom Minimum Size, else its offset
+    // size — and for a SizeBox, the size box's own measure of its content (that is what a SizeBox is FOR).
+    [[nodiscard]] glm::vec2 SlotPreferredPx( const IUITree& tree, NodeId e, float scale );
+
+    // One LayoutSlot per child of @p e that takes a slot (Collapsed children do not), in child order; the
+    // nodes go to @p kids when it is given.
+    [[nodiscard]] std::vector<LayoutSlot> GatherLayoutSlots( const IUITree& tree, NodeId e, float scale,
+                                                             std::vector<NodeId>* kids = nullptr );
+
     // Is @p e drawn at all — and therefore hit-testable at all? False for Hidden and Collapsed, both of
     // which take their whole sub-tree with them.
     [[nodiscard]] bool IsElementVisible( const IUITree& tree, NodeId e );

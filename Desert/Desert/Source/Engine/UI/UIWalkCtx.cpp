@@ -631,10 +631,9 @@ namespace Desert::UI::Walk
     // values that must agree" defect in this engine, so there is one value.
     LayoutGroupParams GroupParams( const UILayoutGroupData& g, const ElementStyle& st, float scale )
     {
-        LayoutGroupParams params;
-        params.Type = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                      : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                         : LayoutGroupType::Vertical;
+        // Everything but the themed padding/spacing is the component's own, mapped in ONE place
+        // (UI::LayoutParamsOf) that the pick and the size fitter read too.
+        LayoutGroupParams params = LayoutParamsOf( g, scale );
 
         // A THEMED PADDING IS ONE NUMBER ON ALL FOUR EDGES. A theme says "panels breathe by 12 px",
         // which is a symmetric statement; the asymmetric cases (a title bar with a deeper top inset)
@@ -648,8 +647,6 @@ namespace Desert::UI::Walk
         params.PaddingR         = padding.z * scale;
         params.PaddingB         = padding.w * scale;
         params.Spacing          = st.Metric( StyleSlot::LayoutGroupSpacing, g.Spacing ) * scale;
-        params.CellSize         = g.CellSize * scale;
-        params.Columns          = g.Columns;
         return params;
     }
 
@@ -660,18 +657,8 @@ namespace Desert::UI::Walk
             return { 0.0f, 0.0f };
         const auto&            g = *tree.Get<UILayoutGroupData>( e );
         std::vector<glm::vec2> sizes;
-        for ( const NodeId c : ChildrenOf( tree, e ) )
-        {
-            if ( !tree.Valid( c ) || !TakesLayoutSpace( tree, c ) )
-                continue; // a Collapsed child has no slot, so it is not part of the content either
-            glm::vec2 pref( 0.0f );
-            if ( tree.Has<UILayoutData>( c ) )
-            {
-                const auto& L = *tree.Get<UILayoutData>( c );
-                pref          = glm::max( L.CustomMinimumSize, L.OffsetMax - L.OffsetMin );
-            }
-            sizes.push_back( pref * scale );
-        }
+        for ( const LayoutSlot& slot : GatherLayoutSlots( tree, e, scale ) )
+            sizes.push_back( slot.Pref ); // a Collapsed child has no slot, so it is not part of the content
         return MeasureLayoutGroup( GroupParams( g, st, scale ), sizes );
     }
 
