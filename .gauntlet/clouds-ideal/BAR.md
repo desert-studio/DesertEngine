@@ -25,3 +25,19 @@ The bar CANNOT decide: silhouette/lobe structure (flat bases, cauliflower heads)
 body size. Those are judged against the owner's words ("flat dark bases, cauliflower heads")
 and real cumulus photos in memory — written down in each verdict as such, not as "matches UE".
 Showcase is the internal control: the owner accepts how it looks; a change that degrades it is regressed.
+
+## Cumulus reference, written down (CLOUD-GAUNTLET-b, 2026-10-09) — the bar for base/top tone
+
+No subject-matched image is in the repo (owner rule: external assets not committed), so the cumulus
+standard is DESCRIBED here and every verdict on base/top tone is judged against this text, not the UE crops.
+Fair-weather cumulus (Cu humilis/mediocris) seen from the ground in daylight, sun 30–60 deg up:
+- BASE: flat, near-horizontal, all bodies at about one altitude; tone mid grey to grey-blue, clearly darker
+  than any sunlit face — on a photo the base sits roughly 0.45–0.65 of the sunlit top's luminance, darker
+  the thicker the body (a 1 km body's base is darker than a 200 m puff's).
+- TOP/FLANKS facing the sun: near-white, the brightest thing in the sky; shaded flanks grey but still lighter
+  than the base, because they see the open sky above and the base sees the dark ground below.
+- The gradient runs with height inside the body: bottom third darkest, top third brightest; it is NOT a
+  uniform grey over the whole body (r03's refusal: a global dim that greys tops fails this bar).
+- Thin puffs (< ~200 m) stay bright all over — they have no dark base; only bodies with depth earn one.
+What this can decide: the base-to-top luminance ratio per body (measured), and whether tops kept their white.
+What it cannot decide: exact hue of the base (depends on ground albedo / sky), which is judged as "grey-blue, not brown".

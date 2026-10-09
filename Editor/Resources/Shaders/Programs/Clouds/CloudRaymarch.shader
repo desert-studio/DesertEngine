@@ -76,6 +76,7 @@ Shader "CloudRaymarch"
         Float PhaseGBackward ("Phase G Backward", Range(-0.9, 0.9), Category("Lighting"), Timing(Immediate), Tooltip("Asymmetry of the SECOND phase lobe. Near zero it is almost isotropic, which is what carries the body of the cloud while the first lobe carries the bright rim against the sun. One lobe cannot do both: strong enough for the rim leaves the body black, weak enough for the body loses the rim.")) = 0.1667
         Float PhaseBlend ("Phase Blend", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much of the second lobe is mixed in. UE's shipped instance weights it toward the BODY at 0.575, so more than half the answer is the near-isotropic lobe and the sharp one is a highlight on top.")) = 0.575
         Float AmbientOcclusionStrength ("Ambient Occlusion Strength", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How strongly the sky light reaching a sample is occluded. Which occluder is measured is Sky Occlusion Volume's choice (on the component); this is how much of it is applied, either way. At 0 the core of a three-kilometre cumulus is lit as brightly as a wisp on its edge, which reads as a flat white cut-out.")) = 1.0
+        Float SkyLightCloudBottomOcclusion ("Sky Light Cloud Bottom Occlusion", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much of the sky light is taken away toward the BOTTOM of the layer - Unreal's Sky Light Cloud Bottom Occlusion, and the reason a cumulus base reads grey-blue under a white top. The sky light a sample receives is scaled from 1 - this value at the layer's base up to the full amount at its top, so the base sees the dark ground below it rather than the open sky. At 0 every height is lit by the same sky and a thick body is as bright underneath as on top; at 1 the base gets no sky light at all and goes black on the shaded side.")) = 0.5
         Int MultiScatterOctaves ("Multiple Scattering Octaves", Range(1, 3), Category("Lighting"), Timing(Immediate), Tooltip("How many scattering orders are approximated. ONE IS SINGLE SCATTERING, and a cloud lit by single scattering alone is physically grey: the light that makes a real cloud white has bounced many times inside it. Two or three is where it starts to look like weather. The ceiling of 3 is ECS::kCloudMultiScatterMaxOctaves; the CloudMaterialSchema census pins the two numbers together.")) = 3
         Float MultiScatterContribution ("Multiple Scattering Contribution", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much each successive scattering order contributes. The factor is SQUARED at every octave, so the series falls away quickly and the third order is already a small correction.")) = 0.667
         Float MultiScatterOcclusion ("Multiple Scattering Occlusion", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much less each successive order is absorbed. This is what lets light that has already scattered reach the core of a cloud that the direct beam never gets into - the reason a thick cumulus glows rather than going black. 0.4847 (the cube root of the similarity factor) puts the third octave exactly on the medium's diffusion length; 0.25 is the shipped calibration (D-32); it was set at 8/km and holds at the physical 75/km (CLOUD-SHAPE-e frames).")) = 0.25
@@ -781,6 +782,14 @@ Shader "CloudRaymarch"
                         // layer. Each default hands its argument straight back, so the two calls fold
                         // away and the loop is the loop it was.
                         ambientOcclusion = CloudSampleOcclusion(params, field, fieldPos, ambientOcclusion);
+
+                        // THE CLOUD BOTTOM, which neither occluder above can see: both measure cloud, and what
+                        // darkens a cumulus base is the GROUND under it — a sample at the bottom of the layer
+                        // looks down at dark earth where one at the top looks up at open sky. Unreal's
+                        // SkyLightCloudBottomOcclusion, by height in the layer (CloudLighting.glslh). Applied
+                        // AFTER the medium's own occlusion so a graph that writes the pin still gets the base
+                        // darkened, as the authored layer setting promises.
+                        ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, u_CloudAlbedo.w);
                         vec3 sampleAlbedo = CloudSampleAlbedo(params, field, fieldPos, albedo);
 
                         luminance += transmittance *

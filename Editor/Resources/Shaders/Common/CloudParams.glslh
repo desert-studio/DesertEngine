@@ -111,7 +111,7 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // 16 while glm::vec3 aligns to 4, so a vec4 appended after u_CloudAerial would sit at 272 here and at
     // 268 in Graphic::CloudGpuPayload — a silent divergence between the two halves of one layout, which is
     // the failure this whole file exists to prevent. Same reason the species array is where it is.
-    vec4  u_CloudAlbedo;
+    vec4  u_CloudAlbedo;    // rgb scattering albedo, w Sky Light Cloud Bottom Occlusion (CloudLighting.glslh)
     // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y rho, z not read since
     // CUT-AT-BAKE, w 1 / the weather's period in km. Unpacked into
     // CloudFieldParams::Weather for Common/CloudField.glslh's procedural producer. Before u_CloudAerial for

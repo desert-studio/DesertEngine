@@ -103,7 +103,8 @@ namespace Desert::Graphic
         // renderer binds the images in the same order it numbers them.
         glm::vec4 SpeciesNoise;
 
-        // THE MEDIUM'S SCATTERING ALBEDO, PER COLOUR. rgb; w is not read (kUnreadSlots).
+        // THE MEDIUM'S SCATTERING ALBEDO, PER COLOUR. rgb; w = Sky Light Cloud Bottom Occlusion, which
+        // closes the hole the colour opened — Unreal's own arrangement of a scalar beside its albedo.
         //
         // WHY IT IS ITS OWN vec4 AND NOT THREE SLOTS SOMEWHERE. Three components of one colour have to be
         // contiguous to be fetched as `.rgb`, and no existing member had three free slots. A vec4 is
@@ -235,15 +236,11 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 6> kCloudUnreadSlots = {
+    inline constexpr std::array<CloudUnreadSlot, 5> kCloudUnreadSlots = {
          { { "u_CloudDetail", 'z',
              "held the scalar scattering albedo until the albedo became a colour and moved to "
              "u_CloudAlbedo; not reused, because a slot repurposed without a schema parameter behind it is "
              "how a value reaches the GPU with no name, no range and no tooltip" },
-           { "u_CloudAlbedo", 'w',
-             "the toll std430 charges for a three-component colour: a grid of vec4s can only grow by four, "
-             "and a colour needs three contiguous components, so the fourth is unreachable arithmetic "
-             "rather than a reserved field" },
            { "u_CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
@@ -945,7 +942,8 @@ namespace Desert::Graphic
         // over 1 here would make the multiple-scattering series diverge instead of converging, and the
         // frame would bloom on the third octave with nothing in the log.
         p.Albedo =
-             glm::vec4( glm::clamp( material.ScatteringAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ), 0.0f );
+             glm::vec4( glm::clamp( material.ScatteringAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ),
+                        std::clamp( material.SkyLightCloudBottomOcclusion, 0.0f, 1.0f ) );
 
         // THE TYPES' FACTORS ARE NO LONGER FOLDED INTO THE LAYER'S, and the reason is arithmetic rather
         // than taste. A cumulonimbus is made of more water than a stratus, a cirrus is a quarter as opaque

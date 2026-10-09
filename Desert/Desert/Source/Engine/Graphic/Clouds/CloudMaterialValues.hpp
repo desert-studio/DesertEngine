@@ -107,6 +107,7 @@ namespace Desert::Graphic
         float     PhaseGBackward           = 0.1667f;
         float     PhaseBlend               = 0.575f;
         float     AmbientOcclusionStrength = 1.0f;
+        float     SkyLightCloudBottomOcclusion = 0.5f;
         int32_t   MultiScatterOctaves      = 3;
         float     MultiScatterContribution = 0.667f;
         float     MultiScatterOcclusion    = 0.25f;
@@ -226,6 +227,8 @@ namespace Desert::Graphic
                 AssignCloudValue( v.PhaseBlend, name, p );
             else if ( name == "AmbientOcclusionStrength" )
                 AssignCloudValue( v.AmbientOcclusionStrength, name, p );
+            else if ( name == "SkyLightCloudBottomOcclusion" )
+                AssignCloudValue( v.SkyLightCloudBottomOcclusion, name, p );
             else if ( name == "MultiScatterOctaves" )
                 AssignCloudValue( v.MultiScatterOctaves, name, p );
             else if ( name == "MultiScatterContribution" )

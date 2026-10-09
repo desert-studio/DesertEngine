@@ -289,6 +289,7 @@ namespace Desert::Editor::ShaderGraph
             { "PhaseGBackward",           "in the packed block, and a per-sample phase is not an output of this domain's contract" },
             { "PhaseBlend",               "in the packed block, and a per-sample phase is not an output of this domain's contract" },
             { "AmbientOcclusionStrength", "already applied to the value the Layer Occlusion node hands out, so exposing it as well would let a graph apply it twice" },
+            { "SkyLightCloudBottomOcclusion", "in the packed block, and applied after the medium's occlusion pin so a graph cannot remove the base the layer authored" },
             { "MultiScatterOctaves",      "in the packed block, and the scattering series is read once per dispatch rather than per sample" },
             { "MultiScatterContribution", "in the packed block, and the scattering series is read once per dispatch rather than per sample" },
             { "MultiScatterOcclusion",    "in the packed block, and the scattering series is read once per dispatch rather than per sample" },

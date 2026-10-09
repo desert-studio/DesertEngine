@@ -89,6 +89,7 @@ namespace
     // Р11's own, on the tree it names, and is left as measured rather than adjusted.
     constexpr const char* kO1D = "O1-D 2026-09-09, dev@2b504842, Clouds_Protocol 715x784, floor 0 bytes";
     constexpr const char* kP11 = "Р11 2026-08-31, dev@a2631ce0, Clouds_Protocol 1280x766, floor 0 bytes";
+    constexpr const char* kCGb = "CLOUD-GAUNTLET-b r04 2026-10-09, task/CLOUD-FARWX, Clouds_Showcase 1435x857, floor 0 bytes";
 
     // О11 measured on SIL_Lenticular rather than Clouds_Protocol, and the departure is the point: the
     // control is about ONE species' band against the cell it is placed on, and the protocol scene's
@@ -264,6 +265,8 @@ namespace
          // and a smaller version of one another.
          { "AmbientOcclusionStrength", "max 32/255 over 100% at AZ135 EL45",
            "the sky-occlusion volume ON, as it has shipped since Р12", kO1D },
+         { "SkyLightCloudBottomOcclusion", "max 23/255 over 14.9% at horizon (0 <-> 0.5)",
+           "measured on Showcase rather than the protocol: the protocol deck has no flat base to darken", kCGb },
 
          { "MultiScatterOctaves", "max 81/255 over 100% at AZ135 EL45", "", kP11 },
          { "MultiScatterContribution", "max 124/255 over 100% at AZ135 EL45", "", kP11 },

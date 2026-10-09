@@ -556,6 +556,7 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
                                 "PhaseGBackward",
                                 "PhaseBlend",
                                 "AmbientOcclusionStrength",
+                                "SkyLightCloudBottomOcclusion",
                                 "MultiScatterOctaves",
                                 "MultiScatterContribution",
                                 "MultiScatterOcclusion",
