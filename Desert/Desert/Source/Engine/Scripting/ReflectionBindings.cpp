@@ -1,6 +1,9 @@
 #include "Internal/ScriptRuntime.hpp"
 
+#include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+
+#include <cstring>
 
 namespace Desert::Scripting
 {
@@ -17,89 +20,35 @@ namespace Desert::Scripting
     //         light.Color     = { x = 1, y = 0.5, z = 0.2 }   -- vec fields <-> tables
     //     end
     //
-    // Adding a PROPERTY field to a component makes it scriptable automatically; adding a NEW
-    // reflected component = ONE line in kReflectedComponents below.
+    //         light.Shadow.Bias = 0.01                       -- a Struct field is a nested proxy
+    //
+    // Adding a PROPERTY field to a component makes it scriptable automatically; a component is reachable by
+    // name exactly when its block is in the serializer's list (ECS/ReflectedComponents.hpp), under its record
+    // key. An asset-handle field reads and writes as its integer handle. A write that lands ends in the
+    // component's on_update signal (ReflectedComponent::NotifyChanged). Containers are not exposed yet.
 
     namespace
     {
-        struct ReflectedComponentEntry
-        {
-            const char* Name;     // Lua-facing component name
-            const char* TypeName; // reflection registry type of the Data block
-            bool ( *Has )( entt::registry&, entt::entity );
-            void* ( *Data )( entt::registry&, entt::entity );
-            void ( *Add )( entt::registry&, entt::entity );    // no-op if already present
-            void ( *Remove )( entt::registry&, entt::entity ); // no-op if absent
-        };
-
-        template <class TComp>
-        constexpr ReflectedComponentEntry MakeEntry( const char* name, const char* typeName )
-        {
-            return { name, typeName,
-                     []( entt::registry& r, entt::entity e ) { return r.has<TComp>( e ); },
-                     []( entt::registry& r, entt::entity e ) -> void*
-                     { return &r.get<TComp>( e ).Data; },
-                     []( entt::registry& r, entt::entity e )
-                     {
-                         if ( !r.has<TComp>( e ) )
-                             r.emplace<TComp>( e );
-                     },
-                     []( entt::registry& r, entt::entity e )
-                     {
-                         if ( r.has<TComp>( e ) )
-                             r.remove<TComp>( e );
-                     } };
-        }
-
-        // The single registration list (mirrors the reflected-component serializers).
-        constexpr ReflectedComponentEntry kReflectedComponents[] = {
-             MakeEntry<ECS::CameraComponent>( "Camera", "CameraData" ),
-             MakeEntry<ECS::DirectionLightComponent>( "DirectionLight", "DirectionalLightData" ),
-             MakeEntry<ECS::PointLightComponent>( "PointLight", "PointLightData" ),
-             MakeEntry<ECS::SpotLightComponent>( "SpotLight", "SpotLightData" ),
-             MakeEntry<ECS::LandscapeMaterialComponent>( "LandscapeMaterial", "LandscapeMaterialData" ),
-             MakeEntry<ECS::ColliderComponent>( "Collider", "ColliderData" ),
-             MakeEntry<ECS::RigidBodyComponent>( "RigidBody", "RigidBodyData" ),
-             MakeEntry<ECS::DestructibleComponent>( "Destructible", "DestructibleData" ),
-             MakeEntry<ECS::RadialImpulseFieldComponent>( "RadialImpulseField", "RadialImpulseFieldData" ),
-             MakeEntry<ECS::StrainFieldComponent>( "StrainField", "StrainFieldData" ),
-             MakeEntry<ECS::KillFieldComponent>( "KillField", "KillFieldData" ),
-             MakeEntry<ECS::AnchorFieldComponent>( "AnchorField", "AnchorFieldData" ),
-             MakeEntry<ECS::CharacterControllerComponent>( "CharacterController", "CharacterControllerData" ),
-             MakeEntry<ECS::SkyAtmosphereComponent>( "SkyAtmosphere", "SkyAtmosphereData" ),
-             MakeEntry<ECS::ExponentialHeightFogComponent>( "ExponentialHeightFog", "ExponentialHeightFogData" ),
-             MakeEntry<ECS::PostProcessVolumeComponent>( "PostProcessVolume", "PostProcessVolumeData" ),
-             MakeEntry<ECS::VolumetricCloudComponent>( "VolumetricCloud", "VolumetricCloudData" ),
-             MakeEntry<ECS::HeroCloudComponent>( "HeroCloud", "HeroCloudData" ),
-             MakeEntry<ECS::ProceduralFoliageComponent>( "ProceduralFoliage", "ProceduralFoliageData" ),
-        };
-
-        const ReflectedComponentEntry* FindEntry( const std::string& name )
-        {
-            for ( const auto& e : kReflectedComponents )
-                if ( name == e.Name )
-                    return &e;
-            return nullptr;
-        }
-
-        // Lua-side view of one reflected component instance on one entity.
+        // Lua-side view of one reflected struct inside one component on one entity: the component's data block
+        // itself (Base 0), or a Struct field nested in it (Base = its offset in the block). The component row
+        // comes from ECS::ReflectedComponents, the one component<->type table (the serializer's list).
         struct ComponentProxy
         {
-            entt::entity                   handle = entt::null;
-            Core::Scene*                   scene  = nullptr;
-            const ReflectedComponentEntry* entry  = nullptr;
-            const Reflection::TypeInfo*    type   = nullptr;
+            entt::entity                   handle    = entt::null;
+            Core::Scene*                   scene     = nullptr;
+            const ECS::ReflectedComponent* component = nullptr;
+            const Reflection::TypeInfo*    type      = nullptr; // the struct this proxy views
+            std::size_t                    base      = 0;       // its offset within the component's data block
 
             bool Valid() const
             {
-                return scene && entry && type && handle != entt::null &&
-                       scene->GetRegistry().valid( handle ) &&
-                       entry->Has( scene->GetRegistry(), handle );
+                return scene && component && type && handle != entt::null &&
+                       scene->GetRegistry().valid( handle ) && component->Has( scene->GetRegistry(), handle );
             }
 
             void* DataPtr() const
             {
-                return entry->Data( scene->GetRegistry(), handle );
+                return static_cast<char*>( component->Data( scene->GetRegistry(), handle ) ) + base;
             }
 
             const Reflection::FieldInfo* FindField( const std::string& name ) const
@@ -110,13 +59,75 @@ namespace Desert::Scripting
                 return nullptr;
             }
 
+            // An integer field of `size` bytes (enums are stored at their underlying width).
+            static int64_t ReadInt( const char* p, std::size_t size )
+            {
+                switch ( size )
+                {
+                    case 1:
+                    {
+                        int8_t v;
+                        std::memcpy( &v, p, 1 );
+                        return v;
+                    }
+                    case 2:
+                    {
+                        int16_t v;
+                        std::memcpy( &v, p, 2 );
+                        return v;
+                    }
+                    case 8:
+                    {
+                        int64_t v;
+                        std::memcpy( &v, p, 8 );
+                        return v;
+                    }
+                    default:
+                    {
+                        int32_t v;
+                        std::memcpy( &v, p, 4 );
+                        return v;
+                    }
+                }
+            }
+
+            static void WriteInt( char* p, std::size_t size, int64_t value )
+            {
+                switch ( size )
+                {
+                    case 1:
+                    {
+                        const auto v = static_cast<int8_t>( value );
+                        std::memcpy( p, &v, 1 );
+                        break;
+                    }
+                    case 2:
+                    {
+                        const auto v = static_cast<int16_t>( value );
+                        std::memcpy( p, &v, 2 );
+                        break;
+                    }
+                    case 8:
+                    {
+                        std::memcpy( p, &value, 8 );
+                        break;
+                    }
+                    default:
+                    {
+                        const auto v = static_cast<int32_t>( value );
+                        std::memcpy( p, &v, 4 );
+                        break;
+                    }
+                }
+            }
+
             sol::object Index( sol::this_state ts, const std::string& fieldName ) const
             {
                 if ( !Valid() )
                     return sol::lua_nil;
                 const auto* f = FindField( fieldName );
-                if ( !f )
-                    return sol::lua_nil;
+                if ( !f || f->IsContainer )
+                    return sol::lua_nil; // a std::vector field is not a scalar at Offset: never reinterpret it
 
                 sol::state_view lua( ts );
                 const char*     p = static_cast<const char*>( DataPtr() ) + f->Offset;
@@ -130,7 +141,19 @@ namespace Desert::Scripting
                     case FT::Double: return sol::make_object( lua, *reinterpret_cast<const double*>( p ) );
                     case FT::String:
                         return sol::make_object( lua, *reinterpret_cast<const std::string*>( p ) );
-                    case FT::Enum: return sol::make_object( lua, *reinterpret_cast<const int32_t*>( p ) );
+                    case FT::Enum:
+                        return sol::make_object( lua, ReadInt( p, f->Size ) );
+                    case FT::AssetHandle:
+                    {
+                        int64_t handle = 0; // the u64 handle's bits: Lua integers are 64-bit, nothing is lost
+                        std::memcpy( &handle, p, sizeof( handle ) );
+                        return sol::make_object( lua, handle );
+                    }
+                    case FT::Struct:
+                        if ( f->StructType == nullptr )
+                            return sol::lua_nil;
+                        return sol::make_object(
+                             lua, ComponentProxy{ handle, scene, component, f->StructType, base + f->Offset } );
                     case FT::Vec2:
                     {
                         const auto* v = reinterpret_cast<const glm::vec2*>( p );
@@ -148,9 +171,10 @@ namespace Desert::Scripting
                         return sol::make_object(
                              lua, lua.create_table_with( "x", v->x, "y", v->y, "z", v->z, "w", v->w ) );
                     }
-                    default:
-                        return sol::lua_nil; // Struct/AssetHandle/containers: not exposed (yet)
+                    case FT::Unknown:
+                        return sol::lua_nil;
                 }
+                return sol::lua_nil;
             }
 
             // Reads a vector component out of a Lua table accepting {x=..}, {r=..} or [1..4].
@@ -171,71 +195,99 @@ namespace Desert::Scripting
                 if ( !Valid() )
                     return;
                 const auto* f = FindField( fieldName );
-                if ( !f || f->Meta.ReadOnly )
+                if ( !f || f->Meta.ReadOnly || f->IsContainer )
                     return;
+                if ( Write( *f, static_cast<char*>( DataPtr() ) + f->Offset, value ) )
+                    component->NotifyChanged( scene->GetRegistry(), handle );
+            }
 
-                char* p = static_cast<char*>( DataPtr() ) + f->Offset;
+            // True when `value` was of the field's kind and landed; a mismatch writes nothing.
+            static bool Write( const Reflection::FieldInfo& f, char* p, const sol::object& value )
+            {
                 using FT = Reflection::FieldType;
-                switch ( f->Type )
+                switch ( f.Type )
                 {
                     case FT::Bool:
-                        if ( value.is<bool>() )
-                            *reinterpret_cast<bool*>( p ) = value.as<bool>();
-                        break;
+                        if ( !value.is<bool>() )
+                            return false;
+                        *reinterpret_cast<bool*>( p ) = value.as<bool>();
+                        return true;
                     case FT::Int:
+                        if ( !value.is<double>() )
+                            return false;
+                        *reinterpret_cast<int32_t*>( p ) = static_cast<int32_t>( value.as<double>() );
+                        return true;
                     case FT::Enum:
-                        if ( value.is<double>() )
-                            *reinterpret_cast<int32_t*>( p ) = static_cast<int32_t>( value.as<double>() );
-                        break;
+                        if ( !value.is<double>() )
+                            return false;
+                        WriteInt( p, f.Size, static_cast<int64_t>( value.as<double>() ) );
+                        return true;
                     case FT::UInt:
-                        if ( value.is<double>() )
-                            *reinterpret_cast<uint32_t*>( p ) = static_cast<uint32_t>( value.as<double>() );
-                        break;
+                        if ( !value.is<double>() )
+                            return false;
+                        *reinterpret_cast<uint32_t*>( p ) = static_cast<uint32_t>( value.as<double>() );
+                        return true;
                     case FT::Float:
-                        if ( value.is<double>() )
-                            *reinterpret_cast<float*>( p ) = static_cast<float>( value.as<double>() );
-                        break;
+                        if ( !value.is<double>() )
+                            return false;
+                        *reinterpret_cast<float*>( p ) = static_cast<float>( value.as<double>() );
+                        return true;
                     case FT::Double:
-                        if ( value.is<double>() )
-                            *reinterpret_cast<double*>( p ) = value.as<double>();
-                        break;
+                        if ( !value.is<double>() )
+                            return false;
+                        *reinterpret_cast<double*>( p ) = value.as<double>();
+                        return true;
                     case FT::String:
-                        if ( value.is<std::string>() )
-                            *reinterpret_cast<std::string*>( p ) = value.as<std::string>();
-                        break;
+                        if ( !value.is<std::string>() )
+                            return false;
+                        *reinterpret_cast<std::string*>( p ) = value.as<std::string>();
+                        return true;
+                    case FT::AssetHandle:
+                    {
+                        if ( !value.is<int64_t>() )
+                            return false;
+                        const int64_t handle = value.as<int64_t>(); // the bits a read returned
+                        std::memcpy( p, &handle, sizeof( handle ) );
+                        return true;
+                    }
                     case FT::Vec2:
-                        if ( value.is<sol::table>() )
-                        {
-                            auto  t = value.as<sol::table>();
-                            auto* v = reinterpret_cast<glm::vec2*>( p );
-                            v->x    = VecComp( t, "x", "r", 1, v->x );
-                            v->y    = VecComp( t, "y", "g", 2, v->y );
-                        }
-                        break;
+                    {
+                        if ( !value.is<sol::table>() )
+                            return false;
+                        auto  t = value.as<sol::table>();
+                        auto* v = reinterpret_cast<glm::vec2*>( p );
+                        v->x    = VecComp( t, "x", "r", 1, v->x );
+                        v->y    = VecComp( t, "y", "g", 2, v->y );
+                        return true;
+                    }
                     case FT::Vec3:
-                        if ( value.is<sol::table>() )
-                        {
-                            auto  t = value.as<sol::table>();
-                            auto* v = reinterpret_cast<glm::vec3*>( p );
-                            v->x    = VecComp( t, "x", "r", 1, v->x );
-                            v->y    = VecComp( t, "y", "g", 2, v->y );
-                            v->z    = VecComp( t, "z", "b", 3, v->z );
-                        }
-                        break;
+                    {
+                        if ( !value.is<sol::table>() )
+                            return false;
+                        auto  t = value.as<sol::table>();
+                        auto* v = reinterpret_cast<glm::vec3*>( p );
+                        v->x    = VecComp( t, "x", "r", 1, v->x );
+                        v->y    = VecComp( t, "y", "g", 2, v->y );
+                        v->z    = VecComp( t, "z", "b", 3, v->z );
+                        return true;
+                    }
                     case FT::Vec4:
-                        if ( value.is<sol::table>() )
-                        {
-                            auto  t = value.as<sol::table>();
-                            auto* v = reinterpret_cast<glm::vec4*>( p );
-                            v->x    = VecComp( t, "x", "r", 1, v->x );
-                            v->y    = VecComp( t, "y", "g", 2, v->y );
-                            v->z    = VecComp( t, "z", "b", 3, v->z );
-                            v->w    = VecComp( t, "w", "a", 4, v->w );
-                        }
-                        break;
-                    default:
-                        break;
+                    {
+                        if ( !value.is<sol::table>() )
+                            return false;
+                        auto  t = value.as<sol::table>();
+                        auto* v = reinterpret_cast<glm::vec4*>( p );
+                        v->x    = VecComp( t, "x", "r", 1, v->x );
+                        v->y    = VecComp( t, "y", "g", 2, v->y );
+                        v->z    = VecComp( t, "z", "b", 3, v->z );
+                        v->w    = VecComp( t, "w", "a", 4, v->w );
+                        return true;
+                    }
+                    case FT::Struct: // written field by field through the nested proxy
+                    case FT::Unknown:
+                        return false;
                 }
+                return false;
             }
         };
     } // namespace
@@ -257,21 +309,21 @@ namespace Desert::Scripting
             sol::state_view lua( ts );
             if ( !self.Valid() )
                 return sol::lua_nil;
-            const auto* entry = FindEntry( name );
-            if ( !entry || !entry->Has( self.Reg(), self.handle ) )
+            const auto* row = ECS::FindReflectedComponent( name );
+            if ( !row || !row->Has( self.Reg(), self.handle ) )
                 return sol::lua_nil;
-            const auto* type = Reflection::ReflectionRegistry::Get().Find( entry->TypeName );
+            const auto* type = row->Type();
             if ( !type )
                 return sol::lua_nil;
-            return sol::make_object( lua, ComponentProxy{ self.handle, self.scene, entry, type } );
+            return sol::make_object( lua, ComponentProxy{ self.handle, self.scene, row, type, 0 } );
         };
 
         entity["hasComponent"] = []( ScriptEntity& self, const std::string& name )
         {
             if ( !self.Valid() )
                 return false;
-            const auto* entry = FindEntry( name );
-            return entry && entry->Has( self.Reg(), self.handle );
+            const auto* row = ECS::FindReflectedComponent( name );
+            return row && row->Has( self.Reg(), self.handle );
         };
 
         // self:addComponent("PointLight") -> proxy over the (new or existing) component with
@@ -282,22 +334,22 @@ namespace Desert::Scripting
             sol::state_view lua( ts );
             if ( !self.Valid() )
                 return sol::lua_nil;
-            const auto* entry = FindEntry( name );
-            if ( !entry )
+            const auto* row = ECS::FindReflectedComponent( name );
+            if ( !row )
                 return sol::lua_nil;
-            const auto* type = Reflection::ReflectionRegistry::Get().Find( entry->TypeName );
+            const auto* type = row->Type();
             if ( !type )
                 return sol::lua_nil;
-            entry->Add( self.Reg(), self.handle );
-            return sol::make_object( lua, ComponentProxy{ self.handle, self.scene, entry, type } );
+            row->Add( self.Reg(), self.handle );
+            return sol::make_object( lua, ComponentProxy{ self.handle, self.scene, row, type, 0 } );
         };
 
         entity["removeComponent"] = []( ScriptEntity& self, const std::string& name )
         {
             if ( !self.Valid() )
                 return;
-            if ( const auto* entry = FindEntry( name ) )
-                entry->Remove( self.Reg(), self.handle );
+            if ( const auto* row = ECS::FindReflectedComponent( name ) )
+                row->Remove( self.Reg(), self.handle );
         };
     }
 } // namespace Desert::Scripting
