@@ -141,9 +141,12 @@ namespace Desert::Input
                 Common::BoolResultStr                  ok   = ReadContextAndActions( assets, context, actions );
                 if ( ok )
                     ok = AddLoadedContext( name, context->GetData(), actions, priority );
+                // Braced: LOG_ERROR is a statement block, so an `else` after it would bind to nothing.
                 if ( !ok )
+                {
                     LOG_ERROR( "[Input] mapping context '{}' was not added: {}",
                                context->GetMetadata().Filepath.string(), ok.GetError() );
+                }
                 else if ( added != nullptr )
                     added->push_back( name );
             }
