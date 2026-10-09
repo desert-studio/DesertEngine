@@ -288,9 +288,10 @@ TEST( WorldTimeOneSource, TheWallClockAllowListHasNoDeadRows )
     }
 }
 
-// THE VIEWPORT'S REALTIME IS THE MAIN SCENE'S. SceneWorkspace (cut from EditorLayer) hands the preference to the scene it ticks, and no
-// other editor code sets a scene's Realtime: a preview scene (the animation editor's) keeps its own default, so
-// turning the main viewport's Realtime off freezes the level, never the preview (AnimatorPose relation test).
+// THE VIEWPORT'S REALTIME IS THE MAIN SCENE'S. SceneWorkspace (cut from EditorLayer) hands the preference to the
+// scene it ticks, and no other editor code sets a scene's Realtime: a preview scene (the animation editor's) keeps
+// its own default, so turning the main viewport's Realtime off freezes the level, never the preview (AnimatorPose
+// relation test).
 TEST( WorldTimeOneSource, OnlyTheMainSceneTakesTheViewportsRealtime )
 {
     const std::string root = RepoRoot();
