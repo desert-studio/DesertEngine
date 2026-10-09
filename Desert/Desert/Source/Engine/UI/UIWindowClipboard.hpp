@@ -10,9 +10,17 @@ namespace Desert::UI
     class WindowClipboard final : public IUIClipboard
     {
     public:
-        explicit WindowClipboard( Window& window ) : m_Window( window ) {}
-        std::string GetText() const override { return m_Window.GetClipboardText(); }
-        void        SetText( const std::string& text ) override { m_Window.SetClipboardText( text ); }
+        explicit WindowClipboard( Window& window ) : m_Window( window )
+        {
+        }
+        std::string GetText() const override
+        {
+            return m_Window.GetClipboardText();
+        }
+        void SetText( const std::string& text ) override
+        {
+            m_Window.SetClipboardText( text );
+        }
 
     private:
         Window& m_Window;

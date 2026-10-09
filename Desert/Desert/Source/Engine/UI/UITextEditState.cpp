@@ -287,8 +287,8 @@ namespace Desert::UI
         const bool atStart   = lo == 0;
         const bool restMinus = hi < text.size() && text[hi] == '-';
         // A decimal point already kept OUTSIDE the selection (the selection is about to be replaced).
-        bool hasPoint = text.find( '.' ) < lo || text.find( '.', hi ) != std::string::npos;
-        std::size_t count = CountCodepoints( text, 0, text.size() ) - CountCodepoints( text, lo, hi );
+        bool        hasPoint = text.find( '.' ) < lo || text.find( '.', hi ) != std::string::npos;
+        std::size_t count    = CountCodepoints( text, 0, text.size() ) - CountCodepoints( text, lo, hi );
         std::string accepted;
         for ( std::size_t i = 0; i < in.size(); )
         {

@@ -134,7 +134,7 @@ namespace Desert::UI::Walk
         const bool press = input && input->MouseDown && !ctx.View.PrevDown;
         if ( interactive && focused && hover && press )
         {
-            *focused = e; // focus on press, as Slate does, so the same press places the caret
+            *focused             = e; // focus on press, as Slate does, so the same press places the caret
             const std::size_t at = offsetAt( input->MousePx );
             if ( edit.LastClickTime >= 0.0 && ctx.View.Time - edit.LastClickTime < 0.35 )
                 edit.SelectWordAt( f.Text, at );
@@ -252,7 +252,8 @@ namespace Desert::UI::Walk
         {
             const float caretX  = xOf( edit.Caret() );
             const auto [y0, y1] = band( UITextLineOf( f.Text, edit.Caret() ) );
-            dl.AddRectFilled( { caretX, y0 }, { caretX + std::max( 1.0f, scale ), y1 }, glm::vec4( fieldText, 1.0f ) );
+            dl.AddRectFilled( { caretX, y0 }, { caretX + std::max( 1.0f, scale ), y1 },
+                              glm::vec4( fieldText, 1.0f ) );
         }
         dl.PopClipRect();
     }

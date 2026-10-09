@@ -12,7 +12,7 @@
 #include <vector>
 
 using namespace Desert::UI;
-using Desert::Common::KeyCode;
+using Common::KeyCode;
 
 namespace
 {

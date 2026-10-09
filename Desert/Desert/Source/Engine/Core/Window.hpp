@@ -141,8 +141,8 @@ namespace Desert
         virtual void                             SetEventTree( Common::EventTree& events ) = 0;
 
         // The system clipboard as UTF-8 text (GLFW's clipboard of this window). Empty when it holds no text.
-        [[nodiscard]] virtual std::string GetClipboardText() const                  = 0;
-        virtual void                      SetClipboardText( const std::string& text ) = 0;
+        [[nodiscard]] virtual std::string        GetClipboardText() const                    = 0;
+        virtual void                             SetClipboardText( const std::string& text ) = 0;
         [[nodiscard]] virtual Common::EventTree* GetEventTree() const                      = 0;
 
         template <Common::RoutedEvent E>

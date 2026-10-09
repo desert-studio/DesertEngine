@@ -114,7 +114,7 @@ namespace Desert::Editor::Render
                 input.ScrollDelta   = pv.Scroll;
                 input.Keys           = pv.Keys;
                 input.TypedText     = pv.TypedText;
-                input.Clipboard     = &clipboard;
+                input.Clipboard      = &clipboard;
             }
 
             std::vector<std::string> uiMessages;
