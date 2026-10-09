@@ -5,18 +5,21 @@
 // metadata) into Desert::Reflection::ReflectionRegistry at static-init time.
 //
 // Usage:
-//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor <Name>]]
+//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor
+//   <Name>]]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
 //     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates).
-//     --reflect      REFLECT()/PROPERTY()/FUNCTION() registration of <source-root>/<scan-subdir> into <output-file>.
+//     --reflect      REFLECT()/PROPERTY()/FUNCTION() registration of <source-root>/<scan-subdir> into
+//     <output-file>.
 //     --reflect-anchor <Name>  after --reflect: the force-link function the output defines (default
 //                    ForceLinkGeneratedReflection; a second generated set in one image names its own).
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
 //
-//     --reflect-components  after --reflect: the COMPONENT(...) rows as a header (ReflectedComponentBlocks.gen.hpp).
+//     --reflect-components  after --reflect: the COMPONENT(...) rows as a header
+//     (ReflectedComponentBlocks.gen.hpp).
 // The annotation macros (REFLECT/PROPERTY) expand to nothing during normal compilation; only this
 // tool reads them. See Engine/Reflection/ReflectionMacros.hpp.
 
@@ -610,7 +613,8 @@ namespace
             else if ( tok.rfind( "Run", 0 ) == 0 )
                 c.run = ParenIdent( tok );
             else
-                error = "COMPONENT: unknown attribute '" + tok + "' (Key(\"...\"), Block( Member ) | Whole, Run( ... ))";
+                error = "COMPONENT: unknown attribute '" + tok +
+                        "' (Key(\"...\"), Block( Member ) | Whole, Run( ... ))";
         }
         if ( error.empty() && c.key.empty() )
             error = "COMPONENT: Key(\"...\") is required";
@@ -886,8 +890,8 @@ namespace
                     }
                     const auto line =
                          std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( start ), '\n' ) + 1;
-                    c.where                   = file.generic_string() + ":" + std::to_string( line );
-                    c.headerInclude           = headerInclude;
+                    c.where                 = file.generic_string() + ":" + std::to_string( line );
+                    c.headerInclude         = headerInclude;
                     scopes.back().component = std::move( c );
                     continue;
                 }
@@ -1239,11 +1243,12 @@ namespace
             const auto        colon = c.memberType.rfind( "::" );
             const std::string shortName =
                  colon == std::string::npos ? c.memberType : c.memberType.substr( colon + 2 );
-            const auto matches = std::count_if( types.begin(), types.end(),
-                                                [&]( const ReflectedType& t ) { return t.registryName == shortName; } );
+            const auto matches = std::count_if( types.begin(), types.end(), [&]( const ReflectedType& t )
+                                                { return t.registryName == shortName; } );
             if ( matches != 1 )
-                errors.push_back( c.where + ": COMPONENT " + c.key + ": " + c.member + "'s type '" + c.memberType +
-                                  ( matches == 0 ? "' is not a REFLECT() type" : "' names several reflected types" ) );
+                errors.push_back(
+                     c.where + ": COMPONENT " + c.key + ": " + c.member + "'s type '" + c.memberType +
+                     ( matches == 0 ? "' is not a REFLECT() type" : "' names several reflected types" ) );
             else
                 c.typeName = shortName;
         }
@@ -1356,7 +1361,8 @@ namespace
         if ( request.Components.empty() )
             return 0;
 
-        auto blocks = RenderTemplate( templateDir, "ReflectedComponentBlocks.gen.hpp.tpl", ComponentsModel( components ) );
+        auto blocks =
+             RenderTemplate( templateDir, "ReflectedComponentBlocks.gen.hpp.tpl", ComponentsModel( components ) );
         if ( !blocks.IsSuccess() )
         {
             std::cerr << "[DesertHeaderTool] " << blocks.GetError() << "\n";

@@ -29,7 +29,8 @@
 
 namespace Desert::Core::Serialize
 {
-    // Where a run is registered among the hand-written serializers (see ORDER IS NOT FORMAT above: load order only).
+    // Where a run is registered among the hand-written serializers (see ORDER IS NOT FORMAT above: load order
+    // only).
     enum class ReflectedBlockRun
     {
         ActorsAndUI,          // after the animation handlers, before UIRenderTexture
