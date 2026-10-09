@@ -256,7 +256,7 @@ namespace Desert::Editor
 
         // Crash recovery: the pop-up for the previous session's autosave after an unclean exit, then this
         // session's lock (SessionRecovery::OfferAndArm); a clean shutdown (OnDetach) removes it.
-        m_Recovery.OfferAndArm( m_Dock );
+        SessionRecovery::OfferAndArm( m_Dock );
     }
 
     EditorLayer::~EditorLayer() = default;

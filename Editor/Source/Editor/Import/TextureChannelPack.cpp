@@ -92,9 +92,9 @@ namespace Desert::Editor
             else
                 // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
                 // the bytes reach it only through this cast.
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                 image.Data.reset( stbi_load_from_memory(
-                     reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
+                     reinterpret_cast<const stbi_uc*>(
+                          bytes.GetValue().data() ), // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
                      static_cast<int>( bytes.GetValue().size() ), &image.Width, &image.Height, &components, 4 ) );
             if ( !image.Data && image.Owned.empty() )
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",

@@ -326,31 +326,45 @@ namespace Desert::Editor
         m_BakeCancelled.store( false );
         m_BakeRunning = true;
 
-        m_Bake = std::async( std::launch::async,
-                             [this, path, kind]() -> Common::BoolResultStr
-                             {
-                                 // SAVED ON THE WORKER: all four `Save`s are pure file I/O plus a log line —
-                                 // no AssetManager, no ECS, no GPU — exactly the set a job may touch.
-                                 if ( kind == CloudAssetKind::NoiseVolume )
-                                 {
-                                     auto volume = NewCloudAsset::DefaultNoiseVolume( &m_BakeProgress );
-                                     if ( !volume )
-                                         return Common::MakeFormattedError<bool>( "{}", volume.GetError() );
+        m_Bake = std::async(
+             std::launch::async,
+             [this, path, kind]() -> Common::BoolResultStr
+             {
+                 // A throw here would surface from m_Bake.get() in Poll, on the UI thread, with
+                 // nothing to catch it; the worker turns it into the error this menu already shows.
+                 try
+                 {
+                     // SAVED ON THE WORKER: all four `Save`s are pure file I/O plus a log line —
+                     // no AssetManager, no ECS, no GPU — exactly the set a job may touch.
+                     if ( kind == CloudAssetKind::NoiseVolume )
+                     {
+                         auto volume = NewCloudAsset::DefaultNoiseVolume( &m_BakeProgress );
+                         if ( !volume )
+                             return Common::MakeFormattedError<bool>( "{}", volume.GetError() );
 
-                                     return Assets::CloudNoiseVolumeAsset::Save( path, volume.GetValue() );
-                                 }
+                         return Assets::CloudNoiseVolumeAsset::Save( path, volume.GetValue() );
+                     }
 
-                                 auto body = NewCloudAsset::DefaultModellingVolume(
-                                      [this]( float fraction )
-                                      {
-                                          m_BakeProgress.store( fraction );
-                                          return !m_BakeCancelled.load();
-                                      } );
-                                 if ( !body )
-                                     return Common::MakeFormattedError<bool>( "{}", body.GetError() );
+                     auto body = NewCloudAsset::DefaultModellingVolume(
+                          [this]( float fraction )
+                          {
+                              m_BakeProgress.store( fraction );
+                              return !m_BakeCancelled.load();
+                          } );
+                     if ( !body )
+                         return Common::MakeFormattedError<bool>( "{}", body.GetError() );
 
-                                 return Assets::CloudModellingVolumeAsset::Save( path, body.GetValue() );
-                             } );
+                     return Assets::CloudModellingVolumeAsset::Save( path, body.GetValue() );
+                 }
+                 catch ( const std::exception& error )
+                 {
+                     return Common::MakeFormattedError<bool>( "[NewAssetMenu] bake failed: {}", error.what() );
+                 }
+                 catch ( ... )
+                 {
+                     return Common::MakeFormattedError<bool>( "[NewAssetMenu] bake failed: unknown exception" );
+                 }
+             } );
     }
 
     void NewAssetMenu::Poll()
