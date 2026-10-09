@@ -717,10 +717,6 @@ namespace
            "HAIR1: groom instance + strand renderer" },
          { "IModularCharacter", "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp",
            "EQP1: ECS modular character + Lua bindings" },
-         // TAA1 wave A lands the seam the view's history and ViewFrame are built around; its fakes live in
-         // Desert/Tests/Engine/TemporalViewContract. The engine's TAA and TAAU are the next TAA1 wave.
-         { "ITemporalUpscaler", "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.hpp",
-           "TAA1 wave B: engine TAA + TAAU" },
     } };
 
     bool DeclaredAheadOfImplementation( const std::string& cls )

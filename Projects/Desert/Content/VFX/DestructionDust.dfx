@@ -1,0 +1,384 @@
+{
+    "Header": {
+        "Kind": "VFXSystem",
+        "Guid": "a0f8d89f476e4abfb22847b902230cb7",
+        "Versions": {
+            "VFXS": 1
+        },
+        "Dependencies": []
+    },
+    "Category": "Destruction",
+    "Tags": [
+        "destruction",
+        "dust",
+        "debris"
+    ],
+    "Duration": 1.0,
+    "Loop": true,
+    "Seed": 4242,
+    "Bounds": {
+        "Min": [
+            -2000.0,
+            -2000.0,
+            -2000.0
+        ],
+        "Max": [
+            2000.0,
+            2000.0,
+            2000.0
+        ]
+    },
+    "UserParams": [],
+    "LocalModules": [],
+    "Emitters": [
+        {
+            "Name": "BreakDust",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 1024,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 1.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnFromChannel",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Channel",
+                                "Type": "Int",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionBreak"
+                            },
+                            {
+                                "Name": "ParticlesPerEntry",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    24.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "MaxEntriesPerFrame",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    32.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Position",
+                                "Type": "Vec3",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionBreak.Position"
+                            },
+                            {
+                                "Name": "Direction",
+                                "Type": "Vec3",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionBreak.Velocity"
+                            },
+                            {
+                                "Name": "Size",
+                                "Type": "Float",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionBreak.PieceCount"
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:InitializeParticle",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        1.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        2.5,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [
+                                    0.55,
+                                    0.5,
+                                    0.45,
+                                    0.6
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": []
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true
+                }
+            ]
+        },
+        {
+            "Name": "ImpactDebris",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 1024,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 1.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnFromChannel",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Channel",
+                                "Type": "Int",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionCollision"
+                            },
+                            {
+                                "Name": "ParticlesPerEntry",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    6.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "MaxEntriesPerFrame",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    64.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Position",
+                                "Type": "Vec3",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionCollision.Position"
+                            },
+                            {
+                                "Name": "Direction",
+                                "Type": "Vec3",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionCollision.Normal"
+                            },
+                            {
+                                "Name": "Filter",
+                                "Type": "Float",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionCollision.Impulse"
+                            },
+                            {
+                                "Name": "FilterOp",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    3.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "FilterValue",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    5000.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:InitializeParticle",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        0.4,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        0.9,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [
+                                    0.35,
+                                    0.32,
+                                    0.3,
+                                    1.0
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": []
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true
+                }
+            ]
+        },
+        {
+            "Name": "RemovedPuff",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 1024,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 1.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnFromChannel",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Channel",
+                                "Type": "Int",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionRemoved"
+                            },
+                            {
+                                "Name": "ParticlesPerEntry",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    8.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "MaxEntriesPerFrame",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    64.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Position",
+                                "Type": "Vec3",
+                                "Source": "Binding",
+                                "Binding": "DataChannel.DestructionRemoved.Position"
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:InitializeParticle",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        0.6,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        1.2,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [
+                                    0.6,
+                                    0.58,
+                                    0.55,
+                                    0.4
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": []
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true
+                }
+            ]
+        }
+    ]
+}

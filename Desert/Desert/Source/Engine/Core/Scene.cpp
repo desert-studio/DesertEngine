@@ -7,6 +7,7 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/FracturePreviewComponent.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -758,14 +759,17 @@ namespace Desert::Core
         r.prepare<ECS::ColliderComponent>();
         r.prepare<ECS::RigidBodyComponent>();
         r.prepare<ECS::DestructibleComponent>();
+        // The editor's Fracture preview: viewed by FracturePieceDraw inside MeshECSSystem's parallel group.
+        r.prepare<ECS::FracturePreviewComponent>();
+        r.prepare<ECS::RagdollComponent>();
         r.prepare<ECS::RadialImpulseFieldComponent>();
         r.prepare<ECS::StrainFieldComponent>();
         r.prepare<ECS::KillFieldComponent>();
         r.prepare<ECS::AnchorFieldComponent>();
         r.prepare<ECS::CharacterControllerComponent>();
+        r.prepare<ECS::SpringArmComponent>();
         r.prepare<ECS::PlayerStartComponent>();
         r.prepare<ECS::StreamingSourceComponent>();
-        r.prepare<ECS::LocomotionComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
         r.prepare<ECS::SocketAttachmentComponent>();
@@ -915,28 +919,15 @@ namespace Desert::Core
         return serializer.SaveToFile( path );
     }
 
-    void Scene::RegisterExternalPass( Graphic::ExternalPassSpecification&& spec )
+    void Scene::RegisterExtensionPass( Graphic::ExtensionPass&& pass )
     {
-        // Replace, don't append, on a repeated name: SceneRenderer keys its render systems by name and a
-        // second registration evicts the first there, so an order form that kept both would hand a view
-        // opened later a pass the live renderers no longer run.
-        const std::string name = spec.Name;
-        UnregisterExternalPass( name );
-
-        m_ExternalPasses.push_back( std::move( spec ) );
-        for ( auto& view : m_Views.All() )
-            view.Renderer->RegisterExternalPass( Graphic::ExternalPassSpecification( m_ExternalPasses.back() ) );
+        DESERT_VERIFY( !pass.Name.empty() && pass.Execute );
+        m_ExtensionPasses.Register( std::move( pass ) );
     }
 
-    void Scene::UnregisterExternalPass( const std::string& name )
+    void Scene::UnregisterExtensionPass( const std::string& name )
     {
-        m_ExternalPasses.erase( std::remove_if( m_ExternalPasses.begin(), m_ExternalPasses.end(),
-                                                [&name]( const Graphic::ExternalPassSpecification& spec )
-                                                { return spec.Name == name; } ),
-                                m_ExternalPasses.end() );
-
-        for ( auto& view : m_Views.All() )
-            view.Renderer->UnregisterExternalPass( name );
+        m_ExtensionPasses.Unregister( name );
     }
 
     std::optional<size_t> Scene::AddView( Graphic::SceneRenderer* renderer )
@@ -952,14 +943,12 @@ namespace Desert::Core
         }
 
         // A view opened after Init() has to be caught up by hand — its renderer has no render systems
-        // yet, and it carries none of the editor passes the document installed before it existed.
+        // yet. The extension passes need nothing: the renderer reads them from this scene every frame.
         if ( m_Initialized )
         {
             renderer->Init();
             renderer->Resize( m_ViewportWidth, m_ViewportHeight );
             camera->UpdateProjectionMatrix( m_ViewportWidth, m_ViewportHeight );
-            for ( const auto& spec : m_ExternalPasses )
-                renderer->RegisterExternalPass( Graphic::ExternalPassSpecification( spec ) );
         }
 
         LOG_INFO( "[Scene] '{}' opened view #{} ({} view(s) on this world).", m_SceneName, *index,
@@ -1030,6 +1019,8 @@ namespace Desert::Core
         m_Generation   = NextSceneGeneration();
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
+        m_PlayerController = entt::null;
+        m_GameMode.Reset();
         m_PlayFromHere = false;
 
         m_Entities.Clear();

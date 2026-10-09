@@ -5,7 +5,10 @@
 // never ask for one.
 
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleSortGraph.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -338,6 +341,129 @@ namespace
         return {};
     }
 } // namespace
+
+// VFX-08e. The particle sprites draw through their material's ParticleSprite cell, so the renderer names no
+// shader of its own but the default sprite template and the three simulation programs; the old billboard
+// program and its hand-written material are gone. Red when a hard-wired sprite shader comes back.
+TEST( RenderGraphCompile, TheParticleRendererNamesNoSpriteShaderButTheDefaultTemplate )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const fs::path engine = root / "Desert/Desert/Source/Engine/Graphic";
+    std::ifstream  file( ( engine / "Systems/Scene/Particles/ParticleRenderer.cpp" ).string() );
+    ASSERT_TRUE( file.good() );
+    const std::string source( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+    for ( const char* gone : { "ParticleBillboard", ".shader", "DrawsAdditive" } )
+        EXPECT_EQ( source.find( gone ), std::string::npos ) << "ParticleRenderer.cpp names " << gone;
+    EXPECT_NE( source.find( "\"ParticleSpriteDefault\"" ), std::string::npos );
+    EXPECT_FALSE( fs::exists( engine / "Materials/Particles/MaterialParticleBillboard.hpp" ) );
+    EXPECT_FALSE( fs::exists( root / "Editor/Resources/Shaders/Programs/Particles/ParticleBillboard.shader" ) );
+}
+
+// VFX-08f. The translucent sprite sort, built from the declarations ParticleRenderer::AddSortPasses makes
+// (PlanParticleSort + DeclareParticleSortStage) between a stand-in for the last Compact (writes the pool, the
+// alive list and the draw slots) and a stand-in for ParticlePass (reads the sorted list for the sorted emitter and
+// the alive list for the opaque one). Red if an opaque / masked emitter gets sort nodes, a translucent / additive
+// one gets none or a stage count other than ParticleSortStages, a stage leaves a slot of the shader's layout
+// undeclared (Validation fault), or any sort node can run before the compact or after the draw.
+TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForBlendedEmittersOnly )
+{
+    using Desert::Core::Formats::SurfaceBlendMode;
+    namespace Sys = Desert::Graphic::System;
+
+    const std::vector<Sys::ParticleSortEmitter> emitters = {
+         { 0, SurfaceBlendMode::Opaque, 300, 0, 0 },
+         { 1, SurfaceBlendMode::Translucent, 3000, 2 * 300, 0 },
+         { 2, SurfaceBlendMode::Masked, 64, 2 * 3300 + 64, 1 },
+         { 3, SurfaceBlendMode::Additive, 16, 2 * 3364 + 16, 1 },
+    };
+    const Sys::ParticleSortPlan plan = Sys::PlanParticleSort( emitters );
+    ASSERT_EQ( plan.Ranges.size(), 2u );
+    EXPECT_EQ( plan.Ranges[0].Emitter, 1u );
+    EXPECT_EQ( plan.Ranges[1].Emitter, 3u );
+    EXPECT_EQ( plan.Ranges[0].Length, 4096u );
+    EXPECT_EQ( plan.Ranges[1].KeyBase, 4096u );
+    EXPECT_EQ( plan.KeyCount, 4096u + 16u );
+
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "particle sort" );
+    const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 3380u * 64u }, "ParticlePool" );
+    const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
+    const BufferRef  counters  = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
+    const TextureRef back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Particles: Compact 1", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Write( particles, Access::StorageWrite );
+             pass.Write( alive, Access::StorageWrite );
+             pass.Write( counters, Access::StorageWrite );
+         },
+         Ok );
+
+    const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 3380u * 4u );
+    const auto layout         = std::make_shared<const ShaderBindingLayout>(
+         ShaderBindingLayout{ "ParticleSort",
+                                      { { "Particles", ShaderResourceKind::StorageBuffer },
+                                        { "AliveList", ShaderResourceKind::StorageBuffer },
+                                        { "Counters", ShaderResourceKind::StorageBuffer },
+                                        { "SortKeys", ShaderResourceKind::StorageBuffer },
+                                        { "SortedAlive", ShaderResourceKind::StorageBuffer } },
+                              Sys::kParticleSortPushBytes } );
+    const Sys::ParticleSortBuffers buffers{ particles, alive, counters, keys, sorted };
+    std::vector<std::string>       sortNames;
+    for ( const Sys::ParticleSortRange& range : plan.Ranges )
+    {
+        const auto stages = Sys::ParticleSortStages( range.Length );
+        for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
+        {
+            const Sys::ParticleSortStageKind kind = stages[s].Kind;
+            sortNames.push_back( Sys::ParticleSortPassName( range.Emitter, s ) );
+            graph.AddPass(
+                 sortNames.back(), PassFlags::Compute, [&, kind]( PassBuilder& pass )
+                 { Sys::DeclareParticleSortStage( pass, layout, {}, buffers, kind ); }, Ok );
+        }
+    }
+    graph.AddPass(
+         "ParticlePass", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( particles, Access::StorageRead );
+             pass.Read( alive, Access::StorageRead );  // the opaque / masked emitters
+             pass.Read( sorted, Access::StorageRead ); // the translucent / additive ones
+             pass.Read( counters, Access::IndirectArgs );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    // 4096 keys: Keys, Local, (Global j=1024, Merge) for k = 2048 and (Global j=2048, Global j=1024, Merge) for
+    // k = 4096, Write; 16 keys: Keys, Local, Write.
+    EXPECT_EQ( sortNames.size(), Sys::ParticleSortStages( 4096 ).size() + 3u );
+    for ( const uint32_t unsorted : { 0u, 2u } )
+        EXPECT_EQ( result.FindPass( Sys::ParticleSortPassName( unsorted, 0 ) ), nullptr )
+             << "an opaque / masked emitter is drawn unsorted and has no sort node";
+
+    auto position = [&]( const std::string& name )
+    {
+        const auto it = std::find_if( result.Passes.begin(), result.Passes.end(),
+                                      [&]( const auto& pass ) { return pass.Name == name; } );
+        return it == result.Passes.end() ? -1 : static_cast<int>( it - result.Passes.begin() );
+    };
+    const int compact = position( "Particles: Compact 1" );
+    const int draw    = position( "ParticlePass" );
+    ASSERT_GE( compact, 0 );
+    ASSERT_GE( draw, 0 );
+    int previous = compact;
+    for ( const std::string& name : sortNames )
+    {
+        const int at = position( name );
+        EXPECT_GT( at, previous ) << name << " is culled or runs out of its stage order / before the compact";
+        EXPECT_LT( at, draw ) << name << " runs after the draw that reads its sorted list";
+        previous = at;
+    }
+}
 
 // ── Vulkan-free ─────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1936,9 +2062,10 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
 
 // WHICH ORDER SceneRenderer ADDS. The pass sequence of SceneRenderer::OnUpdate, read from the source: every
 // graph node call (graph.AddPass, AddRaster, the DeferredFrameNodes declarations it calls) by its name, every
-// system's compute nodes by the declaring call and, for AddGraphPhasePasses, its phase selector (it adds one
-// node per RenderGraphBuilder::GetSortedPasses entry the selector admits, in that order). A node added only at
-// some sample counts (Deferred: DepthResolve at 1x, Deferred: DepthExpand and Scene: DepthResolve at MSAA) is
+// system's compute nodes by the declaring call, every system raster pass by the getter that hands it over (a
+// getter returning several, ShadowCascadePasses, adds one node per element in its order) and every
+// AddSystemRasters call by its list and clear mode (its passes are the getters named before it). A node added only
+// at some sample counts (Deferred: DepthResolve at 1x, Deferred: DepthExpand and Scene: DepthResolve at MSAA) is
 // listed where its call stands. The table is the frame order before RDG3 (c303909f9, SceneRenderer::OnUpdate):
 // its DESERT_PROFILE_PASS scopes and direct calls in sequence, ExecuteRenderGraph = every phase but the deferred
 // overlays, then ExecuteTransparency, ExecuteDebugOverlay and ExecuteUI one phase each. Moving a pass changes
@@ -2017,7 +2144,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
         for ( size_t at = from;; )
         {
             const size_t pass   = text.find( "graph.AddPass(", at );
-            const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
             size_t       raster = text.find( "AddRaster(", at );
             // A system's compute nodes (AddComputeNodes): the entry names the system call that declares them.
@@ -2027,6 +2153,42 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // TAA1-B: the view's temporal upscaler declares its own nodes (ITemporalUpscaler::AddPasses); the
             // entry names the member that holds it.
             const size_t temporal = text.find( "->AddPasses(", at );
+            // ARCH1b: a system's raster pass, placed by the position of the call to the getter that hands it over
+            // (`->XPass()` / `->XPasses()`, no arguments); the entry names the receiver, when it is a variable,
+            // and the getter.
+            const auto isGetter = [&text]( size_t arrow )
+            {
+                size_t end = arrow + 2;
+                while ( end < text.size() &&
+                        ( std::isalnum( static_cast<unsigned char>( text[end] ) ) || text[end] == '_' ) )
+                    ++end;
+                const std::string_view name( text.data() + arrow + 2, end - arrow - 2 );
+                if ( !name.ends_with( "Pass" ) && !name.ends_with( "Passes" ) )
+                    return false;
+                size_t open = end;
+                while ( open < text.size() && std::isspace( static_cast<unsigned char>( text[open] ) ) )
+                    ++open;
+                size_t close = open + 1;
+                while ( close < text.size() && std::isspace( static_cast<unsigned char>( text[close] ) ) )
+                    ++close;
+                return close < text.size() && text[open] == '(' && text[close] == ')';
+            };
+            size_t systemRaster = text.find( "->", at );
+            while ( systemRaster != std::string::npos && !isGetter( systemRaster ) )
+                systemRaster = text.find( "->", systemRaster + 1 );
+            // ARCH1b-4: a list of system raster passes added in order (AddSystemRasters); the entry names the list
+            // and the clear mode. The member's own definition (its parameters are not `graph, textures,`) is
+            // skipped.
+            size_t rasters = text.find( "AddSystemRasters(", at );
+            while ( rasters != std::string::npos &&
+                    squeeze( text.substr( rasters, 48 ) ).rfind( "AddSystemRasters(graph,textures,", 0 ) != 0 )
+                rasters = text.find( "AddSystemRasters(", rasters + 1 );
+            // ARCH1b-2: an extension point invoked at its place (AddExtensionPoint): the entry names the point.
+            // The member's own definition names no point before its first ';' and is skipped.
+            size_t extension = text.find( "AddExtensionPoint(", at );
+            while ( extension != std::string::npos &&
+                    text.find( "RDG::ExtensionPoint::", extension ) > text.find( ';', extension ) )
+                extension = text.find( "AddExtensionPoint(", extension + 1 );
             // A graph node: its name is the first string literal of the call (a std::format loop name keeps
             // its "{}", one entry per call site).
             size_t node = text.find( "graph.AddPass(", at );
@@ -2035,7 +2197,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { pass, phases, frame, raster, node, compute, deferred, temporal } );
+            const size_t first = std::min(
+                 { pass, frame, raster, node, compute, deferred, temporal, systemRaster, rasters, extension } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -2046,6 +2209,47 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
+            }
+            else if ( first == extension )
+            {
+                const size_t name = text.find( "RDG::ExtensionPoint::", extension ) +
+                                    std::string_view( "RDG::ExtensionPoint::" ).size();
+                size_t stop = name;
+                while ( stop < text.size() &&
+                        ( std::isalnum( static_cast<unsigned char>( text[stop] ) ) || text[stop] == '_' ) )
+                    ++stop;
+                added.push_back( std::format( "extension[{}]", text.substr( name, stop - name ) ) );
+                at = stop;
+            }
+            else if ( first == systemRaster )
+            {
+                size_t receiver = systemRaster;
+                while ( receiver > 0 && ( std::isalnum( static_cast<unsigned char>( text[receiver - 1] ) ) ||
+                                          text[receiver - 1] == '_' ) )
+                    --receiver;
+                // No variable before the arrow (a macro call's result): the getter alone.
+                if ( receiver == systemRaster )
+                    receiver += 2;
+                const size_t close = text.find( ')', systemRaster );
+                added.push_back(
+                     std::format( "system[{}]", squeeze( text.substr( receiver, close + 1 - receiver ) ) ) );
+                at = close + 1;
+            }
+            else if ( first == rasters )
+            {
+                size_t close = text.find( '(', rasters );
+                for ( int depth = 0; close < text.size(); ++close )
+                {
+                    depth += text[close] == '(' ? 1 : text[close] == ')' ? -1 : 0;
+                    if ( depth == 0 )
+                        break;
+                }
+                ASSERT_LT( close, text.size() ) << "unbalanced AddSystemRasters call";
+                const std::string      call   = squeeze( text.substr( rasters, close + 1 - rasters ) );
+                const std::string_view prefix = "AddSystemRasters(graph,textures,";
+                added.push_back(
+                     std::format( "rasters[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
+                at = close + 1;
             }
             else if ( first == temporal )
             {
@@ -2086,21 +2290,14 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                      std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
                 at = close + 1;
             }
-            else if ( first == pass || first == raster || first == node )
+            else
             {
+                // graph.AddPass / AddRaster: the node's name literal.
                 const size_t open  = text.find( '"', first );
                 const size_t close = text.find( '"', open + 1 );
                 ASSERT_NE( close, std::string::npos );
                 added.push_back( text.substr( open + 1, close - open - 1 ) );
                 at = close + 1;
-            }
-            else
-            {
-                const size_t ret  = text.find( "return ", phases );
-                const size_t semi = text.find( ';', ret );
-                ASSERT_NE( semi, std::string::npos );
-                added.push_back( std::format( "phases[{}]", squeeze( text.substr( ret + 7, semi - ret - 7 ) ) ) );
-                at = semi + 1;
             }
         }
     };
@@ -2108,9 +2305,25 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 
     const std::vector<std::string> frameOrder = {
          "ClearMainFramebuffer",
-         "Particles: Simulate {}",
+         // VFX-07b: the scene's particle pool - compact 0, then per fixed step Dispatch Args, Spawn+Update, the
+         // next compact.
+         "Particles: Compact 0",
+         "Particles: Dispatch Args {}",
+         "Particles: Spawn+Update {}",
+         "Particles: Compact {}",
          "compute[clouds->DeclareShadowMapNodes()]",
-         "phases[!RenderPhase::IsDeferredOverlay(phase)]",
+         // ARCH1b-4: the opaque raster of the systems by explicit calls, in the order the phase walk drew it:
+         // the shadow cascades (each clearing its cascade, 0 first), then ONE clearing sequence on the scene
+         // target - the sky CLEARS it, the meshes then the terrain LOAD over it - then the outline silhouette
+         // mask (cleared).
+         "system[mesh->ShadowCascadePasses()]",
+         "rasters[cascades,true]",
+         "system[sky->SkyPass()]",
+         "system[mesh->GeometryPass()]",
+         "system[terrain->GeometryPass()]",
+         "rasters[passes,true]",
+         "system[mesh->SilhouettePass()]",
+         "rasters[std::span<constSystemRasterPass>(&silhouette,1),true]",
          "Deferred: GBuffer",
          "TerrainGBuffer",
          "Deferred: DepthResolve",
@@ -2131,19 +2344,35 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
-         "phases[phase==RenderPhase::Transparency]",
+         // ARCH1b-2: passes from outside the engine join at named extension points, each invoked at its place.
+         "extension[AfterOpaque]",
+         // ARCH1b: the translucency in draw order by call order (AddFrameTranslucency), no numeric placement:
+         // the height fog apply lands on the opaque scene first, the far field (cloud composite) over it, then
+         // everything nearer the camera (particles, the editor's passes) over both.
+         "system[ApplyPass()]",
+         "system[CompositePass()]",
+         "system[particles->DrawPass()]",
+         "extension[AfterTranslucency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
-         // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
-         // phases, which draw into its output.
+         // TAA1-B: the temporal resolve, after the last velocity writer (the translucency) and before the
+         // overlays, which draw into its output.
          "temporal[m_TemporalUpscaler]",
+         // MR3: depth of field on the resolved colour (Setup, TileFlatten, TileDilate, GatherForeground,
+         // GatherBackground, Recombine) after the resolve and BEFORE motion blur (UE: TAA -> DOF -> MotionBlur).
+         "temporal[m_DepthOfField]",
+         // MR2: motion blur on the resolved colour (Flatten, TileMax, NeighborMax, Gather), before the overlay
+         // target set and the post chain.
+         "temporal[m_MotionBlur]",
          // TAA1-B 6: the output-extent overlay depth, filled from the render-extent scene depth, before the
-         // overlay phases that test against it.
+         // overlays that test against it.
          "Scene: PopulateSceneDepth",
          "Debug: Velocity",
-         "phases[phase==RenderPhase::Debug]",
+         // The engine's debug lines (bounding boxes), the first overlay, below the editor's.
+         "system[mesh->DebugLinesPass()]",
+         "extension[Overlay]",
          "UI: BackdropBlur{}",
-         "phases[phase==RenderPhase::UI]",
+         "extension[UI]",
          "PostFX: JumpFloodInit",
          "PostFX: JumpFloodStep{}",
          "PostFX: JumpFloodFinal",
@@ -2199,9 +2428,25 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // alone on the scene colour without a temporal method, and its output is the resolved colour.
     declares( "AddFrameTemporal",
               { "constboolsupersample=frame.Split.Mode==Common::Scalability::ScaleMode::Supersample;",
-                "if(!m_TargetFramebuffer||(!spatial&&!supersample&&!temporal))", "resolvedColor=inputs.SceneColor;",
-                "m_SupersampleResolve.AddPasses(graph,frame,resolvedColor)", "resolvedColor=downsampled.GetValue();",
-                "returnwithoutTemporal(downsampled.GetError());" } );
+                "if(!m_TargetFramebuffer||(!spatial&&!supersample&&!temporal&&!depthOfField&&!motionBlur))",
+                "resolvedColor=inputs.SceneColor;", "m_SupersampleResolve.AddPasses(graph,frame,resolvedColor)",
+                "resolvedColor=downsampled.GetValue();", "returnwithoutTemporal(downsampled.GetError());" } );
+    // MR3: depth of field is decided by DepthOfFieldRuns (focal distance, DepthOfFieldQuality, a lens that can
+    // focus there), reads the resolved colour and the scene depth, and its output is the colour motion blur then
+    // reads; nothing is added when it does not run.
+    declares( "AddFrameTemporal",
+              { "constbooldepthOfField=DepthOfFieldRuns(m_DepthOfFieldSettings,frame)", "if(depthOfField)",
+                "m_DepthOfField->AddPasses(graph,frame,m_DepthOfFieldSettings,",
+                ".SceneColor=resolvedColor,.SceneDepth=inputs.SceneDepth}", "resolvedColor=defocused.GetValue();",
+                "returnwithoutTemporal(defocused.GetError());" } );
+    // MR2: motion blur is decided by MotionBlurRuns (Amount, MotionBlurQuality, TargetFPS duration), reads the
+    // resolve's inputs (scene depth, velocity) and the resolved colour, and its output is the resolved colour the
+    // overlay set is built on; nothing is added when it does not run.
+    declares( "AddFrameTemporal",
+              { "constboolmotionBlur=MotionBlurRuns(m_MotionBlurSettings,frame)", "if(motionBlur)",
+                "m_MotionBlur->AddPasses(graph,frame,m_MotionBlurSettings,",
+                ".SceneColor=resolvedColor,.SceneDepth=inputs.SceneDepth,.Velocity=inputs.Velocity",
+                "resolvedColor=blurred.GetValue();", "returnwithoutTemporal(blurred.GetError());" } );
     // TAA1-B 6: the overlay target set is at the OUTPUT extent and its depth is the scene depth populated by
     // "Scene: PopulateSceneDepth"; a frame the resolve cannot run on is rendered without it, by name, and the
     // caller then post-processes the scene colour (the fallback is the caller's, not a silent skip).
@@ -2216,15 +2461,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 "returnwithoutTemporal(prepared.GetError());" } );
     declares( "OnUpdate",
               { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
-                "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
+                "AddSystemRaster(graph,textures,mesh->DebugLinesPass(),overlay);",
+                "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::Overlay,overlay);",
+                "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::UI,overlay);",
                 // The one resolution function, the render set resized to the frame's split, the velocity at it.
                 "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView."
                 "ScreenPercentage,",
                 // The frame's upscaler is the VIEW's (a viewport override at 50 % under a 100 % setting is TAAU).
                 "inputs.Upscaler=resolved.GetValue().Upscaler;", "ResizeRenderTargets(frame.Split.Render);",
                 "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
-    // The overlay phases draw into the overlay set: every scene-target attachment replaced, no resolves.
-    declares( "AddGraphPhasePasses",
+    // The overlays draw into the overlay set: every scene-target attachment replaced, no resolves.
+    declares( "AddPassNode",
               { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",
                 "targets->Depth=overlay.Depth;", "targets->Resolves={};" } );
     // TWO EXTENT SETS: ResizeRenderTargets sizes the Render set (scene target, G-buffer, depth resolve, mask,
@@ -2453,6 +2700,74 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
     EXPECT_EQ( colorBack, std::vector<ImageLayout>{ ImageLayout::ColorAttachment } );
     EXPECT_EQ( depthBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilReadOnly } );
     EXPECT_EQ( color.SubresourceStates[0], GetAccessState( Access::ColorTarget ) );
+}
+
+// VFX-08e. Depth-tested sprites that fade against the scene depth hold the depth as a READ-ONLY attachment and
+// sample it in the same pass (UE: FExclusiveDepthStencil::DepthRead + the SceneDepth SRV). Both accesses fold into
+// one use in DEPTH_STENCIL_READ_ONLY_OPTIMAL; a WRITTEN depth attachment that is also sampled stays refused.
+TEST( RenderGraphCompile, AReadOnlyDepthAttachmentSampledInTheSamePassHoldsTheDepthReadOnlyLayout )
+{
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "depth read sampled" );
+    const TextureRef depth = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::DEPTH32F ), "SceneDepth" );
+    const TextureRef back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Opaque", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+             pass.DepthTarget( depth, LoadOp::ClearDepth( 1.0f ) );
+         },
+         Ok );
+    graph.AddPass(
+         "Particles", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( depth, Access::SampledGraphics );
+             pass.ColorTarget( 0, back, LoadOp::Load() );
+             pass.DepthTarget( depth, LoadOp::Load(), false );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    const CompiledPass* particles = result.FindPass( "Particles" );
+    ASSERT_NE( particles, nullptr );
+
+    // The attachment is the read-only one (depth test, no write).
+    const auto attachment = std::find_if( particles->Attachments.begin(), particles->Attachments.end(),
+                                          []( const AttachmentDecision& decision ) { return decision.IsDepth; } );
+    ASSERT_NE( attachment, particles->Attachments.end() );
+    EXPECT_EQ( attachment->Usage, Access::DepthRead );
+
+    // One barrier into the read-only layout, covering the depth test AND the fragment sample.
+    const std::vector<Barrier> onDepth = BarriersOn( particles, depth.Index );
+    ASSERT_EQ( onDepth.size(), 1u );
+    EXPECT_EQ( onDepth[0].Before, GetAccessState( Access::DepthWrite ) );
+    EXPECT_EQ( onDepth[0].After.Layout, ImageLayout::DepthStencilReadOnly );
+    const AccessState sampled = GetAccessState( Access::SampledGraphics );
+    const AccessState tested  = GetAccessState( Access::DepthRead );
+    EXPECT_EQ( onDepth[0].After.Stages & sampled.Stages, sampled.Stages );
+    EXPECT_EQ( onDepth[0].After.Stages & tested.Stages, tested.Stages );
+    EXPECT_EQ( onDepth[0].After.Memory & sampled.Memory, sampled.Memory );
+    EXPECT_EQ( onDepth[0].After.Memory & tested.Memory, tested.Memory );
+
+    // Writing the depth while sampling it is a feedback loop: still one subresource in two states.
+    Builder          written( "depth write sampled" );
+    const TextureRef writtenDepth = written.CreateTexture( Tex2D( 64, 64, ImageFormat::DEPTH32F ), "SceneDepth" );
+    const TextureRef writtenBack  = written.RegisterExternal( backbuffer, "Backbuffer" );
+    written.AddPass(
+         "WritesAndSamples", PassFlags::Raster | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, writtenBack, LoadOp::DontCare() );
+             pass.DepthTarget( writtenDepth, LoadOp::ClearDepth( 1.0f ) );
+             pass.Read( writtenDepth, Access::SampledGraphics );
+         },
+         Ok );
+    const std::string fault = OnlyDeclarationFault( written );
+    ASSERT_FALSE( fault.empty() );
+    EXPECT_NE( fault.find( "WritesAndSamples" ), std::string::npos ) << fault;
+    EXPECT_NE( fault.find( "SceneDepth" ), std::string::npos ) << fault;
 }
 
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
@@ -3016,107 +3331,224 @@ TEST( RenderGraphCompile, AFailedBufferStateWriteBackFailsExecuteNamingTheBuffer
     EXPECT_NE( executed.GetError().find( "buffer gone" ), std::string::npos ) << executed.GetError();
 }
 
-TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
+namespace
 {
+    std::string SqueezedSource( const fs::path& root, const char* relative );
+} // namespace
+
+TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
+{
+    // VFX-07/07b. The frame build: every view imports the scene's pool for its draw, only the view that claimed
+    // the VFXWorld tick adds the nodes - compact 0, then per step Dispatch Args, Spawn+Update and the next
+    // compact, Compute and NOT NeverCull (a node is live because it writes the imported pool; with no emitter it
+    // declares nothing).
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameAtmosphere.cpp" );
-    ASSERT_TRUE( file );
-    std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
-    text.erase(
-         std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-         text.end() );
-    const size_t begin = text.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
+    const std::string frame =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameAtmosphere.cpp" );
+    const size_t begin = frame.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
-    const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    // One node per fixed VFX step of the frame (VFXWorld), so step s+1 reads step s across a graph barrier.
+    const std::string body = frame.substr( begin, frame.find( "voidSceneRenderer::", begin + 1 ) - begin );
+    EXPECT_NE( body.find( "particles->ImportFrameBuffers(graph);if(!particles->ClaimsSimulation())return;"
+                          "constuint32_tsteps=particles->SimulationStepCount();"
+                          "graph.AddPass(\"Particles:Compact0\",RDG::PassFlags::Compute," ),
+               std::string::npos )
+         << "a view that did not claim the tick adds simulation nodes, or the draw view does not import the pool";
     EXPECT_NE(
-         body.find( "for(uint32_tstep=0;step<steps;++step)graph.AddPass(std::format(\"Particles:Simulate{}\","
-                    "step),RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
+         body.find( "for(uint32_tstep=0;step<steps;++step){graph.AddPass(std::format(\"Particles:DispatchArgs{}\","
+                    "step),RDG::PassFlags::Compute," ),
          std::string::npos );
-    EXPECT_NE( body.find( "constuint32_tsteps=particles->SimulationStepCount();" ), std::string::npos );
-
-    // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite by
-    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter running the
-    // step).
-    EXPECT_NE( body.find( "particles->ImportSimulationBuffers(graph)" ), std::string::npos )
-         << "the simulation node does not import the emitters' buffers";
     EXPECT_NE(
-         body.find( "[particles,step](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass,step);}" ),
-         std::string::npos )
-         << "the simulation node does not declare its writes in its setup";
-    EXPECT_EQ( body.find( "[](RDG::PassBuilder&){}" ), std::string::npos )
-         << "the simulation node declares nothing";
+         body.find( "graph.AddPass(std::format(\"Particles:Spawn+Update{}\",step),RDG::PassFlags::Compute," ),
+         std::string::npos );
+    EXPECT_NE( body.find( "graph.AddPass(std::format(\"Particles:Compact{}\",step+1),RDG::PassFlags::Compute," ),
+               std::string::npos );
+    EXPECT_EQ( body.find( "NeverCull" ), std::string::npos ) << "a particle node outlives its emitters";
 
-    std::ifstream particleFile(
-         root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    ASSERT_TRUE( particleFile );
-    std::string particleText( ( std::istreambuf_iterator<char>( particleFile ) ),
-                              std::istreambuf_iterator<char>() );
-    particleText.erase( std::remove_if( particleText.begin(), particleText.end(),
-                                        []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-                        particleText.end() );
-    const size_t importAt = particleText.find( "ParticleRenderer::ImportSimulationBuffers(RDG::Builder&graph)" );
-    ASSERT_NE( importAt, std::string::npos );
-    const std::string importBody =
-         particleText.substr( importAt, particleText.find( "voidParticleRenderer::", importAt ) - importAt );
-    EXPECT_NE( importBody.find( "Renderer::ImportBuffer(fe.Gpu->Particles,fe.ParticlesImport)" ),
+    // The declarations: compact writes the pool, both lists and the emitter's Counters, and a later compact reads
+    // the step's dispatch arguments IndirectArgs; Dispatch Args reads the step table and writes the Counters and
+    // the arguments; Spawn+Update writes the pool and the alive list (the spawned are appended) and reads the
+    // arguments IndirectArgs; the draw reads the pool and the alive list and the Counters as IndirectArgs.
+    const std::string particles = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleCompactPush)));"
+                               "if(compact>0)pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
-    EXPECT_NE( importBody.find( "Renderer::ImportBuffer(fe.Gpu->Steps,fe.StepsImport)" ), std::string::npos );
-    // An emitter the graph was not told about is not dispatched.
-    const size_t simulateAt = particleText.find( "ParticleRenderer::Simulate(constRDG::PassContext&context," );
-    ASSERT_NE( simulateAt, std::string::npos );
-    EXPECT_NE( particleText.find( "if(!RunsStep(fe,step))continue;", simulateAt ), std::string::npos );
-    EXPECT_NE( particleText.find( "returnfe.Declared&&step<fe.StepCount;" ), std::string::npos );
-    // The setup declares one block per imported emitter: this frame's graph handles of both buffers by their
-    // shader names, StorageWrite, and the push bytes; the exec opens the n-th declared emitter's block n and
-    // dispatches through DispatchCompute (no pipeline setter carries a graph buffer, no name is bound in it).
-    const size_t declareAt = particleText.find(
-         "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass,constuint32_tstep)const" );
-    ASSERT_NE( declareAt, std::string::npos );
-    const std::string declareBody =
-         particleText.substr( declareAt, particleText.find( "ParticleRenderer::", declareAt + 5 ) - declareAt );
-    EXPECT_NE( declareBody.find( "if(!RunsStep(fe,step))continue;" ), std::string::npos )
-         << "the setup declares an emitter Simulate skips: the block numbering drifts";
-    EXPECT_NE( declareBody.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
-                                 ".Storage(\"StepTable\",fe.StepsRef,RDG::Access::StorageWrite)"
-                                 ".PushConstantBytes(static_cast<uint32_t>(sizeof(SimPush)))" ),
+    EXPECT_NE( particles.find( ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
+               std::string::npos )
+         << "Dispatch Args does not declare the indirect arguments it writes";
+    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
+                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
+                               "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
-    const std::string simulateBody = particleText.substr(
-         simulateAt, particleText.find( "ParticleRenderer::ImportSimulationBuffers(", simulateAt ) - simulateAt );
-    EXPECT_NE( simulateBody.find( "RDG::PassBindingsbindings(context,context.GetBindingBlock(block++));" ),
+    // Sized by the GPU counts: Spawn+Update and every compact after the first dispatch indirect; the CPU sizes
+    // only Dispatch Args (one thread) and compact 0 (the range's full scan).
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_SimPipeline,ve.ArgsRef,"
+                               "kParticleSimulateArgsOffset)" ),
                std::string::npos );
-    EXPECT_EQ( simulateBody.find( ".Storage(" ), std::string::npos ) << "Simulate binds a buffer by name";
-    EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ),
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_CompactPipeline,ve.ArgsRef,"
+                               "kParticleCompactArgsOffset)" ),
                std::string::npos );
-    EXPECT_EQ( simulateBody.find( "SetStorageBuffer" ), std::string::npos );
-    EXPECT_NE( importBody.find( "fe.StepsRef=graph.RegisterExternal(fe.StepsImport," ), std::string::npos );
-    EXPECT_NE( importBody.find( "fe.Declared=true;" ), std::string::npos );
+    EXPECT_NE( particles.find( "renderer.DispatchCompute(bindings,*m_ArgsPipeline,1,1,1)" ), std::string::npos );
+    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
+         << "Spawn+Update is dispatched over a CPU count";
+    EXPECT_NE(
+         particles.find( "Renderer::DrawProceduralIndirect(bindings,*pipeline,ve.Material->GetMaterialExecutor(),"
+                         "ve.CountersRef,slot)" ),
+         std::string::npos );
+    EXPECT_NE( particles.find( "constuint64_tslot=(ve.Frame->StepCount&1u)*kParticleDrawSlotStride;" ),
+               std::string::npos );
+    EXPECT_EQ( particles.find( "DrawProcedural(" ), std::string::npos ) << "the billboards draw a fixed count";
+    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&compact<=ve.Frame->StepCount;" ),
+               std::string::npos );
+    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&step<ve.Frame->StepCount;" ), std::string::npos );
+    // The draw is every view's: it is not gated by the claim.
+    EXPECT_NE( particles.find( "returnve.Declared&&ve.Material!=nullptr;" ), std::string::npos );
+    EXPECT_NE( particles.find( "m_Simulates=world.PrepareTick(scene);" ), std::string::npos );
 
-    // The same shape in a graph: two frames of a persistent buffer written by the node. The second frame's
-    // write waits on the first's, from the state the first graph wrote back.
-    ExternalBuffer state( BufferDesc{ 4096 }, Access::None );
-    int            runs = 0;
-    for ( int frame = 0; frame < 2; ++frame )
+    // The pool is the scene's: ParticleWorldGpu, owned by the VFXWorld, claims each tick once; ParticleRenderer
+    // owns no pool buffer.
+    const std::string world = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
+    EXPECT_NE( world.find( "if(!m_Claim.Claim(world.GetTickSerial()))returnfalse;" ), std::string::npos );
+    EXPECT_NE( world.find( "world.SetGpuState(std::move(made));" ), std::string::npos );
+    const std::string header = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp" );
+    EXPECT_EQ( header.find( "ShaderResources::StorageBuffer>" ), std::string::npos )
+         << "a view owns particle buffers again";
+}
+
+TEST( RenderGraphCompile, TwoViewsOfOneSceneSimulateParticlesOnceAndDrawTwice )
+{
+    // VFX-07b. Two views of one scene in one tick: the scene's claim (ParticleTickClaim, ParticleWorldGpu) gives
+    // the simulation to the first view only; each view's graph is built as AddFrameParticlesSimulate builds it
+    // (imports, then the nodes only when claimed) plus ParticlePass. The simulation nodes are added once and the
+    // draw twice; in the simulating graph Spawn+Update and compact 1 wait on Dispatch Args' write of the indirect
+    // arguments (IndirectArgs after StorageWrite) and the draw on the last compact's Counters. With no emitter the
+    // simulation nodes declare nothing and are culled. The next tick is claimed again.
+    for ( const bool emitter : { true, false } )
     {
-        Builder         graph( "particles" );
-        const BufferRef ref = graph.RegisterExternal( state, "ParticleState0" );
-        graph.AddPass(
-             "Particles: Simulate", PassFlags::Compute | PassFlags::NeverCull,
-             [&]( PassBuilder& pass ) { pass.Write( ref, Access::StorageWrite ); },
-             [&runs]( PassContext& )
-             {
-                 ++runs;
-                 return Common::MakeSuccess( true );
-             } );
-        const CompileResult        result   = CompileOrFail( graph );
-        const std::vector<Barrier> barriers = BarriersOn( result.FindPass( "Particles: Simulate" ), ref.Index );
-        EXPECT_EQ( barriers.size(), frame == 0 ? 0u : 1u ) << "frame " << frame;
-        RecordingBackend backend;
-        ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+        Desert::Graphic::System::ParticleTickClaim claim;
+        constexpr uint64_t                         tick = 7;
+        ExternalBuffer                             pool( BufferDesc{ 64 * 64 }, Access::None );
+        ExternalBuffer                             freeList( BufferDesc{ 4 * 64 }, Access::None );
+        ExternalBuffer                             aliveList( BufferDesc{ 8 * 64 }, Access::None );
+        ExternalBuffer                             counters( BufferDesc{ 64 }, Access::None );
+        ExternalBuffer                             steps( BufferDesc{ 12 }, Access::None );
+        ExternalBuffer                             args( BufferDesc{ 32 }, Access::None );
+        ExternalBuffer                             target( BufferDesc{ 16 }, Access::None );
+        std::vector<std::string>                   added;
+        uint32_t                                   draws = 0;
+        for ( const char* viewName : { "view A", "view B" } )
+        {
+            Builder         graph( viewName );
+            const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticlePool" );
+            const BufferRef freeRef     = graph.RegisterExternal( freeList, "ParticleFreeList" );
+            const BufferRef aliveRef    = graph.RegisterExternal( aliveList, "ParticleAliveList" );
+            const BufferRef countersRef = graph.RegisterExternal( counters, "ParticleCounters0" );
+            const BufferRef targetRef   = graph.RegisterExternal( target, "SceneColor" );
+            const auto      none        = []( PassContext& ) { return Common::MakeSuccess( true ); };
+            const bool      simulates   = claim.Claim( tick );
+            BufferRef       stepsRef;
+            BufferRef       argsRef;
+            if ( simulates )
+            {
+                stepsRef           = graph.RegisterExternal( steps, "ParticleSteps0" );
+                argsRef            = graph.RegisterExternal( args, "ParticleDispatchArgs0" );
+                const auto compact = [&]( const bool indirect )
+                {
+                    return [&, indirect]( PassBuilder& pass )
+                    {
+                        if ( !emitter )
+                            return;
+                        pass.Write( poolRef, Access::StorageWrite );
+                        pass.Write( freeRef, Access::StorageWrite );
+                        pass.Write( aliveRef, Access::StorageWrite );
+                        pass.Write( countersRef, Access::StorageWrite );
+                        if ( indirect )
+                            pass.Read( argsRef, Access::IndirectArgs );
+                    };
+                };
+                const std::vector<std::string> nodes = { "Particles: Compact 0", "Particles: Dispatch Args 0",
+                                                         "Particles: Spawn+Update 0", "Particles: Compact 1" };
+                graph.AddPass( nodes[0], PassFlags::Compute, compact( false ), none );
+                graph.AddPass(
+                     nodes[1], PassFlags::Compute,
+                     [&]( PassBuilder& pass )
+                     {
+                         if ( !emitter )
+                             return;
+                         pass.Read( stepsRef, Access::StorageRead );
+                         pass.Write( countersRef, Access::StorageWrite );
+                         pass.Write( argsRef, Access::StorageWrite );
+                     },
+                     none );
+                graph.AddPass(
+                     nodes[2], PassFlags::Compute,
+                     [&]( PassBuilder& pass )
+                     {
+                         if ( !emitter )
+                             return;
+                         pass.Write( poolRef, Access::StorageWrite );
+                         pass.Read( stepsRef, Access::StorageRead );
+                         pass.Read( freeRef, Access::StorageRead );
+                         pass.Write( aliveRef, Access::StorageWrite );
+                         pass.Read( countersRef, Access::StorageRead );
+                         pass.Read( argsRef, Access::IndirectArgs );
+                     },
+                     none );
+                graph.AddPass( nodes[3], PassFlags::Compute, compact( true ), none );
+                added.insert( added.end(), nodes.begin(), nodes.end() );
+            }
+            graph.AddPass(
+                 "ParticlePass", PassFlags::Compute,
+                 [&]( PassBuilder& pass )
+                 {
+                     pass.Write( targetRef, Access::StorageWrite );
+                     if ( !emitter )
+                         return;
+                     pass.Read( poolRef, Access::StorageRead );
+                     pass.Read( aliveRef, Access::StorageRead );
+                     pass.Read( countersRef, Access::IndirectArgs );
+                 },
+                 none );
+            ++draws;
+
+            const CompileResult result = CompileOrFail( graph );
+            if ( simulates && emitter )
+            {
+                EXPECT_TRUE( result.CulledPassNames.empty() ) << viewName;
+                EXPECT_EQ( BarriersOn( result.FindPass( "Particles: Spawn+Update 0" ), argsRef.Index ).size(), 1u )
+                     << "Spawn+Update does not wait on Dispatch Args' indirect arguments";
+                EXPECT_EQ( BarriersOn( result.FindPass( "ParticlePass" ), countersRef.Index ).size(), 1u )
+                     << "the indirect draw does not wait on the last compact's counters";
+            }
+            else if ( simulates )
+            {
+                EXPECT_EQ( result.CulledPassNames,
+                           ( std::vector<std::string>{ "Particles: Compact 0", "Particles: Dispatch Args 0",
+                                                       "Particles: Spawn+Update 0", "Particles: Compact 1" } ) );
+            }
+            else
+            {
+                EXPECT_TRUE( result.CulledPassNames.empty() ) << viewName << ": the draw-only view culls its draw";
+            }
+        }
+        EXPECT_EQ( added.size(), 4u ) << "the scene's particles are simulated once per view, not once per tick";
+        EXPECT_EQ( draws, 2u );
+        EXPECT_FALSE( claim.Claim( tick ) );
+        EXPECT_TRUE( claim.Claim( tick + 1 ) ) << "the next tick is not simulated";
     }
-    EXPECT_EQ( runs, 2 );
-    EXPECT_EQ( state.State, GetAccessState( Access::StorageWrite ) );
 }
 
 namespace
@@ -3166,13 +3598,80 @@ namespace
     }
 } // namespace
 
-// THE PHASE PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). The AddGraphPhasePasses bridge
-// no longer opens the engine's render pass around a legacy wrapper: every registered pass is a Raster node whose
-// targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
-// names in RenderGraphBuilder::PassConfig::Declare, and whose render pass the graph opens and merges. Each system
-// declares its own reads where it registers the pass, the editor's external passes through
-// ExternalPassSpecification::Declare, and the in-graph DispatchCompute records no barrier of its own (the
-// particle draw declares its StorageRead).
+// ARCH1b-2: A PASS REGISTERED AT AN EXTENSION POINT LANDS BETWEEN THAT POINT'S NEIGHBOURS. The registry hands each
+// point's passes over in registration order and no other point's; a frame build that invokes the point between two
+// nodes gets them there in the compiled graph. Red if ForEachAt leaks another point's pass, reorders, or a
+// re-registration does not replace (and move to the back) the earlier pass of that name.
+TEST( RenderGraphCompile, AnExtensionPassLandsBetweenItsPointsNeighbours )
+{
+    struct TestExtension
+    {
+        std::string    Name;
+        ExtensionPoint Point = ExtensionPoint::Overlay;
+    };
+    ExtensionRegistry<TestExtension> registry;
+    registry.Register( { "Grid", ExtensionPoint::AfterTranslucency } );
+    registry.Register( { "Colliders", ExtensionPoint::Overlay } );
+    registry.Register( { "Canvas", ExtensionPoint::UI } );
+    registry.Register( { "Cubemap", ExtensionPoint::Overlay } );
+    registry.Register( { "Colliders", ExtensionPoint::Overlay } ); // replaced: now after Cubemap
+    EXPECT_EQ( registry.All().size(), 4u );
+    EXPECT_FALSE( registry.Unregister( "Nothing" ) );
+
+    ExternalTexture  target( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    Builder          graph( "extension" );
+    const TextureRef scene = graph.RegisterExternal( target, "SceneColor" );
+    const auto       add   = [&]( const std::string& name )
+    {
+        graph.AddPass(
+             name, PassFlags::Raster | PassFlags::NeverCull,
+             [&]( PassBuilder& pass ) { pass.ColorTarget( 0, scene, LoadOp::Load() ); },
+             []( PassContext& ) { return Common::MakeSuccess( true ); } );
+    };
+    add( "Debug: Lines" );
+    registry.ForEachAt( ExtensionPoint::Overlay, [&]( const TestExtension& pass ) { add( pass.Name ); } );
+    add( "UI: BackdropBlur" );
+
+    const CompileResult      result = CompileOrFail( graph );
+    std::vector<std::string> order;
+    for ( const auto& pass : result.Passes )
+        order.push_back( pass.Name );
+    EXPECT_EQ( order, ( std::vector<std::string>{ "Debug: Lines", "Cubemap", "Colliders", "UI: BackdropBlur" } ) );
+}
+
+// ARCH1b-2: no pass is placed through the old external-pass API: the editor, plugins and external graphs register
+// at an RDG::ExtensionPoint. Red if RegisterExternalPass / ExternalPassSpecification / ExternalPassContext is
+// spelled anywhere in the engine or editor sources again.
+TEST( RenderGraphCompile, NoExternalPassApiRemainsInEngineOrEditor )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    size_t files = 0;
+    for ( const char* dir : { "Desert/Desert/Source/Engine", "Editor/Source" } )
+    {
+        for ( const auto& entry : fs::recursive_directory_iterator( root / dir ) )
+        {
+            const std::string ext = entry.path().extension().string();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            ++files;
+            std::ifstream     file( entry.path() );
+            const std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+            for ( const char* symbol :
+                  { "RegisterExternalPass", "ExternalPassSpecification", "ExternalPassContext" } )
+                EXPECT_EQ( text.find( symbol ), std::string::npos )
+                     << entry.path().string() << " spells " << symbol;
+        }
+    }
+    EXPECT_GT( files, 100u ) << "the census read almost nothing";
+}
+
+// THE SYSTEM RASTER PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). AddSystemRasters /
+// AddPassNode never open the engine's render pass around a legacy wrapper: every system pass is a Raster node
+// whose targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the
+// system names in SystemRasterPass::Declare, and whose render pass the graph opens and merges. Each system
+// declares its own reads where it builds the pass, the editor's extension passes through ExtensionPass::Declare,
+// and the in-graph DispatchCompute records no barrier of its own (the particle draw declares its StorageRead).
 TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 {
     const fs::path root = RepoRoot();
@@ -3182,32 +3681,37 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     { return SqueezedSource( root, std::format( "{}{}", graphic, relative ).c_str() ); };
 
     const std::string sceneRenderer = source( "SceneRenderer.cpp" );
-    EXPECT_EQ( sceneRenderer.find( "BeginRenderPass(pass->CachedRenderPass" ), std::string::npos )
-         << "the bridge still opens the engine render pass itself";
+    EXPECT_EQ( sceneRenderer.find( "BeginRenderPass(pass" ), std::string::npos )
+         << "the scene renderer still opens a system pass's render pass itself";
 
-    const std::string bridge = SqueezedBody( source( "SceneRendererFrameMesh.cpp" ),
-                                             "voidSceneRenderer::AddGraphPhasePasses(", "voidSceneRenderer::" );
-    ASSERT_FALSE( bridge.empty() ) << "no AddGraphPhasePasses in SceneRendererFrameMesh.cpp";
+    const std::string frameMesh = source( "SceneRendererFrameMesh.cpp" );
+    const std::string list =
+         SqueezedBody( frameMesh, "voidSceneRenderer::AddSystemRasters(", "voidSceneRenderer::" );
+    ASSERT_FALSE( list.empty() ) << "no AddSystemRasters in SceneRendererFrameMesh.cpp";
+    const std::string node = SqueezedBody( frameMesh, "voidSceneRenderer::AddPassNode(", "voidSceneRenderer::" );
+    ASSERT_FALSE( node.empty() ) << "no AddPassNode in SceneRendererFrameMesh.cpp";
+    const std::string bridge = list + node;
     for ( const char* needle :
           { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
             "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=overlay.Color;",
             "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;", "targets->Depth=overlay.Depth;",
             "node.DepthTarget(targets->Depth,depth)", "DeclareResolves(node,targets->Resolves)",
-            "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
-        EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
+            "RDG::LoadOp::ClearDepth(pass.ClearDepth.value_or(defaults.ClearColor.DepthStencil.x))",
+            "AddPassNode(graph,textures,pass,target,pass.Name,color,depth,overlay);" } )
+        EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the system raster node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
     // The declaration lives on the pass registration, not in a list in SceneRenderer.
-    EXPECT_NE( source( "RenderGraphBuilder.hpp" )
+    EXPECT_NE( source( "SystemRasterPass.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
                std::string::npos );
-    EXPECT_NE( source( "ExternalRenderPass.hpp" )
-                    .find( "std::function<void(RenderPassDeclaration&,constExternalPassContext&)>Declare;" ),
+    EXPECT_NE( source( "ExtensionPass.hpp" )
+                    .find( "std::function<void(RenderPassDeclaration&,constExtensionPassContext&)>Declare;" ),
                std::string::npos );
 
-    // Each system names what its pass samples, in its own RegisterPasses.
+    // Each system names what its pass samples, in its own pass getter.
     const std::pair<const char*, const char*> declared[] = {
          // The procedural sky's LUTs are entries of the SkyboxPass's block (DeclareSkyDraw), each the read.
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
@@ -3228,7 +3732,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "Forward),&view);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
-           ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageRead)" },
+           ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
@@ -3757,7 +4261,9 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
     EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
-    EXPECT_NE( declaration.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageRead)" ),
+    EXPECT_NE( declaration.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)"
+                                 ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageRead);"
+                                 "declared.Read(fe.CountersRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
     // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
     EXPECT_NE( exec.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
@@ -3771,7 +4277,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     {
         const std::string text = SqueezedSource( root, file );
         EXPECT_NE( text.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared,"
-                              "constGraphic::ExternalPassContext&){declared.Bindings(m_BindingLayout.Get("
+                              "constGraphic::ExtensionPassContext&){declared.Bindings(m_BindingLayout.Get("
                               "m_Pipeline->GetSpecification().Shader),m_Material->GetMaterialExecutor()->"
                               "GetRouteFill());};" ),
                    std::string::npos )
@@ -3812,7 +4318,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     // blocks there; its exec only flushes.
     const std::string ui = SqueezedSource( root, "Editor/Source/Editor/RenderSystems/Passes/EditorUIPass.cpp" );
     const size_t      uiDeclare = ui.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared," );
-    const size_t      uiExec    = ui.find( "pass.Execute=[this](constGraphic::ExternalPassContext&ctx," );
+    const size_t      uiExec    = ui.find( "pass.Execute=[this](constGraphic::ExtensionPassContext&ctx," );
     ASSERT_NE( uiDeclare, std::string::npos );
     ASSERT_NE( uiExec, std::string::npos );
     ASSERT_LT( uiDeclare, uiExec );
@@ -4837,4 +5343,48 @@ TEST( RenderGraphCompile, ProducersDeclareTheirFaultDefault )
         EXPECT_LT( defaulted, text.find( "AddPass(", at ) )
              << producer.GraphName << ": the FaultDefault is not declared with the texture";
     }
+}
+
+TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
+{
+    // VFX-10. The tick's Spawn from Channel particles reach the GPU spawn as a per-tick upload buffer of each
+    // emitter (ParticleWorldGpu::PrepareTick), imported into the frame graph by the simulating view and declared
+    // StorageRead by Spawn+Update, whose shader reads it at binding 5 with the step's ChannelFirst/ChannelCount.
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string renderer = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    const size_t declare = renderer.find( "voidParticleRenderer::DeclareSimulateBindings(" );
+    ASSERT_NE( declare, std::string::npos );
+    const std::string declareBody =
+         renderer.substr( declare, renderer.find( "voidParticleRenderer::", declare + 1 ) - declare );
+    EXPECT_NE( declareBody.find( ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)" ),
+               std::string::npos )
+         << "Spawn+Update does not declare the channel spawns it reads";
+
+    const size_t importAt = renderer.find( "voidParticleRenderer::ImportFrameBuffers(" );
+    ASSERT_NE( importAt, std::string::npos );
+    const std::string importBody =
+         renderer.substr( importAt, renderer.find( "voidParticleRenderer::", importAt + 1 ) - importAt );
+    const size_t simulates = importBody.find( "if(m_Simulates)" );
+    const size_t channel   = importBody.find( "Renderer::ImportBuffer(gpu.ChannelSpawns,ve.ChannelImport)" );
+    ASSERT_NE( simulates, std::string::npos );
+    EXPECT_NE( channel, std::string::npos ) << "the channel spawns are not imported into the frame graph";
+    EXPECT_GT( channel, simulates ) << "a draw-only view imports the simulation's upload";
+    EXPECT_NE(
+         importBody.find( "graph.RegisterExternal(ve.ChannelImport,std::format(\"ParticleChannelSpawns{}\",i))" ),
+         std::string::npos );
+
+    const std::string world = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
+    EXPECT_NE( world.find( "gpu.ChannelSpawns->SetData(channel.data(),needed*kParticleChannelSpawnStride)" ),
+               std::string::npos )
+         << "the tick's channel spawns are not uploaded";
+
+    const std::string shader =
+         SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
+    EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
+    EXPECT_NE( shader.find( "boolfromChannel=t<u_Steps[step].ChannelCount;" ), std::string::npos );
+    EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
+         << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
 }

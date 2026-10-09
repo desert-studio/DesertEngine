@@ -63,6 +63,13 @@ namespace Desert::Editor
         /// A fracture (`.dfrac`, UE UGeometryCollection): its own type so the browser can colour it, give it
         /// an icon and filter by it; its picture is the class icon until a producer renders the pieces.
         Fracture,
+        /// A VFX data channel (`.dfxch`, UE UNiagaraDataChannel): its own type so the browser can colour it, give
+        /// it an icon and filter by it; a layout of fields has no picture, so it shows the class icon as UE does.
+        VFXDataChannel,
+
+        /// A physics asset (`.dephysasset`, UE UPhysicsAsset): its own type so the browser can colour it, give it
+        /// an icon and filter by it; its picture is the class icon until the physics asset editor (RAG1c).
+        PhysicsAsset,
 
         /// An import settings sidecar (`.deimport`) written beside a source file by the importer: it states
         /// HOW the source is brought in, so the browser names it instead of calling it Unknown.
@@ -80,6 +87,11 @@ namespace Desert::Editor
 
         FoliageType, // `.defoliage`: UE's UFoliageType
         StringTable, // `.destrings`: a localisation table
+
+        // ENHANCED INPUT (GP1): UE's UInputAction and UInputMappingContext. Each its own kind for its colour,
+        // icon and filter entry; both open in their asset editor (Panels/Input) on a double-click.
+        InputAction,         // `.deinputaction`: one action and its value type
+        InputMappingContext, // `.deinputcontext`: keys -> actions, with modifiers and triggers
 
         /// A partitioned world's cooked cells and index (`.dwcell`, `.dwindex`). ONE kind for two extensions
         /// for the reason Cloud is: one colour, one icon, one producer, and neither is authored — both are
@@ -158,6 +170,8 @@ namespace Desert::Editor
          { "dseq", FileType::LevelSequence },
          { "dfx", FileType::VFXSystem },
          { "dfrac", FileType::Fracture },
+         { "dfxch", FileType::VFXDataChannel },
+         { "dephysasset", FileType::PhysicsAsset },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },
@@ -167,6 +181,8 @@ namespace Desert::Editor
          { "retarget", FileType::Retarget },
          { "defoliage", FileType::FoliageType },
          { "destrings", FileType::StringTable },
+         { "deinputaction", FileType::InputAction },
+         { "deinputcontext", FileType::InputMappingContext },
          { "dwcell", FileType::CookedWorld },
          { "dwindex", FileType::CookedWorld },
     };

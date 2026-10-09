@@ -4,6 +4,7 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Audio/AudioEngine.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
@@ -47,6 +48,32 @@ namespace Desert::ECS
      * the actor's to write: Set is false and the host refuses the track by name. Shared by the play-time system
      * and the Sequencer's preview, like the clip source above.
      */
+    /// The Subsequence sections' sequences over @p assets: the .dseq of that GUID, loaded on first use.
+    [[nodiscard]] inline LevelSequenceSubsequenceSource LevelSequenceSubsequences( Assets::AssetManager& assets )
+    {
+        const auto asset = [&assets]( const Common::Content::AssetGuid& guid )
+        {
+            return guid.IsNull() ? Assets::Asset<Assets::LevelSequenceAsset>()
+                                 : assets.ProbeByHandle<Assets::LevelSequenceAsset>( Assets::AssetHandle(
+                                        static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+        };
+        LevelSequenceSubsequenceSource source;
+        source.Find = [&assets,
+                       asset]( const Common::Content::AssetGuid& guid ) -> const Animation::Timeline::Sequence*
+        {
+            auto found = asset( guid );
+            if ( !found || !found->EnsureLoaded( assets ) )
+                return nullptr;
+            return &found->GetSequence();
+        };
+        source.Name = [asset]( const Common::Content::AssetGuid& guid ) -> std::string
+        {
+            const auto found = asset( guid );
+            return found ? found->GetDisplayName() : Common::Content::AssetGuidToText( guid );
+        };
+        return source;
+    }
+
     [[nodiscard]] inline LevelSequenceMaterialSlots LevelSequenceMaterialSlotOverrides()
     {
         const auto instanceOf = []( entt::registry& registry, const entt::entity entity,
@@ -122,14 +149,15 @@ namespace Desert::ECS
                 if ( actor == nullptr )
                     continue;
 
-                const Animation::Timeline::TimeStep step = actor->Playback->Player.Advance( ts.GetSeconds() );
-                const LevelSequenceStep result = StepLevelSequence( registry, component, *actor->Playback, step,
-                                                                    LevelSequenceClips( *m_AssetManager ),
-                                                                    LevelSequenceMaterialSlotOverrides() );
+                const LevelSequenceStep result = AdvanceLevelSequence(
+                     registry, component, *actor->Playback, ts.GetSeconds(), LevelSequenceClips( *m_AssetManager ),
+                     LevelSequenceMaterialSlotOverrides(), LevelSequenceSubsequences( *m_AssetManager ) );
                 for ( const auto& error : TakeNewLevelSequenceErrors( actor->State, result ) )
                     LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, error );
                 for ( const auto& name : result.FiredEvents )
                     LOG_INFO( "[LevelSequence] '{}': event '{}'", actor->Name, name );
+                for ( const auto& clip : result.Sounds )
+                    Audio::AudioEngine::Get().PlayOneShot( clip );
 
                 if ( const auto target =
                           LevelSequenceViewTarget( actor->State, result, m_Scene->GetViewTarget() ) )
@@ -182,8 +210,18 @@ namespace Desert::ECS
                            static_cast<uint64_t>( component.Sequence ), loaded.GetError() );
                 return nullptr;
             }
-            actor.Playback = std::make_unique<LevelSequencePlayback>( actor.Asset->GetSequence() );
-            actor.Playback->Player.SetLoopMode( component.Loop );
+            // A sequence that plays itself through its subsequences is refused before it starts (UE refuses
+            // the recursive sub section at authoring); the step refuses such a section by name as well.
+            if ( const auto acyclic =
+                      CheckSubsequenceCycles( actor.Asset->Guid(), LevelSequenceSubsequences( *m_AssetManager ) );
+                 !acyclic )
+            {
+                LOG_ERROR( "[LevelSequence] '{}': {}; nothing plays", actor.Name, acyclic.GetError() );
+                return nullptr;
+            }
+            actor.Playback        = std::make_unique<LevelSequencePlayback>( actor.Asset->GetSequence() );
+            actor.Playback->Asset = actor.Asset->Guid();
+            ApplyLevelSequencePlaySettings( actor.Playback->Player, component );
             if ( component.AutoPlay )
                 actor.Playback->Player.Play();
             return &actor;

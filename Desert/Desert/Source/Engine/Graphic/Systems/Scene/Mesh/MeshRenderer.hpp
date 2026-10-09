@@ -28,7 +28,7 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
-#include <Engine/Graphic/RenderGraphBuilder.hpp>
+#include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 
@@ -132,6 +132,7 @@ namespace Desert::Graphic::System
     {
         // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
         uint32_t    Entity = 0;
+        uint32_t    MotionPart = 0; // a stable part of the entity (MotionRecord::Part), 0 = by submission
         class Mesh* Mesh;
         glm::mat4   Transform;
 
@@ -160,6 +161,7 @@ namespace Desert::Graphic::System
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
             uint32_t Entity = 0;
+            uint32_t MotionPart = 0; // a stable part of the entity (MotionRecord::Part), 0 = by submission
             // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
             uint32_t                  MotionRow = 0;
@@ -227,6 +229,9 @@ namespace Desert::Graphic::System
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
             uint32_t Entity = 0;
+            // A stable part of the entity (MotionRecord::Part, e.g. a fracture piece), 0 = the entity itself. A
+            // slot-material draw of a part carries the part its lit draw carries, so both read one motion row.
+            uint32_t MotionPart = 0;
             // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
             uint32_t                   MotionRow = 0;
@@ -304,12 +309,26 @@ namespace Desert::Graphic::System
                        "would write matrices no shader ever reads." );
 
         virtual Common::BoolResultStr Initialize() override;
-        virtual void                  RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The raster passes this renderer hands the frame build (SceneRenderer::AddFrameShadowDepths,
+        // AddFrameBasePass, AddFrameSilhouette and the debug overlay add them, in that order of the frame). Each
+        // is empty (no TargetFramebuffer) when its pipeline or target was never built: the frame then has no such
+        // pass. The forward geometry of the scene target; LOAD, after the sky that clears it.
+        [[nodiscard]] SystemRasterPass GeometryPass();
+        // The silhouette mask (always produced and cleared, so the Jump Flood outline has a fresh input every
+        // frame; outline visibility is JumpFloodOutlineRenderer's).
+        [[nodiscard]] SystemRasterPass SilhouettePass();
+        // One depth-only pass per cascade, cascade 0 first; each clears its own cascade target.
+        [[nodiscard]] std::vector<SystemRasterPass> ShadowCascadePasses();
+#if DESERT_DEV_INSTRUMENTS
+        // The bounding-box lines over the lit scene, depth-tested.
+        [[nodiscard]] SystemRasterPass DebugLinesPass();
+#endif
 
         // Silhouette mask of the currently outlined meshes (white on the framebuffer clear color).
         // Consumed by JumpFloodOutlineRenderer to build the outline.
         // Deferred: renders the static-mesh queue into the scene renderer's G-buffer via a MANUAL render pass
-        // (outside the graph — see the note in RegisterPasses). No-op unless the deferred pipeline exists.
+        // (outside the graph — see the note in GeometryPass). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks (the
         // G-buffer shaders sample no scene/view input). The exec records that list.
@@ -623,8 +642,6 @@ namespace Desert::Graphic::System
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
-        void RegisterSilhouettePass( RenderGraphBuilder& builder );
-        void RegisterShadowPass( RenderGraphBuilder& builder );
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
         // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
@@ -637,7 +654,6 @@ namespace Desert::Graphic::System
 #if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
-        void RegisterDebugPass( RenderGraphBuilder& builder );
 #endif // DESERT_DEV_INSTRUMENTS
 
     private:

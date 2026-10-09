@@ -15,6 +15,9 @@ namespace Desert::Graphic
     struct MotionRecord
     {
         uint32_t                   Entity = 0;
+        // 0: the entity's rows are numbered in submission order. Non-zero: a stable part of the entity (a fracture
+        // piece: node + 1), keyed { Entity, kMotionPartSlotBit | Part } whatever else the entity drew. Rigid only.
+        uint32_t                   Part = 0;
         glm::mat4                  World{ 1.0f };
         std::span<const glm::mat4> Bones{};
     };
@@ -42,6 +45,8 @@ namespace Desert::Graphic
     //    (a mesh split across material slots) and share a row; another world is the entity's next slot.
     //  - Every skinned record takes its own slot; its row names this frame's palette (BoneOffset) and the previous
     //    one (PrevBoneOffset, MotionHistory::PreviousBones) in Palettes.
+    //  - A rigid record with a Part is keyed by that part, not by its position: its records of one world share a
+    //    row, and another part starting or stopping to move never shifts its previous world.
     //  - A primitive the view did not draw last frame gets PrevWorld == World (and its own palette as previous):
     //    camera motion only.
     // @p out is cleared first (capacity kept).

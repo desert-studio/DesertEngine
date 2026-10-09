@@ -1,8 +1,13 @@
 #pragma once
 
 #include <Engine/ECS/System/System.hpp>
+#include <Engine/ECS/System/CharacterMovement.hpp>
+#include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
+#include <Engine/ECS/System/EntityOverlaps.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
+#include <Engine/ECS/System/RagdollLifetime.hpp>
+#include <Engine/ECS/System/DestructionVFXEvents.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -16,6 +21,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 
@@ -72,6 +78,8 @@ namespace Desert::ECS
                 if ( m_World )
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
+                    m_Ragdolls.reset();
+                    m_Overlaps.reset(); // unsubscribes from the world
                     m_RefusedColliders.clear();
                     m_Landscape.reset();
                     m_Destructibles.reset();
@@ -90,9 +98,11 @@ namespace Desert::ECS
                 m_AppliedGravity = m_Scene ? m_Scene->GetSettings().Gravity : Core::SceneSettings{}.Gravity;
                 m_World->Init( m_AppliedGravity );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
+                m_Overlaps      = std::make_unique<EntityOverlapRouter>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
+                m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -108,6 +118,7 @@ namespace Desert::ECS
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
             m_Destructibles->Attach( registry );
+            m_Ragdolls->Attach( registry );
             m_Destructibles->Sync( registry, []( const Assets::AssetHandle& fracture )
                                    { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
@@ -134,31 +145,17 @@ namespace Desert::ECS
                 desc.Mass        = rb.Data.Mass;
                 desc.Friction    = rb.Data.Friction;
                 desc.Restitution = rb.Data.Restitution;
+                desc.IsTrigger   = collider.Data.IsTrigger;
+                desc.Overlaps    = { .Static     = collider.Data.OverlapStatic,
+                                     .Kinematic  = collider.Data.OverlapKinematic,
+                                     .Dynamic    = collider.Data.OverlapDynamic,
+                                     .Characters = collider.Data.OverlapCharacters };
 
-                // Use the WORLD pose (walk parents) so a collider on a CHILD entity (e.g. a wall inside a
-                // "House" prefab root) is created where it actually is, not at its local offset.
-                glm::mat4    world = transform.GetTransform();
-                entt::entity cur   = entity;
-                while ( registry.has<RelationshipComponent>( cur ) )
-                {
-                    const auto& rel = registry.get<RelationshipComponent>( cur );
-                    if ( rel.Parent == entt::null )
-                        break;
-                    cur = rel.Parent;
-                    if ( registry.has<TransformComponent>( cur ) )
-                        world = registry.get<TransformComponent>( cur ).GetTransform() * world;
-                }
-                desc.Position = glm::vec3( world[3] );
-                glm::mat3       basis( world ); // strip scale so quat_cast gives a clean rotation
-                const glm::vec3 worldScale( glm::length( basis[0] ), glm::length( basis[1] ),
-                                            glm::length( basis[2] ) );
-                if ( glm::length( basis[0] ) > 1e-6f )
-                    basis[0] = glm::normalize( basis[0] );
-                if ( glm::length( basis[1] ) > 1e-6f )
-                    basis[1] = glm::normalize( basis[1] );
-                if ( glm::length( basis[2] ) > 1e-6f )
-                    basis[2] = glm::normalize( basis[2] );
-                desc.Rotation = glm::quat_cast( basis );
+                // The WORLD pose, so a collider on a CHILD entity is created where it actually is.
+                const EntityWorldPose pose       = ComputeEntityWorldPose( registry, entity );
+                const glm::vec3       worldScale = pose.Scale;
+                desc.Position                    = pose.Position;
+                desc.Rotation                    = pose.Rotation;
 
                 std::optional<ColliderMesh> colliderMesh;
                 if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
@@ -183,6 +180,7 @@ namespace Desert::ECS
                     continue;
                 }
                 rb.RuntimeBody = created.GetValue();
+                m_Overlaps->Track( rb.RuntimeBody, entity );
             }
 
             // Create a Jolt CharacterVirtual for any character entity that doesn't have one (authored pose).
@@ -194,13 +192,9 @@ namespace Desert::ECS
                     continue;
                 const auto& transform = characters.get<TransformComponent>( entity );
 
-                Physics::CharacterDesc desc;
-                desc.Radius         = cc.Data.Radius;
-                desc.HalfHeight     = glm::max( ( cc.Data.Height - 2.0f * cc.Data.Radius ) * 0.5f, 0.01f );
-                desc.Position       = transform.Translation; // capsule center
-                desc.MaxSlopeDeg    = cc.Data.MaxSlopeDeg;
-                cc.RuntimeCharacter = m_World->CreateCharacter( desc );
-                cc.VerticalVelocity = 0.0f;
+                CharacterMovement::CreateCharacter( cc, *m_World, transform.Translation ); // capsule centre
+                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter )
+                    m_Overlaps->Track( m_World->GetCharacterBody( cc.RuntimeCharacter ), entity );
             }
 
             if ( !playing )
@@ -208,13 +202,37 @@ namespace Desert::ECS
 
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
-            m_World->Step( ts.GetSeconds() );
 
-            // Write the simulated pose back into the transform for moving bodies.
+            m_Overlaps->BeginFrame( registry );
+            // A kinematic body follows its entity (the transform leads, the body travels to it over the step);
+            // only a dynamic body's pose is written back below.
+            DriveKinematicBodies( registry, *m_World );
+
+            // Ragdolls around the step (UE: the physics asset's bodies in the physics scene, BlendInPhysics
+            // after it). Animation ran BEFORE this system (RuntimeLayer / SceneWorkspace order), so the
+            // animator's pose is this frame's animated pose: kinematic ragdolls are driven to it by this step,
+            // and simulated ones are written back over it after the step, before skinning.
+            m_Ragdolls->DriveBeforeStep(
+                 registry,
+                 []( const Assets::AssetHandle& asset, const Common::Content::AssetGuid& meshSkeleton,
+                     std::string_view meshSkeletonName ) {
+                     return Runtime::ResourceRegistry::GetPhysicsAssetService()->Get( asset, meshSkeleton,
+                                                                                      meshSkeletonName );
+                 },
+                 &MeshSkeletonOf );
+            const uint32_t fixedSteps = m_World->Step( ts.GetSeconds() );
+            // DST-05: the step's breaks, collisions and removals into the scene's VFX data channels.
+            PublishDestructionEvents( registry );
+            m_Destructibles->WritePoses( registry );
+            m_Ragdolls->WriteBackAfterStep( registry );
+            // Queued on both entities for their scripts (ScriptSystem, next frame) and given to C++ subscribers.
+            m_Overlaps->Deliver( registry, fixedSteps );
+
+            // Write the simulated pose back into the transform for dynamic bodies.
             for ( auto entity : bodies )
             {
                 auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type == Physics::BodyType::Static )
+                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
                     continue;
 
                 auto& transform       = bodies.get<TransformComponent>( entity );
@@ -251,63 +269,21 @@ namespace Desert::ECS
                 if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
                     continue;
 
-                // World move direction from the script's local intent (y = forward, x = strafe/right).
-                glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
-                if ( glm::length( wish ) > 1e-4f )
-                    wish = glm::normalize( wish );
-
-                const bool onGround = m_World->IsCharacterOnGround( cc.RuntimeCharacter );
-                cc.OnGround         = onGround; // exposed to scripts via self:isOnGround()
-                // Gravity is authored per-character (CharacterControllerData::Gravity), not a baked constant —
-                // default ~2x real so the jump arc is SNAPPY (real 9.81 feels floaty / cartoonish).
-                const float kGravity = cc.Data.Gravity;
-
-                glm::vec3 horiz;
-                if ( cc.Swimming )
-                {
-                    // BUOYANCY: no hard gravity. Vertical follows the swim intent (up/down); when neutral the
-                    // body drifts gently up toward the surface. Full 3D control, but slower than on land.
-                    const float targetV = cc.SwimVertical * cc.DesiredSpeed;
-                    cc.VerticalVelocity = glm::mix( cc.VerticalVelocity, targetV, 0.15f );
-                    if ( glm::abs( cc.SwimVertical ) < 0.01f )
-                        cc.VerticalVelocity += 2.5f * dt; // gentle rise (float up)
-                    cc.JumpRequested = false;
-
-                    horiz          = wish * ( cc.DesiredSpeed * 0.6f ); // water drag
-                    cc.AirVelocity = { horiz.x, horiz.z };
-                }
-                else
-                {
-                    if ( onGround )
-                        cc.VerticalVelocity = cc.JumpRequested ? cc.JumpStrength : -1.0f; // jump (script) or stick
-                    else
-                        cc.VerticalVelocity -= kGravity * dt;
-                    cc.JumpRequested = false; // one-shot, consumed
-
-                    // NO AIR CONTROL: on the ground the script's input steers (and we remember that horizontal
-                    // velocity); in the air the takeoff velocity is locked, so a jump goes one direction and
-                    // there's no bunny-hop strafing.
-                    if ( onGround )
-                    {
-                        horiz          = wish * cc.DesiredSpeed;
-                        cc.AirVelocity = { horiz.x, horiz.z }; // capture for the moment we leave the ground
-                    }
-                    else
-                    {
-                        horiz = { cc.AirVelocity.x, 0.0f, cc.AirVelocity.y };
-                    }
-                }
-                const glm::vec3 vel( horiz.x, cc.VerticalVelocity, horiz.z );
-                m_World->UpdateCharacter( cc.RuntimeCharacter, vel, dt );
-
-                cc.CurrentSpeed = glm::length( glm::vec2( horiz.x, horiz.z ) ); // 0 when idle, drives anim
+                // World move intent from the script's camera-relative one (y = forward, x = right); the model
+                // (walking / falling / crouch, UE CharacterMovementComponent) is CharacterMovement::Step.
+                const glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
+                CharacterMovement::Step( cc, *m_World, wish, dt );
 
                 auto& transform       = characters.get<TransformComponent>( entity );
                 transform.Translation = m_World->GetCharacterPosition( cc.RuntimeCharacter );
 
-                // NOTE: physics only PRODUCES state (cc.CurrentSpeed / cc.OnGround). Mapping that state to a
+                // NOTE: physics only PRODUCES state (cc.Velocity / cc.OnGround). Mapping that state to a
                 // locomotion clip is behaviour and lives in LocomotionSystem (runs after this), not here.
             }
+
+            // Spring arms after the characters moved (and after the scripts pitched them, ScriptSystem runs
+            // first): the camera is placed against this frame's pawn and this frame's world.
+            SpringArm::UpdateAll( registry, m_World.get(), dt );
         }
 
         // nullopt = the asset is still loading; an error = there is nothing to build from. Public: the editor's
@@ -365,12 +341,69 @@ namespace Desert::ECS
 
         /// The scene's destruction world while Play runs, null in Edit: what a field entity fires into
         /// (ECS::FireDestructionField), from the Sequencer or from gameplay.
+        /// The scene's physics world while Play runs, null in Edit: what moves a body the game teleports
+        /// (Core::LoadGameFromSlot restoring a pawn) so the next step does not put it back.
+        [[nodiscard]] Physics::PhysicsWorld* GetPhysicsWorld() const
+        {
+            return m_World.get();
+        }
+
         [[nodiscard]] Destruction::DestructionWorld* GetDestructionWorld() const
         {
             return m_Destruction.get();
         }
 
+        /// The scene's trigger overlaps as entity events while Play runs, null in Edit: where C++ gameplay
+        /// subscribes (scripts get theirs through OverlapEventsComponent).
+        [[nodiscard]] EntityOverlapRouter* GetOverlapRouter() const
+        {
+            return m_Overlaps.get();
+        }
+
     private:
+        // The skeleton the entity's skinned mesh names (UE USkeletalMesh::Skeleton) — what a physics asset
+        // must be authored on. Only asked once the entity's Animator exists, so the mesh is resident.
+        static Common::ResultStr<Common::Content::AssetGuid> MeshSkeletonOf( const entt::registry& registry,
+                                                                             entt::entity          entity )
+        {
+            using Guid = Common::Content::AssetGuid;
+            if ( !registry.has<SkinnedMeshComponent>( entity ) )
+                return Common::MakeError<Guid>( "it has no Skinned Mesh: a ragdoll's bodies follow a skinned "
+                                                "mesh's bones" );
+            const auto& mesh = registry.get<SkinnedMeshComponent>( entity );
+            if ( mesh.RuntimeMesh )
+                return Common::MakeError<Guid>( "its mesh is an in-editor rig (Convert to Skinned) with no "
+                                                "skeleton asset, and a physics asset names its skeleton by GUID" );
+            const auto* asset = dynamic_cast<const Assets::SkinnedMeshAsset*>(
+                 Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh.MeshHandle ) );
+            if ( asset == nullptr )
+                return Common::MakeError<Guid>( "its mesh is not a parsed skinned mesh" );
+            return Common::MakeSuccess( asset->GetSkeleton() );
+        }
+
+        // DST-05: this frame's breaks, collisions and removals into the scene's VFX data channels, read by the
+        // VFXWorld tick that follows the systems. A refusal (no channel asset, a layout without a field) is said
+        // once until it changes, not every frame.
+        void PublishDestructionEvents( entt::registry& registry )
+        {
+            if ( m_Scene == nullptr )
+                return;
+            const DestructionEventSources sources  = CollectDestructionEventSources( registry );
+            VFX::VFXDataChannels&         channels = m_Scene->GetVFXWorld().GetDataChannels();
+            Common::BoolResultStr         outcome  = Common::MakeSuccess( true );
+            if ( const auto assets = Runtime::ResourceRegistry::GetFractureService()->LockAssetManager() )
+                outcome = UseDestructionChannels( sources, channels, *assets );
+            if ( outcome.IsSuccess() )
+            {
+                DestructionVFXReport report;
+                outcome = WriteDestructionEventsToVFX( m_Destruction->GetEvents(), sources, channels, report );
+            }
+            const std::string refusal = outcome.IsSuccess() ? std::string() : outcome.GetError();
+            if ( !refusal.empty() && refusal != m_DestructionVFXRefusal )
+                LOG_ERROR( "[Destruction] events not published to VFX: {}", refusal );
+            m_DestructionVFXRefusal = refusal;
+        }
+
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {
@@ -382,15 +415,21 @@ namespace Desert::ECS
         std::unique_ptr<Physics::PhysicsWorld> m_World;
         // Declared AFTER m_World so it is destroyed first: it releases into the world, never the other way.
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;
+        // Same rule: subscribed to m_World's overlaps.
+        std::unique_ptr<EntityOverlapRouter> m_Overlaps;
         // Same rule: the landscape's heightfield bodies live in m_World.
         std::unique_ptr<LandscapeCollision> m_Landscape;
         // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.
         std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
         // Same rule, one level down: the destructible entities' objects live in m_Destruction.
         std::unique_ptr<DestructibleLifetime> m_Destructibles;
+        // Same rule: the ragdolls' bodies live in m_World.
+        std::unique_ptr<RagdollLifetime> m_Ragdolls;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.
         std::unordered_set<entt::entity> m_RefusedColliders;
+        // The last refusal PublishDestructionEvents said; empty while publishing works.
+        std::string m_DestructionVFXRefusal;
     };
 } // namespace Desert::ECS

@@ -200,7 +200,7 @@ namespace
          { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
            "Animation::AnimationAdvanceSeconds(" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
-           "AdvanceWind( data, m_WorldDeltaSeconds )" },
+           "AdvanceWind( data, wind, m_WorldDeltaSeconds )" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
            "m_WorldDeltaSeconds = time.GetDeltaSeconds()" },
          { "Desert/Desert/Source/Engine/Graphic/Materials/SceneFrameBinding.cpp",

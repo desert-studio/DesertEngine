@@ -39,6 +39,7 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
+#include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
@@ -897,6 +898,20 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::FractureAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::FractureAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "PhysicsAsset" )
+            {
+                // A ragdoll's physics asset (RagdollData::PhysicsAsset). Announced, not read, as the fracture
+                // above: PhysicsAssetService reads the `.dephysasset` when Play asks for it, and the asset's
+                // constructor adopts the handle its envelope GUID names.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::PhysicsAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::PhysicsAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PrefabAsset" )
@@ -1994,6 +2009,7 @@ namespace Desert::Core::Serialize
                 // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.
                 out.Set( "Loop", actor.Loop );
                 out.Set( "AutoPlay", actor.AutoPlay );
+                out.Set( "PlayRate", actor.PlayRate );
                 Common::Json::Value::Array overrides;
                 for ( const auto& over : actor.BindingOverrides )
                     overrides.emplace_back(
@@ -2018,6 +2034,7 @@ namespace Desert::Core::Serialize
                 auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
                 g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
                 g.ReadInto( "AutoPlay", actor.AutoPlay, issues );
+                g.ReadInto( "PlayRate", actor.PlayRate, issues );
                 if ( const auto overrides = g.Find( "BindingOverrides" ) )
                     overrides->ForEachElement(
                          [&]( std::size_t, const Common::Json::Node& element )
@@ -2181,7 +2198,6 @@ namespace Desert::Core::Serialize
         // own registration source and refuses to let a sixth one exist. No version bump: an added key is
         // what ForeignKeys is for, and no scene in this repository carries these blocks yet — nothing
         // ever wrote one.
-        Register( MakeAuthored<ECS::LocomotionComponent>( "Locomotion" ) );
         Register( MakeAuthored<ECS::MorphComponent>( "Morph" ) );
         Register( MakeAuthored<ECS::SocketAttachmentComponent>( "SocketAttachment" ) );
         Register( MakeAuthored<ECS::ProjectileComponent>( "Projectile" ) );

@@ -80,6 +80,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<ColliderComponent, ColliderData>{ "Collider", "ColliderData", &ColliderComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<RigidBodyComponent, RigidBodyData>{ "RigidBody", "RigidBodyData", &RigidBodyComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<CharacterControllerComponent, CharacterControllerData>{ "CharacterController", "CharacterControllerData", &CharacterControllerComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<SpringArmComponent, SpringArmData>{ "SpringArm", "SpringArmData", &SpringArmComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<PlayerStartComponent, PlayerStartData>{ "PlayerStart", "PlayerStartData", &PlayerStartComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<StreamingSourceComponent, StreamingSourceData>{ "StreamingSource", "StreamingSourceData", &StreamingSourceComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<AudioSourceComponent, AudioSourceData>{ "AudioSource", "AudioSourceData", &AudioSourceComponent::Data, R::ActorsAndUI } );
@@ -90,6 +91,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<UITextComponent2D, UITextData>{ "UIText", "UITextData", &UITextComponent2D::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<UIButtonComponent, UIButtonData>{ "UIButton", "UIButtonData", &UIButtonComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<UIIconComponent, UIIconData>{ "UIIcon", "UIIconData", &UIIconComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<EnhancedInputPlayerComponent, EnhancedInputPlayerData>{ "EnhancedInputPlayer", "EnhancedInputPlayerData", &EnhancedInputPlayerComponent::Data, R::ActorsAndUI } );
 
         visit( ReflectedMemberBlock<UIBindingComponent, UIBindingData>{ "UIBinding", "UIBindingData", &UIBindingComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<UIScreenComponent, UIScreenData>{ "UIScreen", "UIScreenData", &UIScreenComponent::Data, R::UIAfterRenderTexture } );
@@ -127,6 +129,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<HeroCloudComponent, HeroCloudData>{ "HeroCloud", "HeroCloudData", &HeroCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<ProceduralFoliageComponent, ProceduralFoliageData>{ "ProceduralFoliage", "ProceduralFoliageData", &ProceduralFoliageComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<DestructibleComponent, DestructibleData>{ "Destructible", "DestructibleData", &DestructibleComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<RagdollComponent, RagdollData>{ "Ragdoll", "RagdollData", &RagdollComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<RadialImpulseFieldComponent, RadialImpulseFieldData>{ "RadialImpulseField", "RadialImpulseFieldData", &RadialImpulseFieldComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<StrainFieldComponent, StrainFieldData>{ "StrainField", "StrainFieldData", &StrainFieldComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<KillFieldComponent, KillFieldData>{ "KillField", "KillFieldData", &KillFieldComponent::Data, R::SkyAndAtmosphere } );

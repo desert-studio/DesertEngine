@@ -72,11 +72,34 @@ namespace Desert::Animation::Timeline
         bool Loop = false;
     };
 
+    /**
+     * @brief One leg of the step inside one Subsequence section (UE: the sub-sequence's evaluation range,
+     * FMovieSceneSubSequenceData's outer-to-inner transform applied to the parent's range).
+     *
+     * `From`/`To` are PARENT ticks, already clipped to the section: forward to (Start - 0.5, End], so a key at
+     * the section's first tick is crossed once; backward to [Start, End + 0.5). A wrapped step gives two
+     * legs. `Moved` = false is a jump (From == To): the child is posed, crosses nothing. `ValuesAt` = the
+     * section covers the step's end and this is the leg that ends there: the child's values, animations and
+     * camera are applied; on every other leg only its events fire. The host maps both ends with
+     * `MapSubsequenceTime`.
+     */
+    struct SubsequenceSample
+    {
+        uint32_t      TrackIndex   = 0;
+        uint32_t      SectionIndex = 0;
+        FrameTime     From;
+        FrameTime     To;
+        PlayDirection Direction = PlayDirection::Forward;
+        bool          Moved     = true;
+        bool          ValuesAt  = false;
+    };
+
     struct EvaluatedFrame
     {
-        std::vector<EvaluatedTrack>  Values;
-        std::vector<FiredEvent>      Events;
-        std::vector<AnimationSample> Animations;
+        std::vector<EvaluatedTrack>    Values;
+        std::vector<FiredEvent>        Events;
+        std::vector<AnimationSample>   Animations;
+        std::vector<SubsequenceSample> Subsequences;
         /// The Camera Cut in force, or nullopt when the sequence has none (the viewport keeps its camera).
         std::optional<BindingGuid> ActiveCamera;
     };
@@ -103,7 +126,9 @@ namespace Desert::Animation::Timeline
         virtual void Apply( const ResolvedBinding& target, std::string_view property,
                             const EvaluatedValue& value ) = 0;
 
-        virtual void Fire( const FiredEvent& event )                                               = 0;
+        /// One crossed event key. @p target is the event track's binding resolved (nullopt on the Sequence
+        /// binding, or an unresolved actor): the object a key's `Action` acts on.
+        virtual void Fire( const FiredEvent& event, const std::optional<ResolvedBinding>& target ) = 0;
         virtual void SetCamera( const std::optional<ResolvedBinding>& camera )                     = 0;
         virtual void PlayAnimation( const ResolvedBinding& target, const AnimationSample& sample ) = 0;
     };
@@ -112,6 +137,15 @@ namespace Desert::Animation::Timeline
     {
         /// Labels of bindings the host could not resolve; their tracks were not applied.
         std::vector<std::string> Unresolved;
+    };
+
+    /// What `Evaluator::Apply` hands the host. A SUBSEQUENCE's frame is applied `Nested` (its camera only when
+    /// it has a cut in force: no cut leaves the parent's) or, on a leg that does not end the step, `EventsOnly`.
+    enum class ApplyScope : uint8_t
+    {
+        Whole,
+        Nested,
+        EventsOnly,
     };
 
     class Evaluator
@@ -124,7 +158,13 @@ namespace Desert::Animation::Timeline
         void Evaluate( const TimeStep& step, EvaluatedFrame& out ) const;
 
         /// Resolve (cached per `Sequence::Revision`) and apply. Events fire in (tick, track) order.
-        ApplyReport Apply( const EvaluatedFrame& frame, ITimelineHost& host );
+        ApplyReport Apply( const EvaluatedFrame& frame, ITimelineHost& host,
+                           ApplyScope scope = ApplyScope::Whole );
+
+        [[nodiscard]] const Sequence& GetSequence() const
+        {
+            return *m_Sequence;
+        }
 
     private:
         const Sequence*                             m_Sequence         = nullptr;
@@ -139,6 +179,14 @@ namespace Desert::Animation::Timeline
      * cost the fast path exists to avoid). A jump (From == To, no wrap, no turn) crosses nothing.
      */
     void CollectFired( const Sequence& sequence, const TimeStep& step, std::vector<FiredEvent>& out );
+
+    /**
+     * @brief Parent time @p at inside Subsequence @p section → the subsequence's own time (UE: the section's
+     * outer-to-inner transform): `StartOffset + (at - Start) * TimeScale`, converted from the parent's tick rate
+     * to the subsequence's. Pure; computed in doubles, so a fraction of a tick survives the scale.
+     */
+    [[nodiscard]] FrameTime MapSubsequenceTime( const Section& section, const SubsequenceSectionContent& content,
+                                                FrameRate parentRate, FrameRate subRate, FrameTime at );
 
     /// One track's folded value at @p at — `Evaluate`'s per-track half (a clip curve read by name). false =
     /// muted, or no section covers @p at.

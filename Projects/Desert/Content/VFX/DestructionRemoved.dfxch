@@ -1,0 +1,32 @@
+{
+    "Header": {
+        "Kind": "VFXDataChannel",
+        "Guid": "43ab240d7ce3481f8b795e573f9c4feb",
+        "Versions": {
+            "VFXD": 1
+        },
+        "Dependencies": []
+    },
+    "Fields": [
+        {
+            "Name": "Position",
+            "Type": "Position"
+        },
+        {
+            "Name": "Velocity",
+            "Type": "Direction"
+        },
+        {
+            "Name": "MassKg",
+            "Type": "Float"
+        },
+        {
+            "Name": "PieceCount",
+            "Type": "Int"
+        },
+        {
+            "Name": "SourceEntity",
+            "Type": "Int"
+        }
+    ]
+}

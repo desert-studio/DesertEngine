@@ -91,7 +91,8 @@ namespace Desert::Assets
         FoliageType,
         // A LANDSCAPE LAYER INFO (`.delayerinfo`): UE's ULandscapeLayerInfoObject — the name a landscape's
         // weight plane is keyed by and the numbers a paint stroke normalises with. A first-class asset so one
-        // "Grass" is ONE file every landscape painting it shares — see Engine/Assets/LandscapeLayerInfoAsset.hpp.
+        // "Grass" is ONE file every landscape painting it shares — see
+        // Engine/Assets/LandscapeLayerInfoAsset.hpp.
         LandscapeLayerInfo,
         // A LEVEL SEQUENCE (`.dseq`): UE's ULevelSequence — a Timeline::Sequence (host LevelSequence) whose
         // Entity bindings name entities of the scene that places it through a LevelSequenceComponent. See
@@ -104,6 +105,19 @@ namespace Desert::Assets
         // cluster hierarchy, damage thresholds and convex hulls (Engine/Destruction/FractureBake.hpp). See
         // Engine/Assets/FractureAsset.hpp.
         Fracture,
+        // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
+        // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
+        VFXDataChannel,
+        // A PHYSICS ASSET (`.dephysasset`): UE's UPhysicsAsset — one sphere / box / capsule body per bone and the
+        // swing-twist joints between them, naming its skeleton by GUID (Engine/Physics/PhysicsAssetFormat.hpp).
+        // See Engine/Assets/PhysicsAsset.hpp.
+        PhysicsAsset,
+        // AN INPUT ACTION (`.deinputaction`): UE's UInputAction — what the player can do (Jump, Move), its value
+        // type and whether it consumes the keys mapped to it. See Engine/Assets/EnhancedInputAssets.hpp.
+        InputAction,
+        // AN INPUT MAPPING CONTEXT (`.deinputcontext`): UE's UInputMappingContext — keys mapped to actions with
+        // their modifier and trigger stacks. See Engine/Assets/EnhancedInputAssets.hpp.
+        InputMappingContext,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -197,6 +211,19 @@ namespace Desert::Assets
             // an `AssetHandle` (UE's UGeometryCollectionComponent::RestCollection), so it lives exactly as
             // long as a live entity holds it.
             case AssetTypeID::Fracture:
+            // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
+            // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
+            case AssetTypeID::VFXDataChannel:
+            // A PHYSICS ASSET IS SCENE-SCOPED for the retarget's reason: the ragdolled entity names it through an
+            // `AssetHandle` (UE's USkeletalMeshComponent::PhysicsAssetOverride), so it lives as long as that
+            // entity.
+            case AssetTypeID::PhysicsAsset:
+            // A MAPPING CONTEXT IS SCENE-SCOPED for the retarget's reason: the player's
+            // EnhancedInputPlayerComponent names it by `AssetHandle` (UE: the contexts a pawn adds at BeginPlay).
+            case AssetTypeID::InputMappingContext:
+            // AN INPUT ACTION IS SCENE-SCOPED with the context that maps it: the subsystem copies the action's
+            // data when the context is added, so an action no live context names has nothing left to drive.
+            case AssetTypeID::InputAction:
             case AssetTypeID::Count:
                 return false;
         }
@@ -267,6 +294,14 @@ namespace Desert::Assets
                 return "VFXSystem";
             case AssetTypeID::Fracture:
                 return "Fracture";
+            case AssetTypeID::VFXDataChannel:
+                return "VFXDataChannel";
+            case AssetTypeID::PhysicsAsset:
+                return "PhysicsAsset";
+            case AssetTypeID::InputAction:
+                return "InputAction";
+            case AssetTypeID::InputMappingContext:
+                return "InputMappingContext";
             case AssetTypeID::Count:
                 return "Count";
         }

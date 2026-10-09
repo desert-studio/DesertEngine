@@ -114,14 +114,16 @@ namespace Desert::Graphic::System
             return std::nullopt;
         }
 
+        // The sky draw, the first pass of SceneRenderer::AddFrameBasePass: it CLEARS the scene target (colour and
+        // depth) and the geometry after it loads. Empty (no TargetFramebuffer) without a target.
+        [[nodiscard]] SystemRasterPass SkyPass();
+
         // The evaluated per-frame sky, for renderers that must agree with it (the atmospheric fog).
         // Valid == false when no enabled atmosphere is driving this frame.
         const AtmosphereEnv& GetAtmosphere() const
         {
             return m_Atmosphere;
         }
-
-        void RegisterPasses( RenderGraphBuilder& builder ) override;
 
     private:
         // The SkyboxPass's setup: picks the draw (procedural sky or the skybox material), feeds its material
@@ -245,7 +247,7 @@ namespace Desert::Graphic::System
         AtmosphereLutFingerprint         m_LutBaked;
         bool                             m_LutsValid                        = false;
         // The sky-view LUT has been written by an earlier frame's SkyAtmosphereLuts node (it is refilled every
-        // frame after that). The SkyboxPass samples the LUTs only once this holds, see RegisterPasses.
+        // frame after that). The SkyboxPass samples the LUTs only once this holds, see DeclareSkyDraw.
         bool m_SkyViewLutFilled = false;
         // DeclareAtmosphereLutNodes declared the SkyViewLut node this frame, until SettleAtmosphereLutNodes.
         bool m_SkyViewLutFillPending = false;

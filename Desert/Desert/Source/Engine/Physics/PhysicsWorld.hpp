@@ -11,6 +11,7 @@
 #include <optional>
 #include <limits>
 #include <span>
+#include <vector>
 
 namespace Desert::Physics
 {
@@ -43,6 +44,18 @@ namespace Desert::Physics
         Z,
     };
 
+    /**
+     * @brief The kinds of body a trigger reports an overlap with — UE's overlap responses per object type
+     * (WorldStatic, WorldDynamic, PhysicsBody, Pawn), reduced to the kinds this world has.
+     */
+    struct OverlapFilter
+    {
+        bool Static     = false; ///< BodyType::Static bodies (and heightfields): the ground, the walls.
+        bool Kinematic  = true;  ///< BodyType::Kinematic bodies.
+        bool Dynamic    = true;  ///< BodyType::Dynamic bodies.
+        bool Characters = true;  ///< Character controllers (their capsule's inner body).
+    };
+
     struct BodyDesc
     {
         ShapeType Shape       = ShapeType::Box;
@@ -61,6 +74,13 @@ namespace Desert::Physics
         float     Friction    = 0.5f;
         float     Restitution = 0.1f;
 
+        /// A trigger volume (UE ATriggerVolume / a primitive with only overlap responses): a Jolt sensor that
+        /// pushes nothing and reports Begin/End overlaps with the kinds of body @c Overlaps names. A Static
+        /// trigger is made a Kinematic sensor, the only kind Jolt lets see sleeping bodies; a Dynamic one
+        /// still falls.
+        bool          IsTrigger = false;
+        OverlapFilter Overlaps;
+
         glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
     };
@@ -68,6 +88,23 @@ namespace Desert::Physics
     // Opaque handle wrapping a JPH::BodyID (its index+sequence uint32). kInvalidBody == not created.
     using BodyHandle = uint32_t;
     constexpr BodyHandle kInvalidBody = 0xFFFFFFFFu;
+
+    enum class OverlapPhase
+    {
+        Begin, ///< The other body's shape started touching the trigger (UE OnComponentBeginOverlap).
+        End,   ///< It stopped touching it, or one of the two bodies was removed (UE OnComponentEndOverlap).
+    };
+
+    /// One overlap change between a trigger body and another body.
+    struct OverlapEvent
+    {
+        OverlapPhase Phase   = OverlapPhase::Begin;
+        BodyHandle   Trigger = kInvalidBody;
+        BodyHandle   Other   = kInvalidBody;
+    };
+
+    using OverlapCallback     = std::function<void( const OverlapEvent& )>;
+    using OverlapSubscription = uint32_t;
 
     // ---- Character controller (Jolt CharacterVirtual: a kinematic capsule that walks slopes/steps, is
     // blocked by world geometry, and reports ground contact — the basis for the playable player). ----
@@ -168,6 +205,26 @@ namespace Desert::Physics
         glm::vec3  Normal   = { 0.0f, 1.0f, 0.0f };
     };
 
+    struct RagdollDesc; // Engine/Physics/RagdollDesc.hpp
+
+    /// A ragdoll in the world (a JPH::Ragdoll: one body per part, a constraint per jointed part).
+    using RagdollHandle                     = uint32_t;
+    constexpr RagdollHandle kInvalidRagdoll = 0xFFFFFFFFu;
+
+    /// What moves a ragdoll's bodies (UE: PhysicsBlendWeight 0 with kinematic bodies / SetSimulatePhysics).
+    enum class RagdollMotion
+    {
+        Kinematic, ///< every part follows the target pose (MoveKinematic per fixed step); pushes dynamic bodies
+        Simulated, ///< every part is dynamic: gravity, contacts and the constraints move it
+    };
+
+    /// One part's body in the world: its origin (the bone, not the centre of mass) and rotation, cm.
+    struct RagdollPartTransform
+    {
+        glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+        glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+    };
+
     class PhysicsWorld
     {
     public:
@@ -186,9 +243,12 @@ namespace Desert::Physics
         // Applies a new gravity to a running world. Called when the scene's setting changes so the knob is
         // honest while playing, instead of only at the next Play.
         void SetGravity( float gravityCmPerS2 );
+        /// The DOWNWARD magnitude the world falls at, cm/s^2 (what Init / SetGravity were given).
+        [[nodiscard]] float GetGravity() const;
 
-        // Advance the simulation by dt seconds (fixed-step accumulated internally).
-        void Step( float dt );
+        // Advance the simulation by dt seconds (fixed-step accumulated internally). Returns how many fixed steps
+        // ran: zero when dt only added to the backlog.
+        uint32_t Step( float dt );
 
         /// Called after every fixed step inside Step, with that step's length: where a system that reacts to
         /// the solve (DestructionWorld) runs, at the solver's rate rather than the frame's. One subscriber;
@@ -197,6 +257,18 @@ namespace Desert::Physics
 
         /// The contacts of the last fixed step on bodies that asked for them (ReportContactImpulses).
         [[nodiscard]] std::span<const ContactImpulse> GetStepContactImpulses() const;
+
+        /**
+         * @brief Calls @p callback with every overlap Begin / End of a trigger body (BodyDesc::IsTrigger).
+         *
+         * Jolt finds sensor contacts on its worker threads; they are queued there and turned into events
+         * after each fixed step, on the thread that calls Step — a subscriber never runs on a physics thread.
+         * A pair touching through several sub-shapes is one overlap: one Begin when the first touches, one End
+         * when the last lets go. A body removed while it overlaps (RemoveBody, RemoveCharacter) ends its
+         * overlaps at the next fixed step.
+         */
+        OverlapSubscription SubscribeOverlaps( OverlapCallback callback );
+        void                UnsubscribeOverlaps( OverlapSubscription subscription );
 
         /// Refused by name: a Mesh on a dynamic body, a Mesh or ConvexHull without points, an index out of
         /// range, a shape Jolt cannot cook. Mesh and ConvexHull shapes are cooked once per content (the points,
@@ -231,13 +303,34 @@ namespace Desert::Physics
         [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance ) const;
 
+        /// UE SweepSingleByChannel with a sphere: the first body a sphere of @p radius meets travelling from
+        /// @p origin along @p direction (normalised here) within @p maxDistance, or nullopt. RayHit::Distance
+        /// is how far the sphere's CENTRE travelled before touching; Point / Normal are the contact's. A sphere
+        /// that already overlaps something at @p origin reports that body at distance 0.
+        [[nodiscard]] std::optional<RayHit> CastSphere( const glm::vec3& origin, const glm::vec3& direction,
+                                                        float radius, float maxDistance ) const;
+
+        /// UE OverlapAnyTestByChannel with a capsule standing on Y: does any body intersect the capsule of
+        /// @p radius and cylinder @p halfHeight (excluding the caps) centred at @p center? Characters are not
+        /// bodies, so a character never overlaps itself here.
+        [[nodiscard]] bool OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const;
+
         // Read simulated transform (body origin, not center-of-mass).
         glm::vec3 GetPosition( BodyHandle handle ) const;
         glm::quat GetRotation( BodyHandle handle ) const;
 
         // Teleport / drive a body (use for Kinematic bodies or resetting on Play).
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
+        /// The pose a KINEMATIC body is driven to (UE: a kinematic body follows its component's transform).
+        /// Every fixed step moves it there with Jolt's MoveKinematic, the remaining distance shared evenly over
+        /// the fixed steps the current Step still has to run, so the body arrives at the end of the Step and
+        /// contacts and triggers see it travel rather than teleport. Kept until replaced or the body is removed:
+        /// a body at its target is moved by nothing. Ignored for a handle that is not a kinematic body.
+        void SetKinematicTarget( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
+        /// Moves the body to the pose and STOPS it (linear and angular velocity zero), waking it: a restored
+        /// save, a respawn — the body is where the game put it, and the next step does not carry the old motion.
+        void TeleportBody( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         /// Adds @p impulse (kg*cm/s) at the centre of mass and wakes the body; a static body ignores it.
         void                    AddImpulse( BodyHandle handle, const glm::vec3& impulse );
         [[nodiscard]] glm::vec3 GetLinearVelocity( BodyHandle handle ) const;  ///< cm/s, at the centre of mass
@@ -261,6 +354,56 @@ namespace Desert::Physics
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         bool            IsCharacterOnGround( CharacterHandle handle ) const;
         void            SetCharacterPosition( CharacterHandle handle, const glm::vec3& position );
+        /// Replaces the character's capsule (UE crouch: UCapsuleComponent::SetCapsuleSize). The centre stays
+        /// where it is — the caller moves it so the feet stay put. Refused (false, shape unchanged) when the new
+        /// capsule would penetrate the world: growing back under a low ceiling is the caller's overlap check
+        /// to make first, and this is the guard that it was made.
+        bool SetCharacterCapsule( CharacterHandle handle, float radius, float halfHeight );
+
+        // ---- Ragdolls (JPH::RagdollSettings / JPH::Ragdoll; UE: the physics asset's bodies and constraints
+        // instanced for one skeletal mesh component) ----
+
+        /**
+         * @brief Instances @p desc with its component space placed at @p position / @p rotation (the entity's
+         * world frame, scale one) and adds it to the world in @p motion.
+         *
+         * The parts are built in the bind pose — that is where the constraint frames are authored — and are
+         * stabilised (RagdollSettings::Stabilize) with parent-child collisions off. Callers then place it in
+         * the current pose with SetRagdollPose. Refused by name: no parts, a part whose parent does not
+         * precede it, a shape Jolt cannot build, the world's body limit.
+         */
+        Common::ResultStr<RagdollHandle> CreateRagdoll( const RagdollDesc& desc, const glm::vec3& position,
+                                                        const glm::quat& rotation, RagdollMotion motion );
+        void                             RemoveRagdoll( RagdollHandle handle );
+        [[nodiscard]] uint32_t           GetRagdollCount() const;
+
+        /// Switches every part to @p motion. Kinematic -> Simulated keeps each body's velocity, so a ragdoll
+        /// let go mid-swing carries the swing (UE SetSimulatePhysics(true) on an animated mesh).
+        void                        SetRagdollMotion( RagdollHandle handle, RagdollMotion motion );
+        [[nodiscard]] RagdollMotion GetRagdollMotion( RagdollHandle handle ) const;
+
+        /// Teleports every part to @p parts (one per RagdollDesc part, world) and clears their velocities and
+        /// the constraints' warm start.
+        void SetRagdollPose( RagdollHandle handle, std::span<const RagdollPartTransform> parts );
+
+        /// The pose a Kinematic ragdoll is driven to: every fixed step of the next Step moves each part there
+        /// (JPH::Ragdoll::DriveToPoseUsingKinematics over that step), so at the end of the step every part IS
+        /// at its target. Ignored by a Simulated ragdoll's motion; kept for when it turns kinematic again.
+        void SetRagdollTarget( RagdollHandle handle, std::span<const RagdollPartTransform> parts );
+
+        /// Every part's body in the world, in RagdollDesc part order. Empty for an unknown handle.
+        void GetRagdollPose( RagdollHandle handle, std::vector<RagdollPartTransform>& out ) const;
+
+        /// The body of part @p part, for the per-body calls above (impulses, velocities). kInvalidBody when
+        /// out of range.
+        [[nodiscard]] BodyHandle GetRagdollPartBody( RagdollHandle handle, uint32_t part ) const;
+
+        /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body): what a
+        /// trigger sees of it, and the handle its overlap events carry. kInvalidBody for no character.
+        [[nodiscard]] BodyHandle GetCharacterBody( CharacterHandle handle ) const;
+
+        /// Moves the capsule centre to @p position and stops it (its velocity zero); see TeleportBody.
+        void TeleportCharacter( CharacterHandle handle, const glm::vec3& position );
 
     private:
         struct Impl;

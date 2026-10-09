@@ -95,8 +95,21 @@ namespace
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
          PathOnlyRow{ ContentKind::VFXSystem,
                       "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
+         PathOnlyRow{
+              ContentKind::VFXDataChannel,
+              "header states a GUID but a module names its channel by file stem (DataChannel.<stem>, VFX-10)" },
          PathOnlyRow{ ContentKind::Fracture,
                       "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
+         PathOnlyRow{
+              ContentKind::PhysicsAsset,
+              "RagdollData::PhysicsAsset refers by AssetHandle, stored AssetsRelative like the .dfrac above "
+              "(StoredAssetForm.cpp); no {Guid, Path} referrer yet" },
+         PathOnlyRow{ ContentKind::InputAction,
+                      "header states a GUID but no component names an input action yet (GP1b: the player's "
+                      "input component)" },
+         PathOnlyRow{ ContentKind::InputMappingContext,
+                      "header states a GUID but no component names a mapping context yet (GP1b: the player's "
+                      "input component)" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -250,6 +263,7 @@ namespace
             case ContentKind::WorldIndex:
             case ContentKind::Skybox:
             case ContentKind::Fracture:
+            case ContentKind::PhysicsAsset:
                 return SyntheticEnvelope( kind, guid );
             case ContentKind::Shader:
             {
@@ -276,6 +290,29 @@ namespace
                      R"({{"Header":{{"Kind":"VFXSystem","Guid":"{}","Versions":{{"VFXS":1}},"Dependencies":[]}}}})"
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::VFXDataChannel:
+            {
+                // No channel ships with the corpus yet; the least `.dfxch` header the scan reads.
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"VFXDataChannel","Guid":"{}","Versions":{{"VFXD":1}},"Dependencies":[]}}}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::InputAction:
+            case ContentKind::InputMappingContext:
+            {
+                // No input asset ships with the corpus yet; the least header the scan reads.
+                const bool        action = kind == ContentKind::InputAction;
+                const std::string text   = std::format(
+                     R"({{"Header":{{"Kind":"{}","Guid":"{}","Versions":{{"{}":1}},"Dependencies":[]}}}})"
+                     "\n",
+                          action
+                          ? "InputAction"
+                          : "InputMappingContext",
+                     Common::Content::AssetGuidToText( guid ), action ? "INAC" : "INMC" );
                 return { text.begin(), text.end() };
             }
             case ContentKind::LevelSequence:

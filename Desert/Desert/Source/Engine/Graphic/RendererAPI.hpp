@@ -106,12 +106,27 @@ namespace Desert::Graphic
                                                                      const ComputePipeline&   pipeline,
                                                                      uint32_t groupCountX, uint32_t groupCountY,
                                                                      uint32_t groupCountZ ) = 0;
+        // The same dispatch with its group counts read on the GPU (UE DispatchIndirectComputeShader): one
+        // VkDispatchIndirectCommand at byte @p offset of @p args, a buffer of this graph the pass declared
+        // Access::IndirectArgs. Refused for an undeclared buffer, an offset not a multiple of four or arguments
+        // past the buffer's end.
+        [[nodiscard]] virtual Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                                             const ComputePipeline&   pipeline,
+                                                                             RDG::BufferRef           args,
+                                                                             uint64_t                 offset ) = 0;
         // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices x @p instanceCount instances whose
         // vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex (UE DrawPrimitive; the
         // fullscreen triangle is 3 x 1; the SSR tile grid is six vertices per tile).
         [[nodiscard]] virtual Common::BoolResultStr
         DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                         const MaterialExecutor* material, uint32_t vertexCount, uint32_t instanceCount ) = 0;
+        // The same draw with its vertex / instance counts read on the GPU (UE DrawPrimitiveIndirect): one
+        // VkDrawIndirectCommand at byte @p offset of @p args, a buffer of this graph the pass declared
+        // Access::IndirectArgs (RenderPassDeclaration::Read). Refused for an undeclared buffer or an offset not a
+        // multiple of four.
+        [[nodiscard]] virtual Common::BoolResultStr
+        DrawProceduralIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                const MaterialExecutor* material, RDG::BufferRef args, uint64_t offset ) = 0;
         // The PassBindings indexed draw: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.

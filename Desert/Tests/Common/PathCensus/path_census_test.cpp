@@ -142,6 +142,8 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
          { &Path::LEVEL_SEQUENCE_PATH, "Content/Sequences/" },
          { &Path::VFX_PATH, "Content/VFX/" },
          { &Path::FRACTURE_PATH, "Content/Fractures/" },
+         { &Path::PHYSICS_ASSET_PATH, "Content/PhysicsAssets/" },
+         { &Path::INPUT_PATH, "Content/Input/" },
          { &Path::COOKED_PATH, "Cooked/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,

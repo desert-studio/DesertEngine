@@ -3,14 +3,17 @@
 // A DESTRUCTIBLE OBJECT (UE: UGeometryCollectionComponent). The entity's world pose places a baked `.dfrac`
 // (its RestCollection) in the scene's Destruction::DestructionWorld when Play starts; the entity going (or the
 // component being removed) takes every body of it out again — ECS/System/DestructibleLifetime.hpp.
-// The pieces are drawn by DST-06; this component owns the simulation's inputs only.
+// MeshECSSystem draws its pieces (Destruction/FracturePieces.hpp); this component owns the simulation's inputs
+// and, transient, the poses the simulation hands the draw.
 
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Reflection/ReflectionMacros.hpp>
 
+#include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace Desert::ECS
@@ -64,6 +67,31 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Slow Moving Velocity Threshold" ), Category( "Removal" ), Range( 0.0f, 1000.0f ),
                   Units( "cm/s" ) )
         float SlowMovingVelocityThreshold = 1.0f;
+
+        PROPERTY(
+             DisplayName( "Notify Breaks" ), Category( "Events" ),
+             Tooltip( "Every group of pieces that breaks off is written into the scene's DestructionBreak VFX "
+                      "data channel (UE bNotifyBreaks): where, how fast, how heavy, how many pieces." ) )
+        bool NotifyBreaks = false;
+
+        PROPERTY(
+             DisplayName( "Notify Collisions" ), Category( "Events" ),
+             Tooltip( "Every contact on the pieces at or above Collision Event Min Impulse is written into the "
+                      "DestructionCollision VFX data channel (UE bNotifyCollisions). Off, contacts are not "
+                      "even recorded." ) )
+        bool NotifyCollisions = false;
+
+        PROPERTY(
+             DisplayName( "Notify Removals" ), Category( "Events" ),
+             Tooltip( "Every piece leaving the simulation (asleep long enough, or a kill field) is written into "
+                      "the DestructionRemoved VFX data channel (UE bNotifyRemovals)." ) )
+        bool NotifyRemovals = false;
+
+        PROPERTY( DisplayName( "Collision Event Min Impulse" ), Category( "Events" ), Range( 0.0f, 10000000.0f ),
+                  Units( "kg*cm/s" ),
+                  Tooltip( "A contact's normal impulse must reach this to become a collision event (the Chaos "
+                           "collision-event filter's MinImpulse)." ) )
+        float CollisionEventMinImpulse = 1000.0f;
     };
 
     struct DestructibleComponent
@@ -73,5 +101,9 @@ namespace Desert::ECS
         // Transient: the object in the scene's DestructionWorld (Destruction::DestructibleHandle; created on
         // Play, gone on Stop). Not reflected/serialized.
         uint32_t RuntimeObject = 0xFFFFFFFFu;
+        // Transient: per node of the fracture, where its body put it after the last physics step (fracture space
+        // -> world; empty = its body is gone). Written by DestructibleLifetime::WritePoses, read by the piece
+        // draw (Destruction/FracturePieces.hpp); empty while not simulated, so the pieces draw at rest.
+        std::vector<std::optional<glm::mat4>> RuntimeNodeWorld;
     };
 } // namespace Desert::ECS

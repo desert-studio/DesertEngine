@@ -71,10 +71,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
-
         [[nodiscard]] bool IsReady() const
         {
             return m_Shader && m_Material && m_Pipelines.size() == kFormats.size();

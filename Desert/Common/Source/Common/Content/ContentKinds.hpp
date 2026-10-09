@@ -79,6 +79,10 @@ namespace Common::Content
         LevelSequence,
         VFXSystem,
         Fracture,
+        VFXDataChannel,
+        PhysicsAsset,
+        InputAction,
+        InputMappingContext,
         COUNT,
     };
 
@@ -168,6 +172,14 @@ namespace Common::Content
              // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope
              // (Destruction/FractureFormat.hpp).
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
+             // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
+             // (Engine/Assets/Serialization/VFXDataChannel.hpp).
+             /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
+             // UE's UPhysicsAsset: a DPHA payload in the asset envelope (Physics/PhysicsAssetFormat.hpp).
+             /* PhysicsAsset         */ { "PhysicsAsset", ".dephysasset", &P::PHYSICS_ASSET_PATH },
+             // UE's UInputAction and UInputMappingContext (Engine/Assets/Serialization/InputAssets.hpp).
+             /* InputAction          */ { "InputAction", ".deinputaction", &P::INPUT_PATH },
+             /* InputMappingContext  */ { "InputMappingContext", ".deinputcontext", &P::INPUT_PATH },
         } };
     }
 

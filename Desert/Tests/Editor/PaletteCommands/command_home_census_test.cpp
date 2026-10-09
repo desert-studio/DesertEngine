@@ -105,7 +105,7 @@ TEST( CommandHome, TheContentBrowserMenuRowsAreCommands )
              << "'" << label << "' is drawn as its own MenuItem, not as the command";
     }
     for ( const char* name : { "Open", "ShowInExplorer", "OpenContainingFolder", "Reimport", "ReimportWithNewFile",
-                               "CaptureThumbnail", "EditThumbnail" } )
+                               "CaptureThumbnail", "EditThumbnail", "CreatePhysicsAsset" } )
         EXPECT_NE( menu.find( std::format( "CommandMenuItem( ContentBrowserCommand::{}", name ) ),
                    std::string::npos )
              << name << " is not a row of the context menu";

@@ -66,6 +66,7 @@ namespace
         bool        summary     = false; // PROPERTY(Summary)  — feeds the component header's one-liner
         bool        temperature = false; // PROPERTY(Temperature) — Kelvin slider on a Color field
         bool        preview     = false; // PROPERTY(Preview) — inline asset preview instead of a name button
+        bool        saveGame    = false; // PROPERTY(SaveGame) — written to / restored from SaveGame slots
         std::string editCondition;       // PROPERTY(EditCondition("Foo")) — grey out while Foo is false
     };
 
@@ -488,6 +489,8 @@ namespace
                 m.temperature = true;
             else if ( tok == "Preview" )
                 m.preview = true;
+            else if ( tok == "SaveGame" )
+                m.saveGame = true;
             else if ( tok.rfind( "EditCondition", 0 ) == 0 )
                 m.editCondition = ExtractStringLiteral( tok );
             else if ( tok == "Length" )
@@ -743,6 +746,7 @@ namespace
         flag( "summary", m.summary );
         flag( "temperature", m.temperature );
         flag( "preview", m.preview );
+        flag( "saveGame", m.saveGame );
         text( "editCondition", m.editCondition );
         return b.Build();
     }

@@ -243,6 +243,23 @@ namespace Desert::Editor::ShaderGraph
             // the Cloud Sample node already hands out.
             { "Time", "Time", RGBA( 60, 140, 150, 255 ), {},
               { { "Seconds", ValueType::Float } }, false, false, false, NOT_VOLUME },
+            // ---- particles (UE's Particle Color / Particle SubUV / Particle Random / Particle Relative Time) ----
+            // Each reads one field of SurfaceInput.Particle (Mesh/Surface/SurfaceTypes.glslh), which the
+            // ParticleSprite cell fills from the particle the quad was expanded from (Pass_ParticleSprite.glslh)
+            // and every mesh cell fills with neutral values. A graph using one must be UsedWithParticleSprites
+            // (ReadsParticleInputs; ValidateGraph refuses it by name otherwise).
+            { "ParticleColor", "Particle Color", RGBA( 170, 110, 50, 255 ), {},
+              { { "RGBA", ValueType::Color } }, false, false, false, SURFACE, kParticlesCategory },
+            // The flipbook cell the particle is at over its life (DesertParticleSubUV): UV0 the current cell, UV1
+            // the next, Blend the fraction between them — sample both and mix by Blend for a frame blend.
+            { "ParticleSubImage", "Particle SubImage", RGBA( 170, 110, 50, 255 ),
+              { { "UV", ValueType::Vec2 }, { "Columns", ValueType::Float }, { "Rows", ValueType::Float } },
+              { { "UV0", ValueType::Vec2 }, { "UV1", ValueType::Vec2 }, { "Blend", ValueType::Float } },
+              false, false, false, SURFACE, kParticlesCategory },
+            { "ParticleRandom", "Particle Random", RGBA( 170, 110, 50, 255 ), {},
+              { { "Random", ValueType::Float } }, false, false, false, SURFACE, kParticlesCategory },
+            { "ParticleRelativeTime", "Particle Relative Time", RGBA( 170, 110, 50, 255 ), {},
+              { { "RelativeTime", ValueType::Float } }, false, false, false, SURFACE, kParticlesCategory },
         };
         return s_Specs;
     }
@@ -254,6 +271,12 @@ namespace Desert::Editor::ShaderGraph
             if ( kind == spec.Kind )
                 return &spec;
         return nullptr;
+    }
+
+    bool ReadsParticleInputs( const std::string& kind )
+    {
+        return kind == "ParticleColor" || kind == "ParticleSubImage" || kind == "ParticleRandom" ||
+               kind == "ParticleRelativeTime";
     }
 
     // clang-format off
@@ -511,7 +534,9 @@ namespace Desert::Editor::ShaderGraph
                 // and Cloud Noise Volume one component per pin. All three are "one variable, several
                 // fields", so the pin's INDEX picks the suffix rather than the node emitting seven
                 // statements nobody reads.
-                if ( src->Kind == "CloudSample" || src->Kind == "SplitVec3" || src->Kind == "CloudNoise" )
+                // Particle SubImage is a SurfaceSubUV whose members are named as its pins (UV0, UV1, Blend).
+                if ( src->Kind == "CloudSample" || src->Kind == "SplitVec3" || src->Kind == "CloudNoise" ||
+                     src->Kind == "ParticleSubImage" )
                 {
                     for ( size_t i = 0; i < src->Outputs.size(); ++i )
                     {
@@ -796,6 +821,22 @@ namespace Desert::Editor::ShaderGraph
                     decl = std::format( "float {} = sin( {} );", var, EmitInput( node, 0, "0.0" ) );
                 else if ( node.Kind == "Time" )
                     decl = std::format( "float {} = timeUB.TimeData.x;", var );
+                // The particle nodes read SurfaceInput.Particle — `i` is EvaluateSurface's argument, and only
+                // a UsedWithParticleSprites graph gets here with one (ValidateGraph).
+                else if ( node.Kind == "ParticleColor" )
+                    decl = std::format( "vec4 {} = i.Particle.Color;", var );
+                else if ( node.Kind == "ParticleRandom" )
+                    decl = std::format( "float {} = i.Particle.Random;", var );
+                else if ( node.Kind == "ParticleRelativeTime" )
+                    decl = std::format( "float {} = i.Particle.RelativeTime;", var );
+                else if ( node.Kind == "ParticleSubImage" )
+                {
+                    const std::string uv      = EmitInput( node, 0, "v_UV" );
+                    const std::string columns = EmitInput( node, 1, "1.0" );
+                    const std::string rows    = EmitInput( node, 2, "1.0" );
+                    decl = std::format( "SurfaceSubUV {} = DesertParticleSubUV( i.Particle, {}, {}, {} );", var,
+                                        uv, columns, rows );
+                }
                 else
                 {
                     // ValidateGraph has already rejected kinds that are not in the catalogue, so
@@ -900,6 +941,15 @@ namespace Desert::Editor::ShaderGraph
                 if ( !SpecInDomain( *spec, domain ) )
                     return std::format( "node {} is not available in the {} domain", NodeLabel( node ),
                                         DomainName( domain ) );
+
+                // UE's "material must be used with particle sprites": only the ParticleSprite cell fills
+                // SurfaceInput.Particle, so in a material without that usage the node would read the mesh
+                // cells' neutral constants — a node that silently does nothing. Refused by name instead.
+                if ( ReadsParticleInputs( node.Kind ) && !doc.UsedWithParticleSprites )
+                    return std::format( "node {} reads the particle sprite inputs, but material '{}' is not used "
+                                        "with particle sprites: tick 'Used with Particle Sprites' (Usage "
+                                        "ParticleSprites) or remove the node",
+                                        NodeLabel( node ), doc.Name );
 
                 // THE BAKE/MARCH SPLIT, MADE UNEXPRESSIBLE. About half of the cloud material's values are
                 // inputs to a CPU bake that runs for seconds and produces the volume this graph reads the
@@ -1398,6 +1448,10 @@ namespace Desert::Editor::ShaderGraph
         // The shading model is the TEMPLATE's (UE's EMaterialShadingModel): an unlit graph's cells are built from
         // the Unlit pass headers, which name no lighting text and declare no lighting resource.
         out << ( doc.Lit ? "    ShadingModel DefaultLit\n\n" : "    ShadingModel Unlit\n\n" );
+
+        // UE's bUsedWithParticleSprites: the parser adds the ParticleSprite.Forward cell after every mesh cell.
+        if ( doc.UsedWithParticleSprites )
+            out << "    Usage ParticleSprites\n\n";
 
         out << "    Surface\n    {\n";
         if ( usesTime )

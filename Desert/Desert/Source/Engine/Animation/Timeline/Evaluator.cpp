@@ -209,6 +209,7 @@ namespace Desert::Animation::Timeline
                 case TrackKind::Event:
                 case TrackKind::Animation:
                 case TrackKind::CameraCut:
+                case TrackKind::Subsequence:
                     return false;
             }
             return false;
@@ -312,6 +313,118 @@ namespace Desert::Animation::Timeline
         }
     } // namespace
 
+    namespace
+    {
+        /// One leg clipped to @p section: forward (Start - 0.5, End], backward [Start, End + 0.5). false = the leg
+        /// does not pass through the section.
+        [[nodiscard]] bool ClipLeg( const Section& section, const FrameTime from, const FrameTime to,
+                                    const bool forward, FrameTime& outFrom, FrameTime& outTo )
+        {
+            const double a = from.AsTicks();
+            const double b = to.AsTicks();
+            const double s = static_cast<double>( section.Start.Value );
+            const double e = static_cast<double>( section.End.Value );
+            if ( forward )
+            {
+                const double lo = std::max( a, s - 0.5 );
+                const double hi = std::min( b, e );
+                if ( !( lo < hi ) )
+                {
+                    return false;
+                }
+                outFrom = lo == a ? from : FrameTime::FromTicks( lo );
+                outTo   = hi == b ? to : FrameTime::FromTicks( hi );
+                return true;
+            }
+            const double hi = std::min( a, e + 0.5 );
+            const double lo = std::max( b, s );
+            if ( !( lo < hi ) )
+            {
+                return false;
+            }
+            outFrom = hi == a ? from : FrameTime::FromTicks( hi );
+            outTo   = lo == b ? to : FrameTime::FromTicks( lo );
+            return true;
+        }
+
+        /// The step's legs through every section of Subsequence track @p ti (SubsequenceSample's contract).
+        void SampleSubsequences( const Sequence& sequence, const uint32_t ti, const TimeStep& step,
+                                 std::vector<SubsequenceSample>& out )
+        {
+            const Track& track = sequence.Tracks[ti];
+            Leg          legs[2];
+            const size_t legCount = LegsOf( step, sequence.Start, sequence.End, legs );
+            const bool   moved    = step.From.AsTicks() != step.To.AsTicks() || step.Wrapped || step.Reversed;
+
+            // A forward wrap is one leg to the events (CollectCrossed takes it whole); to a section it is two:
+            // (From, End] then (Start - 0.5, To].
+            Leg    split[3];
+            size_t splitCount = 0;
+            for ( size_t li = 0; li < legCount; ++li )
+            {
+                if ( legs[li].Wrapped )
+                {
+                    split[splitCount++] = Leg{ legs[li].From, FrameTime{ sequence.End, 0.0F }, false, true };
+                    split[splitCount++] =
+                         Leg{ FrameTime::FromTicks( static_cast<double>( sequence.Start.Value ) - 0.5 ),
+                              legs[li].To, false, true };
+                }
+                else
+                {
+                    split[splitCount++] = legs[li];
+                }
+            }
+
+            for ( uint32_t si = 0; si < track.Sections.size(); ++si )
+            {
+                const Section& section = track.Sections[si];
+                if ( !std::holds_alternative<SubsequenceSectionContent>( section.Content ) )
+                {
+                    continue;
+                }
+                const bool coversEnd = CoversTime( section, step.To );
+                if ( !moved )
+                {
+                    if ( coversEnd )
+                    {
+                        out.push_back(
+                             SubsequenceSample{ ti, si, step.To, step.To, step.Direction, false, true } );
+                    }
+                    continue;
+                }
+                bool endApplied = false;
+                for ( size_t li = 0; li < splitCount; ++li )
+                {
+                    SubsequenceSample sample{ ti, si, {}, {}, PlayDirection::Forward, true, false };
+                    if ( !ClipLeg( section, split[li].From, split[li].To, split[li].Forward, sample.From,
+                                   sample.To ) )
+                    {
+                        continue;
+                    }
+                    sample.Direction = split[li].Forward ? PlayDirection::Forward : PlayDirection::Backward;
+                    // The last leg ends at the step's end; the section covering it means the child is posed there.
+                    sample.ValuesAt = coversEnd && li + 1 == splitCount;
+                    endApplied      = endApplied || sample.ValuesAt;
+                    out.push_back( sample );
+                }
+                if ( coversEnd && !endApplied )
+                {
+                    out.push_back( SubsequenceSample{ ti, si, step.To, step.To, step.Direction, false, true } );
+                }
+            }
+        }
+    } // namespace
+
+    FrameTime MapSubsequenceTime( const Section& section, const SubsequenceSectionContent& content,
+                                  const FrameRate parentRate, const FrameRate subRate, const FrameTime at )
+    {
+        // parent ticks -> seconds (x Den / Num of the parent) -> sub ticks (x Num / Den of the sub).
+        const double ratio = ( static_cast<double>( subRate.Numerator ) * parentRate.Denominator ) /
+                             ( static_cast<double>( subRate.Denominator ) * parentRate.Numerator );
+        const double into = ( at.AsTicks() - static_cast<double>( section.Start.Value ) ) * content.TimeScale;
+        return FrameTime::FromTicks( static_cast<double>( content.StartOffset.Value ) + into * ratio );
+    }
+
     Evaluator::Evaluator( const Sequence& sequence ) : m_Sequence( &sequence )
     {
     }
@@ -321,6 +434,7 @@ namespace Desert::Animation::Timeline
         out.Values.clear();
         out.Events.clear();
         out.Animations.clear();
+        out.Subsequences.clear();
         out.ActiveCamera.reset();
 
         const Sequence& sequence = *m_Sequence;
@@ -338,6 +452,9 @@ namespace Desert::Animation::Timeline
             {
                 case TrackKind::Event:
                     break; // below, leg by leg, so the firing order spans tracks
+                case TrackKind::Subsequence:
+                    SampleSubsequences( sequence, ti, step, out.Subsequences );
+                    break;
                 case TrackKind::CameraCut:
                     // The last section in fold order wins — on one row cuts never overlap (Validate).
                     ForEachCovering( track, at,
@@ -433,7 +550,7 @@ namespace Desert::Animation::Timeline
         return !track.Muted && FoldValue( track, at, tickRate, out );
     }
 
-    ApplyReport Evaluator::Apply( const EvaluatedFrame& frame, ITimelineHost& host )
+    ApplyReport Evaluator::Apply( const EvaluatedFrame& frame, ITimelineHost& host, const ApplyScope scope )
     {
         const Sequence& sequence = *m_Sequence;
         if ( m_ResolvedRevision != sequence.Revision || m_Resolved.size() != sequence.Bindings.size() )
@@ -469,6 +586,20 @@ namespace Desert::Animation::Timeline
             return &m_Resolved[static_cast<size_t>( binding - sequence.Bindings.data() )];
         };
 
+        const auto fire = [&]( const FiredEvent& event )
+        {
+            const auto* target = resolvedOf( sequence.Tracks[event.TrackIndex].Binding );
+            host.Fire( event, target != nullptr ? *target : std::optional<ResolvedBinding>() );
+        };
+        if ( scope == ApplyScope::EventsOnly )
+        {
+            for ( const FiredEvent& event : frame.Events )
+            {
+                fire( event );
+            }
+            return report;
+        }
+
         for ( const EvaluatedTrack& value : frame.Values )
         {
             const Track& track = sequence.Tracks[value.TrackIndex];
@@ -487,7 +618,11 @@ namespace Desert::Animation::Timeline
         }
         for ( const FiredEvent& event : frame.Events )
         {
-            host.Fire( event );
+            fire( event );
+        }
+        if ( scope == ApplyScope::Nested && !frame.ActiveCamera )
+        {
+            return report; // the subsequence has no cut in force: the parent's camera stays
         }
 
         std::optional<ResolvedBinding> camera;

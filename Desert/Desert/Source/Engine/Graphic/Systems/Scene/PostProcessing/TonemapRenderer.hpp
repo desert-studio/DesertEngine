@@ -19,10 +19,7 @@ namespace Desert::Graphic::System
         virtual Common::BoolResultStr Initialize() override;
 
         // Tonemap is a raster node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: Tonemap"), after
-        // the Jump Flood outline; it is not registered through RegisterPasses.
-        void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
-        {
-        }
+        // the Jump Flood outline.
 
         // Every image the tonemap samples, as bound this frame: the frame graph declares each one as a read of
         // the tonemap node. A null image is one no pass has handed over (yet).

@@ -98,6 +98,8 @@ namespace Desert::Editor
                                         const Animation::Timeline::AnimationSectionContent& b );
     [[nodiscard]] bool SameStoredValue( const Animation::Timeline::CameraCutSectionContent& a,
                                         const Animation::Timeline::CameraCutSectionContent& b );
+    [[nodiscard]] bool SameStoredValue( const Animation::Timeline::SubsequenceSectionContent& a,
+                                        const Animation::Timeline::SubsequenceSectionContent& b );
     [[nodiscard]] bool SameStoredValue( const Animation::Timeline::Section& a,
                                         const Animation::Timeline::Section& b );
     [[nodiscard]] bool SameStoredValue( const Animation::Timeline::Binding& a,

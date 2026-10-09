@@ -18,6 +18,7 @@
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/History/HistoryPanel.hpp"
+#include "Editor/Panels/Fracture/FracturePanel.hpp"
 #include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Localization/LocalizationPanel.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
@@ -65,6 +66,7 @@ namespace Desert::Editor
         }
         panels.Add<Editor::ModelingPanel>( workspace.ActiveScene() );
         panels.Add<Editor::LandscapePanel>( workspace.ActiveScene() );
+        panels.Add<Editor::FracturePanel>( workspace.ActiveScene() );
         panels.Add<Editor::WorldSettingsPanel>( workspace.ActiveScene() );
         panels.Add<Editor::ScalabilityPanel>( workspace.ActiveScene() );
         panels.Add<Editor::ProjectSettingsPanel>();

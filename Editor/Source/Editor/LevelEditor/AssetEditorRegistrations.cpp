@@ -13,16 +13,19 @@
 #include "Editor/Panels/Clouds/CloudModellingVolumePanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
+#include "Editor/Panels/Input/InputAssetPanels.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
 #include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
+#include "Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/UI/UIEditorPanel.hpp"
+#include "Editor/Panels/VFXDataChannel/VFXDataChannelDocument.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -36,6 +39,7 @@
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
+#include <Engine/Assets/Serialization/VFXDataChannel.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -128,6 +132,21 @@ namespace Desert::Editor
                              assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
                   } } );
 
+        // THE VFX DATA CHANNEL EDITOR. The `.dfxch` field list; no renderer slot (an ImGui table).
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::VFXDataChannel ) ),
+             Registration{
+                  "VFXDataChannel", ICON_MDI_ACCESS_POINT,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::VFXDataChannelDocument>(
+                           Assets::AssetHandle( subject.Owner ), assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
         // THE SKYBOX VIEWER. Claims a renderer slot (a PreviewViewport), so it lives under the slot census below.
         documents.SubjectEditors().Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Skybox ) ),
@@ -137,6 +156,21 @@ namespace Desert::Editor
                   {
                       return std::make_unique<Editor::SkyboxViewerDocument>( Assets::AssetHandle( subject.Owner ),
                                                                              assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE PHYSICS ASSET EDITOR (UE PhAT, RAG1c). A renderer-slot claimant (its preview is a PreviewViewport).
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::PhysicsAsset ) ),
+             Registration{
+                  "PhysicsAsset", ICON_MDI_BONE,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::PhysicsAssetEditorDocument>(
+                           Assets::AssetHandle( subject.Owner ), assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -218,6 +252,33 @@ namespace Desert::Editor
                   [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
                       return std::make_unique<Editor::CloudTypePanel>( Assets::AssetHandle( subject.Owner ),
                                                                        assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+        // UE's Input Action / Input Mapping Context editors: one window per asset, a working copy whose every
+        // edit is one undo entry, saved through the asset serializer (Panels/Input/InputAssetPanels.hpp).
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::InputAction ) ),
+             Registration{
+                  "InputAction", ICON_MDI_GESTURE_TAP,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
+                      return std::make_unique<Editor::InputActionPanel>( Assets::AssetHandle( subject.Owner ),
+                                                                         assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::InputMappingContext ) ),
+             Registration{
+                  "InputMappingContext", ICON_MDI_KEYBOARD,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::InputMappingContextPanel>(
+                           Assets::AssetHandle( subject.Owner ), assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -456,6 +517,10 @@ namespace Desert::Editor
                  return RequestTextureDocument( assetManager.get(), path, documents.SubjectEditors() );
              } );
         documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kVFXDataChannelExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestVFXDataChannelDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
              { std::string( Animation::Timeline::kLevelSequenceExtension ) },
              [&documents, &assetManager]( const std::string& path ) {
                  return Editor::RequestLevelSequenceDocument( assetManager.get(), path,
@@ -465,6 +530,10 @@ namespace Desert::Editor
              { std::string( Common::Constants::Extensions::STATIC_MESH ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestStaticMeshDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Physics::kPhysicsAssetExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestPhysicsAssetDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Editor::kAnimationClipExtension ),
                std::string( Common::Content::KindSpec( Common::Content::ContentKind::SkinnedMesh ).Extension ),

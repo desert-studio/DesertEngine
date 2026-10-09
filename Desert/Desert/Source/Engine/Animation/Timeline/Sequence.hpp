@@ -16,7 +16,7 @@
  *
  *     AnimationClip   Bone bindings (Transform tracks) + Sequence bindings (Float curves, one Event track)
  *     UIAnimation     Widget bindings, Vector/Float tracks; one widget = the element that owns the clip
- *     LevelSequence   anything: Entity bindings (+ Bone under Entity), Animation, CameraCut, Event
+ *     LevelSequence   anything: Entity bindings (+ Bone under Entity), Animation, CameraCut, Event, Subsequence
  *
  * ── SERIALIZATION ─────────────────────────────────────────────────────────────────────────────────────
  *

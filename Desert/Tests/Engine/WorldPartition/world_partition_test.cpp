@@ -707,8 +707,10 @@ namespace
     //   * +1 with SPAWN1 (2319 / 2342): Starter gains a PlayerStart, a record with no extent (it loads Global).
     //   * +14 with RDG3 (2333 / 2356): the two render-graph bench scenes, RDG_DeferredSSRGI and
     //     RDG_LandscapeParticles, fourteen point-only records on both counts (measured at SCNE 39).
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2333;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2356;
+    //   * +12 with WIND-SRC (2345 / 2368): each of the twelve scenes whose cloud layer had wind gains one
+    //     Wind Source record, which has no extent (a directional source loads Global).
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2345;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2368;
 
     // A committed project (TestSupport/committed_projects.hpp), opened the way the editor opens it: the engine
     // directory is the checkout's Editor/ and the project root is the .deproj's directory, its assets root read

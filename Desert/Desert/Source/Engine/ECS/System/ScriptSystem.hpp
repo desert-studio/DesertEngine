@@ -63,6 +63,7 @@ namespace Desert::ECS
                     m_CursorLocked = false;
                 }
                 m_LookSuspended = false; // next Play starts captured again
+                m_Engine.EndPlayerInput();
                 return;
             }
 
@@ -98,6 +99,13 @@ namespace Desert::ECS
             m_LastMouse           = mouseNow;
             m_Engine.SetFrameMouseDelta( delta.x, delta.y );
 
+            // The local player's Enhanced Input evaluates THIS frame before any script reads it (UE: the
+            // player input is processed before the pawn ticks).
+            m_Engine.TickPlayerInput( registry, ts.GetSeconds() );
+            // The GameMode's deaths and restarts reach the player's input and the scripts' hooks before any
+            // script runs this frame (GameModeSystem raised them last frame, after the scripts).
+            m_Engine.DeliverGameModeEvents( registry );
+
             // ---- Run the scripts (each entity may run several script SLOTS, like UE ActorComponents) ----
             auto view = registry.view<ScriptComponent>();
             for ( auto entity : view )
@@ -130,10 +138,19 @@ namespace Desert::ECS
                                        loaded.GetError() );
                             continue;
                         }
-                        m_Engine.ApplyProperties( id, slot, script.Properties ); // editor overrides -> env
+                        // The SaveGame names come from the file the slot just loaded (a hot-reload re-reads them).
+                        auto saveGame = Scripting::ReadScriptSaveGameProperties( file );
+                        if ( !saveGame )
+                            LOG_ERROR( "[Script] '{}': {}; none of its properties is saved", script.ScriptKey,
+                                       saveGame.GetError() );
+                        script.SaveGameProperties = saveGame ? saveGame.GetValue() : std::vector<std::string>{};
+                        // Editor overrides and a loaded save game's values -> env, BEFORE OnStart: the hook a
+                        // restored SaveGame property is first visible in.
+                        m_Engine.ApplyProperties( id, slot, script.Properties );
                         m_Engine.CallStart( id, slot );
                         if ( !registry.valid( entity ) )
                             break; // OnStart destroyed its own entity; see the check after CallUpdate
+                        ReadBackSaveGame( registry, entity, slot );
                     }
                     // Re-apply every frame so editing a property in Details updates the running script LIVE.
                     m_Engine.ApplyProperties( id, slot, script.Properties );
@@ -145,6 +162,7 @@ namespace Desert::ECS
                     // entity, which asserts in Debug — the first run of PHYS_DestroyWitness (WP6) died here.
                     if ( !registry.valid( entity ) )
                         break;
+                    ReadBackSaveGame( registry, entity, slot );
                 }
                 if ( !registry.valid( entity ) )
                     continue;
@@ -166,9 +184,38 @@ namespace Desert::ECS
                                 callback = "OnAnimationNotifyEnd";
                             for ( uint32_t slot = 0; slot < sc.Scripts.size(); ++slot )
                                 if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
-                                    m_Engine.CallAnimationNotify( id, slot, callback, notify.Name );
+                                    m_Engine.CallSlotFunction( id, slot, callback, notify.Name );
                         }
                         anim.PendingNotifies.clear();
+                    }
+                }
+
+                // Level sequence Event keys' CallScript actions (LevelSequenceEntityHost::Fire), in firing order,
+                // to every started slot; cleared so each fires exactly once.
+                if ( !sc.PendingSequenceCalls.empty() )
+                {
+                    for ( const SequenceScriptCall& call : sc.PendingSequenceCalls )
+                        for ( uint32_t slot = 0; slot < sc.Scripts.size(); ++slot )
+                            if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
+                                m_Engine.CallSlotFunction( id, slot, call.Function.c_str(), call.EventName );
+                    sc.PendingSequenceCalls.clear();
+                }
+
+                // Trigger overlaps the physics step queued for this entity (as the trigger or as the body that
+                // entered one), in order, to every started slot; a callback may destroy the entity, which ends
+                // the delivery.
+                if ( registry.has<OverlapEventsComponent>( entity ) )
+                {
+                    std::vector<OverlapEventsComponent::Event> pending;
+                    pending.swap( registry.get<OverlapEventsComponent>( entity ).Pending );
+                    for ( const auto& overlap : pending )
+                    {
+                        const char* callback = overlap.Begin ? "OnBeginOverlap" : "OnEndOverlap";
+                        for ( uint32_t slot = 0; slot < sc.Scripts.size() && registry.valid( entity ); ++slot )
+                            if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
+                                m_Engine.CallOverlap( id, slot, callback, static_cast<uint32_t>( overlap.Other ) );
+                        if ( !registry.valid( entity ) )
+                            break;
                     }
                 }
             }
@@ -242,6 +289,18 @@ namespace Desert::ECS
                 m_HookedRegistry->on_destroy<ScriptComponent>().disconnect( this );
             registry.on_destroy<ScriptComponent>().connect<&ScriptSystem::OnScriptComponentDestroyed>( this );
             m_HookedRegistry = &registry;
+        }
+
+        // The slot's SaveGame properties as the script left them -> the slot (what a save captures). Looked up
+        // again: a script that spawned a scripted entity may have moved the ScriptComponent storage.
+        void ReadBackSaveGame( entt::registry& registry, entt::entity entity, uint32_t slot )
+        {
+            if ( !registry.has<ScriptComponent>( entity ) )
+                return;
+            auto& scripts = registry.get<ScriptComponent>( entity ).Scripts;
+            if ( slot < scripts.size() )
+                m_Engine.ReadBackProperties( static_cast<uint32_t>( entity ), slot,
+                                             scripts[slot].SaveGameProperties, scripts[slot].Properties );
         }
 
         void OnScriptComponentDestroyed( entt::registry&, entt::entity entity )

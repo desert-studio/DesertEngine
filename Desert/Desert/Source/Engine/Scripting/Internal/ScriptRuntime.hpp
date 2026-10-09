@@ -21,6 +21,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Input.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
@@ -388,23 +389,31 @@ namespace Desert::Scripting
                 return nullptr;
             }
 
-            // forward = W/S axis, right = D/A axis (each -1..1), speed in m/s.
-            void Move( float forward, float right, float speed )
+            // UE AddMovementInput: camera-relative intent, forward and right each -1..1 (IA_Move's Y and X). The
+            // speed is the controller's (Max Walk Speed / Crouched / Swim), not the script's.
+            void Move( float forward, float right )
             {
                 if ( auto* cc = Character() )
-                {
-                    cc->MoveInput    = { right, forward };
-                    cc->DesiredSpeed = speed;
-                }
+                    cc->MoveInput = { right, forward };
             }
 
-            void Jump( float strength )
+            // UE Jump: Jump Z Velocity from the ground, not while crouched.
+            void Jump()
             {
                 if ( auto* cc = Character() )
-                {
                     cc->JumpRequested = true;
-                    cc->JumpStrength  = strength;
-                }
+            }
+
+            // UE Crouch / UnCrouch: the wish; standing up waits for head room.
+            void Crouch( bool on )
+            {
+                if ( auto* cc = Character() )
+                    cc->CrouchRequested = on;
+            }
+            bool IsCrouched() const
+            {
+                auto* cc = Character();
+                return cc ? cc->IsCrouched : false;
             }
 
             bool IsOnGround() const
@@ -446,7 +455,10 @@ namespace Desert::Scripting
                 auto& reg = Reg();
                 for ( entt::entity child : reg.get<ECS::RelationshipComponent>( handle ).Children )
                 {
-                    if ( reg.has<ECS::CameraComponent>( child ) && reg.has<ECS::TransformComponent>( child ) )
+                    // A spring arm takes the pitch (UE: the arm follows the control rotation) and swings its
+                    // camera with it; without one the camera child itself tilts.
+                    if ( ( reg.has<ECS::SpringArmComponent>( child ) || reg.has<ECS::CameraComponent>( child ) ) &&
+                         reg.has<ECS::TransformComponent>( child ) )
                     {
                         auto& rot = reg.get<ECS::TransformComponent>( child ).Rotation;
                         rot.x     = glm::clamp( rot.x + radians, glm::radians( -85.0f ), glm::radians( 85.0f ) );
@@ -464,6 +476,11 @@ namespace Desert::Scripting
         EnvMap                 Envs;
         float                  MouseDx = 0.0f;
         float                  MouseDy = 0.0f;
+
+        // The local player's Enhanced Input (Lua Input.action* / addContext / rebind read it). Begun on the
+        // first played frame (TickPlayerInput), ended when Play stops.
+        Input::LocalPlayerInput PlayerInput;
+        bool                    PlayerInputBegun = false;
 
         // Input.wasPressed() edge state (down this frame & up last frame), refreshed by NewInputFrame().
         std::unordered_map<int, bool> KeyDownPrev;
@@ -508,9 +525,12 @@ namespace Desert::Scripting
     void RegisterWorldBindings( ScriptEngine::Impl& impl );     // World table (find/spawn/raycast/water)
     void RegisterReflectionBindings( ScriptEngine::Impl& impl ); // auto component access from reflection
     void RegisterAudioBindings( ScriptEngine::Impl& impl );      // Audio.play / Audio.stopAll
+    void RegisterVFXBindings( ScriptEngine::Impl& impl );        // VFX.useChannel / VFX.writeChannel
     void RegisterAnimationBindings( ScriptEngine::Impl& impl );  // entity:setAnimParam -> the AnimGraph
     void RegisterUIBindings( ScriptEngine::Impl& impl );         // ui.set/get/send + OnUIMessage bridge
     void RegisterLocalizationBindings( ScriptEngine::Impl& impl ); // loc.text/plural/number/money/date
     void RegisterProjectBindings( ScriptEngine::Impl& impl );      // project.name/company
     void RegisterLevelBindings( ScriptEngine::Impl& impl );        // level.open (Core::OpenLevel)
+    void RegisterSaveGameBindings( ScriptEngine::Impl& impl );     // savegame.save/load/exists/delete/list/scene
+    void RegisterGameModeBindings( ScriptEngine::Impl& impl );     // gameMode.kill/pawn/controller/respawnIn
 } // namespace Desert::Scripting

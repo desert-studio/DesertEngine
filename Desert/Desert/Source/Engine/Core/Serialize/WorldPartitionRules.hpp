@@ -484,6 +484,7 @@ namespace Desert::Core::Rules
          { "ExponentialHeightFog", ComponentLoading::Global }, // a world-wide medium, not a volume
          { "StrainField", ComponentLoading::Spatial },         // DST-04: a field acts where it stands
          { "VolumetricCloud", ComponentLoading::Global },      // the cloud layer covers the planet
+         { "TimeOfDay", ComponentLoading::Global },            // the world's one clock drives the sun everywhere
          // A hero cloud stands kilometres up and is seen from tens of kilometres away; no ground loading
          // range is that wide, so it would vanish while in plain view.
          { "HeroCloud", ComponentLoading::Global },
@@ -513,6 +514,10 @@ namespace Desert::Core::Rules
          // `Unbound` true (the default) is the level's base grade, applied wherever the camera is; false is a
          // box around the entity, which grades only the cells it covers (UE's bUnbound on APostProcessVolume).
          { "PostProcessVolume", ComponentLoading::ByField, "Unbound", 0.0, true },
+         // `PointWind` false (the default) is UE's directional wind source: it blows over the whole world, so
+         // the clouds, foliage and cloth everywhere read it. true is a point source with a Radius: it acts
+         // only around its entity.
+         { "WindSource", ComponentLoading::ByField, "PointWind", 1.0, true },
          // ── Spatial ──
          { "Animation", ComponentLoading::Spatial },
          { "CharacterController", ComponentLoading::Spatial },

@@ -175,6 +175,18 @@ namespace Desert::Animation::Timeline
                          "event {} '{}' at tick {} comes before tick {} (events are sorted by tick)", i, key.Name,
                          key.Tick.Value, channel.Keys[i - 1].Tick.Value );
                 }
+                if ( key.Action )
+                {
+                    // A sound and a script call name their target; an emitter is the bound entity's own.
+                    const bool needsTarget = key.Action->Kind != EventActionKind::ActivateParticles;
+                    if ( needsTarget == key.Action->Target.empty() )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "event {} '{}': a {} action {}", i, key.Name,
+                             needsTarget ? "sound / script" : "particle",
+                             needsTarget ? "names no target" : "takes no target (it acts on the bound entity)" );
+                    }
+                }
             }
             return Pass();
         }
@@ -264,11 +276,14 @@ namespace Desert::Animation::Timeline
                 case SequenceHost::LevelSequence:
                     if ( binding == BindingKind::Sequence )
                     {
-                        return track == TrackKind::CameraCut || track == TrackKind::Event;
+                        return track == TrackKind::CameraCut || track == TrackKind::Event ||
+                               track == TrackKind::Subsequence;
                     }
                     // An actor holds every value kind, Animation, and Event (UE: an Event track on an actor
-                    // binding fires with that actor); only the Camera Cut is the sequence's alone.
-                    return binding == BindingKind::Entity && track != TrackKind::CameraCut;
+                    // binding fires with that actor); the Camera Cut and the Subsequence (UE: a master track —
+                    // it plays a whole sequence, not a property of one object) are the sequence's alone.
+                    return binding == BindingKind::Entity && track != TrackKind::CameraCut &&
+                           track != TrackKind::Subsequence;
             }
             return false;
         }
@@ -378,7 +393,34 @@ namespace Desert::Animation::Timeline
             }
             if ( const auto* channel = std::get_if<Channel>( &section.Content ) )
             {
+                // An event's Action is the LevelSequence host's vocabulary (a sound, an emitter, a script):
+                // a clip notify or a UI event carrying one would be a setting nothing reads.
+                if ( const auto* events = std::get_if<EventChannel>( channel );
+                     events != nullptr && sequence.Host != SequenceHost::LevelSequence )
+                {
+                    for ( const EventKey& key : events->Keys )
+                    {
+                        if ( key.Action )
+                        {
+                            return Common::MakeFormattedError<bool>(
+                                 "event '{}' carries an action; only a level sequence's events act", key.Name );
+                        }
+                    }
+                }
                 return CheckChannel( *channel );
+            }
+            if ( const auto* sub = std::get_if<SubsequenceSectionContent>( &section.Content ) )
+            {
+                if ( sub->Sequence.IsNull() )
+                {
+                    return Common::MakeFormattedError<bool>( "a Subsequence section names no sequence" );
+                }
+                if ( !std::isfinite( sub->TimeScale ) || !( sub->TimeScale > 0.0 ) )
+                {
+                    return Common::MakeFormattedError<bool>( "time scale {} is not a positive scale",
+                                                             sub->TimeScale );
+                }
+                return Pass();
             }
             if ( const auto* animation = std::get_if<AnimationSectionContent>( &section.Content ) )
             {

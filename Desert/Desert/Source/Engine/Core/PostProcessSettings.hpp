@@ -93,6 +93,33 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Lens Dispersion" ), Category( "Bloom" ), Range( 0.0f, 3.0f ) )
         float LensDispersion = 0.0f; // chromatic rainbow fringe on the bloom halo (glare); 0 = off
 
+        // MR3 (Graphic/View/DepthOfField.hpp): UE DepthOfFieldFocalDistance / DepthOfFieldFstop /
+        // DepthOfFieldSensorWidth, UE's defaults (focal distance 0 = no depth of field), and the largest bokeh
+        // radius (UE r.DOF.Kernel.MaxBackgroundRadius 0.025 of the width). UE keeps the lens in the post-process
+        // settings and a CineCamera writes its filmback / focus into them; the focal length is not authored - it
+        // follows from the view's FOV and this sensor width. The gather ring count is a cost knob (Scalability
+        // PostProcess.DepthOfFieldQuality), not authored here.
+        PROPERTY( DisplayName( "Focal Distance" ), Category( "Depth of Field" ), Length, Range( 0.0f, 100000.0f ),
+                  Tooltip( "Distance to the plane in focus. 0 turns depth of field off." ) )
+        float DepthOfFieldFocalDistance = 0.0f;
+        PROPERTY( DisplayName( "Aperture (F-stop)" ), Category( "Depth of Field" ), Range( 1.0f, 32.0f ) )
+        float DepthOfFieldFstop = 4.0f; // f / aperture diameter; smaller = shallower focus
+        PROPERTY( DisplayName( "Sensor Width (mm)" ), Category( "Depth of Field" ), Range( 0.1f, 1000.0f ) )
+        float DepthOfFieldSensorWidth = 24.576f; // filmback width (Super 35); with the FOV gives the focal length
+        PROPERTY( DisplayName( "Max Bokeh Size (% of width)" ), Category( "Depth of Field" ),
+                  Range( 0.0f, 10.0f ) )
+        float DepthOfFieldMaxBokehSize = 2.5f; // largest circle-of-confusion RADIUS, percent of the output width
+
+        // MR2 (Graphic/View/MotionBlur.hpp): UE MotionBlurAmount / MotionBlurMax / MotionBlurTargetFPS, UE's
+        // defaults. The sample count is a cost knob (Scalability PostProcess.MotionBlurQuality), not authored
+        // here.
+        PROPERTY( DisplayName( "Amount" ), Category( "Motion Blur" ), Range( 0.0f, 1.0f ) )
+        float MotionBlurAmount = 0.5f; // shutter fraction of the frame's motion; 0 = off
+        PROPERTY( DisplayName( "Max (% of screen)" ), Category( "Motion Blur" ), Range( 0.0f, 100.0f ) )
+        float MotionBlurMax = 5.0f; // longest blur, percent of the output width
+        PROPERTY( DisplayName( "Target FPS" ), Category( "Motion Blur" ), Range( 0.0f, 120.0f ) )
+        float MotionBlurTargetFPS = 30.0f; // > 0: blur length as at this frame rate; 0: per rendered frame
+
         PROPERTY( DisplayName( "Enable Lens Flare" ), Category( "Lens Flare" ) )
         bool EnableLensFlare = false;
         PROPERTY( DisplayName( "Intensity" ), Category( "Lens Flare" ), Range( 0.0f, 5.0f ) )

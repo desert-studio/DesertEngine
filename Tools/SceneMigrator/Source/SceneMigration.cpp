@@ -560,6 +560,94 @@ namespace Desert::Migration
         return report;
     }
 
+    ParticleSpriteMaterialsReport
+    MigrateParticleSpriteMaterialsV43ToV44( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr const char*         kBlend    = "Blend";
+        constexpr const char*         kMaterial = "Material";
+        constexpr int64_t             kAdditive = 0; // ParticleBlendMode::Additive, the first enumerator
+        ParticleSpriteMaterialsReport report;
+
+        // Whether the block stated Additive; the key leaves either way. A missing key was AlphaBlend.
+        const auto takeAdditive = [&]( rfl::Generic::Object& block )
+        {
+            bool additive = false;
+            if ( const auto stated = block.get( kBlend ); stated.has_value() )
+                additive = stated.value().to_int64().value_or( 1 ) == kAdditive;
+            DropKey( block, kBlend );
+            return additive;
+        };
+        const auto additiveMaterial = []
+        {
+            rfl::Generic::Object ref;
+            ref["Guid"] = rfl::Generic( std::string( kParticleAdditiveMaterialGuid ) );
+            ref["Path"] = rfl::Generic( std::string( kParticleAdditiveMaterialPath ) );
+            return rfl::Generic( std::move( ref ) );
+        };
+
+        for ( auto& entity : entities )
+        {
+            EditBlock( entity.Components, "ParticleEmitter",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           ++report.Emitters;
+                           if ( takeAdditive( block ) && !block.get( kMaterial ).has_value() )
+                           {
+                               block[kMaterial] = additiveMaterial();
+                               ++report.MovedToAdditive;
+                           }
+                           return true;
+                       } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                EditBlock( override_.Components, "ParticleEmitter",
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               if ( !block.get( kBlend ).has_value() )
+                                   return false;
+                               if ( takeAdditive( block ) && !block.get( kMaterial ).has_value() )
+                               {
+                                   block[kMaterial] = additiveMaterial();
+                                   ++report.OverridesAdditive;
+                               }
+                               else
+                                   ++report.OverridesDropped;
+                               return true;
+                           } );
+        }
+        return report;
+    }
+
+    TriggerColliderReport MigrateTriggerColliderV44ToV45( std::vector<Assets::EntityData>& entities )
+    {
+        // ColliderData's declared order and defaults (Engine/ECS/Components.hpp): a solid collider.
+        const std::array<std::pair<const char*, bool>, 5> kDefaults = { {
+             { "IsTrigger", false },
+             { "OverlapStatic", false },
+             { "OverlapKinematic", true },
+             { "OverlapDynamic", true },
+             { "OverlapCharacters", true },
+        } };
+        TriggerColliderReport                             report;
+        for ( auto& entity : entities )
+            EditBlock( entity.Components, "Collider",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           std::size_t added = 0;
+                           for ( const auto& [key, value] : kDefaults )
+                               if ( !block.get( key ).has_value() )
+                               {
+                                   block[key] = rfl::Generic( value );
+                                   ++added;
+                               }
+                           report.KeysAdded += added;
+                           report.Colliders += added != 0 ? 1 : 0;
+                           return added != 0;
+                       } );
+        return report;
+    }
+
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
     {
         namespace TL = Animation::Timeline;
@@ -2028,6 +2116,20 @@ namespace Desert::Migration
                 }
             }
 
+            // A particle sprite composites by its material (VFX-08): ParticleEmitter.Blend moves onto Material.
+            if ( statedSceneVersion < kSceneVersionParticleSpriteMaterial )
+            {
+                report.ParticleSpriteMaterialsRaised = true;
+                report.ParticleSpriteMaterials       = MigrateParticleSpriteMaterialsV43ToV44( entities );
+            }
+
+            // A collider can be a trigger (GP4): every Collider block states the trigger keys' defaults.
+            if ( statedSceneVersion < kSceneVersionTriggerCollider )
+            {
+                report.TriggerColliderRaised = true;
+                report.TriggerCollider       = MigrateTriggerColliderV44ToV45( entities );
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -2174,6 +2276,57 @@ namespace Desert::Migration
             return 1;
         }
     } // namespace
+
+    int MigrateGameModeSettingsV45ToV46( SceneSerialized& scene )
+    {
+        if ( !scene.Settings.has_value() )
+            return 0;
+        const auto stated = scene.Settings.value().to_object();
+        if ( !stated.has_value() )
+            return 0;
+        bool hasController = false;
+        bool hasDelay      = false;
+        for ( const auto& [key, field] : stated.value() )
+        {
+            hasController = hasController || key == "PlayerController";
+            hasDelay      = hasDelay || key == "RespawnDelay";
+        }
+        if ( hasController && hasDelay )
+            return 0;
+
+        rfl::Generic::Object unsetPrefab;
+        unsetPrefab["Guid"] = rfl::Generic( std::string() );
+        unsetPrefab["Path"] = rfl::Generic( std::string() );
+        const rfl::Generic delay( static_cast<double>( Core::SceneSettings{}.RespawnDelay ) );
+
+        int                  added  = 0;
+        bool                 placed = false;
+        rfl::Generic::Object out;
+        auto                 addMissing = [&]()
+        {
+            if ( !hasController )
+            {
+                out["PlayerController"] = rfl::Generic( unsetPrefab );
+                ++added;
+            }
+            if ( !hasDelay )
+            {
+                out["RespawnDelay"] = delay;
+                ++added;
+            }
+            placed = true;
+        };
+        for ( const auto& [key, field] : stated.value() )
+        {
+            out[key] = field;
+            if ( key == "DefaultPawn" )
+                addMissing();
+        }
+        if ( !placed )
+            addMissing();
+        scene.Settings = rfl::Generic( std::move( out ) );
+        return added;
+    }
 
     SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene )
     {
@@ -2352,6 +2505,11 @@ namespace Desert::Migration
             report.SceneSettingsHomesRaised = true;
             report.SceneSettingsHomes       = MigrateSceneSettingsHomesV35ToV36( scene );
         }
+        if ( statedSceneVersion < kSceneVersionGameModeSettings )
+        {
+            report.GameModeSettingsRaised = true;
+            report.GameModeKeysAdded      = MigrateGameModeSettingsV45ToV46( scene );
+        }
 
         // Scene-only as well: a `.deprefab`'s nested instance keeps its root transform in its override, which
         // its own file resolves; only a scene is read by a planner that sees one file.
@@ -2414,6 +2572,8 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, prefab.Name, outcome.FoundSceneVersion, assetsRoot, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionGameModeSettings )
+            outcome.Steps.GameModeSettingsRaised = true; // the stamp only: a prefab has no settings block
         if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionWindSource )
         {
             outcome.Steps.WindSourceRaised = true;

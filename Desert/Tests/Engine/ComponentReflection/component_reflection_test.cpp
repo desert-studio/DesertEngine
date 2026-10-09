@@ -1727,3 +1727,65 @@ TEST( VolumetricCloudReflection, AKeyThatIsNotInTheSceneLeavesTheFieldAlone )
          << "a missing key OVERWROTE the field, so loading an old scene would move every cloud layer in "
             "the repository";
 }
+
+// GP1: the local player's Enhanced Input component (UE: the LocalPlayer subsystem's default contexts). Two
+// fields and no more: the contexts as `.deinputcontext` handles, highest priority first, and where that list
+// sits among the contexts scripts add. A per-entry priority field would be a second answer to the order.
+TEST( EnhancedInputPlayerReflection, ExposesTheContextHandlesAndTheBasePriorityOnly )
+{
+    const TypeInfo& player = Type( "EnhancedInputPlayerData" );
+    EXPECT_EQ( FieldNames( player ), ( std::vector<std::string>{ "Contexts", "BasePriority" } ) );
+    const FieldInfo* contexts = Find( player, "Contexts" );
+    ASSERT_NE( contexts, nullptr );
+    EXPECT_TRUE( contexts->Meta.IsAsset );
+    EXPECT_EQ( contexts->Meta.AssetType, "InputMappingContextAsset" );
+    EXPECT_EQ( CountInCategory( player, "Input" ), 2u );
+}
+
+// GP2a: the playable character's movement settings are UE CharacterMovementComponent's, in centimetres. The
+// list is the census: a field added without a reader in CharacterMovement.cpp, or the old metre-era Gravity
+// coming back next to GravityScale, turns this red.
+TEST( CharacterControllerReflection, ExposesTheUeMovementSettingsInCentimetres )
+{
+    const TypeInfo& cc = Type( "CharacterControllerData" );
+    EXPECT_EQ( FieldNames( cc ),
+               ( std::vector<std::string>{ "Radius", "Height", "MaxSlopeDeg", "MaxWalkSpeed", "MaxAcceleration",
+                                           "BrakingDecelerationWalking", "GroundFriction", "BrakingFrictionFactor",
+                                           "JumpZVelocity", "AirControl", "GravityScale", "MaxWalkSpeedCrouched",
+                                           "CrouchedHeight", "MaxSwimSpeed" } ) );
+    for ( const char* name : { "Radius", "Height", "CrouchedHeight" } )
+    {
+        ASSERT_NE( Find( cc, name ), nullptr ) << name;
+        EXPECT_TRUE( Find( cc, name )->Meta.IsLength ) << name << " is a capsule length in centimetres";
+    }
+    for ( const char* name : { "MaxWalkSpeed", "JumpZVelocity", "MaxWalkSpeedCrouched", "MaxSwimSpeed" } )
+    {
+        ASSERT_NE( Find( cc, name ), nullptr ) << name;
+        EXPECT_EQ( Find( cc, name )->Meta.Units, "cm/s" ) << name;
+    }
+    for ( const char* name : { "MaxAcceleration", "BrakingDecelerationWalking" } )
+    {
+        ASSERT_NE( Find( cc, name ), nullptr ) << name;
+        EXPECT_EQ( Find( cc, name )->Meta.Units, "cm/s2" ) << name;
+    }
+    EXPECT_EQ( Find( cc, "Gravity" ), nullptr ) << "gravity is the scene's; the character only scales it";
+}
+
+// GP2a: UE USpringArmComponent's authored settings, lengths in centimetres. The transient lagged origin and
+// current arm length live on SpringArmComponent, outside the reflected data.
+TEST( SpringArmReflection, ExposesTheArmCollisionAndLagSettingsOnly )
+{
+    const TypeInfo& arm = Type( "SpringArmData" );
+    EXPECT_EQ( FieldNames( arm ),
+               ( std::vector<std::string>{ "TargetArmLength", "SocketOffset", "DoCollisionTest", "ProbeSize",
+                                           "EnableCameraLag", "CameraLagSpeed" } ) );
+    for ( const char* name : { "TargetArmLength", "SocketOffset", "ProbeSize" } )
+    {
+        ASSERT_NE( Find( arm, name ), nullptr ) << name;
+        EXPECT_TRUE( Find( arm, name )->Meta.IsLength ) << name;
+    }
+    EXPECT_FALSE( Find( arm, "CameraLagSpeed" )->Meta.IsLength ) << "a per-second fraction, not a distance";
+    EXPECT_EQ( CountInCategory( arm, "Camera" ), 2u );
+    EXPECT_EQ( CountInCategory( arm, "Camera Collision" ), 2u );
+    EXPECT_EQ( CountInCategory( arm, "Lag" ), 2u );
+}

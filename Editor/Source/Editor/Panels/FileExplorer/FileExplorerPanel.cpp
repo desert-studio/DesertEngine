@@ -16,6 +16,8 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/VFXDataChannelAsset.hpp>
+#include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
@@ -44,6 +46,7 @@
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -189,6 +192,8 @@ namespace Desert::Editor
          { FileType::LevelSequence, "Level Sequence" },
          { FileType::VFXSystem, "VFX System" },
          { FileType::Fracture, "Fracture" },
+         { FileType::VFXDataChannel, "VFX Data Channel" },
+         { FileType::PhysicsAsset, "Physics Asset" },
          { FileType::Ini, "Settings" },
          { FileType::SkinnedMesh, "Skeletal Mesh" },
          { FileType::Skeleton, "Skeleton" },
@@ -198,6 +203,8 @@ namespace Desert::Editor
          { FileType::Retarget, "Retarget" },
          { FileType::FoliageType, "Foliage Type" },
          { FileType::StringTable, "String Table" },
+         { FileType::InputAction, "Input Action" },
+         { FileType::InputMappingContext, "Input Mapping Context" },
          { FileType::CookedWorld, "Cooked World" },
          { FileType::Skybox, "Skybox" },
     };
@@ -220,6 +227,8 @@ namespace Desert::Editor
          { FileType::LevelSequence, { 0.85f, 0.35f, 0.25f, 1.00f } },
          { FileType::VFXSystem, { 0.95f, 0.45f, 0.10f, 1.00f } },
          { FileType::Fracture, { 0.75f, 0.55f, 0.35f, 1.00f } },
+         { FileType::VFXDataChannel, { 0.95f, 0.70f, 0.20f, 1.00f } },
+         { FileType::PhysicsAsset, { 0.95f, 0.60f, 0.25f, 1.00f } },
          { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
          // UE's class colours for the animation family, so a folder of rig content reads as one family.
          { FileType::SkinnedMesh, { 0.90f, 0.35f, 0.90f, 1.00f } },
@@ -230,6 +239,8 @@ namespace Desert::Editor
          { FileType::Retarget, { 0.95f, 0.50f, 0.60f, 1.00f } },
          { FileType::FoliageType, { 0.30f, 0.75f, 0.35f, 1.00f } },
          { FileType::StringTable, { 0.60f, 0.60f, 0.85f, 1.00f } },
+         { FileType::InputAction, { 0.35f, 0.80f, 0.45f, 1.00f } },
+         { FileType::InputMappingContext, { 0.20f, 0.65f, 0.55f, 1.00f } },
          { FileType::CookedWorld, { 0.50f, 0.50f, 0.55f, 1.00f } },
          { FileType::Skybox, { 0.82f, 0.18f, 0.30f, 1.00f } },
     };
@@ -255,6 +266,8 @@ namespace Desert::Editor
          { FileType::LevelSequence, ICON_MDI_MOVIE_OPEN },
          { FileType::VFXSystem, ICON_MDI_FIRE },
          { FileType::Fracture, ICON_MDI_CUBE_UNFOLDED },
+         { FileType::VFXDataChannel, ICON_MDI_ACCESS_POINT },
+         { FileType::PhysicsAsset, ICON_MDI_BONE },
          { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
          { FileType::SkinnedMesh, ICON_MDI_HUMAN },
          { FileType::Skeleton, ICON_MDI_BONE },
@@ -264,6 +277,8 @@ namespace Desert::Editor
          { FileType::Retarget, ICON_MDI_SWAP_HORIZONTAL },
          { FileType::FoliageType, ICON_MDI_TREE },
          { FileType::StringTable, ICON_MDI_TRANSLATE },
+         { FileType::InputAction, ICON_MDI_GESTURE_TAP },
+         { FileType::InputMappingContext, ICON_MDI_KEYBOARD },
          { FileType::CookedWorld, ICON_MDI_MAP },
          { FileType::Skybox, ICON_MDI_IMAGE_FILTER_HDR },
     };
@@ -849,6 +864,56 @@ namespace Desert::Editor
              !saved )
             return Common::MakeFormattedError( "New Level Sequence: {}", saved.GetError() );
         // Selected once the refresh lists it (UE selects the new asset in the Content Browser).
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewVFXDataChannel()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New VFX Data Channel: the Assets window has no folder open" );
+        const std::string ext( Assets::Serialization::kVFXDataChannelExtension );
+        const std::string name = AssetFileOps::UniqueName(
+             "NewVFXDataChannel", ext, [&]( const std::string& n )
+             { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
+        const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
+        // UE's new UNiagaraDataChannel holds no variable; ours must hold one (a channel with no field spawns
+        // nothing and the validator refuses it), so it starts with the field every channel spawn binds first.
+        Assets::Serialization::VFXDataChannelData data;
+        data.Fields = { { "Position", Assets::Serialization::VFXDataChannelFieldType::Position } };
+        if ( const auto saved = Assets::VFXDataChannelAsset::Save( path, data ); !saved )
+            return Common::MakeFormattedError( "New VFX Data Channel: {}", saved.GetError() );
+    Common::BoolResultStr FileExplorerPanel::CreateNewInputAction()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Input Action: the Assets window has no folder open" );
+        const std::filesystem::path folder( m_CurrentDir->AssetPath );
+        const std::string           name = AssetFileOps::UniqueName(
+             "IA_NewAction", Assets::Serialization::kInputActionExtension,
+             [&]( const std::string& n ) { return std::filesystem::exists( folder / n ); } );
+        const auto path = folder / name;
+        if ( const auto saved = Assets::InputActionAsset::Save( path, Assets::Serialization::InputActionData{} );
+             !saved )
+            return Common::MakeFormattedError( "New Input Action: {}", saved.GetError() );
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewInputMappingContext()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Input Mapping Context: the Assets window has no folder open" );
+        const std::filesystem::path folder( m_CurrentDir->AssetPath );
+        const std::string           name = AssetFileOps::UniqueName(
+             "IMC_NewContext", Assets::Serialization::kInputMappingContextExtension,
+             [&]( const std::string& n ) { return std::filesystem::exists( folder / n ); } );
+        const auto path = folder / name;
+        if ( const auto saved =
+                  Assets::InputMappingContextAsset::Save( path, Assets::Serialization::InputMappingContextData{} );
+             !saved )
+            return Common::MakeFormattedError( "New Input Mapping Context: {}", saved.GetError() );
         m_SelectAfterRefresh = path.generic_string();
         QueueRefresh();
         return Common::MakeSuccess( true );
@@ -1498,6 +1563,10 @@ namespace Desert::Editor
                          { "Level Sequences", static_cast<int>( FileType::LevelSequence ) },
                          { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
                          { "Fractures", static_cast<int>( FileType::Fracture ) },
+                         { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
+                         { "Physics Assets", static_cast<int>( FileType::PhysicsAsset ) },
+                         { "Input Actions", static_cast<int>( FileType::InputAction ) },
+                         { "Input Mapping Contexts", static_cast<int>( FileType::InputMappingContext ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )
@@ -1760,6 +1829,21 @@ namespace Desert::Editor
 
                             if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
                                 if ( const auto created = CreateNewLevelSequence(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
+
+                            if ( ImGui::Selectable( std::string( kNewVFXDataChannelLabel ).c_str() ) )
+                                if ( const auto created = CreateNewVFXDataChannel(); !created )
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+                            if ( ImGui::Selectable( std::string( kNewInputActionLabel ).c_str() ) )
+                                if ( const auto created = CreateNewInputAction(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
+
+                            if ( ImGui::Selectable( std::string( kNewInputMappingContextLabel ).c_str() ) )
+                                if ( const auto created = CreateNewInputMappingContext(); !created )
                                     LOG_ERROR( "[Content] {}", created.GetError() );
 
                             // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
@@ -2479,6 +2563,13 @@ namespace Desert::Editor
                 CommandMenuItem( ContentBrowserCommand::ReimportWithNewFile );
             }
 
+            // UE's Skeletal Mesh Asset Actions > Create > Physics Asset.
+            if ( entry.Type == FileType::SkinnedMesh && m_AssetManager )
+            {
+                ImGui::Separator();
+                CommandMenuItem( ContentBrowserCommand::CreatePhysicsAsset );
+            }
+
             // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
             if ( ThumbnailProducers::CaptureKeyOf( entry.Type ) && !m_ViewportScene.expired() )
             {
@@ -2987,6 +3078,24 @@ namespace Desert::Editor
                     CommitThumbnailGesture();
                 m_EditThumbnailPath      = entry.AssetPath;
                 m_EditThumbnailOrbitFile = *orbitFile;
+                return Common::MakeSuccess( true );
+            }
+            case ContentBrowserCommand::CreatePhysicsAsset:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const DirectoryInformation& entry = *target.GetValue();
+                if ( !entry.IsFile || entry.Type != FileType::SkinnedMesh || m_AssetManager == nullptr )
+                    return Common::MakeFormattedError<bool>( "'{}': '{}' is not a skeletal mesh", label,
+                                                             entry.AssetPath );
+                const auto created = CreatePhysicsAssetForMesh( *m_AssetManager, entry.AssetPath );
+                if ( !created )
+                    return Common::MakeFormattedError<bool>( "'{}': {}", label, created.GetError() );
+                LOG_INFO( "[Content Browser] Created physics asset '{}'", created.GetValue().generic_string() );
+                // Opened through the path route, as a double-click on it would (RequestPhysicsAssetDocument).
+                if ( m_SubjectEditors != nullptr )
+                    (void)m_SubjectEditors->OpenPath( created.GetValue().string() );
                 return Common::MakeSuccess( true );
             }
             case ContentBrowserCommand::ClearSelection:

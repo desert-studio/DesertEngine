@@ -189,7 +189,13 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionNoUndeclaredKeys, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionPlayerViewFlag, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionUIAnimationSequences, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionTimeOfDayComponent );
+    EXPECT_LT( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
+    EXPECT_LT( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
+    EXPECT_LT( Migration::kSceneVersionTriggerCollider, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionGameModeSettings );
+    // The steps merged in one wave take consecutive generations, in the order the migrator runs them.
+    EXPECT_EQ( Migration::kSceneVersionTriggerCollider, Migration::kSceneVersionParticleSpriteMaterial + 1 );
+    EXPECT_EQ( Migration::kSceneVersionGameModeSettings, Migration::kSceneVersionTriggerCollider + 1 );
 }
 
 namespace

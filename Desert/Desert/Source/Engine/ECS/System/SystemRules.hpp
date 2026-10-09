@@ -18,23 +18,9 @@ namespace Desert::ECS::Rules
     // The DECISIONS the gameplay systems make, as pure functions of their inputs.
     //
     // The systems themselves hold a `Core::Scene*`, and Scene drags in the renderer, so a test that wants
-    // to ask "does a character at 3 m/s pick the walk clip?" would have to link the whole graphics stack
+    // to ask "where does a socketed entity end up?" would have to link the whole graphics stack
     // and stand up a device. The rule is the part worth testing; the system is the part that fetches the
     // arguments. Same split that made the shadow cascades testable.
-
-    // Which locomotion clip a character should be playing. Ordering matters and is the rule itself:
-    // airborne wins over any ground speed, then idle / walk / run by the component's own thresholds.
-    inline const std::string& LocomotionClipFor( const LocomotionComponent& loco, float planarSpeed,
-                                                 bool onGround )
-    {
-        if ( !onGround )
-            return loco.JumpClip;
-        if ( planarSpeed < loco.WalkSpeed )
-            return loco.IdleClip;
-        if ( planarSpeed <= loco.RunSpeed )
-            return loco.WalkClip;
-        return loco.RunClip;
-    }
 
     // Where a socket-attached entity ends up: the bone's model-space transform lifted into the target's
     // world space, then the local grip offset. @p parentWorld is the attached entity's parent world matrix
@@ -78,7 +64,7 @@ namespace Desert::ECS::Rules
     // One static-mesh entity can produce up to three kinds of draw: a whole-entity generic draw (a
     // MaterialComponent naming a non-lit shader), one generic draw per custom-shader material slot, and
     // the batched lit draw for whatever submeshes are left. The shadow pass, though, draws a mesh WHOLE:
-    // MeshRenderer::RegisterShadowPass takes a Mesh* and a transform and has no submesh mask, because
+    // MeshRenderer::ShadowCascadePasses takes a Mesh* and a transform and has no submesh mask, because
     // depth is material-independent. So the caster is a property of the ENTITY, not of a draw, and
     // exactly one draw may carry it — a mesh with one custom slot and one lit slot would otherwise be
     // rasterized into every cascade twice, self-shadowing along the seam and paying double.
@@ -108,6 +94,78 @@ namespace Desert::ECS::Rules
         if ( slotDrawCount > 0 )
             return MeshShadowCaster::FirstSlotDraw;
         return MeshShadowCaster::None;
+    }
+
+    // Which submeshes of a mesh leave the batched lit draw for a slot-material draw (v3 per-slot shaders), and
+    // which single draw carries the caster. ONE rule for every static draw: a static mesh entity
+    // (MeshECSSystem) and each fracture piece (FracturePieceDraw) split the same way.
+    //
+    // @p slotMaterialOf( si ) -> the custom-shader material submesh si draws with (a non-mesh-cell
+    // DataDrivenMaterial), or a null Material when it stays on the batched lit path. Submeshes sharing one such
+    // material merge into one slot draw. @p submeshCount is at most 64 (the masks' width).
+    template <class Material>
+    struct MeshSlotDraw
+    {
+        Material Mat{};
+        uint64_t VisibleMask = 0; // the submeshes this draw draws (hidden ones removed)
+        bool     CastShadows = false;
+    };
+    template <class Material>
+    struct MeshSlotSplit
+    {
+        std::vector<MeshSlotDraw<Material>> SlotDraws; // emitted in this order
+        uint64_t SurfaceHidden      = 0;               // the lit draw's hidden mask (hidden | slot submeshes)
+        bool     SurfaceDrawEmitted = false;
+        bool     SurfaceCastShadows = false;
+    };
+    template <class Material, class SlotMaterialOf>
+    MeshSlotSplit<Material> SplitMeshSlotDraws( size_t submeshCount, uint64_t hiddenSubmeshes, bool castShadows,
+                                                SlotMaterialOf&& slotMaterialOf )
+    {
+        MeshSlotSplit<Material>             split;
+        std::vector<MeshSlotDraw<Material>> grouped;
+        uint64_t                            customMask = 0;
+        for ( size_t si = 0; si < submeshCount && si < 64; ++si )
+        {
+            const Material mat = slotMaterialOf( si );
+            if ( !mat )
+                continue;
+            customMask |= ( 1ull << si );
+            bool merged = false;
+            for ( auto& d : grouped )
+                if ( d.Mat == mat )
+                {
+                    d.VisibleMask |= ( 1ull << si );
+                    merged = true;
+                    break;
+                }
+            if ( !merged )
+                grouped.push_back( { mat, 1ull << si, false } );
+        }
+
+        // Decided BEFORE anything is emitted, because the caster belongs to the ENTITY: the shadow pass draws a
+        // mesh whole, so the lit draw and the slot draws are candidates for the same silhouette and only one of
+        // them may record it.
+        const uint64_t allMask   = submeshCount >= 64 ? ~0ull : ( ( 1ull << submeshCount ) - 1ull );
+        split.SurfaceHidden      = hiddenSubmeshes | customMask;
+        split.SurfaceDrawEmitted = submeshCount == 0 || ( ~split.SurfaceHidden & allMask ) != 0;
+        const auto shadowRoute   = RouteMeshShadowCaster( castShadows, /*shaderOverride*/ false, grouped.size(),
+                                                          split.SurfaceDrawEmitted );
+        split.SurfaceCastShadows = shadowRoute == MeshShadowCaster::SurfaceDraw;
+
+        bool slotCasterPlaced = false;
+        for ( auto& d : grouped )
+        {
+            d.VisibleMask &= ~hiddenSubmeshes;
+            if ( !d.VisibleMask )
+                continue;
+            // "First slot draw" means the first one actually EMITTED — a leading slot whose submeshes are all
+            // hidden emits nothing, and routing the caster to it would drop the entity's shadow, not move it.
+            d.CastShadows    = !slotCasterPlaced && shadowRoute == MeshShadowCaster::FirstSlotDraw;
+            slotCasterPlaced = slotCasterPlaced || d.CastShadows;
+            split.SlotDraws.push_back( d );
+        }
+        return split;
     }
 
     // ---------------------------------------------------------------------------------------------------

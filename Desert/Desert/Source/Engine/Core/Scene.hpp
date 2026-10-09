@@ -1,8 +1,9 @@
 #pragma once
 
+#include <Engine/Core/GameMode.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
-#include <Engine/Graphic/ExternalRenderPass.hpp>
+#include <Engine/Graphic/ExtensionPass.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
@@ -189,7 +190,7 @@ namespace Desert::Core
         // renderer" any more and the nine call sites left on it are the ones that ask a question the
         // first view answers for the whole document: the Details panel's cascade count, .demat hot
         // reload, the scene-settings readout. A pass that draws INTO a view asks the view instead —
-        // ExternalPassContext::Renderer — because the answer differs per view and asking the scene gave
+        // ExtensionPassContext::Renderer — because the answer differs per view and asking the scene gave
         // every viewport the first one's debug flags.
         [[nodiscard]] Graphic::SceneRenderer* GetSceneRenderer() const
         {
@@ -383,6 +384,24 @@ namespace Desert::Core
         {
             return m_PlayerPawn;
         }
+        // The player's controller entity (SceneSettings::PlayerController), null when the level names none.
+        void SetPlayerController( entt::entity controller )
+        {
+            m_PlayerController = controller;
+        }
+        [[nodiscard]] entt::entity GetPlayerController() const
+        {
+            return m_PlayerController;
+        }
+        // The game rules of this played world (Core/GameMode.hpp): death and restart of the player's pawn.
+        [[nodiscard]] GameMode& GetGameMode()
+        {
+            return m_GameMode;
+        }
+        [[nodiscard]] const GameMode& GetGameMode() const
+        {
+            return m_GameMode;
+        }
         // Play from Here: the editor camera is an allowed last-resort view target (and ONLY then).
         void SetPlayFromHere( bool fromHere )
         {
@@ -476,10 +495,15 @@ namespace Desert::Core
         [[nodiscard]] Common::BoolResultStr Serialize( const Assets::AssetManager* assetManager,
                                                        const Common::Filepath&     path ) const;
 
-        // Editor Pass API: inject a render pass into the scene render graph from outside the engine
-        // (debug draw, gizmos, authoring aids). See Graphic::ExternalPassSpecification for placement.
-        void RegisterExternalPass( Graphic::ExternalPassSpecification&& spec );
-        void UnregisterExternalPass( const std::string& name );
+        // Extension passes: render passes from outside the engine (debug draw, gizmos, authoring aids, the UI
+        // canvas) at a named RDG::ExtensionPoint. Every view of this scene adds them each frame at that point
+        // (Graphic::ExtensionPass). A repeated name replaces the earlier pass.
+        void                                                RegisterExtensionPass( Graphic::ExtensionPass&& pass );
+        void                                                UnregisterExtensionPass( const std::string& name );
+        [[nodiscard]] const Graphic::ExtensionPassRegistry& GetExtensionPasses() const
+        {
+            return m_ExtensionPasses;
+        }
 
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
@@ -517,6 +541,18 @@ namespace Desert::Core
         {
             DESERT_VERIFY( (std::is_base_of_v<ECS::System, T>));
             m_Systems.emplace_back( std::make_unique<T>( std::forward<Args>( args )... ) );
+        }
+
+        // The scene's system of type T, or null when the scene runs none (a test scene, a host that adds
+        // no such system). What a scene-level operation uses to reach a system's runtime state (the physics
+        // world a save game load teleports through) without a second owner of that state.
+        template <typename T>
+        [[nodiscard]] T* FindSystem() const
+        {
+            for ( const auto& system : m_Systems )
+                if ( auto* found = dynamic_cast<T*>( system.get() ) )
+                    return found;
+            return nullptr;
         }
 
         void Attach( ECS::Entity parent, ECS::Entity child );
@@ -573,13 +609,10 @@ namespace Desert::Core
         // question the editor was asking.
         ViewList m_Views;
 
-        // The external passes the editor injected, KEPT so that a view opened later gets them too. Not a
-        // second source of truth for what is installed: a SceneRenderer stores each pass as a render
-        // system under its own key and that is still the only place a pass is looked up or executed —
-        // this is the ORDER FORM, replayed once onto each new renderer, and Unregister erases from here
-        // for exactly the same reason. Without it a second viewport of the same world has no grid, no
-        // collider wireframes and no 2D UI overlay, and nothing says why.
-        std::vector<Graphic::ExternalPassSpecification> m_ExternalPasses;
+        // The extension passes the editor registered: the ONE place they live. Each view's renderer reads them at
+        // BeginScene and adds them at their points while it builds its frame, so a view opened later has them
+        // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
+        Graphic::ExtensionPassRegistry m_ExtensionPasses;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
@@ -592,6 +625,8 @@ namespace Desert::Core
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
+        entt::entity                  m_PlayerController   = entt::null; // see SetPlayerController
+        GameMode                      m_GameMode;                        // see GetGameMode
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
         uint64_t                      m_Generation         = NextSceneGeneration(); // see GetGeneration
         bool                          m_PlayFromHere   = false;

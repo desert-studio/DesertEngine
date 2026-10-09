@@ -29,6 +29,8 @@ namespace Desert::VFX
         m_Clock = Clock( m_Clock.GetSettings() );
         m_Plan  = {};
         m_Emitters.clear();
+        m_GpuState.reset(); // the scene's GPU particle state goes with its instances
+        m_Channels.Clear();
         // m_LastGeneration is NOT reset: a renderer may still hold GPU state stamped with an old
         // generation, and a fresh instance must never be mistaken for it.
     }
@@ -39,8 +41,48 @@ namespace Desert::VFX
         return it != m_Emitters.end() ? &it->second : nullptr;
     }
 
+    void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, const std::uint32_t stepCount,
+                           const double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm )
+    {
+        instance.Steps.clear();
+        instance.ChannelSpawns.clear();
+        instance.ChannelReport = {};
+
+        VFXChannelSpawnBatch batch;
+        if ( plan.Channel )
+        {
+            batch = GatherChannelSpawns( *plan.Channel, channels.Find( plan.Channel->Channel ), emitterCm );
+            if ( stepCount == 0 )
+            {
+                // A paused tick runs no step: the entries are cleared with the channel, so they are counted.
+                batch.Report.Overflow += batch.Report.Spawned;
+                batch.Report.Spawned = 0;
+                batch.Requests.clear();
+            }
+            instance.ChannelReport = batch.Report;
+            instance.ChannelOverflowTotal += batch.Report.Overflow;
+        }
+        const std::uint32_t channelParticles = batch.ParticleCount();
+
+        instance.Steps.reserve( stepCount );
+        for ( std::uint32_t s = 0; s < stepCount; ++s )
+        {
+            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds ) };
+            if ( s == 0 )
+            {
+                step.ChannelFirst = 0;
+                step.ChannelCount = channelParticles;
+                step.Budget += channelParticles;
+            }
+            instance.Steps.push_back( step );
+            instance.NextId += step.Budget;
+        }
+        instance.ChannelSpawns = std::move( batch.Requests );
+    }
+
     void VFXWorld::Tick( entt::registry& registry, double seconds )
     {
+        ++m_TickSerial;
         m_Plan = m_Clock.Advance( seconds );
 
         if ( m_Plan.Reset )
@@ -54,7 +96,7 @@ namespace Desert::VFX
 
         auto view = registry.view<ECS::ParticleEmitterComponent, ECS::UUIDComponent>();
         view.each(
-             [&]( ECS::ParticleEmitterComponent& emitter, const ECS::UUIDComponent& id )
+             [&]( entt::entity entity, ECS::ParticleEmitterComponent& emitter, const ECS::UUIDComponent& id )
              {
                  const std::uint64_t uuid  = id.UUID;
                  auto [it, created]        = m_Emitters.try_emplace( uuid );
@@ -86,15 +128,13 @@ namespace Desert::VFX
                  plan.Lifecycle.Loop = Assets::Serialization::VFXLoopBehavior::Infinite;
                  plan.Rate           = d.Looping ? std::max( static_cast<double>( d.SpawnRate ), 0.0 ) : 0.0;
 
-                 instance.Steps.reserve( m_Plan.StepCount );
-                 for ( std::uint32_t s = 0; s < m_Plan.StepCount; ++s )
-                 {
-                     const std::uint32_t budget = instance.Spawn.Step( plan, stepSeconds );
-                     instance.Steps.push_back( { instance.NextId, budget } );
-                     instance.NextId += budget;
-                 }
+                 const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
+                 const glm::vec3 emitterCm =
+                      transform ? glm::vec3( transform->GetTransform()[3] ) : glm::vec3( 0.0f );
+                 PlanEmitterSteps( instance, plan, m_Plan.StepCount, stepSeconds, m_Channels, emitterCm );
              } );
 
         std::erase_if( m_Emitters, []( const auto& entry ) { return !entry.second.Seen; } );
+        m_Channels.ClearEntries(); // a channel holds one frame of entries (UE: a data channel is cleared per tick)
     }
 } // namespace Desert::VFX

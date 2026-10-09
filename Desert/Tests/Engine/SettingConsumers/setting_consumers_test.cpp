@@ -494,6 +494,12 @@ namespace
          { "Far", kScene },
     };
 
+    constexpr const char* kPlayerInput               = "Desert/Desert/Source/Engine/Input/LocalPlayerInput.cpp";
+    constexpr Row         kEnhancedInputPlayerRows[] = {
+         { "Contexts", kPlayerInput },
+         { "BasePriority", kPlayerInput },
+    };
+
     constexpr Row kLandscapeMaterialRows[] = {
          { "Material", kLandscape },
     };
@@ -543,6 +549,13 @@ namespace
          { "LensFlareStreakLength", kSceneRenderer },
          { "LensFlareStreakAngle", kSceneRenderer },
          { "LensFlareChromaShift", kSceneRenderer },
+         { "DepthOfFieldFocalDistance", kSceneRenderer },
+         { "DepthOfFieldFstop", kSceneRenderer },
+         { "DepthOfFieldSensorWidth", kSceneRenderer },
+         { "DepthOfFieldMaxBokehSize", kSceneRenderer },
+         { "MotionBlurAmount", kSceneRenderer },
+         { "MotionBlurMax", kSceneRenderer },
+         { "MotionBlurTargetFPS", kSceneRenderer },
     };
 
     constexpr Row kDirLightRows[] = {
@@ -627,11 +640,22 @@ namespace
          { "Restitution", kPhysicsSystem },
     };
 
-    constexpr Row kCharacterControllerRows[] = {
-         { "Radius", kPhysicsSystem },
-         { "Height", kPhysicsSystem },
-         { "MaxSlopeDeg", kPhysicsSystem },
-         { "Gravity", kPhysicsSystem },
+    // GP2a: the movement model (UE CharacterMovementComponent) is the one reader of every field.
+    constexpr const char* kCharacterMovement = "Desert/Desert/Source/Engine/ECS/System/CharacterMovement.cpp";
+    constexpr Row         kCharacterControllerRows[] = {
+         { "Radius", kCharacterMovement },          { "Height", kCharacterMovement },
+         { "MaxSlopeDeg", kCharacterMovement },     { "MaxWalkSpeed", kCharacterMovement },
+         { "MaxAcceleration", kCharacterMovement }, { "BrakingDecelerationWalking", kCharacterMovement },
+         { "GroundFriction", kCharacterMovement },  { "BrakingFrictionFactor", kCharacterMovement },
+         { "JumpZVelocity", kCharacterMovement },   { "AirControl", kCharacterMovement },
+         { "GravityScale", kCharacterMovement },    { "MaxWalkSpeedCrouched", kCharacterMovement },
+         { "CrouchedHeight", kCharacterMovement },  { "MaxSwimSpeed", kCharacterMovement },
+    };
+
+    constexpr const char* kSpringArm       = "Desert/Desert/Source/Engine/ECS/System/SpringArm.cpp";
+    constexpr Row         kSpringArmRows[] = {
+         { "TargetArmLength", kSpringArm }, { "SocketOffset", kSpringArm },    { "DoCollisionTest", kSpringArm },
+         { "ProbeSize", kSpringArm },       { "EnableCameraLag", kSpringArm }, { "CameraLagSpeed", kSpringArm },
     };
 
     constexpr Row kAudioRows[] = {
@@ -815,6 +839,19 @@ namespace
          { "MaxSleepTime", kDestructibleSync },
          { "SlowMovingAsSleeping", kDestructibleSync },
          { "SlowMovingVelocityThreshold", kDestructibleSync },
+         // DST-05: the event flags are read where the events are published into the VFX data channels; the
+         // collision minimum (and the collision flag again, as the switch for recording) where the desc is built.
+         { "NotifyBreaks", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
+         { "NotifyCollisions", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
+         { "NotifyRemovals", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
+         { "CollisionEventMinImpulse", kDestructibleSync },
+    };
+
+    // A ragdoll (RAG1b): the asset and the mode are read by ECS::RagdollLifetime (create / drive / write back).
+    constexpr const char* kRagdollSync   = "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp";
+    constexpr Row         kRagdollRows[] = {
+         { "PhysicsAsset", kRagdollSync },
+         { "Mode", kRagdollSync },
     };
     // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
     // FieldCommand it hands DestructionWorld::ApplyField.
@@ -1024,6 +1061,8 @@ namespace
 
          { "CameraData", "CameraComponent", nullptr, CENSUS_ROWS( kCameraRows ) },
          { "LandscapeMaterialData", "LandscapeMaterialComponent", nullptr, CENSUS_ROWS( kLandscapeMaterialRows ) },
+         { "EnhancedInputPlayerData", "EnhancedInputPlayerComponent", nullptr,
+           CENSUS_ROWS( kEnhancedInputPlayerRows ) },
          // NOT `DirectionalLightComponent`. The wrapper dropped the "al", and a census that guessed the
          // spelling would have found no receivers at all and called ten live fields dead.
          { "DirectionalLightData", "DirectionLightComponent", nullptr, CENSUS_ROWS( kDirLightRows ) },
@@ -1037,6 +1076,7 @@ namespace
          { "RigidBodyData", "RigidBodyComponent", nullptr, CENSUS_ROWS( kRigidBodyRows ) },
          { "CharacterControllerData", "CharacterControllerComponent", nullptr,
            CENSUS_ROWS( kCharacterControllerRows ) },
+         { "SpringArmData", "SpringArmComponent", nullptr, CENSUS_ROWS( kSpringArmRows ) },
          { "AudioSourceData", "AudioSourceComponent", nullptr, CENSUS_ROWS( kAudioRows ) },
 
          { "UICanvasData", "UICanvasComponent", nullptr, CENSUS_ROWS( kCanvasRows ) },
@@ -1057,6 +1097,7 @@ namespace
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
+         { "RagdollData", "RagdollComponent", nullptr, CENSUS_ROWS( kRagdollRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
@@ -1273,7 +1314,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 57 with DST-04b's four field components (RadialImpulseField, StrainField, KillField, AnchorField:
     // every field read by ECS::FireDestructionField in DestructionFields.cpp).
     // -> 59 with WIND-SRC's WindSourceData and TOD-SPLIT's TimeOfDayData (kWindSourceRows, kTimeOfDayRows).
-    EXPECT_EQ( all.size(), 59u );
+    // -> 60 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
+    EXPECT_EQ( all.size(), 60u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

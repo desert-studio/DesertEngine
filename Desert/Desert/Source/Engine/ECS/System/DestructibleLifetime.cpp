@@ -47,6 +47,25 @@ namespace Desert::ECS
             return;
         m_World->Remove( destructible.RuntimeObject );
         destructible.RuntimeObject = Destruction::kInvalidDestructible;
+        destructible.RuntimeNodeWorld.clear();
+    }
+
+    void DestructibleLifetime::WritePoses( entt::registry& registry ) const
+    {
+        for ( const auto entity : registry.view<DestructibleComponent>() )
+        {
+            auto& destructible = registry.get<DestructibleComponent>( entity );
+            if ( destructible.RuntimeObject == Destruction::kInvalidDestructible )
+            {
+                destructible.RuntimeNodeWorld.clear();
+                continue;
+            }
+            const size_t nodes = m_World->GetNodeCount( destructible.RuntimeObject );
+            destructible.RuntimeNodeWorld.resize( nodes );
+            for ( size_t node = 0; node < nodes; ++node )
+                destructible.RuntimeNodeWorld[node] =
+                     m_World->GetNodeWorld( destructible.RuntimeObject, static_cast<int32_t>( node ) );
+        }
     }
 
     void DestructibleLifetime::Refuse( entt::entity entity, const std::string& reason )
@@ -112,6 +131,9 @@ namespace Desert::ECS
             desc.Settings.MaxSleepTime                = data.MaxSleepTime;
             desc.Settings.SlowMovingAsSleeping        = data.SlowMovingAsSleeping;
             desc.Settings.SlowMovingVelocityThreshold = data.SlowMovingVelocityThreshold;
+            // Collision events are recorded only for the objects that publish them (DestructionVFXEvents).
+            desc.Settings.CollisionEvents          = data.NotifyCollisions;
+            desc.Settings.CollisionEventMinImpulse = data.CollisionEventMinImpulse;
 
             auto added = m_World->Add( fracture.GetValue(), desc );
             if ( !added.IsSuccess() )

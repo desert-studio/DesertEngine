@@ -26,8 +26,29 @@ namespace Desert::Graphic
             return owned.back();
         };
 
+        // Per stable part (MotionRecord::Part), its row this frame.
+        std::unordered_map<MotionKey, uint32_t, MotionKeyHash> partRows;
+
         for ( const MotionRecord& record : rigid )
         {
+            if ( record.Part != 0 )
+            {
+                const MotionKey key{ record.Entity, kMotionPartSlotBit | record.Part };
+                const auto      found = partRows.find( key );
+                if ( found != partRows.end() && out.Rows[found->second].World == record.World )
+                {
+                    out.RecordRows.push_back( found->second );
+                    continue;
+                }
+                GpuObjectMotion row;
+                row.World        = record.World;
+                row.PrevWorld    = motion.PreviousTransform( key, record.World );
+                const auto index = static_cast<uint32_t>( out.Rows.size() );
+                out.Rows.push_back( row );
+                partRows[key] = index;
+                out.RecordRows.push_back( index );
+                continue;
+            }
             uint32_t index = UINT32_MAX;
             if ( const auto it = entityRows.find( record.Entity ); it != entityRows.end() )
                 for ( const uint32_t owned : it->second )

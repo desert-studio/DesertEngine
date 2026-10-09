@@ -93,8 +93,26 @@ namespace Desert::Animation::Timeline
         BindingGuid Camera;
     };
 
+    /**
+     * @brief LevelSequence's Subsequence section (UE: UMovieSceneSubSection): plays ANOTHER `.dseq`, by GUID,
+     * against the same world.
+     *
+     * Time mapping (`MapSubsequenceTime`, Evaluator.hpp): the subsequence's time at the parent's @c t is
+     * `StartOffset + ( t - section.Start ) × TimeScale`, the parent span converted to the subsequence's own
+     * tick rate through seconds, so two sequences of different tick rates line up in real time. A sequence
+     * that reaches itself through its subsequences is a CYCLE, refused by name where it is played
+     * (`CheckSubsequenceCycles`, ECS/LevelSequencePlayback.hpp).
+     */
+    struct SubsequenceSectionContent
+    {
+        Common::Content::AssetGuid Sequence;
+        FrameNumber                StartOffset; ///< in the SUBSEQUENCE's ticks
+        double                     TimeScale = 1.0;
+    };
+
     /// What a section holds. A track's sections all hold the same alternative (`Validate` refuses a mix).
-    using SectionContent = std::variant<Channel, AnimationSectionContent, CameraCutSectionContent>;
+    using SectionContent =
+         std::variant<Channel, AnimationSectionContent, CameraCutSectionContent, SubsequenceSectionContent>;
 
     /**
      * @brief One section.
