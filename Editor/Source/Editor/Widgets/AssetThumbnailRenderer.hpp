@@ -149,6 +149,8 @@ namespace Desert::Editor
         /// bakes on a worker and the march accumulates over frames, so an early readback photographs the
         /// dither rather than the cloud (desert-engine-verify §1).
         [[nodiscard]] bool DomeIsStillSettling();
+        /// True while this renderer's sky environment bake is still on the GPU (bounded by kDomeMaxSettleFrames).
+        [[nodiscard]] bool EnvironmentIsStillSettling();
 
         std::unique_ptr<Graphic::SceneRenderer> m_Renderer;
         // Fully qualified: a Desert::Editor::Core namespace also exists (ViewportMode/FoliagePaint), so an
@@ -269,6 +271,7 @@ namespace Desert::Editor
         // that never reports done would otherwise hold the single capture slot for the whole session and
         // stop every other thumbnail in the project.
         int m_DomeFrames = 0;
+        int m_EnvironmentFrames = 0;
 
         // THE PNG IS THE DISPLAY SIZE, and this used to be four times larger than anything could show.
         //

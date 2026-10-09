@@ -17,6 +17,8 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
+#include <chrono>
+#include <memory>
 #include <optional>
 
 namespace Desert::Graphic::System
@@ -50,10 +52,19 @@ namespace Desert::Graphic::System
 
         // Bakes / rebakes the procedural-sky IBL when the rule says so (see ShouldRebakeSkyEnvironment
         // for WHETHER, SkyEnvironmentRebakeMayRun for WHEN). Call once per frame from a
-        // frame-boundary-safe point (BEFORE the render graph records), NOT from inside a pass — the bake
-        // idles the device. @p deltaSeconds drives the debounce that keeps a drag from baking on every
-        // frame it crosses the angular threshold.
+        // frame-boundary-safe point (BEFORE the render graph records), NOT from inside a pass. The bake is
+        // SUBMITTED, not waited for: it lands on the first call that finds its batch complete, and until then
+        // the previous environment (or none, on the first bake) stays. @p deltaSeconds drives the debounce
+        // that keeps a drag from baking on every frame it crosses the angular threshold.
         void EnsureProceduralEnvironment( float deltaSeconds );
+
+        /// "The light this view's sky gives is not the one it will give a frame from now": a procedural sky
+        /// whose bake is still on the GPU, or that has none yet. A capture of the view waits on this — a
+        /// picture taken now would be lit by no sky, or by the previous one.
+        [[nodiscard]] bool IsEnvironmentSettling() const
+        {
+            return m_UseProceduralSky && ( m_PendingBake != nullptr || !m_ProceduralEnv );
+        }
 
         // The physical atmosphere's LUTs (Hillaire 2020): the cached pair — transmittance 256x64 +
         // multi-scattering 32x32 — the per-view Sky-View LUT, 192x104, the per-view camera
@@ -321,5 +332,17 @@ namespace Desert::Graphic::System
         // stops being read. Same reasoning for the below-horizon warning, which is a per-frame condition.
         bool m_HighResCostLogged  = false;
         bool m_BelowHorizonLogged = false;
+
+        // THE BAKE ON THE GPU, and what it was baked from — stamped into m_Baked* only when it lands, for the
+        // reason m_BakedSkyFingerprint gives. Declared LAST so it is destroyed FIRST: its destructor waits for
+        // the batch, which reads the LUTs and parameter buffers declared above.
+        bool LandPendingBake();
+        std::unique_ptr<ProceduralEnvironmentBake>   m_PendingBake;
+        glm::vec3                                    m_PendingSunDir           = glm::vec3( 0.0f, 1.0f, 0.0f );
+        uint64_t                                     m_PendingCloudFingerprint = 0;
+        uint64_t                                     m_PendingSkyFingerprint   = 0;
+        SkyEnvironmentSize                           m_PendingSize{};
+        const char*                                  m_PendingWhat = "";
+        std::chrono::steady_clock::time_point        m_PendingStarted{};
     };
 } // namespace Desert::Graphic::System

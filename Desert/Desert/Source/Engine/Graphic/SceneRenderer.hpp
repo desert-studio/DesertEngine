@@ -339,6 +339,11 @@ namespace Desert::Graphic
         // False for a view with no cloud layer, which is every mesh preview and every asset thumbnail.
         bool IsCloudVolumeBaking() const;
 
+        // "The sky's light is not final yet": a procedural sky whose environment bake is still on the GPU, or
+        // that has none. The bake is submitted, never waited for (SkyboxRenderer::EnsureProceduralEnvironment),
+        // so a capture of this view waits on this instead of the main thread waiting on the GPU.
+        bool IsEnvironmentSettling() const;
+
         // How far that rebuild has got, 0..1. Meaningless unless IsCloudVolumeBaking(); see
         // System::VolumetricCloudRenderer::ModellingBakeProgress for why the wait is worth a number.
         float CloudVolumeBakeProgress() const;

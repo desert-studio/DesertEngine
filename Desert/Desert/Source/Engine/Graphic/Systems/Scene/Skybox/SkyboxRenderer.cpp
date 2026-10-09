@@ -675,9 +675,6 @@ namespace Desert::Graphic::System
         if ( !m_UseProceduralSky )
             return;
 
-        const bool explicitRequest = m_BakeRequested;
-        m_BakeRequested            = false;
-
         // How long the sun has held still. Compared by direction rather than by "did anything write it",
         // because the time-of-day driver rewrites the same value every frame when it is paused.
         const float dt = glm::max( deltaSeconds, 0.0f );
@@ -690,6 +687,15 @@ namespace Desert::Graphic::System
         {
             m_SecondsSinceSunMoved += dt;
         }
+
+        // A BAKE STILL ON THE GPU is answered before anything else: it lands the frame its batch completes,
+        // and until then no second one starts — a request that arrives meanwhile stays in m_BakeRequested
+        // and is read once this one has landed.
+        if ( m_PendingBake && !LandPendingBake() )
+            return;
+
+        const bool explicitRequest = m_BakeRequested;
+        m_BakeRequested            = false;
 
         // THIS VIEW'S CLOUD LAYER, asked for BEFORE the trigger rather than after it, because it IS half
         // of the trigger: the panorama carries the clouds now, so a sky whose sun has not moved can still
@@ -757,9 +763,10 @@ namespace Desert::Graphic::System
             m_HighResCostLogged = true;
         }
 
-        // The bake runs immediate compute dispatches; idle the device first (mirrors the editor's
-        // skybox-swap path) since we're recreating GPU images that prior frames may have referenced.
-        Renderer::GetInstance().WaitDeviceIdle();
+        // NO DEVICE IDLE. The bake is recorded into its own batch and only CREATES images; the environment
+        // it replaces is released when the new one lands, through the image service, whose destruction is
+        // deferred past the frames in flight (VulkanAllocator::RT_DestroyImage) — the same path every other
+        // released image takes. The wait that stood here was 0.5 s of the main thread per renderer created.
 
         // The cloud block goes onto THIS renderer's buffers here — see the members' declaration for why
         // they are not the cloud renderer's own. A layer that is not marched still writes: a storage
@@ -834,53 +841,74 @@ namespace Desert::Graphic::System
         }
         cloudBinding.MediumImages = clouds.MediumImages;
         // THE AUTHORED MEDIUM, so the panorama that LIGHTS the scene is compiled under the same
-        // substitution the three on-screen cloud programs are. It points at `clouds`, which outlives this
-        // call — the bake is a submit-and-wait below.
+        // substitution the three on-screen cloud programs are. It points at `clouds`, which outlives the
+        // recording below — the variant is compiled while recording and the batch retains it.
         cloudBinding.Medium = &clouds.Medium;
 
-        // WALL TIME AROUND THE WHOLE CHAIN, printed rather than assumed. Every dispatch below is the
-        // immediate compute path — submit and wait on a fence — so this number is the GPU's, and it is the
-        // one that says what a rebake costs the frame it lands in. The cloud march is the only thing that
-        // has ever been added to it, so it is also the measurement of this feature.
-        const auto bakeStarted = std::chrono::steady_clock::now();
+        // WALL TIME FROM SUBMIT TO LANDING, printed rather than assumed: the GPU's time for the chain plus at
+        // most a frame of polling. The cloud march is the only thing that has ever been added to it, so it is
+        // also the measurement of that feature.
+        m_PendingStarted = std::chrono::steady_clock::now();
 
-        Environment baked = EnvironmentManager::CreateProcedural(
+        m_PendingBake = EnvironmentManager::BeginProcedural(
              size.Width, size.Height, m_SkyParams.get(), physical ? m_TransmittanceLut.get() : nullptr,
              physical ? m_MultiScatterLut.get() : nullptr, cloudBinding );
-        if ( !baked )
+        if ( !m_PendingBake )
         {
             // Keep the previous environment and say why; the user can retry with the Bake button. Do NOT
             // stamp m_BakedSunDir — a failed bake must not look like an up-to-date one.
             LOG_ERROR( "[SkyAtmosphere] Environment bake at {}x{} failed — the previous environment is "
                        "kept. The BakeProceduralSky compute shader is the usual cause.",
                        size.Width, size.Height );
-            // A half-made bake (one cube registered, the other not) is still registered: owning it for an
-            // instant is how its valid half gets released instead of staying resident for the session.
-            OwnedEnvironment discarded;
-            discarded.Replace( *Runtime::ResourceRegistry::GetImageService(), std::move( baked ) );
             return;
+        }
+
+        m_PendingSunDir           = m_SunDir;
+        m_PendingCloudFingerprint = clouds.Fingerprint;
+        m_PendingSkyFingerprint   = skyFingerprint;
+        m_PendingSize             = size;
+        m_PendingWhat = clouds.Marched ? ( cloudBinding.SkyOcclusion ? "clouds marched into the panorama, "
+                                                                       "sky-occlusion volume read"
+                                                                     : "clouds marched into the panorama, "
+                                                                       "profile-driven ambient occlusion" )
+                                       : "sky only (this view has no cloud layer)";
+
+        // A sky that has no environment yet lands this one in the same call when the GPU is already done —
+        // never by waiting for it.
+        LandPendingBake();
+    }
+
+    bool SkyboxRenderer::LandPendingBake()
+    {
+        if ( !m_PendingBake->IsComplete() )
+            return false;
+
+        Environment baked = m_PendingBake->Finish();
+        m_PendingBake.reset();
+        if ( !baked )
+        {
+            LOG_ERROR( "[SkyAtmosphere] Environment bake at {}x{} came back empty — the previous environment "
+                       "is kept.",
+                       m_PendingSize.Width, m_PendingSize.Height );
+            return true;
         }
 
         // The previous environment's cubes are released by the replacement (the image service owns them
         // until unregistered); the last one is released when this renderer dies.
         m_ProceduralEnv.Replace( *Runtime::ResourceRegistry::GetImageService(), std::move( baked ) );
 
-        m_BakedSunDir           = m_SunDir;
-        m_BakedCloudFingerprint = clouds.Fingerprint;
-        m_BakedSkyFingerprint   = skyFingerprint;
+        m_BakedSunDir           = m_PendingSunDir;
+        m_BakedCloudFingerprint = m_PendingCloudFingerprint;
+        m_BakedSkyFingerprint   = m_PendingSkyFingerprint;
 
         const double bakeMs =
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - bakeStarted ).count();
-
-        LOG_INFO( "[SkyAtmosphere] Environment baked at {}x{} in {:.1f} ms — {}. The device is idle for all "
-                  "of it, which is why the trigger is the sun, the clouds and the sky's own parameters and "
-                  "not the frame.",
-                  size.Width, size.Height, bakeMs,
-                  clouds.Marched ? ( cloudBinding.SkyOcclusion ? "clouds marched into the panorama, "
-                                                                 "sky-occlusion volume read"
-                                                               : "clouds marched into the panorama, "
-                                                                 "profile-driven ambient occlusion" )
-                                 : "sky only (this view has no cloud layer)" );
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_PendingStarted )
+                  .count();
+        LOG_INFO( "[SkyAtmosphere] Environment baked at {}x{}, landed {:.1f} ms after submit — {}. The main "
+                  "thread did not wait for it; the trigger is still the sun, the clouds and the sky's own "
+                  "parameters and not the frame.",
+                  m_PendingSize.Width, m_PendingSize.Height, bakeMs, m_PendingWhat );
+        return true;
     }
 
     void SkyboxRenderer::RegisterPasses( RenderGraphBuilder& builder )

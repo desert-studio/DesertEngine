@@ -1450,6 +1450,16 @@ namespace Desert::Graphic
         return clouds && clouds->IsModellingVolumeBaking();
     }
 
+    bool SceneRenderer::IsEnvironmentSettling() const
+    {
+        const auto it = m_RenderSystems.find( "SkyboxSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+
+        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        return sky && sky->IsEnvironmentSettling();
+    }
+
     float SceneRenderer::CloudVolumeBakeProgress() const
     {
         const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );

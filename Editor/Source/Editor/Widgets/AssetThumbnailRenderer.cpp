@@ -796,6 +796,26 @@ namespace Desert::Editor
         return true;
     }
 
+    bool AssetThumbnailRenderer::EnvironmentIsStillSettling()
+    {
+        if ( !m_Renderer->IsEnvironmentSettling() )
+        {
+            m_EnvironmentFrames = 0;
+            return false;
+        }
+        if ( m_EnvironmentFrames >= kDomeMaxSettleFrames )
+        {
+            if ( m_EnvironmentFrames == kDomeMaxSettleFrames )
+                LOG_WARN( "[AssetThumbnailRenderer] the sky environment for '{}' had not landed after {} "
+                          "frames — capturing anyway, so the tile may be lit without its sky.",
+                          m_PendingPng, kDomeMaxSettleFrames );
+            ++m_EnvironmentFrames;
+            return false;
+        }
+        ++m_EnvironmentFrames;
+        return true;
+    }
+
     bool AssetThumbnailRenderer::DomeIsStillSettling()
     {
         if ( !IsDomeCapture() )
@@ -905,6 +925,12 @@ namespace Desert::Editor
 
         // The dome's frames do not count as warm-up until the volume is there and the march has settled.
         if ( DomeIsStillSettling() )
+            return;
+
+        // NOR DOES ANY CAPTURE'S, until the sky that lights it has landed: the renderer's environment bake is
+        // submitted, not waited for, so the first frames of a new renderer have no ambient or reflections at
+        // all. Bounded by the dome's window, for the dome's reason — a late picture beats no pictures.
+        if ( EnvironmentIsStillSettling() )
             return;
 
         if ( m_Phase > 1 )

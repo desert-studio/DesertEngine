@@ -33,7 +33,7 @@ namespace Desert::Graphic
         return nullptr;
     }
 
-    std::shared_ptr<Image2D> ComputeImages::BakeProceduralPanorama( uint32_t width, uint32_t height,
+    std::shared_ptr<Image2D> ComputeImages::BakeProceduralPanorama( GpuBatch& batch, uint32_t width, uint32_t height,
                                                                     ShaderResources::StorageBuffer* skyParams,
                                                                     Image2D*                transmittanceLut,
                                                                     Image2D*                multiScatterLut,
@@ -47,7 +47,7 @@ namespace Desert::Graphic
         // clouds; a second analytic dome beside them is the shape that produced the grey-clouds defect.
         //
         // The variant program is held only for the duration of this bake, which is what its lifetime
-        // should be: the bake is a submit-and-wait, and nothing after it needs the modules.
+        // should be: the batch retains it below, and lets go once the GPU has run the dispatch.
         std::shared_ptr<Shader> shader;
         if ( clouds.Medium && !clouds.Medium->IsDefault() )
         {
@@ -220,8 +220,14 @@ namespace Desert::Graphic
                                    std::max( clouds.AerialStartDepthKm, 0.0f ), perSampleSun ? 1.0f : 0.0f };
         pipeline->SetPushConstants( &cloudPush, static_cast<uint32_t>( sizeof( cloudPush ) ) );
 
-        pipeline->Dispatch( std::max( 1u, width / kComputeImagesWorkGroupSize ),
-                            std::max( 1u, height / kComputeImagesWorkGroupSize ), 1u );
+        // RECORDED, NOT DISPATCHED: the panorama is the first command of the same batch the three cubes
+        // descend from, so the whole sky bake is one submit the caller polls instead of a fence the main
+        // thread sleeps on (419 ms of a thumbnail renderer's creation was this wait). The batch keeps the
+        // transient pipeline and the variant program alive until the GPU is done with them.
+        pipeline->Record( batch, std::max( 1u, width / kComputeImagesWorkGroupSize ),
+                          std::max( 1u, height / kComputeImagesWorkGroupSize ), 1u );
+        batch.Retain( pipeline );
+        batch.Retain( shader );
 
         return output;
     }
