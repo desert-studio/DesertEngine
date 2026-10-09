@@ -380,22 +380,8 @@ namespace Desert::ECS
         void RequestGraphClips( const Animation::Graph::AnimGraph&     graph,
                                 const Animation::MeshSkeletonIdentity& rig )
         {
-            const auto request = [&]( const std::string& clip )
-            {
-                if ( !clip.empty() )
-                    static_cast<void>( m_AnimationLibrary->FindForMesh( rig, clip ) );
-            };
-            for ( const Animation::Graph::PoseNode& node : graph.Nodes )
-            {
-                if ( node.Machine )
-                    for ( const Animation::Graph::State& state : node.Machine->States )
-                        request( state.Clip );
-                if ( node.Sequence )
-                    request( node.Sequence->Clip );
-                if ( node.BlendSpace )
-                    for ( const Animation::Graph::BlendSample& sample : node.BlendSpace->Samples )
-                        request( sample.Clip );
-            }
+            for ( const std::string& clip : Animation::Graph::GraphClipNames( graph ) )
+                static_cast<void>( m_AnimationLibrary->FindForMesh( rig, clip ) );
         }
 
         void DrainGraphParams( ECS::AnimationComponent& anim )

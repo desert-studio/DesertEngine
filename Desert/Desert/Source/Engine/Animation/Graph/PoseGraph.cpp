@@ -29,6 +29,36 @@ namespace Desert::Animation::Graph
         return "?";
     }
 
+    std::vector<std::string> GraphClipNames( const AnimGraph& graph )
+    {
+        std::vector<std::string> names;
+        const auto               add = [&names]( const std::string& clip )
+        {
+            if ( !clip.empty() )
+                names.push_back( clip );
+        };
+        const auto addRow = [&add]( const BlendSpace1DNode& row )
+        {
+            for ( const BlendSample& sample : row.Samples )
+                add( sample.Clip );
+        };
+        for ( const PoseNode& node : graph.Nodes )
+        {
+            if ( node.Machine )
+                for ( const State& state : node.Machine->States )
+                {
+                    add( state.Clip );
+                    if ( state.BlendSpace )
+                        addRow( state.BlendSpace->Space );
+                }
+            if ( node.Sequence )
+                add( node.Sequence->Clip );
+            if ( node.BlendSpace )
+                addRow( *node.BlendSpace );
+        }
+        return names;
+    }
+
     std::string DeclaredParameterList( const AnimGraph& graph )
     {
         std::string declared;

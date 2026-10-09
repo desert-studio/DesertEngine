@@ -384,6 +384,12 @@ namespace Desert::Animation::Graph
     /// binding's — are the same sentence to the same reader, and two copies of a message drift.
     [[nodiscard]] std::string DeclaredParameterList( const AnimGraph& graph );
 
+    /// Every clip name the graph's own nodes can play, in node order, empties skipped: each state's clip or
+    /// its blend space's sample clips, each SequencePlayer's clip, each Blend Space 1D node's sample clips. The
+    /// ONE list of what a graph plays, so the runtime's per-tick request (AnimationECSSystem) cannot miss a
+    /// kind of playable that the Animator plays.
+    [[nodiscard]] std::vector<std::string> GraphClipNames( const AnimGraph& graph );
+
     // JSON round-trip (reflect-cpp). Serialize never fails and stamps the header (the GUID kept, or minted for
     // a new graph). Deserialize refuses a file with no header (generation 0, before T7d) by name, pointing at
     // Tools/SceneMigrator, and a header of another kind or version; otherwise an error string on bad JSON.

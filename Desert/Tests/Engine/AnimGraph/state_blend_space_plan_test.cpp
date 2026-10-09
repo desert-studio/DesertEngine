@@ -6,6 +6,7 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace G = Desert::Animation::Graph;
 
@@ -94,4 +95,19 @@ TEST( StateBlendSpacePlan, AnAxisThatIsNoDeclaredFloatIsRefused )
 
     Locomotion( graph ).BlendSpace->Axis = "Velocity";
     ExpectRefused( graph, "axis 'Velocity' is no declared Float parameter" );
+}
+
+// Red without GraphClipNames' state blend-space branch: the runtime requests its clips from this list every
+// tick, so a blend-space state's samples would first be read on the tick the state is entered and its
+// transition's blend lost while they load.
+TEST( GraphClipNames, AStatesBlendSpaceSamplesAreClipsTheGraphPlays )
+{
+    G::AnimGraph graph = BlendStateGraph();
+    G::State     jump;
+    jump.Name = "Jump";
+    jump.Clip = "Jump";
+    G::OutputMachine( graph )->States.push_back( std::move( jump ) );
+
+    const std::vector<std::string> expected{ "Idle", "Walk", "Run", "Jump" };
+    EXPECT_EQ( G::GraphClipNames( graph ), expected );
 }
