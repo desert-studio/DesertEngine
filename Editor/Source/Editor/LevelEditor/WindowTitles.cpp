@@ -1,5 +1,9 @@
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
+#include "Editor/Core/ProjectContext.hpp"
+#include <Engine/Core/Application.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <format>
 #include <string>
 
 namespace Desert::Editor
@@ -57,5 +61,16 @@ namespace Desert::Editor
         if ( const auto pos = label.find( "###" ); pos != std::string::npos )
             label.erase( pos ); // visible part only (drop any existing ###id)
         return IconWindowTitle( PanelIcon( name ), label, name );
+    }
+
+    void SyncEditorWindowTitle( Engine::Application& application, ::Desert::Core::Scene* scene )
+    {
+        const auto& window = application.GetWindow();
+        if ( !window || scene == nullptr )
+            return;
+        const std::string title =
+             std::format( kEditorWindowTitleFormat, ProjectContext::Current().Name, scene->GetSceneName() );
+        if ( window->GetTitle() != title )
+            window->SetTitle( title );
     }
 } // namespace Desert::Editor

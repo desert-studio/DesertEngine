@@ -302,7 +302,7 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
     EXPECT_FALSE( fs::exists( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailScan.cpp", root ) ) );
 
     const std::string panel =
-         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp", root ) );
     ASSERT_FALSE( panel.empty() );
     EXPECT_EQ( panel.find( "Sweep" ), std::string::npos ) << "the Content Browser drives a sweep again";
     EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().Request(" ), std::string::npos )
@@ -360,7 +360,10 @@ TEST( ThumbnailPrefetch, TheBrowserDecodesTheFolderItShowsAndNothingWaitsForIt )
          ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
     ASSERT_FALSE( panel.empty() );
     EXPECT_NE( panel.find( "void FileExplorerPanel::PrefetchCurrentFolderThumbnails()" ), std::string::npos );
-    EXPECT_EQ( panel.find( "m_ProjectPrefetchItems" ), std::string::npos ) << "the project is prefetched again";
+    const std::string pool =
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp", root ) );
+    ASSERT_FALSE( pool.empty() );
+    EXPECT_EQ( pool.find( "m_ProjectPrefetchItems" ), std::string::npos ) << "the project is prefetched again";
     const std::string layer =
          ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
@@ -460,7 +463,7 @@ TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string panel =
-         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp", root ) );
     std::size_t requests = 0;
     std::size_t filtered = 0;
     for ( std::size_t at = panel.find( "ThumbnailPrefetch::Get().Request(" ); at != std::string::npos;

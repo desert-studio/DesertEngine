@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetGuidRef.hpp>
 
 #include <Common/Content/AssetMove.hpp>
+#include <Common/Content/AssetTrash.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
@@ -884,6 +885,35 @@ namespace Desert::Assets
             auto undone = Common::Content::UndoFolderMove( state.Registry, record );
             state.Dirty = true;
             return undone;
+        }
+
+        // DELETE INTO THE PROJECT'S TRASH (ASSET-TRASH), the editor's single delete route: the files move into a
+        // slot of `trashRoot` and the rows they held leave the registry, under this registry's lock (see
+        // `Common::Content::MoveToTrash`). `RestoreTrashed` is the inverse: the same bytes at the same paths,
+        // the same rows back, each restored row's path handle recorded as `Publish` records every row.
+        inline Common::ResultStr<Common::Content::AssetTrashRecord>
+        TrashAsset( const std::filesystem::path& path, const std::filesystem::path& trashRoot )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            auto trashed = Common::Content::MoveToTrash( state.Registry, path, trashRoot );
+            if ( trashed )
+                state.Dirty = true;
+            return trashed;
+        }
+
+        inline Common::BoolResultStr RestoreTrashed( const Common::Content::AssetTrashRecord& record )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            auto restored = Common::Content::RestoreFromTrash( state.Registry, record );
+            for ( const Common::Utils::AssetRegistryEntry& row : record.Rows )
+                if ( state.Registry.FindByKey( row.Key ) != nullptr )
+                    static_cast<void>( Common::AssetPathIndex::Record( row.PathHandle(), row.Key ) );
+            state.Dirty = true;
+            return restored;
         }
 
         // True when `file` is content the registry has a row for - the files a rename must move through

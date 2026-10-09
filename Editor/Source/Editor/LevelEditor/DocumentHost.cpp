@@ -9,6 +9,7 @@
 #include "Editor/Core/EditorSubject.hpp"
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
 #include "Editor/Core/OpenDocuments.hpp"
+#include "Editor/Core/PreviewViewpoints.hpp"
 #include "Editor/Core/UnsavedClose.hpp"
 #include "Editor/Panels/IPanel.hpp"
 #include <cstdint>
@@ -759,6 +760,111 @@ namespace Desert::Editor
              "the document that offered '{}' is gone, or no longer offers it (a view mode's label changes "
              "with the mode it is in)",
              label );
+    }
+
+    void DocumentHost::AppendFocusedDocumentCommands( std::vector<PaletteCommand>& commands )
+    {
+        // NAMED VIEWPOINTS for the focused document's preview — the replacement for `--preview-orbit
+        // yaw,pitch`, whose continuous angle pair a palette entry has nowhere to carry. See
+        // Editor/Core/PreviewViewpoints.hpp for why names are MORE reproducible than numbers, not less.
+        //
+        // Offered for the FOCUSED document only, because that is the one a person means by "the preview"
+        // and because seven entries per open document would bury everything else in the list.
+        if ( ISubjectDocument* focused = Documents().Find( FocusedDocument() );
+             focused != nullptr && focused->HasPreview() )
+        {
+            for ( const PreviewViewpoint& viewpoint : kPreviewViewpoints )
+            {
+                const PreviewViewpoint* aim = &viewpoint;
+                commands.push_back( { "Preview", std::string( viewpoint.Name ), [this, aim]
+                                      {
+                                          // Re-resolved rather than captured: the focus can move, and the
+                                          // document can be destroyed, between this list being built and
+                                          // the entry being run.
+                                          ISubjectDocument* target = Documents().Find( FocusedDocument() );
+                                          if ( target == nullptr || !target->HasPreview() )
+                                          {
+                                              // REFUSES INSTEAD OF SLIPPING PAST. That re-resolution is
+                                              // exactly a case that can come back empty, and the `if`
+                                              // used to swallow it: the command answered success having
+                                              // aimed nothing at anything.
+                                              return Common::MakeError<bool>(
+                                                   "the document this viewpoint was offered for no longer "
+                                                   "has a preview; the focus moved between the list being "
+                                                   "built and this command running." );
+                                          }
+                                          target->SetPreviewViewpoint( *aim );
+                                          return PaletteCommandDone();
+                                      } } );
+            }
+        }
+
+        // THE THREE STATES OF THE FOCUSED DOCUMENT, as ordinary commands.
+        //
+        // Apply, Discard and Save are ACTIONS with names — they belong in the palette by the same rule
+        // that put "Save Scene" there, and putting them here rather than inventing channel operations for
+        // them is what keeps the channel's vocabulary the palette's vocabulary. The artist gets them on
+        // the keyboard as a side effect, which is the argument for the palette in the first place.
+        //
+        // APPLY AND DISCARD ARE OFFERED ONLY WHILE THERE IS SOMETHING TO APPLY. The palette lists what is
+        // available THIS INSTANT, exactly as the toolbar disables the two buttons in the same state; an
+        // entry that ran and did nothing would be a silent no-op reported as a success, and a client
+        // would read it as "the scene now has my edit".
+        if ( ISubjectDocument* focused = Documents().Find( FocusedDocument() ) )
+        {
+            const SubjectId subject = FocusedDocument();
+
+            if ( focused->GetEditModel() == ISubjectDocument::EditModel::Staged && focused->HasUnappliedEdits() )
+            {
+                // Re-resolved inside, not captured: the focus can move and the document can be destroyed
+                // between this list being built and the entry being run — the same rule the Preview
+                // viewpoints above follow, for the same reason.
+                // THE THREE `(void)` CASTS THAT USED TO BE HERE ARE A6-2 POINT 1 IN ONE PLACE. Each of
+                // these operations already returns "did anything actually move" — ISubjectDocument says
+                // so at length, and says WHY: "a caller must not report a save that did not happen". The
+                // palette then threw the answer away, so over the channel an Apply that published nothing
+                // and a Save that wrote no file both came back `{"ok":true}`.
+                //
+                // The reason cannot be richer than this, and that is a limit worth naming rather than
+                // dressing up: those three virtuals return a bare `bool` and carry no message, so what
+                // the editor honestly knows is THAT the document declined. Turning the interface into
+                // BoolResultStr would touch every document type and belongs to whoever owns them.
+                commands.push_back( { "Document", "Apply this document's edits to the scene", [this, subject]
+                                      {
+                                          ISubjectDocument* target = Documents().Find( subject );
+                                          if ( target == nullptr )
+                                              return Common::MakeError<bool>(
+                                                   "the document that had these edits is no longer open." );
+                                          return PaletteCommandOutcome(
+                                               target->ApplyEdits(),
+                                               "the document published nothing: it had no outstanding edit "
+                                               "by the time the command ran, so the scene is unchanged." );
+                                      } } );
+                commands.push_back( { "Document", "Discard this document's unapplied edits", [this, subject]
+                                      {
+                                          ISubjectDocument* target = Documents().Find( subject );
+                                          if ( target == nullptr )
+                                              return Common::MakeError<bool>(
+                                                   "the document that had these edits is no longer open." );
+                                          return PaletteCommandOutcome(
+                                               target->DiscardEdits(),
+                                               "the document discarded nothing: it had no outstanding edit "
+                                               "by the time the command ran." );
+                                      } } );
+            }
+
+            commands.push_back( { "Document", "Save this document", [this, subject]
+                                  {
+                                      ISubjectDocument* target = Documents().Find( subject );
+                                      if ( target == nullptr )
+                                          return Common::MakeError<bool>( "the document to save is no longer "
+                                                                          "open." );
+                                      return PaletteCommandOutcome(
+                                           target->SaveDocument(),
+                                           "the document was NOT written. Its own log line says why; this "
+                                           "command only knows that no file was produced." );
+                                  } } );
+        }
     }
 
     void DocumentHost::AppendCloseAllCommand( std::vector<PaletteCommand>& commands )

@@ -55,7 +55,13 @@ namespace
     using Desert::Editor::FileTypeOf;
     using Desert::Editor::kFileExtensions;
 
-    constexpr const char* kBrowserTable = "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp";
+    // The browser after the FileExplorer cut (EDL-B1/B3/B4): the tree types its entries in
+    // ContentDirectoryModel, an imported file is typed in ContentBrowserImport, and the tile draws through
+    // AssetTileThumbnail. The panel itself only composes them.
+    constexpr const char* kBrowserPanel  = "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp";
+    constexpr const char* kBrowserTree   = "Editor/Source/Editor/Panels/FileExplorer/ContentDirectoryModel.cpp";
+    constexpr const char* kBrowserImport = "Editor/Source/Editor/Panels/FileExplorer/ContentBrowserImport.cpp";
+    constexpr const char* kBrowserTile   = "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp";
     // The Details panel's Skybox row, which asks ThumbnailService for the skybox picture.
     constexpr const char* kSkyboxDetailsRow =
          "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp";
@@ -208,13 +214,19 @@ TEST( ThumbnailFormats, TheBrowserTypesAndDrawsThroughTheOneChain )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string panel = ReadFile( root + kBrowserTable );
-    ASSERT_FALSE( panel.empty() ) << kBrowserTable;
-    EXPECT_EQ( panel.find( "std::unordered_map<std::string, FileType>" ), std::string::npos )
-         << "FileExplorerPanel.cpp has its own extension map again; kFileExtensions is the one map";
-    EXPECT_NE( panel.find( "FileTypeOf(" ), std::string::npos ) << "the panel no longer types through FileTypeOf";
-    EXPECT_NE( panel.find( "ThumbnailProducers::ProducerOf" ), std::string::npos )
-         << "the panel no longer dispatches its thumbnails through ThumbnailProducers";
+    for ( const char* file : { kBrowserPanel, kBrowserTree, kBrowserImport, kBrowserTile } )
+    {
+        const std::string code = ReadFile( root + file );
+        ASSERT_FALSE( code.empty() ) << file;
+        EXPECT_EQ( code.find( "std::unordered_map<std::string, FileType>" ), std::string::npos )
+             << file << " has its own extension map again; kFileExtensions is the one map";
+    }
+    EXPECT_NE( ReadFile( root + kBrowserTree ).find( "FileTypeOfContent(" ), std::string::npos )
+         << "the browser's tree no longer types its entries through FileTypeOfContent (FileTypeOf + content root)";
+    EXPECT_NE( ReadFile( root + kBrowserImport ).find( "FileTypeOf(" ), std::string::npos )
+         << "the browser's import no longer types the imported file through FileTypeOf";
+    EXPECT_NE( ReadFile( root + kBrowserTile ).find( "ThumbnailProducers::ProducerOf" ), std::string::npos )
+         << "the browser's tile no longer dispatches its thumbnails through ThumbnailProducers";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -501,7 +513,8 @@ TEST( ThumbnailFormats, ASkyboxIsItsOwnKindWithARenderedPicture )
 
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string panel = ReadFile( root + kBrowserTable );
+    const std::string panel = ReadFile( root + kBrowserTile );
+    ASSERT_FALSE( panel.empty() ) << kBrowserTile;
     EXPECT_NE( panel.find( "case Producer::RenderedSky:" ), std::string::npos )
          << "the browser no longer draws a skybox tile through its producer";
     EXPECT_NE( panel.find( "RequestSkybox(" ), std::string::npos )

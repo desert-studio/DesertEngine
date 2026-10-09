@@ -64,6 +64,12 @@ namespace
     constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
     constexpr const char* kPlay          = "Editor/Source/Editor/LevelEditor/PlaySession.cpp";
     constexpr const char* kAssetCommands = "Editor/Source/Editor/Panels/FileExplorer/AssetCommands.cpp";
+    // After the EditorLayer/FileExplorer cut: the level's palette tables live in LevelEditorCommands (EDL-A2),
+    // the browser's item menu and its command bodies in AssetContextMenu, Edit Thumbnail in ThumbnailEditMode
+    // (EDL-B3).
+    constexpr const char* kLevelCommands = "Editor/Source/Editor/LevelEditor/LevelEditorCommands.cpp";
+    constexpr const char* kItemMenu      = "Editor/Source/Editor/Panels/FileExplorer/AssetContextMenu.cpp";
+    constexpr const char* kThumbnailEdit = "Editor/Source/Editor/Panels/FileExplorer/ThumbnailEditMode.cpp";
 } // namespace
 
 TEST( CommandHome, EveryCommandHasALabelUniqueInItsContext )
@@ -87,7 +93,8 @@ TEST( CommandHome, EveryCommandHasALabelUniqueInItsContext )
 TEST( CommandHome, TheSourcesAreFound )
 {
     ASSERT_FALSE( RepoRoot().empty() ) << "run from inside the repository";
-    for ( const char* file : { kFileExplorer, kViewport, kAnimDocument, kLayer } )
+    for ( const char* file :
+          { kFileExplorer, kViewport, kAnimDocument, kLayer, kLevelCommands, kItemMenu, kThumbnailEdit } )
         EXPECT_FALSE( ReadFile( file ).empty() ) << file;
 }
 
@@ -95,8 +102,8 @@ TEST( CommandHome, TheSourcesAreFound )
 // body under it.
 TEST( CommandHome, TheContentBrowserMenuRowsAreCommands )
 {
-    const std::string menu = FunctionBody( ReadFile( kFileExplorer ),
-                                           "void FileExplorerPanel::DrawItemContextMenu(", "FileExplorerPanel::" );
+    const std::string menu =
+         FunctionBody( ReadFile( kItemMenu ), "void AssetContextMenu::Draw(", "AssetContextMenu::" );
     ASSERT_FALSE( menu.empty() );
     for ( const ContentBrowserCommand command : kContentBrowserCommandOrder )
     {
@@ -116,7 +123,7 @@ TEST( CommandHome, ThePaletteOffersEveryTable )
     const std::string assets = ReadFile( kAssetCommands );
     EXPECT_NE( assets.find( "Editor::kContentBrowserCommandOrder" ), std::string::npos );
     EXPECT_NE( assets.find( "&FileExplorerPanel::RunCommand" ), std::string::npos );
-    const std::string layer = ReadFile( kLayer );
+    const std::string layer = ReadFile( kLevelCommands );
     EXPECT_NE( layer.find( "Editor::kViewportCommandOrder" ), std::string::npos );
     EXPECT_NE( layer.find( "&Editor::ViewportPanel::RequestCommand" ), std::string::npos );
     // The document's palette actions are the transport commands (and so reach the channel as
@@ -214,7 +221,16 @@ TEST( ContentBrowserNavigation, GoToFolderAndSyncToAssetCarryThePathAndCallTheBr
     EXPECT_NE( go.find( "NavigateToPath(" ), std::string::npos );
 
     // Edit Thumbnail asks the kind table, not a model-or-material list (Fox.skmesh was refused).
+    // The chain: the panel's RunCommand -> AssetContextMenu::Run's EditThumbnail -> ThumbnailEditMode::Enter.
     const std::string run = FunctionBody( browser, "FileExplorerPanel::RunCommand(", "FileExplorerPanel::" );
-    EXPECT_NE( run.find( "HasThumbnailOrbit" ), std::string::npos );
-    EXPECT_EQ( run.find( "only a model or a material has a thumbnail orbit" ), std::string::npos );
+    EXPECT_NE( run.find( "m_ItemMenu.Run(" ), std::string::npos );
+    const std::string body = FunctionBody( ReadFile( kItemMenu ), "AssetContextMenu::Run(", "AssetContextMenu::" );
+    const auto        editCase = body.find( "case ContentBrowserCommand::EditThumbnail:" );
+    ASSERT_NE( editCase, std::string::npos );
+    EXPECT_NE( body.find( "m_ThumbnailEdit.Enter(", editCase ), std::string::npos );
+    const std::string enter =
+         FunctionBody( ReadFile( kThumbnailEdit ), "ThumbnailEditMode::Enter(", "ThumbnailEditMode::" );
+    EXPECT_NE( enter.find( "HasThumbnailOrbit" ), std::string::npos );
+    EXPECT_EQ( enter.find( "only a model or a material has a thumbnail orbit" ), std::string::npos );
+    EXPECT_EQ( body.find( "only a model or a material has a thumbnail orbit" ), std::string::npos );
 }

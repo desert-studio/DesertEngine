@@ -17,6 +17,7 @@
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/ItemProgress.hpp>
 #include <Engine/Core/BootTimeline.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -45,10 +46,11 @@ namespace Desert::Engine
 namespace Desert::Editor
 {
     class AssetCompiling;
-    class FileExplorerPanel;
+    class AssetThumbnailPool;
     class ImportManager;
     class SceneFiles;
     class SceneWorkspace;
+    class ShotDirector;
 
     class EditorStartup
     {
@@ -63,11 +65,12 @@ namespace Desert::Editor
                        SceneFiles& sceneFiles, AssetCompiling& assetCompiling, const bool& realFrameDrawn,
                        std::unique_ptr<Splash::SplashScreen> splash );
 
-        // The asset browser the hand-over's thumbnails go through; null until OnAttach builds it and after
-        // OnDetach.
-        void AttachFileExplorer( FileExplorerPanel* fileExplorer )
+        // The editor's thumbnail pool the hand-over's pictures go through (UE: the editor's
+        // FAssetThumbnailPool, which the Content Browser only draws from); null until OnAttach builds it and
+        // after OnDetach releases it.
+        void AttachThumbnailPool( AssetThumbnailPool* thumbnailPool )
         {
-            m_FileExplorer = fileExplorer;
+            m_ThumbnailPool = thumbnailPool;
         }
 
         [[nodiscard]] bool StartupLoading() const
@@ -96,6 +99,14 @@ namespace Desert::Editor
         // OnAttach: the splash plan, made once the cooked registry is read, and the engine shader compile's stage
         // begun — the longest single wait of the start, and one call (not a stage: the render systems resolve
         // their shaders in their constructors).
+        // THE FIRST LEVEL (UE: UEditorEngine::InitEditor's EditorStartupMap). Screenshot mode names its own scene;
+        // a project queues its DefaultScene (missing on disk = an error naming it, never a scene built in code);
+        // with nothing queued the Basic level template opens as an untitled scene. A capture whose scene is
+        // refused closes the application with its status.
+        void ChooseInitialLevel( ShotDirector& shots );
+        // THE CONTENT THE FIRST FRAME NEEDS (UE: FLevelEditorModule::StartupModule): the cooked asset registry,
+        // the engine shaders and their import templates, then the primary scene's systems. A refusal ends the run.
+        [[nodiscard]] Common::BoolResultStr BootContent();
         void BeginShaderStage();
         // The item line of the stage running now, for an engine call that works through a list.
         Assets::ItemProgress SplashItems();
@@ -169,7 +180,7 @@ namespace Desert::Editor
         SceneFiles&                                   m_SceneFiles;
         AssetCompiling&                               m_AssetCompiling;
         const bool&                                   m_RealFrameDrawn;
-        FileExplorerPanel*                            m_FileExplorer = nullptr; // non-owning (lives in the panels)
+        AssetThumbnailPool* m_ThumbnailPool = nullptr; // non-owning (EditorLayer owns it)
 
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext = 0;

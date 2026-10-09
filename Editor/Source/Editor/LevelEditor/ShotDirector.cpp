@@ -5,6 +5,7 @@
 #include "Editor/Core/ShotOptions.hpp"
 #include "Editor/Core/ViewportCameraProperties.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneMeshBounds.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
@@ -324,5 +325,20 @@ namespace Desert::Editor
         // A capture that wrote no PNG must not leave a zero exit status behind: the whole value of
         // an exit code is that a script can trust it, and this one used to say "fine" either way.
         return m_ShotFailed ? 1 : 0;
+    }
+    std::optional<int32_t> ShotDirector::EndFrame( bool recordedFrame, bool startupLoading, bool contentSettling,
+                                                   ProfilerWindow& profiler )
+    {
+        const auto& shot = ShotOptions::Get();
+        if ( shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() && !startupLoading &&
+             m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
+            profiler.RecordFlightFrame( !contentSettling );
+        if ( !CountRenderedFrame( recordedFrame ) )
+            return std::nullopt;
+        if ( shot.GpuProfile )
+            ProfilerWindow::DumpProfilerToLog();
+        if ( shot.FlightRoute && !profiler.FinishFlight() )
+            MarkFailed();
+        return Finish();
     }
 } // namespace Desert::Editor

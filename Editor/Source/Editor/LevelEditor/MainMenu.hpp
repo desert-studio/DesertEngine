@@ -10,6 +10,8 @@
 
 #include "Editor/Core/CommandPalette.hpp"
 
+#include "Editor/Widgets/WindowChrome.hpp"
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -21,6 +23,8 @@ namespace Desert::Editor
     class PreferencesWindow;
     class SceneFiles;
     class SceneWorkspace;
+    class LevelToolbar;
+    class ProfilerWindow;
 
     // What a menu entry does when its action is not the menu's to own (UE: the FUIAction a menu entry binds).
     struct MainMenuActions
@@ -40,6 +44,10 @@ namespace Desert::Editor
 
         // Inside BeginMainMenuBar: re-opens the menu the channel holds open, then draws the seven menus in bar
         // order.
+        // THE MAIN MENU BAR, WHICH IS THE WINDOW'S TITLE BAR (UE: SLevelEditor's menu + title area): the menus,
+        // the project and level sections, the engine stats and, on a frameless window, its three buttons and
+        // the bar's gestures; then the File dialogs and Preferences. @p chrome is null with a system frame.
+        void DrawBar( LevelToolbar& toolbar, ProfilerWindow& profiler, UI::WindowChrome* chrome );
         void DrawMenus();
 
         // "Menu": open each of the bar's menus by name, and close the held one.

@@ -3,8 +3,21 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Panels/FileExplorer/AssetContextMenu.hpp>
+#include <Editor/Panels/FileExplorer/AssetThumbnailPool.hpp>
+#include <Editor/Panels/FileExplorer/AssetTileThumbnail.hpp>
+#include <Editor/Panels/FileExplorer/AssetViewState.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserAssetView.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserHistory.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserPathView.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserSelection.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserToolbar.hpp>
+#include <Editor/Panels/FileExplorer/ContentDirectoryModel.hpp>
+#include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
 #include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Panels/FileExplorer/NewAssetMenu.hpp>
+#include <Editor/Panels/FileExplorer/ThumbnailEditMode.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -46,48 +59,16 @@ namespace Desert::Core
 namespace Desert::Editor
 {
 
-    struct DirectoryInformation
-    {
-        DirectoryInformation*              Parent;
-        std::vector<DirectoryInformation*> Children;
-
-        std::string AssetPath;
-        // SharedPtr<Graphics::Texture2D> Thumbnail = nullptr;
-        FileType Type;
-        uint64_t FileSize;
-        uint64_t LastWriteTime = 0; // filesystem mtime (for "sort by date"); cached so sorting needs no syscalls
-        ImVec4   FileTypeColour;
-
-        bool Hidden = false;
-        bool IsFile = true;
-        bool Opened = false;
-        bool Leaf   = true;
-
-        // Lazily-resolved texture thumbnail handle (0 = none / not a registered texture). Cached so the
-        // grid doesn't re-resolve every frame; resolution is existing-only (browsing never cooks).
-        uint64_t ThumbnailHandle   = 0;
-        bool     ThumbnailResolved = false;
-
-    public:
-        DirectoryInformation( const std::string& path, bool isFile )
-        {
-            AssetPath = path;
-            IsFile    = isFile;
-            Hidden    = false;
-        }
-
-        ~DirectoryInformation()
-        {
-        }
-    };
     class FileExplorerPanel : public IPanel
     {
     public:
         // @p subjectEditors is what a double-click asks "does anything open this file?". Required, and
         // not defaulted to null: without it every double-click on a document would silently do nothing,
         // which is the exact symptom this panel's own comments say is impossible to diagnose.
-        explicit FileExplorerPanel( const std::filesystem::path&         rootPath,
-                                    const SubjectEditorRegistry*         subjectEditors,
+        // @p thumbnailPool is the editor's (EditorLayer owns it — UE: the Content Browser uses the editor's
+        // FAssetThumbnailPool); the panel draws from it and must not outlive it.
+        explicit FileExplorerPanel( const std::filesystem::path& rootPath,
+                                    const SubjectEditorRegistry* subjectEditors, AssetThumbnailPool& thumbnailPool,
                                     Assets::AssetManager*                assetManager  = nullptr,
                                     std::weak_ptr<::Desert::Core::Scene> viewportScene = {} );
         ~FileExplorerPanel() override;
@@ -95,28 +76,13 @@ namespace Desert::Editor
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
         bool OnWindowFileDropped( Common::EventWindowFileDrop& drop );
 
-        /// How many pictures the browser holds on the GPU (ThumbnailCache::ResidentCount).
-        [[nodiscard]] std::size_t ResidentThumbnails() const;
-
-        bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
-        // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
-        void DrawItemContextMenu( DirectoryInformation& entry );
-        // Modal dialogs for the cross-platform file ops (rename / delete-with-reference-warning).
-        void DrawFileOpsPopups();
-        // Multi-select click handling (plain / Ctrl-toggle / Shift-range over the display order).
-        void SelectClick( DirectoryInformation* entry, int shownIndex );
-        bool IsSelected( const DirectoryInformation* entry ) const;
+        // One entry of the open folder as a tile (@p gridView) or a list row — the asset view's OnDrawTile.
+        ContentBrowserAssetView::TileResult RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Drag source with a thumbnail/big-icon preview (needs the thumbnail cache, hence a member).
         void EmitAssetDragSource( const DirectoryInformation& entry );
 
-        // True while any tile (card rect / list row) is hovered this frame — clicking elsewhere in the
-        // body clears the selection (the ScrollY table is a child window, so an item-based check can't work).
-        bool m_TileHovered = false;
-
-        // Paths of the current multi-selection; falls back to m_CurrentSelected when empty.
+        // Paths of the current multi-selection; falls back to the current entry when empty.
         std::vector<std::string> SelectionPaths() const;
-        // Cut/copy/paste of the current selection into the current directory.
-        void PasteClipboard();
 
         // Phase-3 navigation.
         void        GoBack();
@@ -130,57 +96,15 @@ namespace Desert::Editor
         // They are EditorPreferences::{Current,Is,Toggle}FavouriteFolder now — per project, relative to
         // the assets root, written by the one checked writer editor.json has.
 
-        // Phase-4 engine integration: instantiate a prefab into the open scene; create a new material asset.
-        void AddPrefabToScene( const std::string& prefabPath );
-        void CreateNewMaterial();
         // UE's "Add Level Sequence": an empty `.dseq` (LevelSequenceAsset::Save) in the open folder, selected
         // once the folder is re-listed. The ONE creation route: the Assets window's context menu and the
         // palette's "Assets / New Level Sequence" (Editor/Core/ContentCreateCommands.hpp) both call this.
         Common::BoolResultStr CreateNewLevelSequence();
 
-        /// Which of the four cloud formats a "New Cloud Asset" item creates.
-        ///
-        /// AN ENUM AND NOT FOUR METHODS, because everything around the creation — the unique name, the
-        /// directory, the refusal, the refresh, the document that opens afterwards — is identical for all
-        /// four and only the payload differs. Four methods would be four copies of that surround, which is
-        /// how three of them come to lack the error path.
-        enum class CloudAssetKind
-        {
-            Type,            ///< `.decloudtype` — numbers only; written in the handler
-            Layout,          ///< `.dclayout` — a blank painting; written in the handler
-            NoiseVolume,     ///< `.dcnv` — 8 MiB of voxels, GENERATED on a worker (8.7 s in Debug)
-            ModellingVolume, ///< `.dcmv` — 4 MiB of voxels, BAKED on a worker (1.6 s in Debug)
-        };
-
-        // Creates one cloud asset in the current directory under a unique name and opens its document.
-        // The two volume formats are generated on a worker; see m_CloudBake.
-        void CreateNewCloudAsset( CloudAssetKind kind );
-        // UE-style "Capture Thumbnail": grab the current main-viewport rendered image, center-crop to a
-        // square, downscale, and save it AS this asset's thumbnail — under the key its tile reads, with the
-        // hash its judge compares (ThumbnailProducers::CaptureKeyOf -> ThumbnailService::PictureKey), so the
-        // service does not re-shoot over it. Lets the user frame the asset in the scene and use that view.
-        Common::BoolResultStr CaptureThumbnailFromViewport( const DirectoryInformation& entry );
-        // Filtered (m_SearchBuf) + sorted (m_SortMode) child indices for the current directory.
-        std::vector<size_t> BuildDisplayOrder() const;
-        void DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen = false );
-
-        void DestroyGraphicsResources()
-        {
-            /* m_FolderIcon.reset();
-             m_FileIcon.reset();
-             m_Directories.clear();*/
-        }
-
-        std::string ProcessDirectory( const std::string& directoryPath, DirectoryInformation* parent,
-                                      bool processChildren );
-
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before
         // they are drawn — at startup that is during the splash. Mirrors the per-type branches of the grid.
         void PrefetchCurrentFolderThumbnails();
-        void RemoveDirectoryNode( DirectoryInformation* directory, bool removeFromParent = true );
-        // void OnNewProject() override;
-        void Refresh();
         // Re-scan ONLY the current directory in place (keeps navigation; used by the watcher + QueueRefresh).
         void RefreshCurrentDirectory();
         void QueueRefresh()
@@ -198,12 +122,8 @@ namespace Desert::Editor
         // The selected entries whose thumbnail has an editable orbit (ThumbnailProducers::HasThumbnailOrbit): the
         // palette's "Edit Thumbnail: <file> <step>" commands are offered for these. `Asset` is the entry as the
         // browser lists it, `OrbitFile` the file its picture's orbit is read from and written to
-        // (ThumbnailOrbitFile).
-        struct ThumbnailOrbitSubject
-        {
-            std::string Asset;
-            std::string OrbitFile;
-        };
+        // (ThumbnailEditMode::OrbitFileOf).
+        using ThumbnailOrbitSubject = ThumbnailEditMode::Subject;
         std::vector<ThumbnailOrbitSubject> SelectedThumbnailSubjects();
         Common::BoolResultStr              SelectEntry( const std::string& path );
         // UE's Content Browser navigation (SyncBrowserToFolders / SyncBrowserToAssets), for the palette and the
@@ -222,261 +142,65 @@ namespace Desert::Editor
         Common::BoolResultStr RunCommand( ContentBrowserCommand command );
 
     private:
-        // EDIT THUMBNAIL (UE: context menu -> "Edit Thumbnail"): the tile of m_EditThumbnailPath is interactive —
-        // a left drag orbits, the wheel zooms — and ONE gesture is ONE ThumbnailEdit::EditOrbit (one write into
-        // the asset's home, one undo entry) when it ends: the drag is released, or the wheel rests for
-        // kThumbnailWheelRestSeconds, or the pointer leaves the tile. Esc or a click outside the tile leaves the
-        // mode, and so does leaving the folder (ChangeDirectory). While a gesture runs the tile shows the LIVE
-        // picture: ThumbnailService::RequestPreview* with the live orbit (UE's realtime thumbnail), never written
-        // or cached; the orbit the gesture settles on is re-shot from the home after.
-        struct ThumbnailGesture
-        {
-            Assets::ThumbnailOrbit From;               // the orbit the home stated when the gesture began
-            Assets::ThumbnailOrbit Live;               // From moved by the drag and the wheel so far
-            ImVec2                 Drag{ 0.0f, 0.0f }; // pixels of the current left drag
-            float                  Wheel     = 0.0f;   // notches so far
-            double                 LastWheel = 0.0;    // ImGui time of the last notch
-            std::string            PreviewKey;         // the path the service files this asset's preview under
-            std::string            PreviewPng;         // ThumbnailKey::PreviewPath of it, once a preview was asked
-        };
-        static constexpr double         kThumbnailWheelRestSeconds = 0.35;
-        std::string                     m_EditThumbnailPath;
-        std::string                     m_EditThumbnailOrbitFile; // ThumbnailOrbitFile of m_EditThumbnailPath
-        std::optional<ThumbnailGesture> m_ThumbnailGesture;
-        // Runs the mode on the tile item just drawn (the thumbnail button, rect @p min..@p max).
-        void DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min, const ImVec2& max );
-        // The gesture's orbit written as one edit; the gesture ends whether or not the write succeeded.
-        void CommitThumbnailGesture();
-        // One context-menu row for @p command: its label and shortcut from the command's info, RunCommand on
-        // click, a refusal logged by name.
-        void CommandMenuItem( ContentBrowserCommand command, bool selected = false, bool enabled = true );
-        // The entries of the current folder that are selected (SelectionPaths, resolved to entries).
-        std::vector<DirectoryInformation*> SelectedEntries() const;
-        // The live orbit asked of ThumbnailService as a preview (subject resolved as the tile resolves it).
-        void RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture );
-        // Leaves Edit Thumbnail: a running gesture is committed first, its preview ended.
-        void LeaveThumbnailEdit();
-        // THE FILE @p entry's THUMBNAIL ORBIT LIVES UNDER, the one its picture is filed under: a material's
-        // .demat; a posed kind's own .skmesh / .skeleton / .anim; a model's or a foliage type's mesh picture
-        // (MeshPictureFor: a static mesh's .stmesh, a skinned source's .skmesh). nullopt for a kind with no orbit
-        // (ThumbnailProducers::HasThumbnailOrbit) or a model with no picture yet (not imported).
-        std::optional<std::string> ThumbnailOrbitFile( const DirectoryInformation& entry );
-
-        // Collects a finished cloud-volume generation, exactly once. Called from OnPreUpdate rather than
-        // from the render so that a collapsed or hidden Assets window still finishes what it started.
-        void PollCloudAssetBake();
-
-        // Reports the outcome of a creation and, on success, opens the new file's document. One place, so
-        // the cheap formats and the generated ones cannot come to report differently.
-        void FinishCloudAsset( const Common::BoolResultStr& written );
-
-        // The visible sign that a file is still being made. Without it the two volume formats look like a
-        // menu item that did nothing for several seconds.
-        void DrawCloudAssetBakeStatus();
-
-    private:
-        std::filesystem::path m_CurrentPath;
-
-        float       m_MinGridSize = 50;
-        float       m_MaxGridSize = 400;
-        std::string m_MovePath;
-        std::string m_LastNavPath;
-        std::string m_Delimiter;
-
-        size_t m_BasePathLen;
-        bool   m_IsDragging;
-        bool   m_IsInListView;
-        bool   m_UpdateBreadCrumbs;
-        bool   m_ShowHiddenFiles;
-        int    m_GridItemsPerRow;
-        float  m_GridSize = 360.0f;
+        // OnUIRender's pieces that are not views: the selection's keyboard shortcuts, the last file-op error
+        // line, the queued re-listing, and the body's background menu (the asset view's OnBackgroundContextMenu).
+        void DrawFileOpStatus();
+        void ApplyPendingRefresh();
+        // The body's background menu: Paste, Import, Refresh, then NewAssetMenu's "New…" items.
+        void DrawBackgroundContextMenu();
 
         // Content-Browser left pane (folder tree + favorites) width; dragged via the splitter, remembered
         // for the session. Clamped to [kMinTreeWidth, avail - kMinContentWidth] each frame.
         float m_TreeWidth = 240.0f;
 
-        // Asset filtering + sorting (toolbar).
-        enum class SortMode
-        {
-            Name = 0,
-            DateModified,
-            Type,
-            Size
-        };
-        char     m_SearchBuf[128] = { 0 };
-        SortMode m_SortMode        = SortMode::Name;
-        bool     m_SortDescending  = false;
-
-        ImGuiTextFilter m_Filter;
-
-        bool m_TextureCreated = false;
-
-        std::string m_BasePath;
-        std::string m_AssetPath;
+        // THE THREE VIEWS (F7; UE SPathView / SNavigationBar / SAssetView) and the one state they share.
+        AssetViewState          m_ViewState;
+        ContentBrowserPathView  m_PathView;
+        ContentBrowserToolbar   m_Toolbar;
+        ContentBrowserAssetView m_AssetView;
 
         bool m_Refresh = false;
         // A file this panel just created, selected by the refresh that lists it (the entry does not exist
         // before that re-listing, so it cannot be selected at creation).
         std::string m_SelectAfterRefresh;
 
-        bool m_UpdateNavigationPath = true;
+        // THE TREE (F3): every node of the browser, owned here; the raw views below point into it.
+        ContentDirectoryModel m_Model;
+        // The folder on screen; null only before the model's root was listed.
+        DirectoryInformation* m_CurrentDir = nullptr;
 
-        // Default-initialized: the ctor omitted m_CurrentSelected / m_NextDirectory, so they held
-        // indeterminate values and the first frame could deref garbage (a layout-dependent crash in
-        // OnUIRender). Also nulled on Refresh so a rebuilt m_Directories never leaves a dangling selection.
-        DirectoryInformation* m_CurrentDir        = nullptr;
-        DirectoryInformation* m_BaseProjectDir    = nullptr;
-        DirectoryInformation* m_NextDirectory     = nullptr;
-        DirectoryInformation* m_PreviousDirectory = nullptr;
-
-        std::unordered_map<std::string, std::shared_ptr<DirectoryInformation>> m_Directories;
-        std::vector<DirectoryInformation*>                                     m_BreadCrumbData;
-        /* TDArray<DirectoryInformation*>                                                     m_BreadCrumbData;
-         SharedPtr<Graphics::Texture2D>                                                     m_FolderIcon;
-         SharedPtr<Graphics::Texture2D>                                                     m_FileIcon;*/
-
-        DirectoryInformation* m_CurrentSelected = nullptr;
-
-        std::string m_RequestedThumbnailPath;
-        std::string m_CopiedPath;
-        bool        m_CutFile = false;
-
-        // Phase-1 file operations (rename / delete / duplicate / move), cross-platform.
-        bool                     m_ShowRenamePopup   = false;
-        std::string              m_RenamePath;
-        char                     m_RenameBuf[128]    = { 0 };
-        std::vector<std::string> m_RenameReferrers; // registry keys that keep loading through the redirector
-        bool                     m_ShowDeleteConfirm = false;
-        std::vector<std::string> m_PendingDeleteList; // paths queued for the delete-confirm modal
-        std::vector<std::string> m_DeleteReferencers; // assets still pointing at the delete target(s)
-        std::string              m_FileOpStatus;      // last error line (shown in the toolbar area)
-
-        // Phase-2 multi-select + clipboard.
-        std::unordered_set<std::string> m_Selection;            // selected asset paths
-        int                             m_SelectionAnchorShown = -1; // display index of the range anchor
-        std::vector<std::string>        m_Clipboard;            // cut/copied paths
-        bool                            m_ClipboardCut = false; // true = move on paste, false = copy
+        std::string m_FileOpStatus; // last error line (shown above the browser), any piece reports into it
 
         // Phase-3 navigation/UX.
-        int                      m_TypeFilter = -1;      // FileType value to show, or -1 for "All"
-        std::vector<std::string> m_NavHistory;           // visited folder paths (back/forward)
-        int                      m_NavPos            = -1;
-        bool                     m_NavigatingHistory = false; // suppress history push during back/forward
+        ContentBrowserHistory m_History;         // visited folder paths (back/forward)
 
         Assets::AssetManager*           m_AssetManager = nullptr;
         // WHICH FILES ARE DOCUMENTS, and how each becomes a subject. Non-owning; the registry is a member
         // of EditorLayer and outlives every panel. See Editor/Core/SubjectEditorRegistry.hpp — the chain of
         // `else if` per format that used to live in this file is registered there now, beside the editors.
         const SubjectEditorRegistry*             m_SubjectEditors = nullptr;
-        std::unique_ptr<UI::UIHelper>   m_UIHelper;
-        std::unique_ptr<ThumbnailCache>          m_Thumbnails;
+        // THE PICTURES (F5; UE FAssetThumbnailPool + SAssetThumbnail): the pool holds the resident pictures,
+        // the workers' lists and the per-path answers, and is the EDITOR's — EditorLayer owns it and the
+        // splash (EditorStartup) drives it directly; the drawer draws a tile, its tooltip and a drag's
+        // preview from it.
+        AssetThumbnailPool& m_ThumbnailPool;
+        AssetTileThumbnail m_TileThumbnail;
 
-        // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
-        // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the
-        // request a material resolve, a registry lookup and two more keys. The name never changes for a
-        // path; a request, once accepted, is the service's to finish — asked again only after the picture
-        // has been seen current, so an edit that makes it stale asks again.
-        const std::string&                           ThumbnailPngFor( const std::string& assetPath );
-        std::unordered_map<std::string, std::string> m_ThumbnailPngOf;
-        std::unordered_map<std::string, ImVec4>      m_CaptureAsked; // asset path -> its placeholder swatch
-        // Height of one grid tile / list row as last drawn: an off-screen one is a Dummy of this size.
-        float m_CellHeight[2] = { 0.0f, 0.0f };
         // The constructor's own navigations are not the user's and are not remembered.
         bool m_RestoringFolder = true;
 
-        std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
-        std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam
-
-        // THE FILE A RenderedMesh TILE PHOTOGRAPHS: a model's own path (CookPaths::MeshAsset maps it to its
-        // .stmesh), or the cooked mesh a .defoliage names (ThumbnailFoliage — UE: a foliage type's picture is
-        // its mesh's), so a type and its mesh share one key, one freshness source and one capture. The foliage
-        // read is cached per path and file time; a refusal is logged once and blacklisted in m_FailedThumbs.
-        std::optional<std::string> MeshSourceFor( const DirectoryInformation& entry );
-        // The same answer by path and type — for a registry row, which has no DirectoryInformation.
-        std::optional<std::string> MeshSourceFor( const std::string& assetPath, FileType type );
-        struct MeshSourceRead
-        {
-            std::filesystem::file_time_type Written;
-            std::string                     Source;
-        };
-        std::unordered_map<std::string, MeshSourceRead> m_MeshSourceOf;
-
-        // WHAT A RenderedMesh TILE SHOWS, by the asset its import wrote (THM-FIXB2; UE: a source file is not an
-        // asset — the picture is the imported asset's). A raw source (.fbx/.glb/.gltf/…) is pictured by what its
-        // import record says it imports as: a StaticMesh by its cooked .stmesh, a SkinnedMesh by its .skmesh in
-        // its bind pose, a Skeleton by its .skeleton on its preview mesh; clips only, or a source not imported
-        // yet (no record), keep the type icon — never "has not been cooked". Any other mesh file is its own
-        // cooked form. `Cooked` is the picture's key and freshness source; `Pose` routes it to RequestPose.
-        struct MeshPicture
-        {
-            std::string Cooked;
-            bool        Pose = false;
-        };
-        std::optional<MeshPicture> MeshPictureFor( const std::string& assetPath, FileType type );
-        // The record read, cached per source and the record's file time (a re-import rewrites it).
-        struct SourcePictureRead
-        {
-            std::filesystem::file_time_type Written;
-            std::optional<MeshPicture>      Picture;
-        };
-        std::unordered_map<std::string, SourcePictureRead> m_SourcePictureOf;
+        std::weak_ptr<::Desert::Core::Scene> m_ViewportScene; // for "Capture Thumbnail from viewport"
 
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
-        int    m_PollCounter   = 0;
-        size_t m_DirSignature  = 0;
+        DirectoryWatcher m_Watcher;
 
-        // Copy an external image into Resources/Textures, then import+register it (Import button).
-        void ImportExternalTexture();
-        // Copy one external file into the current dir; cook+register if it's a texture (drag-drop / import).
-        void ImportExternalFile( const std::filesystem::path& src );
-        // Resolve (existing-only) + draw a texture thumbnail for an entry; returns false if none.
-        // The tile's and the tooltip's picture, by ThumbnailProducers::ProducerOf — the one dispatch. False =
-        // draw the type icon (no picture yet, or none by design).
-        bool DrawThumbnailFor( DirectoryInformation* entry, const ImVec2& size );
-        bool DrawTextureThumbnail( DirectoryInformation* entry, const ImVec2& size );
-        // Draw a rendered preview for a material entry (material-on-sphere). Generates the PNG lazily
-        // (throttled to ~1/frame) on first use and caches it to disk; returns false until the PNG exists.
-        bool DrawRenderedMaterialThumbnail( DirectoryInformation* entry, const ImVec2& size );
-        // Same, for a mesh entry (the mesh auto-framed by its bounds).
-        bool DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size );
-        // Same, for a skinned mesh in its bind pose (ThumbnailPose; the .skmesh is its own cooked form).
-        // @p subject is the posed asset: the entry itself, or the .skmesh/.skeleton a skinned source's import
-        // wrote.
-        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
-                                        const std::string& subject );
-        // Same, for a file whose picture is PAINTED from its own bytes rather than rendered — the four
-        // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
-        bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );
-
-        // UE-style hover tooltip for a tile: picture, name, type/size, path. Shown after the cursor has
-        // rested AssetTooltipLayout::kHoverDelaySeconds on the same tile; size and placement from
-        // AssetTooltipLayout::Compute (capped, never off-window). A click only selects.
-        void DrawAssetTooltip( DirectoryInformation* entry );
-
-        // Which tile the cursor rests on and since when; identity only, never dereferenced here.
-        const DirectoryInformation* m_TooltipEntry      = nullptr;
-        double                      m_TooltipHoverStart = 0.0;
-
-        // ── Creating a cloud volume: the one generation this panel may have in flight ──────────────────
-        //
-        // A FUTURE RATHER THAN A RAW THREAD, and one rather than many. The future is what makes the result
-        // collected exactly once and the destructor able to guarantee that nothing is still writing into
-        // these members; the ONE is what makes that guarantee cheap — a second click would otherwise
-        // overwrite the future, detach a running thread, and leave it storing into a progress counter a
-        // different bake is already reading. The four menu items are disabled while this is true.
-        std::future<Common::BoolResultStr> m_CloudBake;
-        bool                               m_CloudBakeRunning = false;
-
-        /// 0..1, written by the worker and read by the frame — hence atomic.
-        std::atomic<float> m_CloudBakeProgress{ 0.0f };
-
-        /// Asks a running `.dcmv` bake to stop. It is what makes the destructor bounded rather than a wait
-        /// on a whole bake; `GenerateCloudNoiseVolume` has no such hook, so a `.dcnv` in flight is waited
-        /// out in full — see the destructor.
-        std::atomic<bool> m_CloudBakeCancelled{ false };
-
-        std::string m_CloudBakePath;  ///< where the running creation will write
-        std::string m_CloudBakeLabel; ///< its file name, for the status line
+        // THE PIECES (F6 F8 F9 F10; UE NewAssetOrClassContextMenu / AssetContextMenu / SThumbnailEditModeTools):
+        // the panel owns them and calls them. Last, because their constructors read m_AssetManager and
+        // m_ViewportScene above.
+        ContentBrowserSelection m_Selection;
+        ThumbnailEditMode       m_ThumbnailEdit;
+        NewAssetMenu            m_NewAssetMenu;
+        AssetContextMenu        m_ItemMenu;
     };
 
 } // namespace Desert::Editor
