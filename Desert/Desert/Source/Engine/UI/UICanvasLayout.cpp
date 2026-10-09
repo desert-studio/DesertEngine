@@ -72,14 +72,30 @@ namespace Desert::UI
         LayoutGroupParams p;
         switch ( g.Type )
         {
-        case UILayoutType::Vertical: p.Type = LayoutGroupType::Vertical; break;
-        case UILayoutType::Horizontal: p.Type = LayoutGroupType::Horizontal; break;
-        case UILayoutType::Grid: p.Type = LayoutGroupType::Grid; break;
-        case UILayoutType::Wrap: p.Type = LayoutGroupType::Wrap; break;
-        case UILayoutType::Overlay: p.Type = LayoutGroupType::Overlay; break;
-        case UILayoutType::UniformGrid: p.Type = LayoutGroupType::UniformGrid; break;
-        case UILayoutType::SizeBox: p.Type = LayoutGroupType::SizeBox; break;
-        case UILayoutType::ScaleBox: p.Type = LayoutGroupType::ScaleBox; break;
+            case UILayoutType::Vertical:
+                p.Type = LayoutGroupType::Vertical;
+                break;
+            case UILayoutType::Horizontal:
+                p.Type = LayoutGroupType::Horizontal;
+                break;
+            case UILayoutType::Grid:
+                p.Type = LayoutGroupType::Grid;
+                break;
+            case UILayoutType::Wrap:
+                p.Type = LayoutGroupType::Wrap;
+                break;
+            case UILayoutType::Overlay:
+                p.Type = LayoutGroupType::Overlay;
+                break;
+            case UILayoutType::UniformGrid:
+                p.Type = LayoutGroupType::UniformGrid;
+                break;
+            case UILayoutType::SizeBox:
+                p.Type = LayoutGroupType::SizeBox;
+                break;
+            case UILayoutType::ScaleBox:
+                p.Type = LayoutGroupType::ScaleBox;
+                break;
         }
         p.PaddingL     = g.Padding.x * scale;
         p.PaddingT     = g.Padding.y * scale;
@@ -124,7 +140,8 @@ namespace Desert::UI
         return pref;
     }
 
-    std::vector<LayoutSlot> GatherLayoutSlots( const IUITree& tree, NodeId e, float scale, std::vector<NodeId>* kids )
+    std::vector<LayoutSlot> GatherLayoutSlots( const IUITree& tree, NodeId e, float scale,
+                                               std::vector<NodeId>* kids )
     {
         std::vector<LayoutSlot> slots;
         for ( std::size_t i = 0, count = tree.ChildCount( e ); i < count; ++i )

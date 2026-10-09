@@ -15,8 +15,8 @@ namespace Desert::UI
     // automatically (overriding their anchors) — the Unity/Godot "layout group" model.
     enum class UILayoutType
     {
-        Vertical,   // VBox: children top -> bottom
-        Horizontal, // HBox: children left -> right
+        Vertical,    // VBox: children top -> bottom
+        Horizontal,  // HBox: children left -> right
         Grid,        // fixed cells, wrapping into rows
         Wrap,        // UE WrapBox: children at their preferred size in lines that wrap
         Overlay,     // UE Overlay: every child over the same rect, later ones on top (a Z stack)
@@ -72,7 +72,8 @@ namespace Desert::UI
         int Columns = 0;
 
         // --- Wrap -----------------------------------------------------------------------------------
-        PROPERTY( DisplayName( "Wrap Size (0 = container)" ), Category( "UI Layout Group" ), Range( 0.0f, 4096.0f ) )
+        PROPERTY( DisplayName( "Wrap Size (0 = container)" ), Category( "UI Layout Group" ),
+                  Range( 0.0f, 4096.0f ) )
         float WrapSize = 0.0f;
 
         PROPERTY( DisplayName( "Wrap Vertically" ), Category( "UI Layout Group" ) )

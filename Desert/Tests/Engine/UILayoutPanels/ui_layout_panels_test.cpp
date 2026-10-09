@@ -48,10 +48,10 @@ namespace
         return out;
     }
 
-    constexpr LayoutGroupType kAllTypes[] = { LayoutGroupType::Horizontal,  LayoutGroupType::Vertical,
-                                              LayoutGroupType::Grid,        LayoutGroupType::Wrap,
-                                              LayoutGroupType::Overlay,     LayoutGroupType::UniformGrid,
-                                              LayoutGroupType::SizeBox,     LayoutGroupType::ScaleBox };
+    constexpr LayoutGroupType kAllTypes[] = { LayoutGroupType::Horizontal, LayoutGroupType::Vertical,
+                                              LayoutGroupType::Grid,       LayoutGroupType::Wrap,
+                                              LayoutGroupType::Overlay,    LayoutGroupType::UniformGrid,
+                                              LayoutGroupType::SizeBox,    LayoutGroupType::ScaleBox };
 } // namespace
 
 // Zero children = zero size, for every panel, and zero arranged slots.
@@ -73,7 +73,8 @@ TEST( UILayoutPanels, WrapBreaksWhereTheNextChildWouldNotFit )
     p.Spacing           = 10.0f;
     p.StretchCross      = false;
     // 100 + 10 + 100 = 210 fits in 250; the third (+110) would not, so it opens line two.
-    const auto a = UI::ArrangeLayoutGroup( { 0, 0, 250, 500 }, p, Slots( { { 100, 40 }, { 100, 20 }, { 100, 30 } } ) );
+    const auto a =
+         UI::ArrangeLayoutGroup( { 0, 0, 250, 500 }, p, Slots( { { 100, 40 }, { 100, 20 }, { 100, 30 } } ) );
     ASSERT_EQ( a.size(), 3u );
     EXPECT_FLOAT_EQ( a[0].R.X, 0.0f );
     EXPECT_FLOAT_EQ( a[1].R.X, 110.0f );
@@ -106,8 +107,8 @@ TEST( UILayoutPanels, OverlayChildrenShareTheInnerRect )
 
 TEST( UILayoutPanels, UniformGridCellsAreEqualAndSizedByTheLargestChild )
 {
-    LayoutGroupParams p = Params( LayoutGroupType::UniformGrid );
-    p.Columns           = 2;
+    LayoutGroupParams p                = Params( LayoutGroupType::UniformGrid );
+    p.Columns                          = 2;
     const std::vector<glm::vec2> prefs = { { 10, 10 }, { 40, 20 }, { 30, 60 } };
     const glm::vec2              size  = UI::MeasureLayoutGroup( p, prefs );
     EXPECT_FLOAT_EQ( size.x, 80.0f );  // 2 columns of the widest (40)
@@ -191,7 +192,8 @@ namespace
         return *type;
     }
 
-    template <class T> T ThroughText( const T& written, const std::string& typeName )
+    template <class T>
+    T ThroughText( const T& written, const std::string& typeName )
     {
         const auto object = Desert::Reflection::SerializeReflected( Type( typeName ), &written, nullptr );
         const auto parsed = Common::Json::Read<Common::Json::Object>( Common::Json::Write( object ) );

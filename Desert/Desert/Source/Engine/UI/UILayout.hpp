@@ -172,13 +172,13 @@ namespace Desert::UI
     // UE EStretch, the ScaleBox's rule for turning the content's desired size into a scale.
     enum class LayoutScaleStretch
     {
-        None,          // scale 1
-        Fill,          // the content's rect is the whole inner rect, unscaled (non-uniform stretch)
-        ScaleToFit,    // the largest uniform scale that keeps the whole content inside
-        ScaleToFitX,   // uniform scale that matches the width
-        ScaleToFitY,   // uniform scale that matches the height
-        ScaleToFill,   // the smallest uniform scale that covers the whole rect (overflow is clipped by the author)
-        UserSpecified  // LayoutGroupParams::UserScale
+        None,         // scale 1
+        Fill,         // the content's rect is the whole inner rect, unscaled (non-uniform stretch)
+        ScaleToFit,   // the largest uniform scale that keeps the whole content inside
+        ScaleToFitX,  // uniform scale that matches the width
+        ScaleToFitY,  // uniform scale that matches the height
+        ScaleToFill,  // the smallest uniform scale that covers the whole rect (overflow is clipped by the author)
+        UserSpecified // LayoutGroupParams::UserScale
     };
 
     // UE EStretchDirection: which way the ScaleBox may scale.
@@ -193,10 +193,10 @@ namespace Desert::UI
     {
         LayoutGroupType Type     = LayoutGroupType::Vertical;
         float           PaddingL = 0.0f, PaddingT = 0.0f, PaddingR = 0.0f, PaddingB = 0.0f;
-        float           Spacing = 0.0f; // gap between children (both axes for Grid / Wrap / UniformGrid)
+        float           Spacing = 0.0f;       // gap between children (both axes for Grid / Wrap / UniformGrid)
         bool      StretchCross  = true; // stretch children across the minor axis (else keep preferred + centre)
         glm::vec2 CellSize      = { 100.0f, 100.0f }; // Grid only
-        int       Columns       = 0;                  // Grid: 0 = auto-fit by width; UniformGrid: 0 = ceil(sqrt n)
+        int             Columns       = 0; // Grid: 0 = auto-fit by width; UniformGrid: 0 = ceil(sqrt n)
 
         // Wrap: the line length in px (0 = the container's inner extent, as UE's bExplicitWrapSize=false)
         // and the line direction (false = lines run left -> right and stack downwards).
@@ -275,8 +275,8 @@ namespace Desert::UI
             float       Main = 0.0f, Cross = 0.0f;
         };
 
-        inline std::vector<WrapLine> WrapLines( const std::vector<glm::vec2>& sizes, float lineLength, float spacing,
-                                                bool vertical )
+        inline std::vector<WrapLine> WrapLines( const std::vector<glm::vec2>& sizes, float lineLength,
+                                                float spacing, bool vertical )
         {
             std::vector<WrapLine> lines;
             for ( std::size_t i = 0; i < sizes.size(); ++i )
@@ -298,18 +298,30 @@ namespace Desert::UI
         // UE SScaleBox::ComputeContentScale, for a content of @p content px in an area of @p area px.
         inline float ScaleBoxScale( const LayoutGroupParams& p, const glm::vec2& content, const glm::vec2& area )
         {
-            float s = 1.0f;
+            float       s  = 1.0f;
             const float sx = content.x > 0.0f ? area.x / content.x : 1.0f;
             const float sy = content.y > 0.0f ? area.y / content.y : 1.0f;
             switch ( p.Stretch )
             {
-            case LayoutScaleStretch::None:
-            case LayoutScaleStretch::Fill: s = 1.0f; break;
-            case LayoutScaleStretch::ScaleToFit: s = std::min( sx, sy ); break;
-            case LayoutScaleStretch::ScaleToFitX: s = sx; break;
-            case LayoutScaleStretch::ScaleToFitY: s = sy; break;
-            case LayoutScaleStretch::ScaleToFill: s = std::max( sx, sy ); break;
-            case LayoutScaleStretch::UserSpecified: s = p.UserScale; break;
+                case LayoutScaleStretch::None:
+                case LayoutScaleStretch::Fill:
+                    s = 1.0f;
+                    break;
+                case LayoutScaleStretch::ScaleToFit:
+                    s = std::min( sx, sy );
+                    break;
+                case LayoutScaleStretch::ScaleToFitX:
+                    s = sx;
+                    break;
+                case LayoutScaleStretch::ScaleToFitY:
+                    s = sy;
+                    break;
+                case LayoutScaleStretch::ScaleToFill:
+                    s = std::max( sx, sy );
+                    break;
+                case LayoutScaleStretch::UserSpecified:
+                    s = p.UserScale;
+                    break;
             }
             if ( p.StretchDirection == LayoutScaleDirection::DownOnly )
                 s = std::min( s, 1.0f );
@@ -330,68 +342,68 @@ namespace Desert::UI
         const glm::vec2 pad( p.PaddingL + p.PaddingR, p.PaddingT + p.PaddingB );
         switch ( p.Type )
         {
-        case LayoutGroupType::Horizontal:
-        case LayoutGroupType::Vertical:
-        {
-            const bool horiz    = p.Type == LayoutGroupType::Horizontal;
-            float      mainSum  = 0.0f;
-            float      crossMax = 0.0f;
-            for ( const glm::vec2& s : childSizes )
+            case LayoutGroupType::Horizontal:
+            case LayoutGroupType::Vertical:
             {
-                mainSum += horiz ? s.x : s.y;
-                crossMax = std::max( crossMax, horiz ? s.y : s.x );
+                const bool horiz    = p.Type == LayoutGroupType::Horizontal;
+                float      mainSum  = 0.0f;
+                float      crossMax = 0.0f;
+                for ( const glm::vec2& s : childSizes )
+                {
+                    mainSum += horiz ? s.x : s.y;
+                    crossMax = std::max( crossMax, horiz ? s.y : s.x );
+                }
+                const float mainTotal  = mainSum + spacing + ( horiz ? pad.x : pad.y );
+                const float crossTotal = crossMax + ( horiz ? pad.y : pad.x );
+                return horiz ? glm::vec2( mainTotal, crossTotal ) : glm::vec2( crossTotal, mainTotal );
             }
-            const float mainTotal  = mainSum + spacing + ( horiz ? pad.x : pad.y );
-            const float crossTotal = crossMax + ( horiz ? pad.y : pad.x );
-            return horiz ? glm::vec2( mainTotal, crossTotal ) : glm::vec2( crossTotal, mainTotal );
-        }
-        case LayoutGroupType::Grid:
-        {
-            const float cw   = std::max( 1.0f, p.CellSize.x );
-            const float ch   = std::max( 1.0f, p.CellSize.y );
-            const int   cols = n > 0 ? ( p.Columns > 0 ? p.Columns : n ) : 0;
-            const int   rows = n > 0 ? ( n + cols - 1 ) / cols : 0;
-            return { cols * cw + std::max( 0, cols - 1 ) * p.Spacing + pad.x,
-                     rows * ch + std::max( 0, rows - 1 ) * p.Spacing + pad.y };
-        }
-        case LayoutGroupType::Wrap:
-        {
-            // Without an explicit WrapSize there is no line length to wrap at before the container exists,
-            // so the desired size is the single unwrapped line (UE SWrapBox with bExplicitWrapSize=false).
-            const float line =
-                 p.WrapSize > 0.0f ? p.WrapSize : std::numeric_limits<float>::max();
-            float main = 0.0f, cross = 0.0f;
-            const auto lines = LayoutDetail::WrapLines( childSizes, line, p.Spacing, p.WrapVertical );
-            for ( const auto& l : lines )
+            case LayoutGroupType::Grid:
             {
-                main = std::max( main, l.Main );
-                cross += l.Cross;
+                const float cw   = std::max( 1.0f, p.CellSize.x );
+                const float ch   = std::max( 1.0f, p.CellSize.y );
+                const int   cols = n > 0 ? ( p.Columns > 0 ? p.Columns : n ) : 0;
+                const int   rows = n > 0 ? ( n + cols - 1 ) / cols : 0;
+                return { cols * cw + std::max( 0, cols - 1 ) * p.Spacing + pad.x,
+                         rows * ch + std::max( 0, rows - 1 ) * p.Spacing + pad.y };
             }
-            cross += lines.size() > 1 ? p.Spacing * static_cast<float>( lines.size() - 1 ) : 0.0f;
-            return ( p.WrapVertical ? glm::vec2( cross, main ) : glm::vec2( main, cross ) ) + pad;
-        }
-        case LayoutGroupType::Overlay: return LayoutDetail::MaxOf( childSizes ) + pad;
-        case LayoutGroupType::UniformGrid:
-        {
-            if ( n == 0 )
-                return pad;
-            const glm::vec2 cell = glm::max( LayoutDetail::MaxOf( childSizes ), p.MinSlotSize );
-            const int       cols = LayoutDetail::UniformColumns( p, n );
-            const int       rows = ( n + cols - 1 ) / cols;
-            return { cols * cell.x + ( cols - 1 ) * p.Spacing + pad.x,
-                     rows * cell.y + ( rows - 1 ) * p.Spacing + pad.y };
-        }
-        case LayoutGroupType::SizeBox:
-        {
-            const glm::vec2 content = LayoutDetail::MaxOf( childSizes ) + pad;
-            return { LayoutDetail::SizeBoxAxis( content.x, p.SizeMin.x, p.SizeMax.x, p.SizeOverride.x ),
-                     LayoutDetail::SizeBoxAxis( content.y, p.SizeMin.y, p.SizeMax.y, p.SizeOverride.y ) };
-        }
-        case LayoutGroupType::ScaleBox:
-        {
-            const float userScale = p.Stretch == LayoutScaleStretch::UserSpecified ? p.UserScale : 1.0f;
-            return LayoutDetail::MaxOf( childSizes ) * userScale + pad;
-        }
+            case LayoutGroupType::Wrap:
+            {
+                // Without an explicit WrapSize there is no line length to wrap at before the container exists,
+                // so the desired size is the single unwrapped line (UE SWrapBox with bExplicitWrapSize=false).
+                const float line = p.WrapSize > 0.0f ? p.WrapSize : std::numeric_limits<float>::max();
+                float       main = 0.0f, cross = 0.0f;
+                const auto  lines = LayoutDetail::WrapLines( childSizes, line, p.Spacing, p.WrapVertical );
+                for ( const auto& l : lines )
+                {
+                    main = std::max( main, l.Main );
+                    cross += l.Cross;
+                }
+                cross += lines.size() > 1 ? p.Spacing * static_cast<float>( lines.size() - 1 ) : 0.0f;
+                return ( p.WrapVertical ? glm::vec2( cross, main ) : glm::vec2( main, cross ) ) + pad;
+            }
+            case LayoutGroupType::Overlay:
+                return LayoutDetail::MaxOf( childSizes ) + pad;
+            case LayoutGroupType::UniformGrid:
+            {
+                if ( n == 0 )
+                    return pad;
+                const glm::vec2 cell = glm::max( LayoutDetail::MaxOf( childSizes ), p.MinSlotSize );
+                const int       cols = LayoutDetail::UniformColumns( p, n );
+                const int       rows = ( n + cols - 1 ) / cols;
+                return { cols * cell.x + ( cols - 1 ) * p.Spacing + pad.x,
+                         rows * cell.y + ( rows - 1 ) * p.Spacing + pad.y };
+            }
+            case LayoutGroupType::SizeBox:
+            {
+                const glm::vec2 content = LayoutDetail::MaxOf( childSizes ) + pad;
+                return { LayoutDetail::SizeBoxAxis( content.x, p.SizeMin.x, p.SizeMax.x, p.SizeOverride.x ),
+                         LayoutDetail::SizeBoxAxis( content.y, p.SizeMin.y, p.SizeMax.y, p.SizeOverride.y ) };
+            }
+            case LayoutGroupType::ScaleBox:
+            {
+                const float userScale = p.Stretch == LayoutScaleStretch::UserSpecified ? p.UserScale : 1.0f;
+                return LayoutDetail::MaxOf( childSizes ) * userScale + pad;
+            }
         }
         return pad;
     }
@@ -421,183 +433,184 @@ namespace Desert::UI
 
         switch ( p.Type )
         {
-        case LayoutGroupType::Horizontal:
-        case LayoutGroupType::Vertical:
-        {
-            const bool         horiz = p.Type == LayoutGroupType::Horizontal;
-            const float        avail = horiz ? innerW : innerH;
-            std::vector<float> main( slots.size() );
-            float              used = n > 1 ? p.Spacing * ( n - 1 ) : 0.0f;
-            float              growTotal = 0.0f;
-            for ( std::size_t i = 0; i < slots.size(); ++i )
+            case LayoutGroupType::Horizontal:
+            case LayoutGroupType::Vertical:
             {
-                main[i] = horiz ? slots[i].Pref.x : slots[i].Pref.y;
-                used += main[i];
-                growTotal += std::max( 0.0f, slots[i].Grow );
-            }
-
-            if ( used <= avail )
-            {
-                // Grow: the leftover shared by weight.
-                const float leftover = avail - used;
-                if ( growTotal > 0.0f )
-                    for ( std::size_t i = 0; i < slots.size(); ++i )
-                        main[i] += leftover * std::max( 0.0f, slots[i].Grow ) / growTotal;
-            }
-            else
-            {
-                // Shrink (Slate ArrangeChildrenInStack, StretchContent): the overflow is taken back in
-                // proportion to Shrink * basis; a child that reaches its Min is frozen there and the rest of
-                // the overflow goes round again among the others. One pass per child at most solves it.
-                float             overflow = used - avail;
-                std::vector<bool> frozen( slots.size(), false );
+                const bool         horiz = p.Type == LayoutGroupType::Horizontal;
+                const float        avail = horiz ? innerW : innerH;
+                std::vector<float> main( slots.size() );
+                float              used      = n > 1 ? p.Spacing * ( n - 1 ) : 0.0f;
+                float              growTotal = 0.0f;
                 for ( std::size_t i = 0; i < slots.size(); ++i )
-                    frozen[i] = slots[i].Shrink <= 0.0f;
-                for ( int pass = 0; pass < n && overflow > 1e-4f; ++pass )
                 {
-                    float total = 0.0f;
-                    for ( std::size_t i = 0; i < slots.size(); ++i )
-                        if ( !frozen[i] )
-                            total += slots[i].Shrink * ( horiz ? slots[i].Pref.x : slots[i].Pref.y );
-                    if ( total <= 1e-6f )
-                        break;
-                    float taken = 0.0f;
-                    for ( std::size_t i = 0; i < slots.size(); ++i )
-                    {
-                        if ( frozen[i] )
-                            continue;
-                        const float basis = horiz ? slots[i].Pref.x : slots[i].Pref.y;
-                        const float mn    = horiz ? slots[i].Min.x : slots[i].Min.y;
-                        const float cut   = overflow * slots[i].Shrink * basis / total;
-                        if ( main[i] - cut <= mn )
-                        {
-                            taken += main[i] - std::max( 0.0f, mn );
-                            main[i]   = std::max( 0.0f, mn );
-                            frozen[i] = true;
-                        }
-                        else
-                        {
-                            taken += cut;
-                            main[i] -= cut;
-                        }
-                    }
-                    overflow -= taken;
+                    main[i] = horiz ? slots[i].Pref.x : slots[i].Pref.y;
+                    used += main[i];
+                    growTotal += std::max( 0.0f, slots[i].Grow );
                 }
-            }
 
-            float pos = horiz ? x0 : y0;
-            for ( std::size_t i = 0; i < slots.size(); ++i )
-            {
-                const glm::vec2& s = slots[i].Pref;
-                if ( horiz )
+                if ( used <= avail )
                 {
-                    const float h = p.StretchCross ? innerH : s.y;
-                    const float y = p.StretchCross ? y0 : y0 + ( innerH - h ) * 0.5f;
-                    out.push_back( { { pos, y, main[i], h } } );
+                    // Grow: the leftover shared by weight.
+                    const float leftover = avail - used;
+                    if ( growTotal > 0.0f )
+                        for ( std::size_t i = 0; i < slots.size(); ++i )
+                            main[i] += leftover * std::max( 0.0f, slots[i].Grow ) / growTotal;
                 }
                 else
                 {
-                    const float w = p.StretchCross ? innerW : s.x;
-                    const float x = p.StretchCross ? x0 : x0 + ( innerW - w ) * 0.5f;
-                    out.push_back( { { x, pos, w, main[i] } } );
-                }
-                pos += main[i] + p.Spacing;
-            }
-            break;
-        }
-        case LayoutGroupType::Grid:
-        {
-            const float cw   = std::max( 1.0f, p.CellSize.x );
-            const float ch   = std::max( 1.0f, p.CellSize.y );
-            const int   cols = p.Columns > 0
-                                    ? p.Columns
-                                    : std::max( 1, static_cast<int>( ( innerW + p.Spacing ) / ( cw + p.Spacing ) ) );
-            for ( int i = 0; i < n; ++i )
-                out.push_back(
-                     { { x0 + ( i % cols ) * ( cw + p.Spacing ), y0 + ( i / cols ) * ( ch + p.Spacing ), cw, ch } } );
-            break;
-        }
-        case LayoutGroupType::Wrap:
-        {
-            std::vector<glm::vec2> sizes;
-            sizes.reserve( slots.size() );
-            for ( const LayoutSlot& s : slots )
-                sizes.push_back( s.Pref );
-            const float line = p.WrapSize > 0.0f ? p.WrapSize : ( p.WrapVertical ? innerH : innerW );
-            float       cross = p.WrapVertical ? x0 : y0;
-            for ( const auto& l : LayoutDetail::WrapLines( sizes, line, p.Spacing, p.WrapVertical ) )
-            {
-                float main = p.WrapVertical ? y0 : x0;
-                for ( std::size_t i = l.First; i < l.First + l.Count; ++i )
-                {
-                    const glm::vec2& s = sizes[i];
-                    if ( p.WrapVertical )
+                    // Shrink (Slate ArrangeChildrenInStack, StretchContent): the overflow is taken back in
+                    // proportion to Shrink * basis; a child that reaches its Min is frozen there and the rest of
+                    // the overflow goes round again among the others. One pass per child at most solves it.
+                    float             overflow = used - avail;
+                    std::vector<bool> frozen( slots.size(), false );
+                    for ( std::size_t i = 0; i < slots.size(); ++i )
+                        frozen[i] = slots[i].Shrink <= 0.0f;
+                    for ( int pass = 0; pass < n && overflow > 1e-4f; ++pass )
                     {
-                        const float w = p.StretchCross ? l.Cross : s.x;
-                        out.push_back( { { cross + ( l.Cross - w ) * 0.5f, main, w, s.y } } );
-                        main += s.y + p.Spacing;
+                        float total = 0.0f;
+                        for ( std::size_t i = 0; i < slots.size(); ++i )
+                            if ( !frozen[i] )
+                                total += slots[i].Shrink * ( horiz ? slots[i].Pref.x : slots[i].Pref.y );
+                        if ( total <= 1e-6f )
+                            break;
+                        float taken = 0.0f;
+                        for ( std::size_t i = 0; i < slots.size(); ++i )
+                        {
+                            if ( frozen[i] )
+                                continue;
+                            const float basis = horiz ? slots[i].Pref.x : slots[i].Pref.y;
+                            const float mn    = horiz ? slots[i].Min.x : slots[i].Min.y;
+                            const float cut   = overflow * slots[i].Shrink * basis / total;
+                            if ( main[i] - cut <= mn )
+                            {
+                                taken += main[i] - std::max( 0.0f, mn );
+                                main[i]   = std::max( 0.0f, mn );
+                                frozen[i] = true;
+                            }
+                            else
+                            {
+                                taken += cut;
+                                main[i] -= cut;
+                            }
+                        }
+                        overflow -= taken;
+                    }
+                }
+
+                float pos = horiz ? x0 : y0;
+                for ( std::size_t i = 0; i < slots.size(); ++i )
+                {
+                    const glm::vec2& s = slots[i].Pref;
+                    if ( horiz )
+                    {
+                        const float h = p.StretchCross ? innerH : s.y;
+                        const float y = p.StretchCross ? y0 : y0 + ( innerH - h ) * 0.5f;
+                        out.push_back( { { pos, y, main[i], h } } );
                     }
                     else
                     {
-                        const float h = p.StretchCross ? l.Cross : s.y;
-                        out.push_back( { { main, cross + ( l.Cross - h ) * 0.5f, s.x, h } } );
-                        main += s.x + p.Spacing;
+                        const float w = p.StretchCross ? innerW : s.x;
+                        const float x = p.StretchCross ? x0 : x0 + ( innerW - w ) * 0.5f;
+                        out.push_back( { { x, pos, w, main[i] } } );
                     }
+                    pos += main[i] + p.Spacing;
                 }
-                cross += l.Cross + p.Spacing;
-            }
-            break;
-        }
-        case LayoutGroupType::Overlay:
-        case LayoutGroupType::SizeBox:
-        {
-            // Both arrange every child over the whole inner rect (UE SOverlay / SSizeBox::OnArrangeChildren);
-            // the SizeBox's constraints act on its DESIRED size, which is MeasureLayoutGroup's business.
-            const Rect inner{ x0, y0, innerW, innerH };
-            for ( const LayoutSlot& s : slots )
-                out.push_back( { placeIn( inner, s.Pref ) } );
-            break;
-        }
-        case LayoutGroupType::UniformGrid:
-        {
-            if ( n == 0 )
-                break;
-            const int   cols  = LayoutDetail::UniformColumns( p, n );
-            const int   rows  = ( n + cols - 1 ) / cols;
-            const float cellW = std::max( 0.0f, ( innerW - p.Spacing * ( cols - 1 ) ) / cols );
-            const float cellH = std::max( 0.0f, ( innerH - p.Spacing * ( rows - 1 ) ) / rows );
-            for ( int i = 0; i < n; ++i )
-            {
-                const Rect cell{ x0 + ( i % cols ) * ( cellW + p.Spacing ), y0 + ( i / cols ) * ( cellH + p.Spacing ),
-                                 cellW, cellH };
-                out.push_back( { placeIn( cell, slots[i].Pref ) } );
-            }
-            break;
-        }
-        case LayoutGroupType::ScaleBox:
-        {
-            // Every child is scaled by the one factor that fits the CONTENT (their union desired size), so a
-            // ScaleBox of several children scales them as one picture, centred in the inner rect.
-            std::vector<glm::vec2> sizes;
-            sizes.reserve( slots.size() );
-            for ( const LayoutSlot& s : slots )
-                sizes.push_back( s.Pref );
-            const glm::vec2 content = LayoutDetail::MaxOf( sizes );
-            if ( p.Stretch == LayoutScaleStretch::Fill )
-            {
-                for ( std::size_t i = 0; i < slots.size(); ++i )
-                    out.push_back( { { x0, y0, innerW, innerH } } );
                 break;
             }
-            const float s = LayoutDetail::ScaleBoxScale( p, content, { innerW, innerH } );
-            for ( const LayoutSlot& slot : slots )
+            case LayoutGroupType::Grid:
             {
-                const float w = slot.Pref.x * s;
-                const float h = slot.Pref.y * s;
-                out.push_back( { { x0 + ( innerW - w ) * 0.5f, y0 + ( innerH - h ) * 0.5f, w, h }, s } );
+                const float cw = std::max( 1.0f, p.CellSize.x );
+                const float ch = std::max( 1.0f, p.CellSize.y );
+                const int   cols =
+                     p.Columns > 0
+                            ? p.Columns
+                            : std::max( 1, static_cast<int>( ( innerW + p.Spacing ) / ( cw + p.Spacing ) ) );
+                for ( int i = 0; i < n; ++i )
+                    out.push_back( { { x0 + ( i % cols ) * ( cw + p.Spacing ),
+                                       y0 + ( i / cols ) * ( ch + p.Spacing ), cw, ch } } );
+                break;
             }
-            break;
-        }
+            case LayoutGroupType::Wrap:
+            {
+                std::vector<glm::vec2> sizes;
+                sizes.reserve( slots.size() );
+                for ( const LayoutSlot& s : slots )
+                    sizes.push_back( s.Pref );
+                const float line  = p.WrapSize > 0.0f ? p.WrapSize : ( p.WrapVertical ? innerH : innerW );
+                float       cross = p.WrapVertical ? x0 : y0;
+                for ( const auto& l : LayoutDetail::WrapLines( sizes, line, p.Spacing, p.WrapVertical ) )
+                {
+                    float main = p.WrapVertical ? y0 : x0;
+                    for ( std::size_t i = l.First; i < l.First + l.Count; ++i )
+                    {
+                        const glm::vec2& s = sizes[i];
+                        if ( p.WrapVertical )
+                        {
+                            const float w = p.StretchCross ? l.Cross : s.x;
+                            out.push_back( { { cross + ( l.Cross - w ) * 0.5f, main, w, s.y } } );
+                            main += s.y + p.Spacing;
+                        }
+                        else
+                        {
+                            const float h = p.StretchCross ? l.Cross : s.y;
+                            out.push_back( { { main, cross + ( l.Cross - h ) * 0.5f, s.x, h } } );
+                            main += s.x + p.Spacing;
+                        }
+                    }
+                    cross += l.Cross + p.Spacing;
+                }
+                break;
+            }
+            case LayoutGroupType::Overlay:
+            case LayoutGroupType::SizeBox:
+            {
+                // Both arrange every child over the whole inner rect (UE SOverlay / SSizeBox::OnArrangeChildren);
+                // the SizeBox's constraints act on its DESIRED size, which is MeasureLayoutGroup's business.
+                const Rect inner{ x0, y0, innerW, innerH };
+                for ( const LayoutSlot& s : slots )
+                    out.push_back( { placeIn( inner, s.Pref ) } );
+                break;
+            }
+            case LayoutGroupType::UniformGrid:
+            {
+                if ( n == 0 )
+                    break;
+                const int   cols  = LayoutDetail::UniformColumns( p, n );
+                const int   rows  = ( n + cols - 1 ) / cols;
+                const float cellW = std::max( 0.0f, ( innerW - p.Spacing * ( cols - 1 ) ) / cols );
+                const float cellH = std::max( 0.0f, ( innerH - p.Spacing * ( rows - 1 ) ) / rows );
+                for ( int i = 0; i < n; ++i )
+                {
+                    const Rect cell{ x0 + ( i % cols ) * ( cellW + p.Spacing ),
+                                     y0 + ( i / cols ) * ( cellH + p.Spacing ), cellW, cellH };
+                    out.push_back( { placeIn( cell, slots[i].Pref ) } );
+                }
+                break;
+            }
+            case LayoutGroupType::ScaleBox:
+            {
+                // Every child is scaled by the one factor that fits the CONTENT (their union desired size), so a
+                // ScaleBox of several children scales them as one picture, centred in the inner rect.
+                std::vector<glm::vec2> sizes;
+                sizes.reserve( slots.size() );
+                for ( const LayoutSlot& s : slots )
+                    sizes.push_back( s.Pref );
+                const glm::vec2 content = LayoutDetail::MaxOf( sizes );
+                if ( p.Stretch == LayoutScaleStretch::Fill )
+                {
+                    for ( std::size_t i = 0; i < slots.size(); ++i )
+                        out.push_back( { { x0, y0, innerW, innerH } } );
+                    break;
+                }
+                const float s = LayoutDetail::ScaleBoxScale( p, content, { innerW, innerH } );
+                for ( const LayoutSlot& slot : slots )
+                {
+                    const float w = slot.Pref.x * s;
+                    const float h = slot.Pref.y * s;
+                    out.push_back( { { x0 + ( innerW - w ) * 0.5f, y0 + ( innerH - h ) * 0.5f, w, h }, s } );
+                }
+                break;
+            }
         }
         return out;
     }
