@@ -1979,6 +1979,63 @@ TEST_F( ShaderCacheKeyShaderRoot, TheParticleStepTableIsIndexedByTheStrideTheEng
     EXPECT_EQ( steps, Desert::Graphic::System::kParticleStepStride )
          << "ParticleSimulate indexes its step table by " << steps << " bytes and ParticleRenderer uploads "
          << Desert::Graphic::System::kParticleStepStride;
+    // The stated size, 20 since VFX-10 (was 12): `struct VFXStep` is five uints - id base, seed, budget and the
+    // step's Spawn from Channel window ChannelFirst / ChannelCount (VFXWorld EmitterStep). Stated as a number
+    // because the two equalities above also hold when both sides lose the channel window together.
+    EXPECT_EQ( steps, 20u ) << "VFXStep is no longer id base, seed, budget, ChannelFirst, ChannelCount";
+}
+
+// VFX-10b: the Spawn from Channel record (binding 5) is uploaded at kParticleChannelSpawnStride per particle by
+// ParticleWorldGpu and read at the shader's own stride; 64 = position, direction, colour and the scalars vec4
+// (lifetime, colour bound, lifetime bound). A payload field added to one side alone reads the next particle's.
+TEST_F( ShaderCacheKeyShaderRoot, TheChannelSpawnRecordIsReadAtTheStrideTheEngineUploads )
+{
+    const uint32_t record = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
+                                                ShaderStage::Compute, shaderc_compute_shader, 5 );
+    EXPECT_EQ( record, Desert::Graphic::System::kParticleChannelSpawnStride )
+         << "ParticleSimulate reads its channel spawns by " << record << " bytes and ParticleWorldGpu uploads "
+         << Desert::Graphic::System::kParticleChannelSpawnStride;
+    EXPECT_EQ( record, 64u ) << "VFXChannelSpawn is no longer Position, Direction, Color, Scalars";
+}
+
+// VFX-10b: a bound channel colour reaches the particle - the spawn writes it into Particle.Tint and the colour
+// over life is multiplied by it every step (Shade), so the tint outlives the spawn step; a bound lifetime
+// replaces the emitter's.
+TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
+{
+    const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
+    EXPECT_NE( simulate.find( "p.Tint         = channel.Scalars.z > 0.5 ? channel.Color : vec4( 1.0 );" ),
+               std::string::npos )
+         << "the spawn no longer writes the channel colour into the particle's Tint";
+    EXPECT_NE( simulate.find( "p.Color     = mix( u_StartColor, u_EndColor, t ) * p.Tint;" ), std::string::npos )
+         << "Shade no longer multiplies the colour over life by the particle's Tint";
+    EXPECT_NE( simulate.find( "life = channel.Scalars.x;" ), std::string::npos )
+         << "a bound channel lifetime no longer replaces the emitter's";
+    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
+    EXPECT_NE( state.find( "vec4 Tint;" ), std::string::npos ) << "struct Particle lost its Tint";
+}
+
+// VFX-10c: a bound channel Size scales the particle's base size - the upload packs it into the record's Scalars.y
+// (1 when unbound), the spawn keeps it in Particle.SizeScale and Shade multiplies the size over life by it every
+// step. Particle grew a sixth vec4, so the stride the engine allocates is 96 B.
+TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
+{
+    const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
+    EXPECT_NE( simulate.find( "p.PosSize.w = mix( u_Sizes.x, u_Sizes.y, st ) * p.SizeScale.x;" ),
+               std::string::npos )
+         << "Shade no longer scales the size over life by the particle's SizeScale";
+    EXPECT_NE( simulate.find( "p.SizeScale    = vec4( channel.Scalars.y, 0.0, 0.0, 0.0 );" ), std::string::npos )
+         << "the spawn no longer keeps the channel size scale in the particle";
+    EXPECT_NE( simulate.find( "channel.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
+         << "a particle not from a channel no longer gets size scale 1";
+    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
+    EXPECT_NE( state.find( "vec4 SizeScale;" ), std::string::npos ) << "struct Particle lost its SizeScale";
+    EXPECT_EQ( Desert::Graphic::System::kParticleStride, 96u )
+         << "struct Particle is six vec4s (PosSize, Color, VelLife, Age, Tint, SizeScale)";
+    const std::string upload = ReadFile( s_RepoRoot / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
+                                         "Systems" / "Scene" / "Particles" / "ParticleWorldGpu.cpp" );
+    EXPECT_NE( upload.find( "r.HasSize ? r.Size : 1.0f" ), std::string::npos )
+         << "the channel record no longer carries the bound size (or 1) in Scalars.y";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothStages )

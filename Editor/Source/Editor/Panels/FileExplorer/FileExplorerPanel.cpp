@@ -16,6 +16,7 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/VFXDataChannelAsset.hpp>
 #include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
@@ -189,6 +190,7 @@ namespace Desert::Editor
          { FileType::LevelSequence, "Level Sequence" },
          { FileType::VFXSystem, "VFX System" },
          { FileType::Fracture, "Fracture" },
+         { FileType::VFXDataChannel, "VFX Data Channel" },
          { FileType::Ini, "Settings" },
          { FileType::SkinnedMesh, "Skeletal Mesh" },
          { FileType::Skeleton, "Skeleton" },
@@ -220,6 +222,7 @@ namespace Desert::Editor
          { FileType::LevelSequence, { 0.85f, 0.35f, 0.25f, 1.00f } },
          { FileType::VFXSystem, { 0.95f, 0.45f, 0.10f, 1.00f } },
          { FileType::Fracture, { 0.75f, 0.55f, 0.35f, 1.00f } },
+         { FileType::VFXDataChannel, { 0.95f, 0.70f, 0.20f, 1.00f } },
          { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
          // UE's class colours for the animation family, so a folder of rig content reads as one family.
          { FileType::SkinnedMesh, { 0.90f, 0.35f, 0.90f, 1.00f } },
@@ -255,6 +258,7 @@ namespace Desert::Editor
          { FileType::LevelSequence, ICON_MDI_MOVIE_OPEN },
          { FileType::VFXSystem, ICON_MDI_FIRE },
          { FileType::Fracture, ICON_MDI_CUBE_UNFOLDED },
+         { FileType::VFXDataChannel, ICON_MDI_ACCESS_POINT },
          { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
          { FileType::SkinnedMesh, ICON_MDI_HUMAN },
          { FileType::Skeleton, ICON_MDI_BONE },
@@ -849,6 +853,26 @@ namespace Desert::Editor
              !saved )
             return Common::MakeFormattedError( "New Level Sequence: {}", saved.GetError() );
         // Selected once the refresh lists it (UE selects the new asset in the Content Browser).
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewVFXDataChannel()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New VFX Data Channel: the Assets window has no folder open" );
+        const std::string ext( Assets::Serialization::kVFXDataChannelExtension );
+        const std::string name = AssetFileOps::UniqueName(
+             "NewVFXDataChannel", ext, [&]( const std::string& n )
+             { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
+        const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
+        // UE's new UNiagaraDataChannel holds no variable; ours must hold one (a channel with no field spawns
+        // nothing and the validator refuses it), so it starts with the field every channel spawn binds first.
+        Assets::Serialization::VFXDataChannelData data;
+        data.Fields = { { "Position", Assets::Serialization::VFXDataChannelFieldType::Position } };
+        if ( const auto saved = Assets::VFXDataChannelAsset::Save( path, data ); !saved )
+            return Common::MakeFormattedError( "New VFX Data Channel: {}", saved.GetError() );
         m_SelectAfterRefresh = path.generic_string();
         QueueRefresh();
         return Common::MakeSuccess( true );
@@ -1498,6 +1522,7 @@ namespace Desert::Editor
                          { "Level Sequences", static_cast<int>( FileType::LevelSequence ) },
                          { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
                          { "Fractures", static_cast<int>( FileType::Fracture ) },
+                         { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )
@@ -1760,6 +1785,10 @@ namespace Desert::Editor
 
                             if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
                                 if ( const auto created = CreateNewLevelSequence(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
+
+                            if ( ImGui::Selectable( std::string( kNewVFXDataChannelLabel ).c_str() ) )
+                                if ( const auto created = CreateNewVFXDataChannel(); !created )
                                     LOG_ERROR( "[Content] {}", created.GetError() );
 
                             // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):

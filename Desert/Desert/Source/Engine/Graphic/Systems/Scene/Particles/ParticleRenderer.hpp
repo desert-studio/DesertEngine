@@ -167,6 +167,8 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         StepsImport;
             RDG::ExternalBuffer         CountersImport;
             RDG::ExternalBuffer         ArgsImport;
+            RDG::ExternalBuffer         ChannelImport; // Spawn from Channel particles, read by Spawn+Update
+            RDG::BufferRef              ChannelRef;
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs

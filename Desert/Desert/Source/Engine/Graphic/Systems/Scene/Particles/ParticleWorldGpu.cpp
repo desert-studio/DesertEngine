@@ -33,6 +33,12 @@ namespace Desert::Graphic::System
         if ( !e.DispatchArgs )
             e.DispatchArgs = ShaderResources::StorageBuffer::Create(
                  "ParticleDispatchArgs", kParticleDispatchArgsCount * kParticleDispatchArgsStride, 1 );
+        if ( !e.ChannelSpawns )
+        {
+            e.ChannelCapacity = 1;
+            e.ChannelSpawns =
+                 ShaderResources::StorageBuffer::Create( "ParticleChannelSpawns", kParticleChannelSpawnStride, 1 );
+        }
         if ( e.StepCapacity != stepCapacity || !e.Steps )
         {
             e.StepCapacity = stepCapacity;
@@ -103,7 +109,7 @@ namespace Desert::Graphic::System
 
                  const auto          entityId = static_cast<uint32_t>( entity );
                  ParticleEmitterGpu& gpu      = GetOrCreate( entityId, stepCapacity );
-                 if ( !gpu.Steps || !gpu.Counters || !gpu.DispatchArgs )
+                 if ( !gpu.Steps || !gpu.Counters || !gpu.DispatchArgs || !gpu.ChannelSpawns )
                      return;
 
                  // The emitter's range of the pool; a new or moved range starts dead.
@@ -125,7 +131,8 @@ namespace Desert::Graphic::System
                  {
                      std::vector<ParticleStepGpu> table( stepCount );
                      for ( uint32_t s = 0; s < stepCount; ++s )
-                         table[s] = { instance->Steps[s].IdBase, instance->Seed, instance->Steps[s].Budget };
+                         table[s] = { instance->Steps[s].IdBase, instance->Seed, instance->Steps[s].Budget,
+                                      instance->Steps[s].ChannelFirst, instance->Steps[s].ChannelCount };
                      const auto uploaded = gpu.Steps->SetData(
                           table.data(), stepCount * static_cast<uint32_t>( sizeof( ParticleStepGpu ) ) );
                      if ( !uploaded.IsSuccess() )
@@ -136,6 +143,48 @@ namespace Desert::Graphic::System
                          stepCount = 0;
                      }
                  }
+
+                 // This tick's Spawn from Channel particles, one record per particle (VFX-10): step s's spawn t <
+                 // ChannelCount reads record ChannelFirst + t. Grown x2 when a tick brings more.
+                 std::vector<ParticleChannelSpawnGpu> channel;
+                 for ( const VFX::VFXChannelSpawnRequest& r : instance->ChannelSpawns )
+                     for ( uint32_t k = 0; k < r.Count; ++k )
+                         channel.push_back(
+                              { glm::vec4( r.Position, r.HasPosition ? 1.0f : 0.0f ),
+                                glm::vec4( r.Direction, r.HasDirection ? 1.0f : 0.0f ),
+                                r.HasColor ? r.Color : glm::vec4( 1.0f ),
+                                glm::vec4( r.Lifetime, r.HasSize ? r.Size : 1.0f, r.HasColor ? 1.0f : 0.0f,
+                                           r.HasLifetime ? 1.0f : 0.0f ) } );
+                 if ( stepCount > 0 && !channel.empty() )
+                 {
+                     const auto needed = static_cast<uint32_t>( channel.size() );
+                     if ( needed > gpu.ChannelCapacity )
+                     {
+                         gpu.ChannelCapacity = std::max( needed, gpu.ChannelCapacity * 2u );
+                         gpu.ChannelSpawns   = ShaderResources::StorageBuffer::Create(
+                              "ParticleChannelSpawns", gpu.ChannelCapacity * kParticleChannelSpawnStride, 1 );
+                     }
+                     if ( !gpu.ChannelSpawns )
+                     {
+                         LOG_ERROR(
+                              "[Particles] emitter {} sits out this tick, the buffer of its {} channel spawns "
+                              "was not created",
+                              entityId, needed );
+                         return;
+                     }
+                     const auto uploaded =
+                          gpu.ChannelSpawns->SetData( channel.data(), needed * kParticleChannelSpawnStride );
+                     if ( !uploaded.IsSuccess() )
+                     {
+                         LOG_ERROR(
+                              "[Particles] emitter {} does not simulate this tick, its {} channel spawns did "
+                              "not upload: {}",
+                              entityId, needed, uploaded.GetError() );
+                         stepCount = 0;
+                     }
+                 }
+                 if ( !gpu.ChannelSpawns )
+                     return;
 
                  // Both draw slots start empty: compact 0 fills slot 0 from the pool, so the counters need no
                  // history (ParticleCompact). Slot h draws alive half h: six vertices per entry from 6 x its

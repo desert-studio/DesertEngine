@@ -51,6 +51,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Animation: // Persona's Animation mode (ANV1a)
             case Assets::AssetTypeID::Skeleton:  // Persona's Skeleton mode (ANV1f)
             case Assets::AssetTypeID::LevelSequence: // the Sequencer's Level timeline (ANIM-LSEQ)
+            case Assets::AssetTypeID::VFXDataChannel: // the `.dfxch` field-list editor (VFX-10c)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";

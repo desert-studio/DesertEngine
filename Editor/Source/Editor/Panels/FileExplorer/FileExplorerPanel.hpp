@@ -164,6 +164,9 @@ namespace Desert::Editor
         // once the folder is re-listed. The ONE creation route: the Assets window's context menu and the
         // palette's "Assets / New Level Sequence" (Editor/Core/ContentCreateCommands.hpp) both call this.
         Common::BoolResultStr CreateNewLevelSequence();
+        // A `.dfxch` with one Position field in the current folder, selected once listed. The ONE creation route
+        // for the context menu and the palette's "Assets / New VFX Data Channel".
+        Common::BoolResultStr CreateNewVFXDataChannel();
 
         /// Which of the four cloud formats a "New Cloud Asset" item creates.
         ///
