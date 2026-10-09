@@ -269,12 +269,12 @@ TEST( SkyPresets, EveryPaletteFieldChangesTheDiscriminatorAndNoOtherFieldDoes )
         }
     }
 
-    // 13 palette + 34 authored/quality (the master switch, the five time-of-day rows, the three
-    // environment-bake rows, the preset label, the planet radius, and the 23 physical-atmosphere
-    // fields — a preset is a palette of the GRADIENT model and must leave the physical medium, and the
-    // aerial perspective it feeds, alone) = the component's 47 fields.
+    // 13 palette + 29 authored/quality (the master switch, the three environment-bake rows, the preset
+    // label, the planet radius, and the 23 physical-atmosphere fields — a preset is a palette of the
+    // GRADIENT model and must leave the physical medium, and the aerial perspective it feeds, alone) = the
+    // component's 42 fields. The five time-of-day rows left with TOD-SPLIT: the clock is its own component.
     EXPECT_EQ( palette, 13u );
-    EXPECT_EQ( authored, 34u ) << "the component gained or lost a field without this test being revisited";
+    EXPECT_EQ( authored, 29u ) << "the component gained or lost a field without this test being revisited";
 }
 
 // Dialling the values back by hand restores the name rather than leaving "Custom" behind. This is why the

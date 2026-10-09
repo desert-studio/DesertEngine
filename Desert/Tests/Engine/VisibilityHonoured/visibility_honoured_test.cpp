@@ -201,6 +201,10 @@ namespace
               "drops the hidden light from its candidates so nothing lit is affected." },
          Row{ "VolumetricCloudECSSystem.hpp", Verdict::Honours,
               "the cloud layer and every sculpted hero body; same stale-state argument as the fog." },
+         Row{ "WindField.hpp", Verdict::MustNot,
+              "a QUERY, not a drawer (WIND-SRC: ECS::WindAt over WindSource entities). Wind is a force, not "
+              "something seen: hiding a wind source's entity must not becalm the clouds, foliage and cloth "
+              "it blows, exactly as hiding a light's gizmo does not switch the light off." },
     };
 
     // ── ONE ROW PER SITE, NOT PER FILE ──────────────────────────────────────────────────────────────
