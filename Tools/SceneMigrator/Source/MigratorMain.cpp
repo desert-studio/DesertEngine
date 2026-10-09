@@ -952,7 +952,8 @@ namespace Desert::Migration
             {
                 out << " canonical text of " << canonical.BlocksRestated << " reflected block(s) ("
                     << canonical.KeysAdded << " key(s) added, " << canonical.ValuesRestated
-                    << " value(s) restated), version unchanged";
+                    << " value(s) restated, component keys sorted in " << canonical.RecordsRekeyed
+                    << " record(s)), version unchanged";
             };
 
             // A partitioned world at the head whose records are still INLINE (written by a tool that
@@ -1244,7 +1245,9 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( outcome.AlreadyCurrent )
+            // The record key order (SCR-API-2c): component blocks sorted by key, as the engine writes them.
+            const int rekeyed = Desert::Migration::SortComponentKeys( parsed.value().Entities );
+            if ( outcome.AlreadyCurrent && rekeyed == 0 )
             {
                 if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                      layout != Layout::Canonical )
@@ -1258,8 +1261,13 @@ namespace Desert::Migration
             }
 
             out << ( check ? "WOULD  " : "raised " ) << path.string() << " —";
-            out << " from scene v" << outcome.FoundSceneVersion << ":";
-            PrintSteps( out, outcome.Steps );
+            if ( !outcome.AlreadyCurrent )
+            {
+                out << " from scene v" << outcome.FoundSceneVersion << ":";
+                PrintSteps( out, outcome.Steps );
+            }
+            if ( rekeyed > 0 )
+                out << " component keys sorted in " << rekeyed << " record(s)";
             out << "\n";
 
             if ( check )

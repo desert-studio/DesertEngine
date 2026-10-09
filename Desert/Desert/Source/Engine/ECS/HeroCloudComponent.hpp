@@ -97,6 +97,7 @@ namespace Desert::ECS
 
     struct HeroCloudComponent
     {
+        COMPONENT( Key( "HeroCloud" ), Block( Data ), Run( SkyAndAtmosphere ) )
         HeroCloudData Data;
     };
 } // namespace Desert::ECS

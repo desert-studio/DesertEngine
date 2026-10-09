@@ -15,8 +15,14 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <rflcpp/rfl/Generic.hpp>
+
+namespace Desert::Assets
+{
+    struct EntityData;
+}
 
 namespace Desert::Migration
 {
@@ -78,12 +84,19 @@ namespace Desert::Migration
         int                BlocksRestated = 0; // blocks whose text changed (Settings included)
         int                KeysAdded      = 0;
         int                ValuesRestated = 0;
+        int                RecordsRekeyed = 0; // records whose component keys were not sorted by key
         std::string        Refused; // non-empty: the first refused block, named; the scene is unchanged
         [[nodiscard]] bool Changed() const
         {
-            return BlocksRestated > 0;
+            return BlocksRestated > 0 || RecordsRekeyed > 0;
         }
     };
+
+    // THE RECORD'S KEY ORDER (SCR-API-2c): a record states its component blocks sorted by key, as the engine
+    // writes them (Core::Serialize::ComponentRegistry::InFileOrder) - before, the order was wherever each
+    // serializer happened to be registered. Sorts every record's blocks and every prefab-override record's;
+    // returns how many records moved. Run on scenes (inside CanonicaliseScene) and on prefabs.
+    int SortComponentKeys( std::vector<Assets::EntityData>& records );
 
     // THE MIGRATOR'S CANONICAL PASS: Settings and every entity-record block listed in
     // Engine/Core/Serialize/ReflectedComponentBlocks.hpp, each through CanonicaliseReflectedBlock; and the

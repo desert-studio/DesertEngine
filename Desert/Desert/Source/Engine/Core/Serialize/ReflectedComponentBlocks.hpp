@@ -1,34 +1,35 @@
 #pragma once
 
-// THE COMPONENT BLOCKS WHOSE WHOLE ON-DISK FORM IS THEIR REFLECTION — ONE LIST, TWO READERS.
+// THE COMPONENT BLOCKS WHOSE WHOLE ON-DISK FORM IS THEIR REFLECTION — ONE LIST, THREE READERS.
 //
 // A block in this list is written by Reflection::SerializeReflected over one reflected struct and read back by
 // Reflection::DeserializeReflected into it, with nothing else in between. That makes its canonical text a
-// function of the struct alone, which two places need:
+// function of the struct alone, which three places need:
 //
-//   * ComponentRegistry registers a serializer per row (MakeReflected / MakeReflectedSelf), in this order;
+//   * ComponentRegistry registers a serializer per row (MakeReflected / MakeReflectedSelf), run by run;
+//   * ECS::ReflectedComponents maps a component key to its reflected type for scripts;
 //   * Tools/SceneMigrator rewrites every such block in the corpus into the saver's bytes (CanonicaliseScene),
 //     so a scene saved with no edit is byte-identical to its file.
 //
-// Before this header the list lived only inside ComponentRegistry.cpp, so the migrator could not know which
-// blocks are "reflection and nothing else" without a second copy of the list — the fork this file exists to
-// prevent.
+// THE LIST IS GENERATED (SCR-API-2c): a component states its row once, on its own struct, as
+// COMPONENT( Key( "..." ), Block( Member ) | Whole, Run( ... ) ), and DesertHeaderTool emits
+// Engine/Generated/ReflectedComponentBlocks.gen.hpp (ForEachReflectedComponentBlock, ordered by key). A new
+// reflected component is one marker; there is no second list to keep in step.
 //
 // NOT IN THIS LIST, because their file form is NOT their reflection alone: every hand-written serializer in
 // ComponentRegistry.cpp (StaticMesh, SkinnedMesh, InstancedStaticMesh, Material slots, Script, Landscape root
 // and tile, Foliage, AnimGraph, CubeGridBlockout, the authored components, …) and UIRenderTexture, whose
 // reflected block has its `ScenePath` replaced by a `Scene` {Guid, Path} reference on disk.
 //
-// ORDER IS FORMAT. ComponentRegistry::All() is iterated in registration order when a record is captured, and
-// the canonical writer keeps member order, so the position of a block among its record's keys IS the position
-// its serializer was registered at. The rows are therefore grouped into RUNS, each registered at the point in
-// RegisterBuiltins where that run always stood between the hand-written serializers.
+// ORDER IS NOT FORMAT. A record states its component keys sorted by key (EntitySerializer, through
+// ComponentRegistry::InFileOrder), whatever order the serializers were registered in. The run a row names is
+// LOAD order only: where among the hand-written serializers the row is registered, and so read.
 
 #include <Engine/ECS/Components.hpp>
 
 namespace Desert::Core::Serialize
 {
-    // Where a run is registered among the hand-written serializers (see ORDER IS FORMAT above).
+    // Where a run is registered among the hand-written serializers (see ORDER IS NOT FORMAT above: load order only).
     enum class ReflectedBlockRun
     {
         ActorsAndUI,          // after the animation handlers, before UIRenderTexture
@@ -61,75 +62,7 @@ namespace Desert::Core::Serialize
         const char*       TypeName;
         ReflectedBlockRun Run;
     };
-
-    // Calls `visit` once per row, in registration order. The rows are distinct types, so a visitor is a
-    // generic lambda; `decltype(row)::Data` is the struct a block is read into.
-    template <class TVisit>
-    void ForEachReflectedComponentBlock( TVisit&& visit )
-    {
-        using R = ReflectedBlockRun;
-        using namespace ECS;
-        // clang-format off
-        visit( ReflectedMemberBlock<CameraComponent, CameraData>{ "Camera", "CameraData", &CameraComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<DirectionLightComponent, DirectionalLightData>{ "DirectionLight", "DirectionalLightData", &DirectionLightComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<PointLightComponent, PointLightData>{ "PointLight", "PointLightData", &PointLightComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<SpotLightComponent, SpotLightData>{ "SpotLight", "SpotLightData", &SpotLightComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<TwoBoneIKComponent, TwoBoneIKData>{ "TwoBoneIK", "TwoBoneIKData", &TwoBoneIKComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<ControlRigComponent, ControlRigData>{ "ControlRig", "ControlRigData", &ControlRigComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<RetargetComponent, RetargetData>{ "Retarget", "RetargetData", &RetargetComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<ColliderComponent, ColliderData>{ "Collider", "ColliderData", &ColliderComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<RigidBodyComponent, RigidBodyData>{ "RigidBody", "RigidBodyData", &RigidBodyComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<CharacterControllerComponent, CharacterControllerData>{ "CharacterController", "CharacterControllerData", &CharacterControllerComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<PlayerStartComponent, PlayerStartData>{ "PlayerStart", "PlayerStartData", &PlayerStartComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<StreamingSourceComponent, StreamingSourceData>{ "StreamingSource", "StreamingSourceData", &StreamingSourceComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<AudioSourceComponent, AudioSourceData>{ "AudioSource", "AudioSourceData", &AudioSourceComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<ParticleEmitterComponent, ParticleEmitterData>{ "ParticleEmitter", "ParticleEmitterData", &ParticleEmitterComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UICanvasComponent, UI::UICanvasData>{ "UICanvas", "UICanvasData", &UICanvasComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UILayoutComponent, UI::UILayoutData>{ "UILayout", "UILayoutData", &UILayoutComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UIPanelComponent, UI::UIPanelData>{ "UIPanel", "UIPanelData", &UIPanelComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UITextComponent2D, UI::UITextData>{ "UIText", "UITextData", &UITextComponent2D::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UIButtonComponent, UI::UIButtonData>{ "UIButton", "UIButtonData", &UIButtonComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UIIconComponent, UI::UIIconData>{ "UIIcon", "UIIconData", &UIIconComponent::Data, R::ActorsAndUI } );
-
-        visit( ReflectedMemberBlock<UIBindingComponent, UI::UIBindingData>{ "UIBinding", "UIBindingData", &UIBindingComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIScreenComponent, UI::UIScreenData>{ "UIScreen", "UIScreenData", &UIScreenComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIScreenStackComponent, UI::UIScreenStackData>{ "UIScreenStack", "UIScreenStackData", &UIScreenStackComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UITweenComponent, UI::UITweenData>{ "UITween", "UITweenData", &UITweenComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIPointerEventsComponent, UI::UIPointerEventsData>{ "UIPointerEvents", "UIPointerEventsData", &UIPointerEventsComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIDraggableComponent, UI::UIDraggableData>{ "UIDraggable", "UIDraggableData", &UIDraggableComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIDropTargetComponent, UI::UIDropTargetData>{ "UIDropTarget", "UIDropTargetData", &UIDropTargetComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIImageComponent, UI::UIImageData>{ "UIImage", "UIImageData", &UIImageComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UILayoutGroupComponent, UI::UILayoutGroupData>{ "UILayoutGroup", "UILayoutGroupData", &UILayoutGroupComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIProgressBarComponent, UI::UIProgressBarData>{ "UIProgressBar", "UIProgressBarData", &UIProgressBarComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIPathComponent, UI::UIPathData>{ "UIPath", "UIPathData", &UIPathComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIRetainerComponent, UI::UIRetainerData>{ "UIRetainer", "UIRetainerData", &UIRetainerComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIStyleComponent, UI::UIStyleData>{ "UIStyle", "UIStyleData", &UIStyleComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIToggleComponent, UI::UIToggleData>{ "UIToggle", "UIToggleData", &UIToggleComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UISliderComponent, UI::UISliderData>{ "UISlider", "UISliderData", &UISliderComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIScrollViewComponent, UI::UIScrollViewData>{ "UIScrollView", "UIScrollViewData", &UIScrollViewComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIListViewComponent, UI::UIListViewData>{ "UIListView", "UIListViewData", &UIListViewComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIInputFieldComponent, UI::UIInputFieldData>{ "UIInputField", "UIInputFieldData", &UIInputFieldComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIDropdownComponent, UI::UIDropdownData>{ "UIDropdown", "UIDropdownData", &UIDropdownComponent::Data, R::UIAfterRenderTexture } );
-        // Overlays (Ю12): an overlay canvas and a trigger are ordinary scene data, so a tooltip, a menu, a
-        // dialog and a toast stack survive a save and a reload because they are entities like any other.
-        visit( ReflectedMemberBlock<UIOverlayComponent, UI::UIOverlayData>{ "UIOverlay", "UIOverlayData", &UIOverlayComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIOverlayTriggerComponent, UI::UIOverlayTriggerData>{ "UIOverlayTrigger", "UIOverlayTriggerData", &UIOverlayTriggerComponent::Data, R::UIAfterRenderTexture } );
-
-        visit( ReflectedMemberBlock<LandscapeMaterialComponent, LandscapeMaterialData>{ "LandscapeMaterial", "LandscapeMaterialData", &LandscapeMaterialComponent::Data, R::Landscape } );
-
-        // Skybox reflects WHOLE (RA3): it carries the HDR path only, the procedural sky is SkyAtmosphere.
-        visit( ReflectedWholeBlock<SkyboxComponent>{ "Skybox", "SkyboxComponent", R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<SkyAtmosphereComponent, SkyAtmosphereData>{ "SkyAtmosphere", "SkyAtmosphereData", &SkyAtmosphereComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<ExponentialHeightFogComponent, ExponentialHeightFogData>{ "ExponentialHeightFog", "ExponentialHeightFogData", &ExponentialHeightFogComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<PostProcessVolumeComponent, PostProcessVolumeData>{ "PostProcessVolume", "PostProcessVolumeData", &PostProcessVolumeComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<VolumetricCloudComponent, VolumetricCloudData>{ "VolumetricCloud", "VolumetricCloudData", &VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<HeroCloudComponent, HeroCloudData>{ "HeroCloud", "HeroCloudData", &HeroCloudComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<ProceduralFoliageComponent, ProceduralFoliageData>{ "ProceduralFoliage", "ProceduralFoliageData", &ProceduralFoliageComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<DestructibleComponent, DestructibleData>{ "Destructible", "DestructibleData", &DestructibleComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<RadialImpulseFieldComponent, RadialImpulseFieldData>{ "RadialImpulseField", "RadialImpulseFieldData", &RadialImpulseFieldComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<StrainFieldComponent, StrainFieldData>{ "StrainField", "StrainFieldData", &StrainFieldComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<KillFieldComponent, KillFieldData>{ "KillField", "KillFieldData", &KillFieldComponent::Data, R::SkyAndAtmosphere } );
-        visit( ReflectedMemberBlock<AnchorFieldComponent, AnchorFieldData>{ "AnchorField", "AnchorFieldData", &AnchorFieldComponent::Data, R::SkyAndAtmosphere } );
-        // clang-format on
-    }
 } // namespace Desert::Core::Serialize
+
+// THE ROWS: generated from the COMPONENT(...) marker on each component struct (ReflectionMacros.hpp).
+#include <Engine/Generated/ReflectedComponentBlocks.gen.hpp>

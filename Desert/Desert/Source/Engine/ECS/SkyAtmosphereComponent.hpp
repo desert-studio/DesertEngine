@@ -302,6 +302,7 @@ namespace Desert::ECS
 
     struct SkyAtmosphereComponent
     {
+        COMPONENT( Key( "SkyAtmosphere" ), Block( Data ), Run( SkyAndAtmosphere ) )
         SkyAtmosphereData Data;
 
         // Transient (no PROPERTY -> not reflected, not serialized): the editor's "Bake Sky IBL" button and

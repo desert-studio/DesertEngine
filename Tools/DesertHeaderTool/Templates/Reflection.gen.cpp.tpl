@@ -19,6 +19,7 @@
 
 #include <Engine/Reflection/TypeRegistrar.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ContainerAccess.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 {% if hasFunctions %}#include <Engine/Reflection/FunctionThunk.hpp>
 {% endif %}#include <cstddef>
