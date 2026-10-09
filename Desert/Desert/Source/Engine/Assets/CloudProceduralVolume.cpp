@@ -74,8 +74,8 @@ namespace Desert::Assets
 
         /// The cauliflower octave's growth at the type's top, in the lump's shape reach; it falls to
         /// kCloudShapeNoiseAtBase of this at the base (CLOUD-SHAPE-f: from zero, which left the flanks smooth),
-        /// growth only, so the floor's own flat cut stays where it is and the crown boils hardest. The sum with the coarse octave
-        /// is clamped to [-1, 1], the range the bake's boxes are grown by.
+        /// growth only, so the floor's own flat cut stays where it is and the crown boils hardest. The sum with
+        /// the coarse octave is clamped to [-1, 1], the range the bake's boxes are grown by.
         constexpr float kCloudShapeBillowAtTop = 1.0f;
 
         /// How many blend radii past the nearest lump a lump may be before it is dropped from the join.
