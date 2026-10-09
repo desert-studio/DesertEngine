@@ -366,6 +366,9 @@ namespace Desert::ECS
                         request( state.Clip );
                 if ( node.Sequence )
                     request( node.Sequence->Clip );
+                if ( node.BlendSpace )
+                    for ( const Animation::Graph::BlendSample& sample : node.BlendSpace->Samples )
+                        request( sample.Clip );
             }
         }
 
@@ -480,7 +483,22 @@ namespace Desert::ECS
                 anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
             for ( size_t n = 0; n < graph.Nodes.size(); ++n )
             {
-                const AG::PoseNode* node  = &graph.Nodes[n];
+                const AG::PoseNode* node = &graph.Nodes[n];
+                // A blend space plays every sample at once (UE: the Blend Space Player's samples are all
+                // resident): each sample's clip resolved by name, reported under "<node>.<clip>".
+                if ( node->BlendSpace )
+                {
+                    for ( size_t i = 0; i < node->BlendSpace->Samples.size(); ++i )
+                    {
+                        const std::string& sampleClip = node->BlendSpace->Samples[i].Clip;
+                        const auto         found      = m_AnimationLibrary->FindForMesh( clipRig, sampleClip );
+                        if ( found )
+                            anim.Animator->SetPoseGraphBlendSample( n, i, found.GetValue()->GetClip() );
+                        else if ( !m_AnimationLibrary->HasPending( sampleClip ) )
+                            ReportUnplayableState( clipRig, node->Name, sampleClip, found.GetError() );
+                    }
+                    continue;
+                }
                 std::string         clip  = node->Sequence ? node->Sequence->Clip : std::string();
                 std::string         owner = node->Name;
                 bool                loop  = node->Sequence ? node->Sequence->Loop : true;
