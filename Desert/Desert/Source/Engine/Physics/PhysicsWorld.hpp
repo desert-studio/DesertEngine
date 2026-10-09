@@ -178,6 +178,11 @@ namespace Desert::Physics
         glm::vec3  Normal   = { 0.0f, 1.0f, 0.0f };
     };
 
+    /// The length of every step the world takes (UE async physics' fixed tick, 60 Hz).
+    inline constexpr float kFixedStepSeconds = 1.0f / 60.0f;
+    /// The most steps one PhysicsWorld::Step takes (UE MaxSubsteps, 6): a longer frame loses the rest.
+    inline constexpr uint32_t kMaxStepsPerFrame = 6;
+
     class PhysicsWorld
     {
     public:
@@ -203,8 +208,32 @@ namespace Desert::Physics
         // honest while playing, instead of only at the next Play.
         void SetGravity( float gravityCmPerS2 );
 
-        // Advance the simulation by dt seconds (fixed-step accumulated internally).
+        /**
+         * @brief Banks @p dt seconds of frame time and advances the world by as many whole fixed steps
+         * (kFixedStepSeconds) as the bank holds, at most kMaxStepsPerFrame; what a hitch leaves beyond that is
+         * dropped, not caught up (UE MaxSubsteps). A frame shorter than a step may take none.
+         *
+         * The world only ever moves in steps of one length, so its state is a function of the step count and
+         * the inputs, never of the frame rate: the premise of a server that owns the simulation (UE async
+         * physics' fixed tick). Each step: the poses are kept for interpolation, the pre-step callback runs,
+         * the held forces are applied, Jolt solves, the post-step callback runs.
+         */
         void Step( float dt );
+
+        /// Steps taken since Init. The world's clock: its time is GetStepCount() * kFixedStepSeconds, the same
+        /// on every machine that took the same steps (the water's wave clock reads it).
+        [[nodiscard]] uint64_t GetStepCount() const;
+        /// GetStepCount() * kFixedStepSeconds, in double so an hour of play does not round the step away.
+        [[nodiscard]] double GetSimulatedSeconds() const;
+        /// How far the banked time is into the next step, in [0, 1): the weight the Interpolated getters put
+        /// on the newest step's pose against the one before (UE async physics' result interpolation).
+        [[nodiscard]] float GetInterpolationAlpha() const;
+
+        /// Called before every fixed step inside Step, with the step's length, after the previous step's poses
+        /// were kept and before the held forces are applied: where a fixed-rate producer (buoyancy, a character
+        /// controller) reads the world and pushes into it. A force added here acts on THIS step only. One
+        /// subscriber; an empty function unsubscribes.
+        void SetPreStepCallback( std::function<void( float )> callback );
 
         /// Called after every fixed step inside Step, with that step's length: where a system that reacts to
         /// the solve (DestructionWorld) runs, at the solver's rate rather than the frame's. One subscriber;
@@ -251,12 +280,33 @@ namespace Desert::Physics
         // Read simulated transform (body origin, not center-of-mass).
         glm::vec3 GetPosition( BodyHandle handle ) const;
         glm::quat GetRotation( BodyHandle handle ) const;
+        /// The pose to DRAW: between the last two steps' poses by GetInterpolationAlpha, so a body moves
+        /// smoothly at any frame rate while the world moves in fixed steps (one step behind the simulation).
+        /// A body that did not move in the last step, or was teleported, answers its simulated pose.
+        [[nodiscard]] glm::vec3 GetInterpolatedPosition( BodyHandle handle ) const;
+        [[nodiscard]] glm::quat GetInterpolatedRotation( BodyHandle handle ) const;
 
         // Teleport / drive a body (use for Kinematic bodies or resetting on Play).
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
         /// Adds @p impulse (kg*cm/s) at the centre of mass and wakes the body; a static body ignores it.
         void                    AddImpulse( BodyHandle handle, const glm::vec3& impulse );
+
+        // ---- Forces (UE AddForce / AddForceAtLocation / AddTorqueInRadians) ----
+        // A force is a rate, so WHEN it is added decides how long it acts:
+        //   - from the pre-step callback: on that one fixed step;
+        //   - from anywhere else (the game frame): on EVERY fixed step of the next Step call, so a force held
+        //     each frame gives the same momentum whatever the frame rate. When that Step takes no step (a frame
+        //     shorter than a step), the forces wait for the next one, and the next frame's first force replaces
+        //     them all rather than adding to them: the latest frame's set is the force, not the sum of frames.
+        // A static or kinematic body, or one removed meanwhile, ignores them. Each wakes the body.
+
+        /// @p force in kg*cm/s^2 at the centre of mass.
+        void AddForce( BodyHandle handle, const glm::vec3& force );
+        /// @p force in kg*cm/s^2 at the WORLD point @p point: the force plus its torque about the centre of mass.
+        void AddForceAtPoint( BodyHandle handle, const glm::vec3& force, const glm::vec3& point );
+        /// @p torque in kg*cm^2/s^2, world axes.
+        void                    AddTorque( BodyHandle handle, const glm::vec3& torque );
         [[nodiscard]] glm::vec3 GetLinearVelocity( BodyHandle handle ) const;  ///< cm/s, at the centre of mass
         [[nodiscard]] glm::vec3 GetAngularVelocity( BodyHandle handle ) const; ///< rad/s
         /// The velocity of the body's material at the world point @p point (zero for a static body).
@@ -274,15 +324,17 @@ namespace Desert::Physics
         Common::ResultStr<CharacterHandle> CreateCharacter( const CharacterDesc& desc );
         void            RemoveCharacter( CharacterHandle handle );
         // Set the character's velocity (incl. caller-integrated gravity/jump) and advance it by dt — Jolt
-        // resolves collisions/slopes/steps. Call once per frame, AFTER Step().
+        // resolves collisions/slopes/steps. Called from the pre-step callback with the fixed step, so a
+        // character moves at the world's rate, not the frame's.
         void            UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float dt );
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
+        /// The capsule centre to DRAW, interpolated as GetInterpolatedPosition is.
+        [[nodiscard]] glm::vec3 GetInterpolatedCharacterPosition( CharacterHandle handle ) const;
         bool            IsCharacterOnGround( CharacterHandle handle ) const;
         void            SetCharacterPosition( CharacterHandle handle, const glm::vec3& position );
 
     private:
         struct Impl;
         std::unique_ptr<Impl> m_Impl;
-        float                 m_Accumulator = 0.0f;
     };
 } // namespace Desert::Physics
