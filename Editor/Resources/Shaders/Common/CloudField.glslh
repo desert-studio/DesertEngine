@@ -219,9 +219,12 @@ struct CloudFieldParams
 // coarse octave's billows are the size of a head on a lump, so the cut separates heads in the silhouette,
 // and the fine octave (four times finer again, 500 m on the shipped 1 km tile) grains the heads. A HALF so
 // that two tiles hold one whole period of the volume: no seam, as with the whole-number HF ratio.
+// THE FINE OCTAVE CARRIES 0.3, NOT HALF (CLOUD-GAUNTLET r02). At half the composite every lit face was stippled
+// with a micro-shadow per pebble: the shading went into grain and no face read as lit, no fold as shaded. At 0.3
+// the heads keep their rounded faces and the shade collects in the folds between them.
 #define CLOUD_DETAIL_LF_RATIO  0.5f
 #define CLOUD_DETAIL_HF_RATIO  4.0f
-#define CLOUD_DETAIL_HF_WEIGHT 0.5f
+#define CLOUD_DETAIL_HF_WEIGHT 0.3f
 
 // ---------------------------------------------------------------------------------------------------
 // THE EDGE SHARPENING — the exponent the eroded density is raised to (Nubis Cubed, SIGGRAPH 2023, the

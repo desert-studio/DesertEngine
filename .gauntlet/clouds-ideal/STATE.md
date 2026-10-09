@@ -5,3 +5,4 @@ Started 2026-10-09T15:01:09Z. Goal: Clouds_Demo/Showcase read as real cumulus: f
 | round | lens | gap | outcome | note |
 |---|---|---|---|---|
 | 01 | silhouette | sub-head grain and loose flecks on the outline | improved | Detail Strength default 0.85->0.65 (schema CloudRaymarch.shader:70 + mirror CloudMaterialValues.hpp:97) |
+| 02 | light | micro-shadow stipple from the fine erosion octave | improved | CLOUD_DETAIL_HF_WEIGHT 0.5->0.3 (CloudField.glslh:227) |
