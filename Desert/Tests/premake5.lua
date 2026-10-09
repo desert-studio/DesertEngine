@@ -184,6 +184,9 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/HeaderScan.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/AnnotationText.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/ComponentBlocks.cpp",
+            -- ModuleBoundary: the module table's reader (it executes BuildScripts/DesertModules.lua with Lua,
+            -- which this runner links through Desert).
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/ModuleTable.cpp",
             -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",

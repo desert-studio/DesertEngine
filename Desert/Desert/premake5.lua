@@ -1,3 +1,10 @@
+-- The engine's module table (ENG-MODULES P0): validated here, at generation time, so a dependency on an
+-- unknown or later-listed module (a cycle) fails `premake5` with the row named; the header tool reads the
+-- same file to register reflected types per module, and the ModuleBoundary suite to report crossings.
+local kModuleTable = _MAIN_SCRIPT_DIR .. "/BuildScripts/DesertModules.lua"
+DesertModules = dofile(kModuleTable)
+DesertModules.Validate()
+
 project "Desert"
     kind "StaticLib"
     DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
@@ -7,8 +14,9 @@ project "Desert"
     forceincludes { "pch.hpp" }
 
     -- Reflection codegen (UHT-style): run DesertHeaderTool before compiling so
-    -- Source/Engine/Generated/Reflection.gen.cpp is regenerated from REFLECT()/PROPERTY()
-    -- annotations. The generated file is picked up by the Source/Engine/**.cpp glob below.
+    -- Source/Engine/Generated/Reflection.gen.cpp (the module list) and Reflection_<Module>.gen.cpp (each
+    -- module's types) are regenerated from REFLECT()/PROPERTY() annotations. The generated files are picked
+    -- up by the Source/Engine/**.cpp glob below.
     dependson { "DesertHeaderTool" }
     -- The same run verifies every routed-event handler of the engine and Common (misspelt, non-public or
     -- outside the event tree fails the build at file:line) and emits the DESERT_SUBSYSTEM lists of the
@@ -16,6 +24,7 @@ project "Desert"
     prebuildcommands {
         DesertPlatform.BuiltToolPath("DesertHeaderTool")
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+            .. ' --modules "' .. kModuleTable .. '"'
             .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
             .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'

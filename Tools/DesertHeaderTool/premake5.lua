@@ -27,7 +27,12 @@ project "DesertHeaderTool"
         externalincludedirs { path }
     end
 
-    links { "Common", "ReflectCpp" }
+    -- Lua: Source/ModuleTable.cpp executes BuildScripts/DesertModules.lua, the module table premake reads, so
+    -- the reflected types are grouped by module from the same text (plan C11). Lua is a ThirdParty project
+    -- above Desert/, so this tool still builds before the engine.
+    externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/lua" }
+
+    links { "Common", "ReflectCpp", "Lua" }
 
     filter "configurations:Debug"
         symbols "On"
