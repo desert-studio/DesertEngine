@@ -8,6 +8,8 @@
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIDataStore.hpp>
+#include <Engine/UI/UIWindowClipboard.hpp>
+#include <Engine/Core/EngineContext.hpp>
 
 #include <Editor/Core/Selection/UIPreview.hpp>
 #include <Editor/Core/UIProbeRegistry.hpp>
@@ -73,8 +75,9 @@ namespace Desert::Editor::Render
             // toggles / sliders react in the editor. The ViewportPanel wrote this snapshot in viewport-display
             // px; scale it into the framebuffer's px space. Design mode leaves input null (normal authoring).
             auto&       pv = Editor::Core::UIPreview::Get();
-            UI::UIInput input;
-            std::string clicked;
+            UI::WindowClipboard clipboard( *::Desert::EngineContext::GetInstance().GetWindow() );
+            UI::UIInput         input;
+            std::string         clicked;
 
             // A HEADLESS CAPTURE HAS NO CURSOR, so `--ui-pointer` is its cursor (Ю12). Until this existed
             // there was no arrangement of flags that could photograph anything the UI does in RESPONSE to
@@ -111,6 +114,7 @@ namespace Desert::Editor::Render
                 input.ScrollDelta   = pv.Scroll;
                 input.Keys           = pv.Keys;
                 input.TypedText     = pv.TypedText;
+                input.Clipboard      = &clipboard;
             }
 
             std::vector<std::string> uiMessages;

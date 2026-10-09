@@ -80,8 +80,29 @@ namespace Desert::UI
         glm::vec3 HandleColor = glm::vec3( 0.90f, 0.92f, 0.96f );
     };
 
-    // A single-line text input. Click to focus (runtime), then typing edits Text; a caret shows at the end.
-    // Placeholder shows (dimmed) when empty + unfocused.
+    // Which typed characters an input field accepts (UE: SEditableText's OnIsTypedCharValid, made data).
+    // A refused character is dropped, never replaced; a paste goes through the same filter.
+    enum class UITextCharFilter
+    {
+        Any,          // every printable character
+        Integer,      // digits, and a minus sign only as the first character
+        Decimal,      // Integer plus one decimal point
+        Alphanumeric, // letters and digits (any script), nothing else
+    };
+
+    // Which Enter makes a new line in a multi-line field (UE: UMultiLineEditableText::ModiferKeyForNewLine).
+    // The other Enter commits — so a chat box sends on Enter and breaks the line on Shift+Enter.
+    enum class UITextNewLineKey
+    {
+        ShiftEnter, // Shift+Enter breaks the line, Enter commits (chat)
+        Enter,      // Enter breaks the line; the field commits only when focus leaves it (notes)
+    };
+
+    // A text input (UE's SEditableText / SMultiLineEditableText, editing ported from
+    // FSlateEditableTextLayout). Click focuses it and places the caret; drag selects, double-click selects
+    // a word. Keys: arrows (word jumps with Ctrl/Alt), Home/End, Backspace/Delete, Ctrl|Cmd + A/C/X/V/Z/Y.
+    // The caret, the selection and the undo history are runtime state of the VIEW (UITextEditState in
+    // UICanvasContext), never serialized. Placeholder shows (dimmed) when empty + unfocused.
     struct UIInputFieldData
     {
         REFLECT()
@@ -114,6 +135,34 @@ namespace Desert::UI
 
         PROPERTY( DisplayName( "Corner Radius" ), Category( "UI Input Field" ), Range( 0.0f, 32.0f ) )
         float CornerRadius = 4.0f;
+
+        PROPERTY( DisplayName( "Password" ), Category( "UI Input Field" ),
+                  Tooltip( "Draws every character as a bullet; copy and cut are refused" ) )
+        bool Password = false;
+
+        PROPERTY( DisplayName( "Max Length" ), Category( "UI Input Field" ), Range( 0.0f, 100000.0f ),
+                  Tooltip( "Most characters the field holds (0 = unlimited); typing and pasting stop there" ) )
+        int MaxLength = 0;
+
+        PROPERTY( DisplayName( "Character Filter" ), Category( "UI Input Field" ) )
+        UITextCharFilter CharFilter = UITextCharFilter::Any;
+
+        PROPERTY( DisplayName( "Multi Line" ), Category( "UI Input Field" ),
+                  Tooltip( "Text may hold line breaks; drawn from the top, scrolled to keep the caret in view" ) )
+        bool MultiLine = false;
+
+        PROPERTY( DisplayName( "New Line Key" ), Category( "UI Input Field" ),
+                  Tooltip( "Multi-line only: which Enter breaks the line; the other one commits" ) )
+        UITextNewLineKey NewLineKey = UITextNewLineKey::ShiftEnter;
+
+        // Messages go out like a button's SendEvent (UI::UIMessageQueue -> Lua OnUIMessage) as
+        // "<message>|<text>": OnChanged on every edit, OnCommitted on Enter and when focus leaves the field
+        // (UE: SEditableText::OnTextChanged / OnTextCommitted). Empty = not sent.
+        PROPERTY( DisplayName( "On Changed Message" ), Category( "UI Input Field" ) )
+        std::string OnChangedMessage;
+
+        PROPERTY( DisplayName( "On Committed Message" ), Category( "UI Input Field" ) )
+        std::string OnCommittedMessage;
     };
 
     // A dropdown / combo box. Shows the selected option; a click opens a list of Options (';'-separated) below

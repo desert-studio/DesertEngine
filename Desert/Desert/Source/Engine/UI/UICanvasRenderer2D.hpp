@@ -72,6 +72,9 @@ namespace Desert::UI
         // per meaning. A host with no keyboard leaves both empty.
         std::vector<UIKeyEvent> Keys;
         std::string             TypedText; // UTF-8 chars typed this frame (drives the focused InputField)
+        // The system clipboard, for the focused InputField's copy/cut/paste. The host owns it (it wraps its
+        // window); null = no clipboard, and those three keys do nothing.
+        IUIClipboard* Clipboard = nullptr;
 
         // Was @p key pressed (or auto-repeated) at least once this frame?
         NO_DISCARD bool Pressed( Common::KeyCode key ) const

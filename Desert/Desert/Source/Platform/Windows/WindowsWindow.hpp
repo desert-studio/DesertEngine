@@ -65,6 +65,9 @@ namespace Desert::Platform::Windows
             return m_SwapChain;
         }
 
+        [[nodiscard]] std::string GetClipboardText() const override;
+        void                      SetClipboardText( const std::string& text ) override;
+
         void SetEventTree( Common::EventTree& events ) override
         {
             m_Data.Events = &events;
