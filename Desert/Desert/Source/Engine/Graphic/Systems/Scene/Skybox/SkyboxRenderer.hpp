@@ -336,13 +336,13 @@ namespace Desert::Graphic::System
         // THE BAKE ON THE GPU, and what it was baked from — stamped into m_Baked* only when it lands, for the
         // reason m_BakedSkyFingerprint gives. Declared LAST so it is destroyed FIRST: its destructor waits for
         // the batch, which reads the LUTs and parameter buffers declared above.
-        bool LandPendingBake();
-        std::unique_ptr<ProceduralEnvironmentBake>   m_PendingBake;
-        glm::vec3                                    m_PendingSunDir           = glm::vec3( 0.0f, 1.0f, 0.0f );
-        uint64_t                                     m_PendingCloudFingerprint = 0;
-        uint64_t                                     m_PendingSkyFingerprint   = 0;
-        SkyEnvironmentSize                           m_PendingSize{};
-        const char*                                  m_PendingWhat = "";
-        std::chrono::steady_clock::time_point        m_PendingStarted{};
+        bool                                       LandPendingBake();
+        std::unique_ptr<ProceduralEnvironmentBake> m_PendingBake;
+        glm::vec3                                  m_PendingSunDir           = glm::vec3( 0.0f, 1.0f, 0.0f );
+        uint64_t                                   m_PendingCloudFingerprint = 0;
+        uint64_t                                   m_PendingSkyFingerprint   = 0;
+        SkyEnvironmentSize                         m_PendingSize{};
+        const char*                                m_PendingWhat = "";
+        std::chrono::steady_clock::time_point      m_PendingStarted{};
     };
 } // namespace Desert::Graphic::System

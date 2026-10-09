@@ -127,8 +127,9 @@ namespace Desert::Graphic
         // `CreateProcedural` is this plus `Wait` plus `Finish`, for a caller that needs the cubes on return.
         // nullptr when nothing could be recorded (the reason is logged).
         static std::unique_ptr<ProceduralEnvironmentBake>
-        BeginProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight, ShaderResources::StorageBuffer* skyParams,
-                         Image2D* transmittanceLut, Image2D* multiScatterLut, const CloudBakeBinding& clouds );
+        BeginProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
+                         ShaderResources::StorageBuffer* skyParams, Image2D* transmittanceLut,
+                         Image2D* multiScatterLut, const CloudBakeBinding& clouds );
 
     private:
         // Samples an equirect panorama into the radiance cube (the sharp environment the skybox draws and

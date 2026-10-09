@@ -384,8 +384,8 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneEnvironment] the procedural sky gets NO environment: {}", begun.GetError() );
             return nullptr;
         }
-        auto bake     = std::make_unique<ProceduralEnvironmentBake>();
-        bake->m_Batch = begun.ExtractValue();
+        auto bake       = std::make_unique<ProceduralEnvironmentBake>();
+        bake->m_Batch   = begun.ExtractValue();
         GpuBatch& batch = *bake->m_Batch;
 
         // Bake the atmosphere AND the cloud layer standing in it into one equirect HDR panorama, then run

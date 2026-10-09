@@ -33,11 +33,10 @@ namespace Desert::Graphic
         return nullptr;
     }
 
-    std::shared_ptr<Image2D> ComputeImages::BakeProceduralPanorama( GpuBatch& batch, uint32_t width, uint32_t height,
-                                                                    ShaderResources::StorageBuffer* skyParams,
-                                                                    Image2D*                transmittanceLut,
-                                                                    Image2D*                multiScatterLut,
-                                                                    const CloudBakeBinding& clouds )
+    std::shared_ptr<Image2D>
+    ComputeImages::BakeProceduralPanorama( GpuBatch& batch, uint32_t width, uint32_t height,
+                                           ShaderResources::StorageBuffer* skyParams, Image2D* transmittanceLut,
+                                           Image2D* multiScatterLut, const CloudBakeBinding& clouds )
     {
         // THE FOURTH CONSUMER OF THE CLOUD MEDIUM, and the reason the medium is a compile-time include
         // rather than a generated program: this is the SKY's program — atmosphere and clouds in one
