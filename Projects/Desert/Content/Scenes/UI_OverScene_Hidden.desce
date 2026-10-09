@@ -199,24 +199,6 @@
             "parent": 7001,
             "siblingIndex": 2,
             "Tag": "Probe Button",
-            "UILayout": {
-                "AnchorMin": [0.5, 0.5],
-                "AnchorMax": [0.5, 0.5],
-                "OffsetMin": [-160.0, 140.0],
-                "OffsetMax": [160.0, 196.0],
-                "CustomMinimumSize": [0.0, 0.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.20000000298023224, 0.4000000059604645, 0.699999988079071],
                 "HoverColor": [0.30000001192092896, 0.5199999809265137, 0.8199999928474426],
@@ -241,6 +223,24 @@
                 "SelectedAccent": [1.0, 0.550000011920929, 0.20000000298023224],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-160.0, 140.0],
+                "OffsetMax": [160.0, 196.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             }
         },
         {
@@ -299,15 +299,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [100.0, 100.0, 100.0],
-            "Skybox": {
-                "SkyboxHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "Intensity": 1.0,
-                "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
-            },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
@@ -356,6 +347,15 @@
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             }
         },
         {

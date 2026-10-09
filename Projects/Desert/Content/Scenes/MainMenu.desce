@@ -14,6 +14,14 @@
             "id": 1001,
             "siblingIndex": 0,
             "Tag": "UI Canvas",
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/UIDataBridge.lua",
+                        "Props": []
+                    }
+                ]
+            },
             "UICanvas": {
                 "ScaleMode": 1,
                 "RenderMode": 0,
@@ -37,14 +45,6 @@
                 "TransitionTime": 0.2800000011920929,
                 "SlidePx": 90.0,
                 "Easing": 5
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/UIDataBridge.lua",
-                        "Props": []
-                    }
-                ]
             }
         },
         {
@@ -293,6 +293,10 @@
             "parent": 1004,
             "siblingIndex": 2,
             "Tag": "StatusText",
+            "UIBinding": {
+                "Key": "player.status",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [1.0, 0.5],
                 "AnchorMax": [1.0, 0.5],
@@ -335,10 +339,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "player.status",
-                "Target": 0
             }
         },
         {
@@ -378,24 +378,6 @@
             "parent": 1008,
             "siblingIndex": 0,
             "Tag": "Btn_PLAY",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 60.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
@@ -421,6 +403,24 @@
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
             },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 60.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
             "UITween": {
                 "Property": 0,
                 "From": [-40.0, 0.0, 0.0, 0.0],
@@ -438,6 +438,11 @@
             "parent": 1009,
             "siblingIndex": 0,
             "Tag": "Ico_PLAY",
+            "UIIcon": {
+                "Icon": "engine:Icons/play.svg",
+                "Color": [1.0, 1.0, 1.0],
+                "Scale": 0.6200000047683716
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 1.0],
@@ -455,11 +460,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/play.svg",
-                "Color": [1.0, 1.0, 1.0],
-                "Scale": 0.6200000047683716
             }
         },
         {
@@ -516,24 +516,6 @@
             "parent": 1008,
             "siblingIndex": 1,
             "Tag": "Btn_CHARACTERS",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 60.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
@@ -559,6 +541,24 @@
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
             },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 60.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
             "UITween": {
                 "Property": 0,
                 "From": [-40.0, 0.0, 0.0, 0.0],
@@ -576,6 +576,11 @@
             "parent": 1012,
             "siblingIndex": 0,
             "Tag": "Ico_CHARACTERS",
+            "UIIcon": {
+                "Icon": "engine:Icons/user.svg",
+                "Color": [1.0, 1.0, 1.0],
+                "Scale": 0.6200000047683716
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 1.0],
@@ -593,11 +598,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/user.svg",
-                "Color": [1.0, 1.0, 1.0],
-                "Scale": 0.6200000047683716
             }
         },
         {
@@ -654,24 +654,6 @@
             "parent": 1008,
             "siblingIndex": 2,
             "Tag": "Btn_SERVERS",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 60.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
@@ -697,6 +679,24 @@
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
             },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 60.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
             "UITween": {
                 "Property": 0,
                 "From": [-40.0, 0.0, 0.0, 0.0],
@@ -714,6 +714,11 @@
             "parent": 1015,
             "siblingIndex": 0,
             "Tag": "Ico_SERVERS",
+            "UIIcon": {
+                "Icon": "engine:Icons/server.svg",
+                "Color": [1.0, 1.0, 1.0],
+                "Scale": 0.6200000047683716
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 1.0],
@@ -731,11 +736,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/server.svg",
-                "Color": [1.0, 1.0, 1.0],
-                "Scale": 0.6200000047683716
             }
         },
         {
@@ -792,24 +792,6 @@
             "parent": 1008,
             "siblingIndex": 3,
             "Tag": "Btn_STORE",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 60.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
@@ -835,6 +817,24 @@
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
             },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 60.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
             "UITween": {
                 "Property": 0,
                 "From": [-40.0, 0.0, 0.0, 0.0],
@@ -852,6 +852,11 @@
             "parent": 1018,
             "siblingIndex": 0,
             "Tag": "Ico_STORE",
+            "UIIcon": {
+                "Icon": "engine:Icons/cart.svg",
+                "Color": [1.0, 1.0, 1.0],
+                "Scale": 0.6200000047683716
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 1.0],
@@ -869,11 +874,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/cart.svg",
-                "Color": [1.0, 1.0, 1.0],
-                "Scale": 0.6200000047683716
             }
         },
         {
@@ -930,24 +930,6 @@
             "parent": 1008,
             "siblingIndex": 4,
             "Tag": "Btn_SETTINGS",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 60.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
@@ -973,6 +955,24 @@
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
             },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 60.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
             "UITween": {
                 "Property": 0,
                 "From": [-40.0, 0.0, 0.0, 0.0],
@@ -990,6 +990,11 @@
             "parent": 1021,
             "siblingIndex": 0,
             "Tag": "Ico_SETTINGS",
+            "UIIcon": {
+                "Icon": "engine:Icons/gear.svg",
+                "Color": [1.0, 1.0, 1.0],
+                "Scale": 0.6200000047683716
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 1.0],
@@ -1007,11 +1012,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/gear.svg",
-                "Color": [1.0, 1.0, 1.0],
-                "Scale": 0.6200000047683716
             }
         },
         {
@@ -1068,24 +1068,6 @@
             "parent": 1008,
             "siblingIndex": 5,
             "Tag": "Btn_QUIT",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 60.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
@@ -1111,6 +1093,24 @@
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
             },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 60.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
             "UITween": {
                 "Property": 0,
                 "From": [-40.0, 0.0, 0.0, 0.0],
@@ -1128,6 +1128,11 @@
             "parent": 1024,
             "siblingIndex": 0,
             "Tag": "Ico_QUIT",
+            "UIIcon": {
+                "Icon": "engine:Icons/power.svg",
+                "Color": [1.0, 1.0, 1.0],
+                "Scale": 0.6200000047683716
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 1.0],
@@ -1145,11 +1150,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/power.svg",
-                "Color": [1.0, 1.0, 1.0],
-                "Scale": 0.6200000047683716
             }
         },
         {
@@ -1361,6 +1361,11 @@
             "parent": 1029,
             "siblingIndex": 0,
             "Tag": "AvatarIcon",
+            "UIIcon": {
+                "Icon": "engine:Icons/user.svg",
+                "Color": [1.0, 1.0, 1.0],
+                "Scale": 0.800000011920929
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 1.0],
@@ -1378,11 +1383,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/user.svg",
-                "Color": [1.0, 1.0, 1.0],
-                "Scale": 0.800000011920929
             }
         },
         {
@@ -1390,6 +1390,10 @@
             "parent": 1028,
             "siblingIndex": 1,
             "Tag": "Name",
+            "UIBinding": {
+                "Key": "player.name",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 0.0],
@@ -1432,10 +1436,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "player.name",
-                "Target": 0
             }
         },
         {
@@ -1443,6 +1443,10 @@
             "parent": 1028,
             "siblingIndex": 2,
             "Tag": "Stats",
+            "UIBinding": {
+                "Key": "player.summary",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 0.0],
@@ -1485,10 +1489,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "player.summary",
-                "Target": 0
             }
         },
         {
@@ -1642,6 +1642,10 @@
             "parent": 1034,
             "siblingIndex": 1,
             "Tag": "SrvStats",
+            "UIBinding": {
+                "Key": "server.caption",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 0.0],
@@ -1684,10 +1688,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "server.caption",
-                "Target": 0
             }
         },
         {
@@ -1695,6 +1695,10 @@
             "parent": 1034,
             "siblingIndex": 2,
             "Tag": "SrvBar",
+            "UIBinding": {
+                "Key": "server.load",
+                "Target": 1
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 0.0],
@@ -1718,10 +1722,6 @@
                 "Background": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "Fill": [0.23999999463558197, 0.8799999952316284, 0.5],
                 "CornerRadius": 6.0
-            },
-            "UIBinding": {
-                "Key": "server.load",
-                "Target": 1
             }
         },
         {
@@ -1729,24 +1729,6 @@
             "parent": 1034,
             "siblingIndex": 3,
             "Tag": "BtnConnect",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [1.0, 0.0],
-                "OffsetMin": [20.0, 124.0],
-                "OffsetMax": [-20.0, 168.0],
-                "CustomMinimumSize": [0.0, 0.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.949999988079071, 0.5, 0.20000000298023224],
                 "HoverColor": [1.0, 0.6000000238418579, 0.2800000011920929],
@@ -1771,6 +1753,24 @@
                 "SelectedAccent": [1.0, 0.550000011920929, 0.20000000298023224],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 0.0],
+                "OffsetMin": [20.0, 124.0],
+                "OffsetMax": [-20.0, 168.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             }
         },
         {
@@ -2244,6 +2244,11 @@
             "parent": 1038,
             "siblingIndex": 1,
             "Tag": "Ico_Connect",
+            "UIIcon": {
+                "Icon": "engine:Icons/chevron-right.svg",
+                "Color": [0.10000000149011612, 0.05999999865889549, 0.029999999329447746],
+                "Scale": 0.800000011920929
+            },
             "UILayout": {
                 "AnchorMin": [1.0, 0.0],
                 "AnchorMax": [1.0, 1.0],
@@ -2261,11 +2266,6 @@
                 "FlexGrow": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/chevron-right.svg",
-                "Color": [0.10000000149011612, 0.05999999865889549, 0.029999999329447746],
-                "Scale": 0.800000011920929
             }
         },
         {
@@ -2590,24 +2590,6 @@
             "parent": 1062,
             "siblingIndex": 4,
             "Tag": "Btn_Back",
-            "UILayout": {
-                "AnchorMin": [0.0, 1.0],
-                "AnchorMax": [0.0, 1.0],
-                "OffsetMin": [28.0, -84.0],
-                "OffsetMax": [208.0, -28.0],
-                "CustomMinimumSize": [0.0, 0.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.1599999964237213, 0.20000000298023224, 0.2800000011920929],
                 "HoverColor": [0.23999999463558197, 0.30000001192092896, 0.4000000059604645],
@@ -2632,6 +2614,24 @@
                 "SelectedAccent": [1.0, 0.550000011920929, 0.20000000298023224],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 1.0],
+                "AnchorMax": [0.0, 1.0],
+                "OffsetMin": [28.0, -84.0],
+                "OffsetMax": [208.0, -28.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             }
         },
         {
