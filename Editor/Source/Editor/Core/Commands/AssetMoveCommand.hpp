@@ -7,6 +7,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <filesystem>
+#include <ranges>
 #include <map>
 #include <memory>
 #include <string>
@@ -143,8 +144,8 @@ namespace Desert::Editor
         bool Undo() override
         {
             bool all = true;
-            for ( auto it = m_Records.rbegin(); it != m_Records.rend(); ++it )
-                if ( const auto restored = Assets::ContentRegistry::RestoreTrashed( *it ); !restored )
+            for ( const auto& record : std::views::reverse( m_Records ) )
+                if ( const auto restored = Assets::ContentRegistry::RestoreTrashed( record ); !restored )
                 {
                     LOG_ERROR( "[Trash] {}", restored.GetError() );
                     all = false;

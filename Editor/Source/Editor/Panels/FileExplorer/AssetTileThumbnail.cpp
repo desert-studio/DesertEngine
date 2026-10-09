@@ -406,9 +406,11 @@ namespace Desert::Editor
         {
             char buffer[32];
             if ( entry->FileSize >= std::size_t{ 1024 } * 1024 )
-                std::snprintf( buffer, sizeof( buffer ), "%.1f MB", entry->FileSize / ( 1024.0f * 1024.0f ) );
+                std::snprintf( buffer, sizeof( buffer ), "%.1f MB",
+                               static_cast<float>( entry->FileSize ) / ( 1024.0f * 1024.0f ) );
             else
-                std::snprintf( buffer, sizeof( buffer ), "%.1f KB", entry->FileSize / 1024.0f );
+                std::snprintf( buffer, sizeof( buffer ), "%.1f KB",
+                               static_cast<float>( entry->FileSize ) / 1024.0f );
             sizeText = buffer;
         }
         // Shown relative to the PROJECT's directory (FPaths::ProjectDir), never to the working directory the

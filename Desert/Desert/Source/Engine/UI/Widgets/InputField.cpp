@@ -28,23 +28,23 @@ namespace Desert::UI::Walk
 {
     void DrawInputFieldWidget( ElementFrame& frame )
     {
-        auto& ctx         = frame.Ctx;
-        auto& tree         = frame.Tree;
-        auto& e           = frame.E;
-        auto& scale       = frame.Scale;
-        auto& dl          = frame.Dl;
-        auto& input       = frame.Input;
-        auto& focused     = frame.Focused;
-        auto& st          = frame.St;
-        auto& rect        = frame.ElementRect;
-        auto& interactive = frame.Interactive;
-        auto& mn          = frame.Mn;
-        auto& mx          = frame.Mx;
-        auto& hot         = frame.Hot;
+        auto&       ctx         = frame.Ctx;
+        auto&       tree        = frame.Tree;
+        auto&       e           = frame.E;
+        auto&       scale       = frame.Scale;
+        auto&       dl          = frame.Dl;
+        auto&       input       = frame.Input;
+        auto&       focused     = frame.Focused;
+        const auto& st          = frame.St;
+        auto&       rect        = frame.ElementRect;
+        const auto& interactive = frame.Interactive;
+        auto&       mn          = frame.Mn;
+        auto&       mx          = frame.Mx;
+        auto&       hot         = frame.Hot;
 
         auto&      f         = *tree.GetState<UIInputFieldData>( e );
-        const bool isFocused = interactive && focused && *focused == e;
-        const bool hover     = input && hot;
+        const bool isFocused = interactive && focused != nullptr && *focused == e;
+        const bool hover     = input != nullptr && hot;
 
         // The field's own slots, resolved once: the text colour is read by the glyphs AND by the
         // caret, and the size by the glyphs AND by the caret's x — two lookups each would be two
@@ -60,8 +60,8 @@ namespace Desert::UI::Walk
                         std::max( 1.0f, 2.0f * scale ) );
 
         // Text (or dimmed placeholder), clipped to the field; caret at the end when focused.
-        const bool      showPlaceholder = f.Text.empty() && !isFocused;
-        UITextData      td;
+        const bool showPlaceholder = f.Text.empty() && !isFocused;
+        UITextData td;
         td.Text     = showPlaceholder ? f.Placeholder : f.Text;
         td.FontSize = fieldSize;
         td.Color    = showPlaceholder ? st.Color( StyleSlot::InputPlaceholder, f.PlaceholderColor ) : fieldText;
@@ -87,14 +87,14 @@ namespace Desert::UI::Walk
         }
         dl.PopClipRect();
 
-        if ( isFocused && input )
+        if ( isFocused && input != nullptr )
         {
             if ( !input->TypedText.empty() )
                 f.Text += input->TypedText;
             if ( input->Pressed( Common::KeyCode::Backspace ) )
                 Utf8PopBack( f.Text );
         }
-        if ( hover && input && input->MouseReleased && focused )
+        if ( hover && input != nullptr && input->MouseReleased && focused != nullptr )
             *focused = e; // click to focus
     }
 } // namespace Desert::UI::Walk

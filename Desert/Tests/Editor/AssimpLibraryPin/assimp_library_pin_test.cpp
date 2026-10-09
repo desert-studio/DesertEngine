@@ -151,9 +151,10 @@ namespace
 
     // Returns the world-space box in CENTIMETRES, and reports through `source` how the unit was decided,
     // so a test can assert that a file's size and the reason for it agree.
-    WorldBox ImportInCentimetres( const std::filesystem::path& file, std::string& error,
-                                  Desert::Editor::ImportUnits::Source& source,
-                                  Desert::Assets::MeshFileUnit         settingsUnit = Desert::Assets::MeshFileUnit::FromFile )
+    WorldBox
+    ImportInCentimetres( const std::filesystem::path& file, std::string& error,
+                         Desert::Editor::ImportUnits::Source& source,
+                         Desert::Assets::MeshFileUnit settingsUnit = Desert::Assets::MeshFileUnit::FromFile )
     {
         Assimp::Importer importer;
         const aiScene*   scene = importer.ReadFile( file.string(), kEngineImportFlags );
@@ -176,8 +177,9 @@ namespace
             }
         }
 
-        const auto unit = Desert::Editor::ImportUnits::Resolve( file.extension().string(), hasStated, stated,
-                                                                Desert::Assets::MeshFileUnitCentimetres( settingsUnit ) );
+        const auto unit =
+             Desert::Editor::ImportUnits::Resolve( file.extension().string(), hasStated, stated,
+                                                   Desert::Assets::MeshFileUnitCentimetres( settingsUnit ) );
         source          = unit.From;
 
         const float assimpMetresPerUnit = importer.GetPropertyFloat( AI_CONFIG_APP_SCALE_KEY, 1.0f );

@@ -66,7 +66,6 @@
 
 #include <cmath>
 #include <algorithm>
-#include <utility>
 #include <cstdio>
 #include <string_view>
 
@@ -1616,8 +1615,8 @@ namespace Desert::Editor
                 // before.
                 pv.Keys.clear();
                 {
-                    const ImGuiIO& io   = ImGui::GetIO();
-                    ::Desert::UI::UIKeyMods  mods = ::Desert::UI::UIKeyMods::None;
+                    const ImGuiIO&          io   = ImGui::GetIO();
+                    ::Desert::UI::UIKeyMods mods = ::Desert::UI::UIKeyMods::None;
                     if ( io.KeyShift )
                         mods = mods | ::Desert::UI::UIKeyMods::Shift;
                     if ( io.KeyCtrl )
@@ -2604,7 +2603,7 @@ namespace Desert::Editor
         auto ref = m_Scene->FindEntityByID( Common::UUID( rootId ) );
         if ( !ref )
             return; // the pending root was undone before the import finished
-        ECS::Entity root = ref->get();
+        const ECS::Entity root = ref->get();
         // The root is the source (UE: the scene import's root actor); it draws nothing itself.
         if ( root.HasComponent<ECS::StaticMeshComponent>() )
             root.RemoveComponent<ECS::StaticMeshComponent>();
@@ -2621,9 +2620,12 @@ namespace Desert::Editor
         if ( !dropTarget || transform.Translation != dropTarget->Point )
             return;
         const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
-        if ( !record || !record.GetValue() || !record.GetValue()->Bounds )
+        if ( !record )
             return;
-        const auto& box = *record.GetValue()->Bounds;
+        const auto& recordValue = record.GetValue();
+        if ( !recordValue.has_value() || !recordValue->Bounds.has_value() )
+            return;
+        const auto& box = *recordValue->Bounds;
         transform.Translation =
              ActorDrop::PlacedOrigin( *dropTarget,
                                       ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),

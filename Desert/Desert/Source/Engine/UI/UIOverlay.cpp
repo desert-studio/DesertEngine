@@ -37,8 +37,7 @@ namespace Desert::UI
             std::size_t guard = 0;
             for ( NodeId t = e; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound(); )
             {
-                if ( tree.Has<UIOverlayTriggerData>( t ) &&
-                     tree.Get<UIOverlayTriggerData>( t )->On == on &&
+                if ( tree.Has<UIOverlayTriggerData>( t ) && tree.Get<UIOverlayTriggerData>( t )->On == on &&
                      !tree.Get<UIOverlayTriggerData>( t )->Overlay.empty() )
                     return t;
                 t = tree.Parent( t );
@@ -51,8 +50,7 @@ namespace Desert::UI
         // itself when the pointer wanders off.
         UIOverlayTriggerEvent OpenerEvent( IUITree& tree, NodeId opener )
         {
-            return ( opener != NodeId::Null && tree.Valid( opener ) &&
-                     tree.Has<UIOverlayTriggerData>( opener ) )
+            return ( opener != NodeId::Null && tree.Valid( opener ) && tree.Has<UIOverlayTriggerData>( opener ) )
                         ? tree.Get<UIOverlayTriggerData>( opener )->On
                         : UIOverlayTriggerEvent::LeftClick;
         }
@@ -125,8 +123,7 @@ namespace Desert::UI
         // Where this overlay's canvas root has to move so its content lands beside what opened it, without
         // leaving the view. Modal and Toast have no origin and are placed by their own anchors — see
         // UILayout.hpp for why fabricating one for them would be a mechanism that moves nothing.
-        void PlaceOverlayCanvas( IUITree& tree, UIViewContext& view, NodeId canvas,
-                                 const UIInput& input )
+        void PlaceOverlayCanvas( IUITree& tree, UIViewContext& view, NodeId canvas, const UIInput& input )
         {
             UICanvasContext&          cell = view.CanvasState( canvas );
             const UIOverlayData*      d    = OverlayDataOf( tree, canvas );
@@ -177,8 +174,7 @@ namespace Desert::UI
         // pointer simply wandering off. The difference matters for a hover-opened submenu: dismissing one
         // while the pointer is still on the item that opens it has to stick, or the hover clock reopens it
         // on the next frame and Escape appears to do nothing.
-        void CloseStackDownTo( UIViewContext& view, IUITree& tree, std::size_t index,
-                               bool dismissed = false )
+        void CloseStackDownTo( UIViewContext& view, IUITree& tree, std::size_t index, bool dismissed = false )
         {
             while ( view.OverlayStack.size() > index )
             {
@@ -222,7 +218,7 @@ namespace Desert::UI
         {
             if ( hot == NodeId::Null || !tree.Valid( hot ) )
                 return -1;
-            const NodeId hotCanvas = CanvasOf( tree, hot );
+            const NodeId       hotCanvas = CanvasOf( tree, hot );
             int                found     = -1;
             for ( std::size_t i = 0; i < view.OverlayStack.size(); ++i )
                 if ( hotCanvas == view.OverlayStack[i] && hot != view.OverlayStack[i] )
@@ -380,8 +376,7 @@ namespace Desert::UI
         // level up.
         void PruneOverlays( IUITree& tree, UIViewContext& view )
         {
-            const auto gone = [&]( NodeId c )
-            { return !tree.Valid( c ) || !tree.Has<UIOverlayData>( c ); };
+            const auto gone = [&]( NodeId c ) { return !tree.Valid( c ) || !tree.Has<UIOverlayData>( c ); };
             view.OverlayStack.erase( std::remove_if( view.OverlayStack.begin(), view.OverlayStack.end(), gone ),
                                      view.OverlayStack.end() );
             if ( view.OverlayTooltip != NodeId::Null && gone( view.OverlayTooltip ) )
@@ -415,7 +410,7 @@ namespace Desert::UI
 
         if ( matches.empty() )
             return Common::MakeFormattedError<NodeId>( "[UI] no overlay canvas is named '{}' in this scene",
-                                                             name );
+                                                       name );
         if ( matches.size() > 1 )
             return Common::MakeFormattedError<NodeId>(
                  "[UI] {} overlay canvases are named '{}'; a name must identify one overlay, so none is "
@@ -477,7 +472,7 @@ namespace Desert::UI
         PruneOverlays( tree, view );
         UpdateToasts( tree, view );
 
-        const NodeId hot          = view.HotNext; // THIS frame's election, before the hand-over
+        const NodeId       hot          = view.HotNext; // THIS frame's election, before the hand-over
         const bool         pressedLeft  = input.MouseDown && !view.PrevDown;
         const bool         pressedRight = input.MouseRightDown && !view.PrevRightDown;
         view.PrevRightDown              = input.MouseRightDown;
@@ -510,7 +505,7 @@ namespace Desert::UI
             const int under = StackEntryUnderPointer( tree, view, hot );
             for ( std::size_t i = view.OverlayStack.size(); i-- > 0; )
             {
-                const NodeId     canvas = view.OverlayStack[i];
+                const NodeId           canvas = view.OverlayStack[i];
                 const UICanvasContext& cell   = view.CanvasState( canvas );
                 if ( OpenerEvent( tree, cell.OverlayOpenedBy ) != UIOverlayTriggerEvent::Hover )
                     continue;

@@ -165,7 +165,7 @@ namespace Desert::Editor
     void NewAssetMenu::AddPrefabToScene( const std::string& prefabPath )
     {
         auto scene = m_ViewportScene.lock();
-        if ( !scene || !m_AssetManager )
+        if ( !scene || m_AssetManager == nullptr )
             return;
 
         auto prefab = m_AssetManager->FindByPath<Assets::PrefabAsset>( prefabPath );
@@ -203,7 +203,7 @@ namespace Desert::Editor
         }
     }
 
-    void NewAssetMenu::CreateNewFolder( const DirectoryInformation& folder )
+    void NewAssetMenu::CreateNewFolder( const DirectoryInformation& folder ) const
     {
         std::filesystem::create_directory( folder.AssetPath + "/NewFolder" );
         m_On.OnRefresh();
@@ -236,7 +236,7 @@ namespace Desert::Editor
         m_On.OnRefresh();
     }
 
-    Common::BoolResultStr NewAssetMenu::CreateNewLevelSequence( const DirectoryInformation* folder )
+    Common::BoolResultStr NewAssetMenu::CreateNewLevelSequence( const DirectoryInformation* folder ) const
     {
         if ( folder == nullptr )
             return Common::MakeError( "New Level Sequence: the Assets window has no folder open" );
@@ -382,7 +382,7 @@ namespace Desert::Editor
         // OPENED STRAIGHT AWAY, because creating one of these is the only way to reach its editor at all: the
         // four cloud documents are contextual, keyed on an asset handle, with no View-menu entry.
         // RequestCloudDocument logs its own failures with the path.
-        if ( m_AssetManager &&
+        if ( m_AssetManager != nullptr &&
              RequestCloudDocument( m_AssetManager, m_BakePath ) != CloudDocumentRequest::Requested )
         {
             m_On.OnStatus( "Created '" + m_BakeLabel + "' but it would not open — the log says why." );

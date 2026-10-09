@@ -61,7 +61,7 @@ namespace Desert::UI
         // DESTROYING the capture, and nothing else can tell the backend that an element scrolled out of a
         // clipped list or had its Visible bit cleared. So a walk that skips an element is a walk that
         // releases it, with no discipline required at the skip site.
-        [[nodiscard]] virtual const void* ResolveRenderTexture( NodeId                  element,
+        [[nodiscard]] virtual const void* ResolveRenderTexture( NodeId                        element,
                                                                 const UIRenderTextureRequest& request ) = 0;
     };
 } // namespace Desert::UI

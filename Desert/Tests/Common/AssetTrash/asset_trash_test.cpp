@@ -13,6 +13,8 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -163,8 +165,7 @@ TEST( AssetTrash, DeleteThenRestoreIsTheOriginalTreeByteForByte )
     EXPECT_FALSE( fs::exists( c.Material ) );
     EXPECT_FALSE( fs::exists( c.Import ) );
     EXPECT_EQ( c.Registry.FindByKey( Key( c.Material ) ), nullptr );
-    ASSERT_TRUE( trashed.GetValue().Guid.has_value() );
-    EXPECT_EQ( *trashed.GetValue().Guid, Guid( 1 ) );
+    EXPECT_EQ( trashed.GetValue().Guid, std::optional<Guid>( Guid( 1 ) ) );
 
     // Read back from disk (as after an editor restart), then restored.
     auto slot = Common::Content::ReadTrashSlot( trashed.GetValue().Slot );

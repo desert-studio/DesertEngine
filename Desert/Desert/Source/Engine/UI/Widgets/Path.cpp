@@ -29,16 +29,16 @@ namespace Desert::UI::Walk
     void DrawPathWidget( ElementFrame& frame )
     {
         auto& ctx   = frame.Ctx;
-        auto& tree   = frame.Tree;
+        auto& tree  = frame.Tree;
         auto& e     = frame.E;
         auto& scale = frame.Scale;
         auto& dl    = frame.Dl;
         auto& mn    = frame.Mn;
         auto& mx    = frame.Mx;
 
-        const UIPathData& path        = *tree.Get<UIPathData>( e );
-        const glm::vec2 slots[8]    = { path.P0, path.P1, path.P2, path.P3, path.P4, path.P5, path.P6, path.P7 };
-        const int       count       = std::clamp( path.PointCount, 2, 8 );
+        const UIPathData& path     = *tree.Get<UIPathData>( e );
+        const glm::vec2   slots[8] = { path.P0, path.P1, path.P2, path.P3, path.P4, path.P5, path.P6, path.P7 };
+        const int         count    = std::clamp( path.PointCount, 2, 8 );
 
         // Points are fractions of the element's own rect, so the line follows its anchors.
         std::array<glm::vec2, 8> control{};
@@ -50,7 +50,7 @@ namespace Desert::UI::Walk
                                path.Curve == UIPathCurve::Smooth );
 
         // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
-        float      reveal = path.Reveal;
+        float reveal = path.Reveal;
         if ( const UIClipSample* clip = ctx.View.Animation().Sample( e ); clip != nullptr )
             reveal = clip->Reveal.value_or( reveal );
 

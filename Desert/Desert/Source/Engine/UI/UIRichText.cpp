@@ -87,10 +87,10 @@ namespace Desert::UI::Walk
                     return false;
                 }
             }
-            out.r = ( v[0] * 16 + v[1] ) / 255.0f;
-            out.g = ( v[2] * 16 + v[3] ) / 255.0f;
-            out.b = ( v[4] * 16 + v[5] ) / 255.0f;
-            out.a = hex.size() == 8 ? ( v[6] * 16 + v[7] ) / 255.0f : 1.0f;
+            out.r = static_cast<float>( v[0] * 16 + v[1] ) / 255.0f;
+            out.g = static_cast<float>( v[2] * 16 + v[3] ) / 255.0f;
+            out.b = static_cast<float>( v[4] * 16 + v[5] ) / 255.0f;
+            out.a = hex.size() == 8 ? static_cast<float>( v[6] * 16 + v[7] ) / 255.0f : 1.0f;
             return true;
         }
 
@@ -127,7 +127,7 @@ namespace Desert::UI::Walk
                             if ( colorStack.size() > 1 )
                                 colorStack.pop_back();
                         }
-                        else if ( tag.rfind( "color=#", 0 ) == 0 )
+                        else if ( tag.starts_with( "color=#" ) )
                         {
                             glm::vec4 c = colorStack.back();
                             ParseHexColor( tag.substr( 7 ), c ); // keep parent colour on malformed hex
@@ -234,7 +234,8 @@ namespace Desert::UI::Walk
         res.RequestGlyphs( fontHandle, Text::Utf8Decode( t.Text ) );
 
         const FontFace font = res.Font( fontHandle, Text::kDefaultBakePixelHeight );
-        if ( font.Baked == nullptr || font.Atlas == nullptr || !font.Baked->Valid() || font.Baked->PixelHeight <= 0.0f )
+        if ( font.Baked == nullptr || font.Atlas == nullptr || !font.Baked->Valid() ||
+             font.Baked->PixelHeight <= 0.0f )
             return;
 
         const Text::BakedFont& bf    = *font.Baked;
@@ -248,7 +249,7 @@ namespace Desert::UI::Walk
         auto advEm = [&]( uint32_t ch ) -> float
         {
             const Text::Glyph* g = glyph( ch );
-            return g ? g->Advance : 0.0f;
+            return g != nullptr ? g->Advance : 0.0f;
         };
 
         const std::vector<StyledChar> chars =
@@ -275,7 +276,7 @@ namespace Desert::UI::Walk
                 for ( const StyledChar& sc : chars )
                 {
                     const Text::Glyph* g = glyph( sc.ch );
-                    if ( !g )
+                    if ( g == nullptr )
                         continue;
                     if ( g->Width > 0.0f && g->Height > 0.0f )
                     {
@@ -400,7 +401,7 @@ namespace Desert::UI::Walk
             for ( const StyledChar& sc : lines[i].chars )
             {
                 const Text::Glyph* g = glyph( sc.ch );
-                if ( !g )
+                if ( g == nullptr )
                     continue;
                 if ( g->Width > 0.0f && g->Height > 0.0f )
                 {
@@ -462,7 +463,7 @@ namespace Desert::UI::Walk
                 for ( int oy = -1; oy <= 1; ++oy )
                     if ( ox != 0 || oy != 0 )
                         for ( const auto& g : placed )
-                            quad( g, { ox * ow, oy * ow }, oc );
+                            quad( g, { static_cast<float>( ox ) * ow, static_cast<float>( oy ) * ow }, oc );
         }
         for ( const auto& g : placed )
         {

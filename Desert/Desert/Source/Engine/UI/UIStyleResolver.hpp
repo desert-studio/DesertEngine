@@ -131,8 +131,8 @@ namespace Desert::UI
         }
 
     private:
-        const UIThemeRuntime*    m_Theme        = nullptr;
-        const UIThemeStyleTable* m_Table        = nullptr;
+        const UIThemeRuntime*            m_Theme        = nullptr;
+        const UIThemeStyleTable*         m_Table        = nullptr;
         float                            m_FontScale    = 1.0f;
         bool                             m_HighContrast = false;
     };
@@ -194,13 +194,13 @@ namespace Desert::UI
             if ( m_Theme == nullptr )
                 return ElementStyle( nullptr, nullptr, m_FontScale, m_HighContrast );
 
-            const UIThemeStyleTable* table = m_Theme->FindStyle( styleName );
+            const UIThemeStyleTable* table         = m_Theme->FindStyle( styleName );
             unknownStyle                           = table == nullptr;
             return ElementStyle( m_Theme, table, m_FontScale, m_HighContrast );
         }
 
     private:
-        const UIThemeRuntime* m_Theme        = nullptr;
+        const UIThemeRuntime*         m_Theme        = nullptr;
         float                         m_FontScale    = 1.0f;
         bool                          m_HighContrast = false;
     };

@@ -28,15 +28,15 @@ namespace Desert::UI::Walk
 {
     void DrawPanelWidget( ElementFrame& frame )
     {
-        auto& ctx   = frame.Ctx;
-        auto& tree   = frame.Tree;
-        auto& e     = frame.E;
-        auto& scale = frame.Scale;
-        auto& dl    = frame.Dl;
-        auto& st    = frame.St;
-        auto& rect  = frame.ElementRect;
-        auto& mn    = frame.Mn;
-        auto& mx    = frame.Mx;
+        auto&       ctx   = frame.Ctx;
+        auto&       tree  = frame.Tree;
+        auto&       e     = frame.E;
+        auto&       scale = frame.Scale;
+        auto&       dl    = frame.Dl;
+        const auto& st    = frame.St;
+        auto&       rect  = frame.ElementRect;
+        auto&       mn    = frame.Mn;
+        auto&       mx    = frame.Mx;
 
         const auto& p = *tree.Get<UIPanelData>( e );
 
@@ -90,7 +90,7 @@ namespace Desert::UI::Walk
         // be set. Resolve() never answers null for a set handle — a slot the UI path cannot
         // execute comes back as the magenta error entry, named once in the log.
         const auto* uiMaterial = ResolveUIMaterial( ctx, e, p.Material );
-        if ( uiMaterial )
+        if ( uiMaterial != nullptr )
             dl.AddMaterialRect( uiMaterial, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ) );
         else if ( p.BackdropBlur > 0.0f && !video && !HandleSet( p.Sprite ) )
             dl.AddGlassRect( mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), rounding, p.BackdropBlur );

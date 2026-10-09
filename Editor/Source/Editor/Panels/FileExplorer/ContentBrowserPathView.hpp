@@ -32,7 +32,7 @@ namespace Desert::Editor
         /// The asset move-drop on the last item drawn, which IS the folder @p targetFolder (a tree node, a
         /// folder tile): any browser payload moves the dragged asset - or the selection it belongs to - into
         /// it through ContentBrowserUtils::MoveFileTo (registry rows leave a redirector, one undo step each).
-        void AcceptMoveDropOnLastItem( const std::string& targetFolder );
+        void AcceptMoveDropOnLastItem( const std::string& targetFolder ) const;
 
     private:
         void DrawFolder( const ContentDirectoryModel& model, const DirectoryInformation* current,

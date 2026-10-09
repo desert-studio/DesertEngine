@@ -13,14 +13,14 @@ namespace Desert::Editor
 {
     bool ContentBrowserSelection::Contains( const DirectoryInformation* entry ) const
     {
-        return entry && m_Paths.contains( entry->AssetPath );
+        return entry != nullptr && m_Paths.contains( entry->AssetPath );
     }
 
     std::vector<std::string> ContentBrowserSelection::Paths() const
     {
         if ( !m_Paths.empty() )
-            return std::vector<std::string>( m_Paths.begin(), m_Paths.end() );
-        if ( m_Current )
+            return { m_Paths.begin(), m_Paths.end() };
+        if ( m_Current != nullptr )
             return { m_Current->AssetPath };
         return {};
     }
@@ -89,7 +89,7 @@ namespace Desert::Editor
 
     std::string ContentBrowserSelection::ReleaseCurrent()
     {
-        std::string path = m_Current ? m_Current->AssetPath : std::string();
+        std::string path = m_Current != nullptr ? m_Current->AssetPath : std::string();
         m_Current        = nullptr;
         return path;
     }

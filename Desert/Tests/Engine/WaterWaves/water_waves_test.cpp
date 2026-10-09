@@ -18,6 +18,8 @@
 
 #include <glm/geometric.hpp>
 #include <gtest/gtest.h>
+
+#include <numbers>
 #include <shaderc/shaderc.hpp>
 
 #include <algorithm>
@@ -135,7 +137,7 @@ TEST( WaterWaves, ASwellIsACosineAndItsNormalIsTheGradients )
     const std::vector      waves{ wave };
     const glm::vec2        plane( 321.0f, -77.0f );
     const float            t     = 2.0f;
-    const float            k     = 2.0f * 3.14159265f / wave.WaveLength;
+    const float            k     = 2.0f * std::numbers::pi_v<float> / wave.WaveLength;
     const float            phase = glm::dot( plane, wave.Direction * k ) - std::sqrt( k * 980.0f ) * t;
     const WaveHeightSample s     = WaveHeightAt( waves, plane, t );
     EXPECT_NEAR( s.Height, wave.Amplitude * std::cos( phase ), 1e-3f );

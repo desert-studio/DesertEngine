@@ -40,16 +40,24 @@ namespace Desert::UI
         template <typename F>
         void ForEachScreenName( IUITree& tree, NodeId e, F&& fn )
         {
-            if ( !tree.Valid( e ) )
-                return;
-            if ( tree.Has<UIScreenData>( e ) )
+            // An explicit stack, pre-order: children are pushed last-first so they pop in draw order.
+            std::vector<NodeId> pending{ e };
+            while ( !pending.empty() )
             {
-                const std::string& n = tree.Get<UIScreenData>( e )->Name;
-                if ( !n.empty() )
-                    fn( n );
+                const NodeId n = pending.back();
+                pending.pop_back();
+                if ( !tree.Valid( n ) )
+                    continue;
+                if ( tree.Has<UIScreenData>( n ) )
+                {
+                    const std::string& name = tree.Get<UIScreenData>( n )->Name;
+                    if ( !name.empty() )
+                        fn( name );
+                }
+                const ChildRange children = ChildrenOf( tree, n );
+                for ( std::size_t i = children.size(); i > 0; --i )
+                    pending.push_back( children[i - 1] );
             }
-            for ( NodeId c : ChildrenOf( tree, e ) )
-                    ForEachScreenName( tree, c, fn );
         }
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
@@ -61,9 +69,9 @@ namespace Desert::UI
         // NOLINTNEXTLINE(misc-no-recursion)
         void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
-                          NodeId* focused, std::vector<PopupInfo>* popups,
-                          std::vector<NodeId>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
-                          HitScope scope, const Rect* forcedRect )
+                          NodeId* focused, std::vector<PopupInfo>* popups, std::vector<NodeId>* focusables,
+                          const Graphic::Render2D::ClipRegion2D& clipRegion, HitScope scope,
+                          const Rect* forcedRect )
         {
             // The visibility axis, before anything else is computed. Hidden and Collapsed both stop here
             // and take the whole sub-tree with them — nothing drawn, nothing hit-tested, no tween clock
@@ -85,10 +93,10 @@ namespace Desert::UI
                     if ( dl.HasTransform() )
                         mask.PushTransform( dl.GetTransform() );
                     std::vector<PopupInfo>    noPopups;
-                    std::vector<NodeId> noFocus;
+                    std::vector<NodeId>       noFocus;
                     std::string               noClick;
-                    NodeId              noFocused = NodeId::Null;
-                    const NodeId        outer     = ctx.MaskCapture;
+                    NodeId                    noFocused = NodeId::Null;
+                    const NodeId              outer     = ctx.MaskCapture;
                     ctx.MaskCapture                     = e;
                     DrawElement( ctx, tree, e, parent, scale, mask, nullptr, &noClick, &noFocused, &noPopups,
                                  &noFocus, clipRegion, scope, forcedRect );
@@ -109,7 +117,7 @@ namespace Desert::UI
                 auto&                      layer = dl.BeginRetainedLayer( &index );
                 if ( dl.HasTransform() )
                     layer.PushTransform( dl.GetTransform() );
-                const NodeId outer = ctx.Retaining;
+                const NodeId outer       = ctx.Retaining;
                 ctx.Retaining            = e;
                 DrawElement( ctx, tree, e, parent, scale, layer, input, outClicked, focused, popups, focusables,
                              clipRegion, scope, forcedRect );
@@ -281,8 +289,7 @@ namespace Desert::UI
             // takes the default. Four values, resolved into the three questions the walk actually asks —
             // may I be elected, may I react, and what may my children do — and each is narrowed by what
             // an ancestor already allowed, so permissions only ever shrink going down.
-            const UIHitTest hitTest =
-                 hasLayout ? tree.Get<UILayoutData>( e )->HitTest : UIHitTest::All;
+            const UIHitTest hitTest = hasLayout ? tree.Get<UILayoutData>( e )->HitTest : UIHitTest::All;
 
             // Blocking elects itself precisely so the pointer STOPS here: it is the greyed-out form and the
             // modal dialog, which must swallow the click rather than let it reach what is behind them.
@@ -315,7 +322,7 @@ namespace Desert::UI
                                        ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly ) };
 
             // What the widget below draws from — every value it reads was resolved above, once.
-            ElementFrame frame{ ctx,        tree,     e,      scale,      dl,         input,
+            ElementFrame frame{ ctx,        tree,    e,      scale,      dl,         input,
                                 outClicked, focused, popups, focusables, clipRegion, childScope,
                                 st,         rect,    tween,  binding,    pointerPx,  interactive };
 
@@ -400,7 +407,7 @@ namespace Desert::UI
                 {
                     if ( focusables )
                         focusables->push_back( e );
-                    if ( focused && *focused == e && !tree.Has<UIInputFieldData>( e ) )
+                    if ( focused != nullptr && *focused == e && !tree.Has<UIInputFieldData>( e ) )
                         dl.AddRect(
                              mn, mx,
                              glm::vec4( st.Color( StyleSlot::FocusRing, glm::vec3( 0.30f, 0.62f, 0.98f ) ), 1.0f ),
@@ -461,8 +468,8 @@ namespace Desert::UI
 
         // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
         view.Animation().Evaluate( tree, UIAnimationStep{ .DtSeconds = view.FrameDt,
-                                                         .Advance   = view.DrivesSceneAnimation,
-                                                         .GameWorld = view.GameWorld } );
+                                                          .Advance   = view.DrivesSceneAnimation,
+                                                          .GameWorld = view.GameWorld } );
 
         // A scene swap leaves the elected entity dangling — drop it rather than matching a recycled id.
         if ( view.Hot != NodeId::Null && !tree.Valid( view.Hot ) )
@@ -569,7 +576,7 @@ namespace Desert::UI
 
         Rect  canvasRect;
         float scale;
-        if ( canvasData.RenderMode == UICanvasRenderMode::WorldSpace && worldViewProj &&
+        if ( canvasData.RenderMode == UICanvasRenderMode::WorldSpace && worldViewProj != nullptr &&
              tree.WorldOrigin( canvasEntity ).has_value() )
         {
             // Billboard: project the canvas entity's world position to the screen, centre + distance-scale it
@@ -674,7 +681,7 @@ namespace Desert::UI
         {
             if ( tree.Has<UIScreenStackData>( canvasEntity ) )
             {
-                const auto& st  = *tree.Get<UIScreenStackData>( canvasEntity );
+                const auto& st           = *tree.Get<UIScreenStackData>( canvasEntity );
                 ctx.Canvas.ScreenTime    = st.TransitionTime;
                 ctx.Canvas.ScreenSlidePx = st.SlidePx;
                 ctx.Canvas.ScreenEasing  = st.Easing;
@@ -782,10 +789,10 @@ namespace Desert::UI
         // A context menu and a modal are the opposite: capturing the pointer IS what they are for.
         const bool inert = overlay != nullptr &&
                            ( overlay->Kind == UIOverlayKind::Tooltip || overlay->Kind == UIOverlayKind::Toast );
-        for ( NodeId c : ChildrenOf( tree, canvasEntity ) )
-                if ( tree.Valid( c ) )
-                    DrawElement( ctx, tree, c, childRoot, scale, dl, input, outClicked, focused, &popups,
-                                 inert ? nullptr : &ctx.View.Focusables, rootClip, HitScope{ !inert } );
+        for ( const NodeId c : ChildrenOf( tree, canvasEntity ) )
+            if ( tree.Valid( c ) )
+                DrawElement( ctx, tree, c, childRoot, scale, dl, input, outClicked, focused, &popups,
+                             inert ? nullptr : &ctx.View.Focusables, rootClip, HitScope{ !inert } );
 
         // A ShowScreen / BackScreen button fired during the walk: start the hand-over now, so the very
         // next frame already draws both screens mid-transition.
@@ -867,9 +874,8 @@ namespace Desert::UI
         return Common::MakeSuccess( true );
     }
 
-    void EndUIFrame( UIViewContext& view, IUITree& tree, Graphic::Render2D::DrawList2D& dl,
-                     const UIInput* input, NodeId* focused, std::string* outClicked,
-                     std::vector<std::string>* outMessages )
+    void EndUIFrame( UIViewContext& view, IUITree& tree, Graphic::Render2D::DrawList2D& dl, const UIInput* input,
+                     NodeId* focused, std::string* outClicked, std::vector<std::string>* outMessages )
     {
         // Named, not shrugged off: closing a frame that was never opened would hand over an election nobody
         // made and fire enter/exit against a stale one. It is a caller bug and it is reported as one.

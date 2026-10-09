@@ -172,7 +172,7 @@ namespace Desert::Editor
         std::string m_FileOpStatus; // last error line (shown above the browser), any piece reports into it
 
         // Phase-3 navigation/UX.
-        ContentBrowserHistory m_History;         // visited folder paths (back/forward)
+        ContentBrowserHistory m_History; // visited folder paths (back/forward)
 
         Assets::AssetManager*           m_AssetManager = nullptr;
         // WHICH FILES ARE DOCUMENTS, and how each becomes a subject. Non-owning; the registry is a member
@@ -184,7 +184,7 @@ namespace Desert::Editor
         // splash (EditorStartup) drives it directly; the drawer draws a tile, its tooltip and a drag's
         // preview from it.
         AssetThumbnailPool& m_ThumbnailPool;
-        AssetTileThumbnail m_TileThumbnail;
+        AssetTileThumbnail  m_TileThumbnail;
 
         // The constructor's own navigations are not the user's and are not remembered.
         bool m_RestoringFolder = true;

@@ -694,9 +694,9 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
     EXPECT_FALSE( orm->NeedsPacking() ) << "one image fills every ORM channel: it binds as is";
 }
 
-// BISTRO-COLOR: the ORCA Bistro Specular map is Falcor's metal-rough - roughness in G, metal in B, R 0 in every one
-// of its 201 maps. Stated as RoughnessMetallic it routes G and B only (the import packs an R of no occlusion), and
-// the image is the whole of roughness and metal: the factors it multiplies are 1, not the template's metal 0.
+// BISTRO-COLOR: the ORCA Bistro Specular map is Falcor's metal-rough - roughness in G, metal in B, R 0 in every
+// one of its 201 maps. Stated as RoughnessMetallic it routes G and B only (the import packs an R of no occlusion),
+// and the image is the whole of roughness and metal: the factors it multiplies are 1, not the template's metal 0.
 TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusionAlone )
 {
     const SourceMaterial source =
@@ -711,7 +711,8 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusi
     EXPECT_TRUE( orm->NeedsPacking() ) << "the slot's R must come from the packer (no occlusion), not the map";
     for ( const char* factor : { "MetallicFactor", "RoughnessFactor" } )
     {
-        const auto it = std::ranges::find_if( fill.Params, [&]( const ImportedParam& p ) { return p.Name == factor; } );
+        const auto it =
+             std::ranges::find_if( fill.Params, [&]( const ImportedParam& p ) { return p.Name == factor; } );
         ASSERT_NE( it, fill.Params.end() ) << factor;
         EXPECT_EQ( it->Value.x, 1.0f ) << factor << ": the map is the whole value";
     }

@@ -35,6 +35,10 @@ namespace Desert::UI
 {
     class UIDataStore;
 
+    // The authored container type (UILayoutGroupData::Type) as the placement solver names it. One mapping,
+    // shared by the layout queries and the draw walk, so the two can never place a group differently.
+    [[nodiscard]] LayoutGroupType ToLayoutGroupType( UILayoutType type );
+
     // --- WHICH CANVAS. The question every one of these used to answer by itself, and always the same way --
     //
     // `*reg.view<UICanvasComponent>().begin()` — the first canvas entt happens to hand out — stood in three

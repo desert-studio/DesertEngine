@@ -9,7 +9,8 @@
 //      no impulse reported); a ray does not find a NoCollision / PhysicsOnly body; a Pawn capsule stands on a
 //      BlockAll floor and falls through a Trigger floor.
 //
-// Mutations this suite must turn red (the test that should fail is named on each line; run them before trusting it):
+// Mutations this suite must turn red (the test that should fail is named on each line; run them before trusting
+// it):
 //   * CollisionProfiles::PhysicsResponse — std::min → std::max            (PairResponseIsTheLesserOfTheTwo)
 //   * PhysicsWorld.cpp ContactRecorder::Respond — drop `settings.mIsSensor = true`  (ABallPassesThroughATrigger)
 //   * PhysicsWorld::CastRay — drop the QueryableLayerFilter argument     (ARayDoesNotFindBodiesOutsideQueries)
@@ -260,9 +261,9 @@ TEST( CollisionProfiles, AProfileOutsidePhysicsIgnoresEverything )
 
 TEST( CollisionProfiles, ABodyWithoutAProfileIsRefused )
 {
-    SimWorld          world;
-    Physics::BodyDesc desc; // Profile = kNoProfile
-    const auto        body = world.Physics.CreateBody( desc );
+    SimWorld                world;
+    const Physics::BodyDesc desc{}; // Profile = kNoProfile
+    const auto              body = world.Physics.CreateBody( desc );
     ASSERT_FALSE( body.IsSuccess() );
     EXPECT_NE( body.GetError().find( "carries no collision profile" ), std::string::npos ) << body.GetError();
 

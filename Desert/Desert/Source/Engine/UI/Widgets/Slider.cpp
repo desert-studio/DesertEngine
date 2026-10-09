@@ -28,17 +28,17 @@ namespace Desert::UI::Walk
 {
     void DrawSliderWidget( ElementFrame& frame )
     {
-        auto& ctx       = frame.Ctx;
-        auto& tree       = frame.Tree;
-        auto& e         = frame.E;
-        auto& dl        = frame.Dl;
-        auto& input     = frame.Input;
-        auto& st        = frame.St;
-        auto& rect      = frame.ElementRect;
-        auto& pointerPx = frame.PointerPx;
-        auto& mn        = frame.Mn;
-        auto& mx        = frame.Mx;
-        auto& hot       = frame.Hot;
+        auto&       ctx       = frame.Ctx;
+        auto&       tree      = frame.Tree;
+        auto&       e         = frame.E;
+        auto&       dl        = frame.Dl;
+        auto&       input     = frame.Input;
+        const auto& st        = frame.St;
+        auto&       rect      = frame.ElementRect;
+        const auto& pointerPx = frame.PointerPx;
+        auto&       mn        = frame.Mn;
+        auto&       mx        = frame.Mx;
+        auto&       hot       = frame.Hot;
 
         auto&       sl    = *tree.GetState<UISliderData>( e );
         const float range = std::max( 0.0001f, sl.MaxValue - sl.MinValue );
@@ -55,7 +55,7 @@ namespace Desert::UI::Walk
         dl.AddRectFilled( { fillX - hs, cy - hs }, { fillX + hs, cy + hs },
                           glm::vec4( st.Color( StyleSlot::SliderHandle, sl.HandleColor ), 1.0f ), hs );
 
-        const bool hover = input && hot;
+        const bool hover = input != nullptr && hot;
         if ( hover && input->MouseDown )
         {
             // The slider's fraction is measured along ITS OWN track, so it takes the undone

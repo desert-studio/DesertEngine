@@ -28,14 +28,14 @@ namespace Desert::UI::Walk
 {
     void DrawImageWidget( ElementFrame& frame )
     {
-        auto& ctx   = frame.Ctx;
-        auto& tree   = frame.Tree;
-        auto& e     = frame.E;
-        auto& scale = frame.Scale;
-        auto& dl    = frame.Dl;
-        auto& st    = frame.St;
-        auto& mn    = frame.Mn;
-        auto& mx    = frame.Mx;
+        auto&       ctx   = frame.Ctx;
+        auto&       tree  = frame.Tree;
+        auto&       e     = frame.E;
+        auto&       scale = frame.Scale;
+        auto&       dl    = frame.Dl;
+        const auto& st    = frame.St;
+        auto&       mn    = frame.Mn;
+        auto&       mx    = frame.Mx;
 
         // A sprite block — reuses DrawBox so it gets GIF playback, 9-slice and the static path.
         // With no sprite bound it draws nothing (an empty Image is invisible, not a solid box).
@@ -49,7 +49,7 @@ namespace Desert::UI::Walk
     void DrawRenderTextureWidget( ElementFrame& frame )
     {
         auto& ctx  = frame.Ctx;
-        auto& tree  = frame.Tree;
+        auto& tree = frame.Tree;
         auto& e    = frame.E;
         auto& dl   = frame.Dl;
         auto& rect = frame.ElementRect;

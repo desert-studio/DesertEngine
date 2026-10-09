@@ -17,7 +17,7 @@ namespace
     // uploads, so the submeshes are the ones the renderer's shared mesh holds.
     const std::vector<Submesh>* CpuPrimitiveSubmeshes( const Geometry::PrimitiveType type )
     {
-        static std::shared_ptr<DynamicMesh> s_Cube =
+        static const std::shared_ptr<DynamicMesh> s_Cube =
              Geometry::PrimitiveMeshFactory::Create( Geometry::PrimitiveType::Cube );
         return type == Geometry::PrimitiveType::Cube && s_Cube ? &s_Cube->GetSubmeshes() : nullptr;
     }

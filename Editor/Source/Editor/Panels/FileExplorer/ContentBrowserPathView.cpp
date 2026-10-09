@@ -63,7 +63,7 @@ namespace Desert::Editor
         ImGui::EndChild();
     }
 
-    void ContentBrowserPathView::AcceptMoveDropOnLastItem( const std::string& targetFolder )
+    void ContentBrowserPathView::AcceptMoveDropOnLastItem( const std::string& targetFolder ) const
     {
         if ( !ImGui::BeginDragDropTarget() )
             return;
@@ -88,6 +88,8 @@ namespace Desert::Editor
         ImGui::EndDragDropTarget();
     }
 
+    // A directory tree is walked by its own depth, which the file system bounds.
+    // NOLINTNEXTLINE(misc-no-recursion)
     void ContentBrowserPathView::DrawFolder( const ContentDirectoryModel& model,
                                              const DirectoryInformation* current, DirectoryInformation* dirInfo,
                                              bool defaultOpen )
@@ -112,8 +114,7 @@ namespace Desert::Editor
 
             nodeFlags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 
-            const bool isOpen = ImGui::TreeNodeEx(
-                 reinterpret_cast<void*>( reinterpret_cast<intptr_t>( dirInfo ) ), nodeFlags, "" );
+            const bool isOpen = ImGui::TreeNodeEx( static_cast<const void*>( dirInfo ), nodeFlags, "" );
             if ( ImGui::IsItemClicked() )
                 m_On.OnFolderSelected( dirInfo );
             AcceptMoveDropOnLastItem( dirInfo->AssetPath ); // the node row spans the width: drop onto it

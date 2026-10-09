@@ -135,8 +135,8 @@ namespace Desert::Editor
             ImGui::SetTooltip( "Forward" );
         ImGui::SameLine();
 
-        ImGui::BeginDisabled( !current || current == root );
-        if ( ImGui::Button( ICON_MDI_ARROW_UP_BOLD ) && current )
+        ImGui::BeginDisabled( current == nullptr || current == root );
+        if ( ImGui::Button( ICON_MDI_ARROW_UP_BOLD ) && current != nullptr )
             m_On.OnFolderSelected( current->Parent );
         ImGui::EndDisabled();
         if ( ImGui::IsItemHovered() )
@@ -176,8 +176,8 @@ namespace Desert::Editor
         if ( m_BreadcrumbsStale )
         {
             m_Breadcrumbs.clear();
-            for ( DirectoryInformation* node = current; node; node = node->Parent )
-                m_Breadcrumbs.push_back( node->Parent ? node : root );
+            for ( DirectoryInformation* node = current; node != nullptr; node = node->Parent )
+                m_Breadcrumbs.push_back( node->Parent != nullptr ? node : root );
             std::reverse( m_Breadcrumbs.begin(), m_Breadcrumbs.end() );
             m_BreadcrumbsStale = false;
         }

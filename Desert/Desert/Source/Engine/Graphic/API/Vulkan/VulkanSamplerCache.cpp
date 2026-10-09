@@ -1,5 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 
+#include <Common/Core/DestructorGuard.hpp>
+
 #include <bit>
 #include <utility>
 
@@ -66,9 +68,11 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanSamplerCache::~VulkanSamplerCache()
+    try
     {
         Release();
     }
+    DESERT_DESTRUCTOR_GUARD( "~VulkanSamplerCache" )
 
     Common::ResultStr<VkSampler> VulkanSamplerCache::Acquire( const VkSamplerCreateInfo& info )
     {

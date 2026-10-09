@@ -12,6 +12,20 @@
 
 namespace Desert::UI
 {
+    LayoutGroupType ToLayoutGroupType( UILayoutType type )
+    {
+        switch ( type )
+        {
+            case UILayoutType::Horizontal:
+                return LayoutGroupType::Horizontal;
+            case UILayoutType::Grid:
+                return LayoutGroupType::Grid;
+            case UILayoutType::Vertical:
+                break;
+        }
+        return LayoutGroupType::Vertical;
+    }
+
     NodeId CanvasOf( const IUITree& tree, NodeId e )
     {
         // Bounded by the node count rather than trusting the tree to be acyclic: a Parent cycle is
@@ -163,9 +177,7 @@ namespace Desert::UI
                 sizes.push_back( pref * scale );
             }
             LayoutGroupParams params;
-            params.Type     = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                              : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                 : LayoutGroupType::Vertical;
+            params.Type     = ToLayoutGroupType( g.Type );
             params.PaddingL = g.Padding.x * scale;
             params.PaddingT = g.Padding.y * scale;
             params.PaddingR = g.Padding.z * scale;
@@ -205,9 +217,7 @@ namespace Desert::UI
                 flex.push_back( fg );
             }
             LayoutGroupParams params;
-            params.Type         = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                                  : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                     : LayoutGroupType::Vertical;
+            params.Type         = ToLayoutGroupType( g.Type );
             params.PaddingL     = g.Padding.x * scale;
             params.PaddingT     = g.Padding.y * scale;
             params.PaddingR     = g.Padding.z * scale;
@@ -496,8 +506,11 @@ namespace Desert::UI
             child.Xform        = xform;
             child.Depth        = scope.Depth + 1;
             child.ParentEntity = e;
-            child.Elect     = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly );
-            child.SkippedBy    = scope.SkippedBy != NodeId::Null ? scope.SkippedBy : node.Drawn ? NodeId::Null : e;
+            child.Elect = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly );
+            if ( scope.SkippedBy != NodeId::Null )
+                child.SkippedBy = scope.SkippedBy;
+            else
+                child.SkippedBy = node.Drawn ? NodeId::Null : e;
             child.Row       = scope.Row;
             child.RowIndex  = scope.RowIndex;
 

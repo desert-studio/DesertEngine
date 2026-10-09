@@ -815,7 +815,7 @@ TEST_F( AsyncAssetLoad, TheLoadingLineSaysPipelinesOnceTheReadsAreDoneAndIsEmpty
     EXPECT_TRUE( none.Item.empty() ) << "nothing was read and the loading line names something";
 
     const auto pipelines = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), 0, 3 );
-    EXPECT_NE( pipelines.Item.find( "3" ), std::string::npos ) << pipelines.Item;
+    EXPECT_NE( pipelines.Item.find( '3' ), std::string::npos ) << pipelines.Item;
 }
 
 namespace

@@ -127,7 +127,8 @@ namespace Desert::Editor
         {
             for ( const auto& p : sel )
             {
-                std::string np, err;
+                std::string np;
+                std::string err;
                 if ( !AssetFileOps::Duplicate( p, np, err ) )
                     m_On.OnStatus( "Duplicate failed: " + err );
             }
@@ -167,8 +168,8 @@ namespace Desert::Editor
 
     void AssetContextMenu::HandleShortcuts( const DirectoryInformation* folder )
     {
-        if ( !ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) || !m_Selection.Current() ||
-             ImGui::GetIO().WantTextInput )
+        if ( !ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) ||
+             m_Selection.Current() == nullptr || ImGui::GetIO().WantTextInput )
             return;
         if ( ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
             static_cast<void>( Rename() );
@@ -282,7 +283,7 @@ namespace Desert::Editor
         }
     }
 
-    void AssetContextMenu::DrawTrashMenu()
+    void AssetContextMenu::DrawTrashMenu() const
     {
         if ( !ImGui::BeginMenu( "Trash" ) )
             return;
@@ -335,12 +336,13 @@ namespace Desert::Editor
     void AssetContextMenu::Paste( const DirectoryInformation* folder )
     {
         const std::vector<std::string>& clipboard = m_Selection.Clipboard();
-        if ( clipboard.empty() || !folder )
+        if ( clipboard.empty() || folder == nullptr )
             return;
         const bool cut = m_Selection.ClipboardIsCut();
         for ( const auto& src : clipboard )
         {
-            std::string np, err;
+            std::string np;
+            std::string err;
             const bool  ok = cut ? ContentBrowserUtils::MoveOrRename( src,
                                                                       std::filesystem::path( folder->AssetPath ) /
                                                                            std::filesystem::path( src ).filename(),

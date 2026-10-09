@@ -991,7 +991,8 @@ namespace
         for ( const uint32_t v : { 0u, 8u * 8u * 3u, 2835u, 2835u, 0u, 0u } )
             u32( v );
         for ( int i = 0; i < 8 * 8; ++i )
-            for ( const unsigned char c : std::array<unsigned char, 3>{ 0xFF, 0x80, 0x80 } ) // B G R: a flat +Z normal
+            for ( const unsigned char c :
+                  std::array<unsigned char, 3>{ 0xFF, 0x80, 0x80 } ) // B G R: a flat +Z normal
                 b.push_back( c );
         return { b.begin(), b.end() };
     }

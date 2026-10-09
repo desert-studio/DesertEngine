@@ -189,7 +189,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanAllocator::RT_ReleaseStaging( VkBuffer buffer, VmaAllocation allocation,
                                              const Common::ResultStr<VkResult>& flushed )
     {
-        if ( !buffer || !allocation )
+        if ( buffer == VK_NULL_HANDLE || allocation == VK_NULL_HANDLE )
             return;
         if ( !flushed.IsSuccess() || flushed.GetValue() != VK_SUCCESS || s_VmaAllocator == VK_NULL_HANDLE )
         {

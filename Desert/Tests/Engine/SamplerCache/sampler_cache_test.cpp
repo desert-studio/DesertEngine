@@ -25,19 +25,19 @@ namespace
 
         VulkanSamplerCache MakeCache()
         {
-            return VulkanSamplerCache(
-                 [this]( const VkSamplerCreateInfo&, VkSampler& out )
-                 {
-                     // NOLINTNEXTLINE(performance-no-int-to-ptr) — a fake handle, never dereferenced
-                     out = reinterpret_cast<VkSampler>( static_cast<uintptr_t>( Next++ ) );
-                     Alive.insert( out );
-                     return VK_SUCCESS;
-                 },
-                 [this]( VkSampler sampler )
-                 {
-                     Alive.erase( sampler );
-                     Destroyed.push_back( sampler );
-                 } );
+            return { [this]( const VkSamplerCreateInfo&, VkSampler& out )
+                     {
+                         // A fake opaque handle, never dereferenced: an integer is the only way to mint one.
+                         // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
+                         out = reinterpret_cast<VkSampler>( static_cast<uintptr_t>( Next++ ) );
+                         Alive.insert( out );
+                         return VK_SUCCESS;
+                     },
+                     [this]( VkSampler sampler )
+                     {
+                         Alive.erase( sampler );
+                         Destroyed.push_back( sampler );
+                     } };
         }
     };
 

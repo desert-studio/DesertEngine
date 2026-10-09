@@ -338,7 +338,8 @@ TEST( ImageUploadedPixels, AnImageWithoutPixelsIsLeftAsItWas )
                                         .Format     = ImageFormat::RGBA8F,
                                         .Mips       = 4,
                                         .Usage      = Formats::Image2DUsage::Image2D,
-                                        .Properties = Formats::Sample };
+                                        .Properties = Formats::Sample,
+                                        .MipLevels  = {} };
 
     EXPECT_EQ( Formats::ReleaseUploadedPixels( spec ), 0u );
     EXPECT_EQ( spec.Mips, 4u );

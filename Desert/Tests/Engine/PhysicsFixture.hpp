@@ -32,6 +32,7 @@ namespace Desert::TestSupport
         const auto every = [&]( CollisionResponse response )
         {
             std::vector<Physics::CollisionResponseConfig> responses;
+            responses.reserve( channels.size() );
             for ( const std::string& channel : channels )
                 responses.push_back( { channel, response } );
             return responses;

@@ -56,7 +56,7 @@ namespace Desert::Water
         const double wind = static_cast<double>( g.WindAngleDeg ) * std::numbers::pi / 180.0;
         for ( int32_t i = 0; i < g.NumWaves; ++i )
         {
-            const float fi    = static_cast<float>( i );
+            const auto  fi    = static_cast<float>( i );
             const float alpha = std::clamp(
                  1.0f - ( fi / count ) +
                       stream.FRandRange( g.Randomness * ( -1.0f / count ), g.Randomness * ( 1.0f / count ) ),

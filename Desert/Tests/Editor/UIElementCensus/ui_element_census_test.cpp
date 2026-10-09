@@ -182,8 +182,8 @@ namespace
             for ( std::size_t at = source.find( needle ); at != std::string::npos;
                   at             = source.find( needle, at + 1 ) )
             {
-                if ( at > 0 &&
-                     ( std::isalnum( static_cast<unsigned char>( source[at - 1] ) ) || source[at - 1] == '_' ) )
+                if ( at > 0 && ( std::isalnum( static_cast<unsigned char>( source[at - 1] ) ) != 0 ||
+                                 source[at - 1] == '_' ) )
                     continue;
                 const std::size_t nameStart = at + needle.size();
                 const std::size_t close     = source.find( '>', nameStart );

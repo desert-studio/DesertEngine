@@ -150,12 +150,12 @@ namespace Desert::Runtime
             m_Waiting.clear();
         }
 
-        std::size_t Running() const
+        [[nodiscard]] std::size_t Running() const
         {
             return m_Running;
         }
 
-        std::size_t Waiting() const
+        [[nodiscard]] std::size_t Waiting() const
         {
             return m_Waiting.size();
         }

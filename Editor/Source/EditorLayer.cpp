@@ -638,7 +638,7 @@ namespace Desert::Editor
         frame.StartupLoading   = m_Startup.StartupLoading();
         frame.SplashOnScreen   = m_Startup.SplashOnScreen();
         frame.ContentSettling  = m_Startup.ContentSettling();
-        frame.AssetsCompiling  = m_AssetCompiling.RemainingAssets() > 0;
+        frame.AssetsCompiling   = m_AssetCompiling.RemainingAssets() > 0;
         frame.TexturesStreaming = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
         // The picture the writer reads back (ViewportCapture), at the size this frame renders at: the panels'
         // deferred resizes were applied just before this call.
@@ -716,7 +716,8 @@ namespace Desert::Editor
         m_LevelCommands.HandleShortcuts( ::ImGui::GetIO() );
 
         // The menu bar, which is the window's title bar (MainMenu::DrawBar).
-        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, m_ImGuiHost.Chrome() ? &*m_ImGuiHost.Chrome() : nullptr );
+        auto& chrome = m_ImGuiHost.Chrome();
+        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, chrome.has_value() ? &*chrome : nullptr );
 
         m_Dock.BeginHost();
 

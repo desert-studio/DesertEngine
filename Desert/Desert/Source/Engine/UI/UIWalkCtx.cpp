@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <unordered_map>
 #include <vector>
 
@@ -30,7 +31,8 @@ namespace Desert::UI::Walk
     {
         if ( !dl.HasTransform() )
             return r;
-        glm::vec2 mn, mx;
+        glm::vec2 mn;
+        glm::vec2 mx;
         Graphic::Render2D::TransformedAABB2D( dl.GetTransform(), { r.X, r.Y }, { r.X + r.W, r.Y + r.H }, mn, mx );
         return Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y };
     }
@@ -52,7 +54,7 @@ namespace Desert::UI::Walk
             if ( !ret.Mask || ret.MaskElement.empty() )
                 continue;
             NodeId found = NodeId::Null;
-            int          hits  = 0;
+            int    hits  = 0;
             for ( const NodeId m : elements )
                 if ( m != r && tree.Name( m ) == ret.MaskElement )
                 {
@@ -85,11 +87,10 @@ namespace Desert::UI::Walk
     // values — what its author actually typed — rather than an invented default or nothing drawn.
     ElementStyle StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e )
     {
-        const UIStyleData* authored =
-             tree.Has<UIStyleData>( e ) ? tree.Get<UIStyleData>( e ) : nullptr;
+        const UIStyleData* authored = tree.Has<UIStyleData>( e ) ? tree.Get<UIStyleData>( e ) : nullptr;
 
         if ( authored != nullptr && authored->Source == UIStyleSource::Local )
-            return ElementStyle( nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() );
+            return { nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() };
 
         // A copy rather than a reference: the alternative binds a reference to a temporary built from
         // the default-name constant. "Default" fits in a std::string's small buffer, so it costs no
@@ -102,8 +103,8 @@ namespace Desert::UI::Walk
         {
             LOG_ERROR( "[UI] Element '{}' asks for the style '{}', which the theme '{}' does not "
                        "declare — it draws its own authored colours instead.",
-                       tree.Name( e ).empty() ? std::string_view( "<untagged>" ) : tree.Name( e ),
-                       name, ctx.Style.Theme()->Name );
+                       tree.Name( e ).empty() ? std::string_view( "<untagged>" ) : tree.Name( e ), name,
+                       ctx.Style.Theme()->Name );
         }
         return style;
     }
@@ -167,19 +168,21 @@ namespace Desert::UI::Walk
                 return t < 0.5f ? 4.0f * t * t * t : 1.0f - std::pow( -2.0f * t + 2.0f, 3.0f ) * 0.5f;
             case UIEasing::BackOut:
             {
-                constexpr float c1 = 1.70158f, c3 = c1 + 1.0f;
+                constexpr float c1 = 1.70158f;
+                constexpr float c3 = c1 + 1.0f;
                 return 1.0f + c3 * std::pow( t - 1.0f, 3.0f ) + c1 * std::pow( t - 1.0f, 2.0f );
             }
             case UIEasing::ElasticOut:
             {
                 if ( t <= 0.0f || t >= 1.0f )
                     return t;
-                constexpr float c4 = 2.0f * 3.14159265f / 3.0f;
+                constexpr float c4 = 2.0f * std::numbers::pi_v<float> / 3.0f;
                 return std::pow( 2.0f, -10.0f * t ) * std::sin( ( t * 10.0f - 0.75f ) * c4 ) + 1.0f;
             }
             case UIEasing::BounceOut:
             {
-                constexpr float n1 = 7.5625f, d1 = 2.75f;
+                constexpr float n1 = 7.5625f;
+                constexpr float d1 = 2.75f;
                 if ( t < 1.0f / d1 )
                     return n1 * t * t;
                 if ( t < 2.0f / d1 )
@@ -279,8 +282,7 @@ namespace Desert::UI::Walk
         out.Tint *= clip->Tint;
     }
 
-    BindingSample SampleBinding( IUITree& tree, NodeId e, TweenSample& tw,
-                                 const UICanvasContext& cell )
+    BindingSample SampleBinding( IUITree& tree, NodeId e, TweenSample& tw, const UICanvasContext& cell )
     {
         BindingSample out;
         if ( !tree.Has<UIBindingData>( e ) )
@@ -307,7 +309,7 @@ namespace Desert::UI::Walk
                 // turn every numeric binding into a C-locale string and lose the count.
                 if ( const auto n = store.Number( b.Key ) )
                 {
-                    out.Number = *n;
+                    out.Number = n;
                     break;
                 }
                 if ( const auto t = store.Text( b.Key ) )
@@ -388,7 +390,7 @@ namespace Desert::UI::Walk
     // Does this target accept the payload in flight? An empty filter takes anything.
     bool Accepts( const UIDropTargetData& t, const std::string& payload )
     {
-        return t.Accepts.empty() || payload.rfind( t.Accepts, 0 ) == 0;
+        return t.Accepts.empty() || payload.starts_with( t.Accepts );
     }
 
     // Split a ';'-separated option string into its items (empty items skipped).
@@ -401,28 +403,27 @@ namespace Desert::UI::Walk
     {
         std::vector<std::string> out;
         std::string              cur;
-        for ( char c : s )
+        for ( const char c : s )
         {
             if ( c == ';' )
             {
                 if ( !cur.empty() )
-                    out.push_back( text.Resolve( cur ).Text );
+                    out.push_back( text.Resolve( cur, std::nullopt ).Text );
                 cur.clear();
             }
             else
                 cur += c;
         }
         if ( !cur.empty() )
-            out.push_back( text.Resolve( cur ).Text );
+            out.push_back( text.Resolve( cur, std::nullopt ).Text );
         return out;
     }
 
     // Keyboard-focusable controls (Tab cycles between them; Enter activates the focused one).
     bool IsFocusable( IUITree& tree, NodeId e )
     {
-        return tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) ||
-               tree.Has<UIToggleData>( e ) || tree.Has<UISliderData>( e ) ||
-               tree.Has<UIDropdownData>( e );
+        return tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) || tree.Has<UIToggleData>( e ) ||
+               tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e );
     }
 
     // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and
@@ -447,7 +448,7 @@ namespace Desert::UI::Walk
         if ( !HandleSet( handle ) )
             return nullptr;
 
-        if ( !ctx.View.Materials )
+        if ( ctx.View.Materials == nullptr )
         {
             if ( ctx.View.WarnedMaterial != handle )
             {
@@ -474,8 +475,7 @@ namespace Desert::UI::Walk
     // (`ctx.View.RenderTextures == nullptr`) — a unit test, or a host that never wired one. Reported
     // once per view, because a per-frame line buries the log and gets the whole message ignored; the
     // magenta is what keeps saying it, every frame.
-    const void* ResolveRenderTexture( WalkCtx& ctx, NodeId e, const UIRenderTextureData& data,
-                                      const Rect& rect )
+    const void* ResolveRenderTexture( WalkCtx& ctx, NodeId e, const UIRenderTextureData& data, const Rect& rect )
     {
         if ( ctx.View.RenderTextures == nullptr )
         {
@@ -532,8 +532,8 @@ namespace Desert::UI::Walk
         }
 
         const void* tex  = img.Id;
-        const float tw   = static_cast<float>( img.Width );
-        const float th   = static_cast<float>( img.Height );
+        const auto  tw   = static_cast<float>( img.Width );
+        const auto  th   = static_cast<float>( img.Height );
         const bool  nine = tw > 0.0f && th > 0.0f &&
                           ( srcBorder.x > 0.0f || srcBorder.y > 0.0f || srcBorder.z > 0.0f || srcBorder.w > 0.0f );
         if ( !nine )
@@ -542,9 +542,12 @@ namespace Desert::UI::Walk
             return;
         }
 
-        const float hw = ( mx.x - mn.x ) * 0.5f, hh = ( mx.y - mn.y ) * 0.5f;
-        const float pl = std::min( srcBorder.x * scale, hw ), pt = std::min( srcBorder.y * scale, hh );
-        const float pr = std::min( srcBorder.z * scale, hw ), pb = std::min( srcBorder.w * scale, hh );
+        const float hw    = ( mx.x - mn.x ) * 0.5f;
+        const float hh    = ( mx.y - mn.y ) * 0.5f;
+        const float pl    = std::min( srcBorder.x * scale, hw );
+        const float pt    = std::min( srcBorder.y * scale, hh );
+        const float pr    = std::min( srcBorder.z * scale, hw );
+        const float pb    = std::min( srcBorder.w * scale, hh );
         const float xs[4] = { mn.x, mn.x + pl, mx.x - pr, mx.x };
         const float ys[4] = { mn.y, mn.y + pt, mx.y - pb, mx.y };
         const float us[4] = { 0.0f, srcBorder.x / tw, 1.0f - srcBorder.z / tw, 1.0f };
@@ -632,9 +635,7 @@ namespace Desert::UI::Walk
     LayoutGroupParams GroupParams( const UILayoutGroupData& g, const ElementStyle& st, float scale )
     {
         LayoutGroupParams params;
-        params.Type = g.Type == UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                      : g.Type == UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                         : LayoutGroupType::Vertical;
+        params.Type = ToLayoutGroupType( g.Type );
 
         // A THEMED PADDING IS ONE NUMBER ON ALL FOUR EDGES. A theme says "panels breathe by 12 px",
         // which is a symmetric statement; the asymmetric cases (a title bar with a deeper top inset)

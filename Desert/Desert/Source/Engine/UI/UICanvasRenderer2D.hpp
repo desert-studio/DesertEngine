@@ -10,6 +10,7 @@
 
 #include <Engine/UI/UITree.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -76,10 +77,7 @@ namespace Desert::UI
         // Was @p key pressed (or auto-repeated) at least once this frame?
         NO_DISCARD bool Pressed( Common::KeyCode key ) const
         {
-            for ( const UIKeyEvent& k : Keys )
-                if ( k.Key == key )
-                    return true;
-            return false;
+            return std::ranges::any_of( Keys, [key]( const UIKeyEvent& k ) { return k.Key == key; } );
         }
     };
 
@@ -121,8 +119,8 @@ namespace Desert::UI
     // Tab, run the overlay state machine on the election just made (UIOverlay.hpp), and draw the drag ghost
     // on top of all of them. @p outMessages collects every message fired;
     // without it they fall back to @p outClicked while it is still empty.
-    void EndUIFrame( UIViewContext& view, IUITree& tree, Graphic::Render2D::DrawList2D& dl,
-                     const UIInput* input, NodeId* focused = nullptr, std::string* outClicked = nullptr,
+    void EndUIFrame( UIViewContext& view, IUITree& tree, Graphic::Render2D::DrawList2D& dl, const UIInput* input,
+                     NodeId* focused = nullptr, std::string* outClicked = nullptr,
                      std::vector<std::string>* outMessages = nullptr );
 
     // Emit @p canvas into @p dl in pixel coordinates within the frame's viewport (UIViewContext::ViewportPx,
@@ -145,12 +143,10 @@ namespace Desert::UI
     // by (@p canvas x @p view) — looked up here rather than passed in, so no caller can hand one canvas's
     // screen stack to another canvas's walk. See UICanvasContext.hpp for why neither coordinate alone was
     // enough.
-    NO_DISCARD Common::BoolResultStr RenderCanvas2D( UIViewContext& view, IUITree& tree, NodeId canvas,
-                                                     Graphic::Render2D::DrawList2D& dl,
-                                                     const glm::mat4*               worldViewProj = nullptr,
-                                                     const UIInput*                 input         = nullptr,
-                                                     std::string*                   outClicked    = nullptr,
-                                                     NodeId*                        focused       = nullptr );
+    NO_DISCARD Common::BoolResultStr
+    RenderCanvas2D( UIViewContext& view, IUITree& tree, NodeId canvas, Graphic::Render2D::DrawList2D& dl,
+                    const glm::mat4* worldViewProj = nullptr, const UIInput* input = nullptr,
+                    std::string* outClicked = nullptr, NodeId* focused = nullptr );
 } // namespace Desert::UI
 
 // The `entt::registry&` overloads keep every existing caller's signature; they wrap the registry in an

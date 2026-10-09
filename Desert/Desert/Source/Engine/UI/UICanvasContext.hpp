@@ -63,7 +63,7 @@ namespace Desert::UI
     {
         bool         Active  = false; // past the threshold: the ghost is up and a drop can land
         bool         Pending = false; // pressed on a draggable, still deciding drag vs click
-        NodeId Source  = NodeId::Null;
+        NodeId       Source  = NodeId::Null;
         std::string  Payload;
         glm::vec2    Size{ 0.0f };
         glm::vec2    PressPos{ 0.0f };
@@ -78,7 +78,7 @@ namespace Desert::UI
         // Keyed by entity, and an entity belongs to exactly one canvas, so these are the clocks of THIS
         // canvas's tree. Per canvas rather than per view because that is what gives them a death: the cell
         // goes when the canvas does, instead of accumulating a row per element the scene ever had.
-        std::unordered_map<NodeId, float>    HoverT;    // 0 = rest, 1 = hovered; eased each frame
+        std::unordered_map<NodeId, float> HoverT; // 0 = rest, 1 = hovered; eased each frame
         // Retainers whose Mask Element name was refused (not exactly one match) — logged once per element.
         std::unordered_set<NodeId>           RetainerMaskRefused;
         std::unordered_map<NodeId, float>    TweenT;    // per-element tween playhead
@@ -351,8 +351,8 @@ namespace Desert::UI
         // every canvas of the frame and is handed over once, in EndUIFrame — doing it per walk gave the
         // LAST canvas drawn the whole answer, so an overlay canvas erased the HUD's hot element merely by
         // existing.
-        NodeId Hot     = NodeId::Null; // resolved last frame: what the controls react to now
-        NodeId HotNext = NodeId::Null; // being elected during this frame's walks
+        NodeId       Hot     = NodeId::Null; // resolved last frame: what the controls react to now
+        NodeId       HotNext = NodeId::Null; // being elected during this frame's walks
         Rect         HotNextRect{};
         bool         PrevDown = false; // for the press edge (UIInput only carries held + release)
         UIDragState  Drag;
@@ -380,7 +380,7 @@ namespace Desert::UI
         // The hover trigger the pointer is currently resting on, and for how long. A hover overlay opens
         // when this reaches its UIOverlayData::OpenDelay; moving to another trigger — or to nothing —
         // restarts the clock, which is what makes a delay a delay rather than an accumulator.
-        NodeId OverlayHoverTrigger = NodeId::Null;
+        NodeId       OverlayHoverTrigger = NodeId::Null;
         float        OverlayHoverHeld    = 0.0f;
 
         // The one open tooltip of this view, if any. A tooltip is deliberately NOT on the stack above: it
@@ -393,7 +393,7 @@ namespace Desert::UI
         // clock is still satisfied on the very next frame and reopens what was just closed, so Escape looks
         // like it does nothing. Cleared the moment the pointer is on a different trigger (or none), which
         // is the user's way of saying they are done with that dismissal.
-        NodeId OverlayHoverSuppressed = NodeId::Null;
+        NodeId       OverlayHoverSuppressed = NodeId::Null;
         bool         PrevRightDown          = false; // the right-button press edge, as PrevDown is for the left
 
         // --- Walk-local -------------------------------------------------------------------------------
@@ -474,15 +474,13 @@ namespace Desert::UI
         void RetireDeadCanvases( const IUITree& tree )
         {
             for ( auto it = m_Canvases.begin(); it != m_Canvases.end(); )
-                it = ( tree.Valid( it->first ) && tree.Has<UICanvasData>( it->first ) )
-                          ? std::next( it )
-                          : m_Canvases.erase( it );
+                it = ( tree.Valid( it->first ) && tree.Has<UICanvasData>( it->first ) ) ? std::next( it )
+                                                                                        : m_Canvases.erase( it );
 
             // The overlay stack is an INDEX INTO that table, so it dies on the same frame the cells do.
             // An index that outlives what it points at is the identical defect one level up: a destroyed
             // menu would still be "open", and Escape would pop an entity nobody can ask anything about.
-            const auto gone = [&tree]( NodeId c )
-            { return !tree.Valid( c ) || !tree.Has<UICanvasData>( c ); };
+            const auto gone = [&tree]( NodeId c ) { return !tree.Valid( c ) || !tree.Has<UICanvasData>( c ); };
             OverlayStack.erase( std::remove_if( OverlayStack.begin(), OverlayStack.end(), gone ),
                                 OverlayStack.end() );
             if ( OverlayTooltip != NodeId::Null && gone( OverlayTooltip ) )
@@ -517,6 +515,6 @@ namespace Desert::UI
         // Never null: bound by the constructor and copied with the view (an introspection probe walks a copy).
         IUICanvasResources*                               m_Resources;
         UIAnimationSourceSlot                             m_Animation;
-        std::unordered_map<NodeId, UICanvasContext> m_Canvases;
+        std::unordered_map<NodeId, UICanvasContext>       m_Canvases;
     };
 } // namespace Desert::UI
