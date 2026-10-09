@@ -236,12 +236,14 @@ namespace Desert::ECS
     } // namespace
 
     Common::BoolResultStr SetEntityTransformKeyShape( T::Sequence& sequence, const T::BindingGuid& binding,
-                                                      const std::vector<Animation::FrameNumber>& ticks,
-                                                      const Animation::KeyInterp                 interp,
-                                                      const Animation::TangentMode               mode )
+                                                      const std::vector<Animation::FrameNumber>&  ticks,
+                                                      const std::optional<Animation::KeyInterp>   interp,
+                                                      const std::optional<Animation::TangentMode> mode )
     {
         if ( ticks.empty() )
             return Common::MakeError( "Key shape: no key is selected" );
+        if ( !interp && !mode )
+            return Common::MakeError( "Key shape: neither an interpolation nor a tangent mode is given" );
         T::Sequence edited = sequence;
         T::Track*   track  = EntityTransformTrack( edited, binding );
         if ( track == nullptr )
@@ -257,17 +259,18 @@ namespace Desert::ECS
                 for ( const Animation::TrackChannel part : kPoseParts )
                 {
                     // A quaternion is slerped or held: Cubic on a Rotation lane would break the channel invariant.
-                    const Animation::KeyInterp laneInterp =
-                         part == Animation::TrackChannel::Rotation && interp == Animation::KeyInterp::Cubic
-                              ? Animation::KeyInterp::Linear
-                              : interp;
+                    std::optional<Animation::KeyInterp> laneInterp = interp;
+                    if ( part == Animation::TrackChannel::Rotation && interp == Animation::KeyInterp::Cubic )
+                        laneInterp = Animation::KeyInterp::Linear;
                     for ( T::FloatChannel* lane : PartLanes( *pose, part ) )
                         for ( Animation::ScalarKey& key : lane->Keys )
                             if ( key.Tick == tick )
                             {
-                                key.Interp = laneInterp;
-                                key.Mode   = mode;
-                                found      = true;
+                                if ( laneInterp )
+                                    key.Interp = *laneInterp;
+                                if ( mode )
+                                    key.Mode = *mode;
+                                found = true;
                             }
                 }
                 Animation::RefreshTangents( *pose, edited.TickRate );
@@ -278,6 +281,55 @@ namespace Desert::ECS
         edited.Revision = sequence.Revision + 1;
         sequence        = std::move( edited );
         return Common::MakeSuccess( true );
+    }
+
+    TransformKeyShape SelectedEntityTransformKeyShape( const T::Sequence&                  sequence,
+                                                       const std::vector<TransformKeyRef>& keys )
+    {
+        std::vector<Animation::KeyInterp>   interps;
+        std::vector<Animation::TangentMode> modes;
+        for ( const TransformKeyRef& ref : keys )
+            for ( const T::Track& track : sequence.Tracks )
+            {
+                if ( track.Binding != ref.Binding || track.Property != kLevelSequenceTransformProperty )
+                    continue;
+                for ( const T::Section& section : track.Sections )
+                {
+                    const auto* channel = std::get_if<T::Channel>( &section.Content );
+                    const auto* pose = channel != nullptr ? std::get_if<T::TransformChannel>( channel ) : nullptr;
+                    if ( pose == nullptr )
+                        continue;
+                    // (lane, its Interp counts): the Rotation lanes' Interp is the slerp form, see the header.
+                    const std::array<std::pair<const T::FloatChannel*, bool>, 10> lanes = { {
+                         { &pose->Translation.X, true },
+                         { &pose->Translation.Y, true },
+                         { &pose->Translation.Z, true },
+                         { &pose->Rotation.X, false },
+                         { &pose->Rotation.Y, false },
+                         { &pose->Rotation.Z, false },
+                         { &pose->Rotation.W, false },
+                         { &pose->Scale.X, true },
+                         { &pose->Scale.Y, true },
+                         { &pose->Scale.Z, true },
+                    } };
+                    for ( const auto& [lane, readsInterp] : lanes )
+                        for ( const Animation::ScalarKey& key : lane->Keys )
+                            if ( key.Tick == ref.Tick )
+                            {
+                                if ( readsInterp )
+                                    interps.push_back( key.Interp );
+                                modes.push_back( key.Mode );
+                            }
+                }
+            }
+        TransformKeyShape shape;
+        if ( !interps.empty() &&
+             std::ranges::all_of( interps, [&]( const Animation::KeyInterp v ) { return v == interps.front(); } ) )
+            shape.Interp = interps.front();
+        if ( !modes.empty() &&
+             std::ranges::all_of( modes, [&]( const Animation::TangentMode v ) { return v == modes.front(); } ) )
+            shape.Mode = modes.front();
+        return shape;
     }
 
     Common::BoolResultStr ApplyEntityTransformEasing( T::Sequence& sequence, const T::BindingGuid& binding,

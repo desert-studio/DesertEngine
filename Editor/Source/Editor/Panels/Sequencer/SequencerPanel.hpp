@@ -302,9 +302,10 @@ namespace Desert::Editor
         /// What the selected event key does when it fires (nullopt: a named marker), one undo step
         /// (`ECS::SetEventKeyAction`).
         void SetSelectedLevelEventAction( std::optional<Animation::Timeline::EventAction> action );
-        /// The selected keys' interpolation and tangent mode, every binding they sit on, one undo step
-        /// (`ECS::SetEntityTransformKeyShape`).
-        void ShapeSelectedLevelKeys( Animation::KeyInterp interp, Animation::TangentMode mode );
+        /// The selected keys' interpolation and/or tangent mode (nullopt: that part stays), every binding they sit
+        /// on, one undo step (`ECS::SetEntityTransformKeyShape`).
+        void ShapeSelectedLevelKeys( std::optional<Animation::KeyInterp>   interp,
+                                     std::optional<Animation::TangentMode> mode );
         /// @p preset on the segment ending at each selected key, on the part the curve view shows (Location or
         /// Scale), one undo step (`ECS::ApplyEntityTransformEasing`).
         void EaseSelectedLevelKeys( Animation::Timeline::EasingPreset preset );
@@ -334,11 +335,7 @@ namespace Desert::Editor
         /// The curve view of a Transform track — the selected key's binding, else the first keyed one.
         void DrawLevelCurve( Animation::Timeline::Sequence& sequence, float contentX0, float gutter, float laneW );
 
-        struct LevelKeyRef
-        {
-            Animation::Timeline::BindingGuid Binding;
-            Animation::FrameNumber           Tick;
-        };
+        using LevelKeyRef = ECS::TransformKeyRef;
         std::vector<LevelKeyRef> m_LevelSelKeys;
         /// The selected event key: (binding, index in `ECS::EventKeys`). Events share ticks, so a tick names none.
         struct LevelEventRef
@@ -359,8 +356,6 @@ namespace Desert::Editor
         bool m_LevelEventActionPending = false;
         char m_LevelEventTarget[256]   = {}; ///< the selected event's Target (sound file / Lua function)
         bool m_LevelEventTargetEditing = false;
-        int  m_LevelKeyInterp          = 1; ///< the key-shape row's KeyInterp (Linear)
-        int  m_LevelKeyTangent         = 0; ///< the key-shape row's TangentMode (Auto)
         int  m_LevelKeyEasing          = 6; ///< the key-shape row's EasingPreset (CubicInOut)
         /// The selected Subsequence section (its index in `ECS::SubsequenceSections`).
         std::optional<size_t> m_LevelSelSubsequence;
