@@ -47,8 +47,9 @@ namespace
     // An imported Rock.fbx in a throwaway project: its record, its DDC envelope, no file at Rock.stmesh.
     struct Imported
     {
-        fs::path Source;
-        fs::path Asset;
+        fs::path                        Source;
+        fs::path                        Asset;
+        Assets::MeshPlatformDataBuilder Previous;
         explicit Imported( const char* name )
         {
             const fs::path  root = fs::temp_directory_path() / ( std::string( "desert_p9b_" ) + name );
@@ -60,12 +61,12 @@ namespace
             fs::create_directories( Source.parent_path(), ec );
             std::ofstream( Source, std::ios::binary | std::ios::trunc ) << "rock v1";
             Asset = Editor::CookPaths::MeshAsset( Source );
-            Assets::SetMeshPlatformDataBuilder( []( const Assets::MeshSourceAsset& a )
-                                                { return Editor::BuildMeshPlatformData( a ); } );
+            Previous = Assets::SetMeshPlatformDataBuilder( []( const Assets::MeshSourceAsset& a )
+                                                           { return Editor::BuildMeshPlatformData( a ); } );
         }
         ~Imported()
         {
-            Assets::SetMeshPlatformDataBuilder( nullptr );
+            Assets::SetMeshPlatformDataBuilder( std::move( Previous ) ); // the runner's, not none
             Common::Constants::Path::ClearProject();
         }
         Imported( const Imported& )            = delete;

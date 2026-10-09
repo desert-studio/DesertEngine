@@ -53,10 +53,10 @@ namespace Desert::Assets
         return MeshDerivedDataKey( MeshSourceHash( asset.Source ), MeshBuildSettings{ asset.Import.Settings } );
     }
 
-    void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder )
+    MeshPlatformDataBuilder SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder )
     {
         const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        return std::exchange( s_Builder, std::move( builder ) );
     }
 
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset )

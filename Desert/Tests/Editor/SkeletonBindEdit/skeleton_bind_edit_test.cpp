@@ -1,10 +1,13 @@
 // The Skeleton Editor's Reference Pose (ANIM-FIX4a): an edit of one bone's bind is ONE undo record, Save writes it
 // into the `.skeleton`, a fresh load reads the same value back, and the file - not the shared asset - is what
 // "Save*" compares against and "Don't Save" puts back.
+#include "../../TestSupport/runner.hpp"
+
 #include <gtest/gtest.h>
 
 #include <format>
 
+#include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Commands/SkeletonBindEdit.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -55,6 +58,29 @@ namespace
     }
 
     const glm::mat4 kEdited = glm::translate( glm::mat4( 1.0f ), glm::vec3( 3.5f, 12.25f, -2.0f ) );
+
+    // The suite's tests read the process's undo history as theirs ("the discarded edit's record went with it" is
+    // an Undo that finds nothing). Records another suite left behind write into objects that suite has freed, so
+    // an Undo here would replay one of them: the suite starts and ends with an empty history.
+    class EmptyHistoryEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            Editor::CommandHistory::Get().Clear();
+        }
+        void TearDown() override
+        {
+            Editor::CommandHistory::Get().Clear();
+        }
+    };
+
+    ::testing::Environment* MakeEmptyHistoryEnvironment()
+    {
+        return new EmptyHistoryEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    }
+
+    const Desert::TestSupport::SuiteEnvironment kEmptyHistory{ &MakeEmptyHistoryEnvironment };
 } // namespace
 
 TEST( SkeletonBindEdit, AnEditedBindIsSavedAndALoadReadsTheSameValue )

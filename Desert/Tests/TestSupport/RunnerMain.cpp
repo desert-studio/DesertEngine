@@ -14,6 +14,7 @@
 #include <format>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -117,6 +118,67 @@ namespace Desert::TestSupport
             }
             return std::nullopt;
         }
+
+        // A suite's environments (SuiteEnvironment) are up exactly while that suite's tests run: set up when
+        // the first test of a suite starts, torn down (in reverse) when a test of another suite starts or the
+        // run's tests are over. A suite whose tests are all filtered out never sets its environments up.
+        // Every suite also STARTS from the process state the host steps left (the open project, the engine
+        // directory), snapshotted when the scope is made: a test that opened a scratch project and closed it
+        // with ClearProject() instead of a ProjectScope cannot take the content away from the next suite.
+        class SuiteEnvironmentScope final : public testing::EmptyTestEventListener
+        {
+        public:
+            SuiteEnvironmentScope()
+                 : m_HostProject( Common::Constants::Path::CurrentProjectRoot() )
+                 , m_HostEngineDir( Common::Constants::Path::HasEngineDir() ? Common::Constants::Path::EngineDir()
+                                                                            : std::filesystem::path{} )
+            {
+            }
+
+            void OnTestStart( const testing::TestInfo& info ) override
+            {
+                const std::string suite = SuiteOfTest( info.file() ).value_or( std::string() );
+                if ( m_Started && suite == m_Suite )
+                {
+                    return;
+                }
+                TearDownLive();
+                m_Started = true;
+                m_Suite   = suite;
+                Common::Constants::Path::SetEngineDir( m_HostEngineDir );
+                Common::Constants::Path::SetProjectRoot( m_HostProject.ProjectDir, m_HostProject.AssetsRoot );
+                for ( const auto& [owner, make] : EnvironmentTable() )
+                {
+                    if ( owner == suite )
+                    {
+                        m_Live.emplace_back( make() );
+                        m_Live.back()->SetUp();
+                    }
+                }
+            }
+
+            void OnEnvironmentsTearDownStart( const testing::UnitTest& /*unitTest*/ ) override
+            {
+                TearDownLive();
+                m_Started = false; // a --gtest_repeat iteration starts from no suite
+            }
+
+        private:
+            void TearDownLive()
+            {
+                for ( auto it = m_Live.rbegin(); it != m_Live.rend(); ++it )
+                {
+                    ( *it )->TearDown();
+                }
+                m_Live.clear();
+            }
+
+            const Common::Constants::Path::ProjectRootState    m_HostProject; // a copy: SetProjectRoot rewrites it
+            const std::filesystem::path                        m_HostEngineDir;
+            bool                                               m_Started = false;
+            std::string                                        m_Suite;
+            std::vector<std::unique_ptr<testing::Environment>> m_Live;
+        };
 
         // gtest's own filter grammar ("pos1:pos2-neg1:neg2", '*' and '?' wildcards), so `--gtest_filter`
         // given together with `--desert-suite` narrows the suite instead of being overwritten by it.
@@ -416,13 +478,10 @@ namespace
         {
             return kSelectionError;
         }
-        for ( const auto& [suite, make] : EnvironmentTable() )
-        {
-            if ( !suites || suites->contains( suite ) )
-            {
-                ::testing::AddGlobalTestEnvironment( make() );
-            }
-        }
+        // Not gtest global environments: those live for the whole run, so one suite's throwaway DDC and mesh
+        // builder were every other suite's too (an envelope cached by one test made the next suite's "nothing
+        // imported yet" fresh). The scope sets a suite's environments up for its own tests only.
+        testing::UnitTest::GetInstance()->listeners().Append( new SuiteEnvironmentScope ); // gtest owns it
         return RUN_ALL_TESTS();
     }
 } // namespace

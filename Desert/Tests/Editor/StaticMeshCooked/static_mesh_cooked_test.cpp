@@ -386,12 +386,15 @@ namespace
     public:
         void SetUp() override
         {
-            Desert::Assets::SetMeshPlatformDataBuilder( Desert::Editor::BuildMeshPlatformData );
+            m_Previous = Desert::Assets::SetMeshPlatformDataBuilder( Desert::Editor::BuildMeshPlatformData );
         }
         void TearDown() override
         {
-            Desert::Assets::SetMeshPlatformDataBuilder( {} );
+            Desert::Assets::SetMeshPlatformDataBuilder( std::move( m_Previous ) );
         }
+
+    private:
+        Desert::Assets::MeshPlatformDataBuilder m_Previous;
     };
 
     ::testing::Environment* MakeEditorMeshBuilderEnvironment()

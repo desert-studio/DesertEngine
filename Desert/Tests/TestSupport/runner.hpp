@@ -44,9 +44,10 @@
 //
 //     namespace { const Desert::TestSupport::SuiteEnvironment kHost{ &MakeHostEnvironment }; }
 //
-// The runner hands it to gtest (SetUp before the first test, TearDown after the last) only when that
-// suite is selected with --desert-suite, or when the run selects no suite (every test of the runner).
-// A suite may register several; they are set up in registration order within a translation unit.
+// The runner sets it up when the first test of that suite starts and tears it down when a test of another
+// suite starts (or the tests are over) -- never as a gtest global environment, which would be up for every
+// suite of the run. A suite whose tests are all filtered out never sets it up. A suite may register several;
+// they are set up in registration order within a translation unit and torn down in reverse.
 //
 // THE PROCESS'S HOST STEPS. Some suites point the process at the engine directory (SetSuiteEngineDir,
 // engine_dir.hpp) and open the committed project (OpenSuiteProject, project_scope.hpp) before gtest even
@@ -114,7 +115,7 @@ namespace Desert::TestSupport
         SuiteHost& operator=( const SuiteHost& ) = delete;
     };
 
-    // Makes the environment when the suite runs; gtest owns what it returns.
+    // Makes the environment when the suite's tests start; the runner owns what it returns.
     using EnvironmentFactory = ::testing::Environment* (*)();
 
     // Registers `make` for the suite of the file this object is constructed in. Namespace scope only.

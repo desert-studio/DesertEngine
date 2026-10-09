@@ -376,6 +376,8 @@ namespace
          { "ShowSkyBackdrop", Owner::Machine },
          // RDG-CULL: the render graph's pass-culling debug switch, one person's diagnostic view.
          { "DisablePassCulling", Owner::Machine },
+         // TAA1-B: the viewport's Screen Percentage override (UE EditorViewportClient), one person's view.
+         { "ScreenPercentage", Owner::Machine },
     };
 
     // ------------------------------------------------------------------------------------------------

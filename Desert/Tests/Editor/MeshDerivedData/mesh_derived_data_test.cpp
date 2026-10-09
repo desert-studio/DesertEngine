@@ -65,6 +65,13 @@ namespace
         asset.Source.MaterialSlots = { { "Default", Common::Content::AssetGuid::Generate() } };
         return asset;
     }
+
+    // Puts back the builder the process had (the runner's) when the test ends, however it ends.
+    struct PreviousBuilder
+    {
+        Assets::MeshPlatformDataBuilder Builder;
+        ~PreviousBuilder() { Assets::SetMeshPlatformDataBuilder( std::move( Builder ) ); }
+    };
 } // namespace
 
 TEST( MeshDerivedData, KeyIsStableAndBlindToNamePathAndGuid )
@@ -124,13 +131,13 @@ TEST( MeshDerivedData, SecondLoadIsAHitAndAGameWithoutABuilderSaysWhy )
         return;
     }
 
-    int builds = 0;
-    Assets::SetMeshPlatformDataBuilder(
+    int                   builds = 0;
+    const PreviousBuilder restore{ Assets::SetMeshPlatformDataBuilder(
          [&builds]( const Assets::MeshSourceAsset& a )
          {
              ++builds;
              return Editor::BuildMeshPlatformData( a );
-         } );
+         } ) };
     const auto first = Assets::LoadMeshPlatformData( file );
     if ( !first.IsSuccess() )
     {
@@ -166,6 +173,22 @@ TEST( MeshDerivedData, SecondLoadIsAHitAndAGameWithoutABuilderSaysWhy )
 
     Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
+}
+
+// A scope that swaps in its own builder must be able to put the previous one back: a test that reset it to
+// none left every later suite of the runner that cooks a mesh (StaticMeshCooked, ImportedMeshAsset, ...) with
+// "this build cannot derive it" - green alone, red in the full run.
+TEST( MeshDerivedData, SettingABuilderHandsBackTheOneItReplaces )
+{
+    const PreviousBuilder restore{ Assets::SetMeshPlatformDataBuilder(
+         []( const Assets::MeshSourceAsset& ) { return Common::MakeError<std::string>( "first" ); } ) };
+
+    const Assets::MeshPlatformDataBuilder first = Assets::SetMeshPlatformDataBuilder(
+         []( const Assets::MeshSourceAsset& ) { return Common::MakeError<std::string>( "second" ); } );
+    ASSERT_TRUE( static_cast<bool>( first ) ) << "the replaced builder was not handed back";
+    const auto answer = first( MakePlaneAsset() );
+    ASSERT_FALSE( answer.IsSuccess() );
+    EXPECT_EQ( answer.GetError(), "first" );
 }
 
 TEST( MeshDerivedData, SkinnedSourceIsRefusedByName )

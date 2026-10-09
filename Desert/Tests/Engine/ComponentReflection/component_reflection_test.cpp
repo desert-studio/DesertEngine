@@ -459,12 +459,12 @@ TEST( HeightFogReflection, DistancesAreLengthsAndEveryFieldIsAnnotatedWellEnough
 }
 
 // ---------------------------------------------------------------------------------------------------
-// VolumetricCloudData — 23 fields: 22 since O1 (the LOOK is a MATERIAL) and 23 since О11, which gave the
-// SCENE a say in how high its deck hangs without giving it a second say in the shell. What stays is
+// VolumetricCloudData — 21 fields: 22 since O1 (the LOOK is a MATERIAL), 23 since О11, which gave the
+// SCENE a say in how high its deck hangs without giving it a second say in the shell, and 21 since WIND-SRC
+// moved the wind pair to the scene's WindSource (ECS::WindAt is the one wind query). What stays is
 // exactly what
 // UVolumetricCloudComponent keeps, name for name — tracing budgets, pass routing, world integration —
-// plus the Material handle that is the seam itself, the region budget, and the wind pair (the one named
-// divergence from the UE split: the collector integrates the offset and may not touch the registry).
+// plus the Material handle that is the seam itself and the region budget.
 // The thirty-three moved fields have their own census now: Desert/Tests/Engine/CloudMaterialSchema pins
 // the CloudRaymarch schema against Graphic::CloudMaterialValues in both directions, defaults included.
 // ---------------------------------------------------------------------------------------------------
@@ -496,7 +496,7 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     };
 
     const TypeInfo& cloud = Type( "VolumetricCloudData" );
-    EXPECT_EQ( cloud.Fields.size(), 23u );
+    EXPECT_EQ( cloud.Fields.size(), 21u );
     EXPECT_EQ( FieldNames( cloud ), expected );
 
     // SIX Cloud Layer rows since О11: the sixth is the SCENE's own lift of the deck. It is not a sixth
@@ -527,7 +527,8 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     // different times by different views — a preview wants a small bake and a full march, a level the
     // reverse.
     EXPECT_EQ( CountInCategory( cloud, "Quality" ), 3u );
-    EXPECT_EQ( CountInCategory( cloud, "Animation" ), 2u );
+    // No Animation rows since WIND-SRC: the layer drifts by the scene wind, not by a cloud-owned pair.
+    EXPECT_EQ( CountInCategory( cloud, "Animation" ), 0u );
 
     // THE SEAM ITSELF: one material handle, hidden from the reflected pass because its row is the
     // terrain-style New/Edit/Clear widget in ComponentEditorRegistrations.cpp.

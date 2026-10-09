@@ -1,6 +1,6 @@
 // CG-BAKE1: Cube Grid's Accept gave a piece a BOX around it, so a room built of blocks was solid inside and could
 // not be walked into. Pinned here on the editor's own inputs: a baked room with a doorway, put on an entity the
-// way CubeGridTool::RegenMesh does (FromRenderMesh -> SetEditableMeshFromEditMesh), the collision Accept gives it
+// way CubeGridTool::RegenMesh does (FromRenderMesh -> SetEditableMeshFromEditMesh, upload aside), the collision Accept gives it
 // (GiveBlockoutCollision), and the body Play builds from that collider (PhysicsECSSystem::GatherColliderMesh ->
 // PhysicsWorld::CreateBody). A ray through the doorway must reach the far wall's inner face.
 
@@ -11,6 +11,9 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
@@ -18,6 +21,7 @@
 #include <entt/entt.hpp>
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <optional>
 
 using namespace Desert;
@@ -44,14 +48,28 @@ namespace
         return volume;
     }
 
-    // The piece as CubeGridTool::RegenMesh leaves it: a StaticMesh whose edited mesh is the bake.
+    // The piece as CubeGridTool::RegenMesh leaves it: a StaticMesh whose edited mesh is the bake and whose
+    // runtime mesh is that mesh's render form - ECS::SetEditableMesh's two members, built the way it builds
+    // them (Bridge::FromEditMesh, ToRenderMesh) minus its GPU upload: this suite has no device, and the body
+    // Play makes reads the runtime mesh's CPU vertices (ColliderMeshSource::RuntimeMesh), never its buffers.
     Common::BoolResultStr PutOnEntity( const Geometry::VoxelBlockout::Volume& volume, const ECS::Entity& piece )
     {
         auto edit = Geometry::FromRenderMesh( volume.Bake() );
         if ( !edit.IsSuccess() )
             return Common::MakeError<bool>( edit.GetError() );
-        auto& mesh = piece.AddComponent<ECS::StaticMeshComponent>();
-        return Geometry::Bridge::SetEditableMeshFromEditMesh( mesh, std::move( edit.ExtractValue().Mesh ) );
+        auto editable = Geometry::Bridge::FromEditMesh( std::move( edit.ExtractValue().Mesh ) );
+        if ( !editable.IsSuccess() )
+            return Common::MakeError<bool>( editable.GetError() );
+        auto render = Geometry::ToRenderMesh( *editable.GetValue() );
+        if ( !render.IsSuccess() )
+            return Common::MakeError<bool>( render.GetError() );
+        const Geometry::RenderMeshData& data = render.GetValue();
+
+        auto& mesh        = piece.AddComponent<ECS::StaticMeshComponent>();
+        mesh.EditableMesh = editable.ExtractValue();
+        mesh.RuntimeMesh  = std::make_shared<DynamicMesh>( data.Vertices, data.Indices, data.Submeshes );
+        (void)ECS::CoverMaterialIds( mesh.MaterialSlots, data.SubmeshMaterialIds );
+        return Common::MakeSuccess( true );
     }
 
     // What Play builds from the entity's collider and body (PhysicsECSSystem's body creation), at the origin.

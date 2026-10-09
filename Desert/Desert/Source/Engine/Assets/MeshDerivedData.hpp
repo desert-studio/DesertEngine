@@ -53,7 +53,9 @@ namespace Desert::Assets
 
     // The MeshBinary container bytes of the asset's render data (EncodeMeshBinary's output).
     using MeshPlatformDataBuilder = std::function<Common::ResultStr<std::string>( const MeshSourceAsset& asset )>;
-    void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder );
+    // Returns the builder it replaces, so a scope that swaps in its own puts the previous one back rather than
+    // leaving the process with none (a test that reset it to empty broke every later suite that cooks).
+    MeshPlatformDataBuilder SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder );
 
     // DDC hit, or - where a builder is registered - build and Put. A failed Put is an error carrying the file
     // system's reason: a cache that silently stays cold rebuilds on every load and nobody learns why.
