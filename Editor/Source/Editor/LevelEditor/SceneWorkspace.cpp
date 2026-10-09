@@ -16,6 +16,7 @@
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/ECS/System/GameModeSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <array>
@@ -72,6 +73,7 @@ namespace Desert::Editor
         // ScriptSystem runs BEFORE physics: scripts set the character's move intent (+ look) which
         // PhysicsECSSystem then executes the same frame.
         scene.AddSystem<ECS::ScriptSystem>( &scene, m_Assets.get() );
+        scene.AddSystem<ECS::GameModeSystem>( &scene, m_Assets.get() );
         scene.AddSystem<ECS::PhysicsECSSystem>( &scene );
         // Maps character movement state (speed/onGround from physics) -> locomotion clip; after physics.
         scene.AddSystem<ECS::LocomotionSystem>( &scene );

@@ -70,7 +70,9 @@ namespace Desert::Core
     // material (Tools/SceneMigrator, MigrateParticleSpriteMaterialsV43ToV44).
     // v45 (GP4): every Collider block states IsTrigger and the four Overlap* filter keys (Tools/SceneMigrator,
     // MigrateTriggerColliderV44ToV45).
-    inline constexpr int kSceneVersion = 45;
+    // v46 (GP3): SceneSettings states PlayerController and RespawnDelay (Tools/SceneMigrator,
+    // MigrateGameModeSettingsV45ToV46).
+    inline constexpr int kSceneVersion = 46;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

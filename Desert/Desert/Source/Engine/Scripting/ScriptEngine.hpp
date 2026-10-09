@@ -113,6 +113,10 @@ namespace Desert::Scripting
         // EnhancedInputPlayerComponents' contexts are added); EndPlayerInput ends the session.
         void                     TickPlayerInput( entt::registry& registry, float deltaSeconds );
         void                     EndPlayerInput();
+        // The scene's GameMode events since last frame (Core/GameMode.hpp), in order: a PawnDied unpossesses the
+        // player's input and calls OnPawnDied(pawn) on every script; a PlayerRestarted possesses the new pawn
+        // (its input contexts) and calls OnPlayerRestarted(pawn). After TickPlayerInput, before the scripts run.
+        void                     DeliverGameModeEvents( entt::registry& registry );
         Input::LocalPlayerInput& PlayerInput();
 
         // A script may request cursor lock/unlock via Input.lockCursor()/showCursor(). ScriptSystem consumes the

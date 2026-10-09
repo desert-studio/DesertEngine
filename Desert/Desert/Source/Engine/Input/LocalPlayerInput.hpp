@@ -47,8 +47,19 @@ namespace Desert::Input
     public:
         /// UE BeginPlay: a fresh subsystem, this user's saved key overrides, then every context every
         /// EnhancedInputPlayerComponent of @p registry names. A context that cannot be added is logged by name
-        /// and the others still are.
-        void BeginPlay( entt::registry& registry, Assets::AssetManager& assets );
+        /// and the others still are. The contexts named by the component on @p pawn (the possessed pawn's
+        /// root, entt::null for none) are the PAWN's: UnpossessPawn takes exactly those away again.
+        void BeginPlay( entt::registry& registry, Assets::AssetManager& assets, entt::entity pawn );
+        /// UE PossessedBy / the pawn's AddMappingContext: the previous pawn's contexts leave, @p pawn's
+        /// EnhancedInputPlayerComponent contexts (its root's) are added. The controller's stay.
+        void PossessPawn( entt::registry& registry, Assets::AssetManager& assets, entt::entity pawn );
+        /// UE UnPossessed: the possessed pawn's contexts are removed; a dead pawn reads no input.
+        void UnpossessPawn();
+        /// The context names the possessed pawn added (empty when nothing is possessed).
+        [[nodiscard]] const std::vector<std::string>& PawnContexts() const
+        {
+            return m_PawnContexts;
+        }
         /// UE EndPlay: every context removed and every action forgotten.
         void EndPlay();
 
@@ -90,5 +101,10 @@ namespace Desert::Input
         EnhancedInputSubsystem                            m_Subsystem;
         std::map<std::string, Common::Content::AssetGuid> m_ActionNames;
         std::map<std::string, Common::Content::AssetGuid> m_ContextNames;
+        std::vector<std::string>                          m_PawnContexts;
+
+        // Adds every context @p player names; the names of those added are appended to @p added when given.
+        void AddPlayerContexts( Assets::AssetManager& assets, const ECS::EnhancedInputPlayerData& player,
+                                std::vector<std::string>* added );
     };
 } // namespace Desert::Input

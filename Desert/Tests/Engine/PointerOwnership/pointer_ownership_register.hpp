@@ -1851,6 +1851,13 @@ namespace Desert::Tests::PointerCensus
           "pass for the old graph alone: the key is (Guid, Graph, Revision), so a false match needs the same "
           "asset GUID at the same revision -- the same graph content, whose skipped relink would have built "
           "identical links" },
+        { "Desert/Desert/Source/Engine/ECS/System/GameModeSystem.hpp",
+          "GameModeSystem", "m_Scene", Guard::ObservedContainsUs,
+          "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this; both hosts (SceneWorkspace, RuntimeLayer) pass the scene the system is added to" },
+        { "Desert/Desert/Source/Engine/ECS/System/GameModeSystem.hpp",
+          "GameModeSystem", "m_AssetManager", Guard::HostOutlivesUs,
+          "the same host and the same order as LevelSequenceSystem::m_AssetManager: the hosts hold the manager as a "
+          "shared_ptr member declared BEFORE the scene that carries the systems" },
         { "Desert/Desert/Source/Engine/ECS/System/LevelSequenceSystem.hpp",
           "LevelSequenceSystem", "m_Scene", Guard::ObservedContainsUs,
           "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this; both hosts (EditorLayer, RuntimeLayer) pass the scene the system is added to" },

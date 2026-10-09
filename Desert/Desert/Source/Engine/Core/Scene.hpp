@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/GameMode.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
@@ -383,6 +384,24 @@ namespace Desert::Core
         {
             return m_PlayerPawn;
         }
+        // The player's controller entity (SceneSettings::PlayerController), null when the level names none.
+        void SetPlayerController( entt::entity controller )
+        {
+            m_PlayerController = controller;
+        }
+        [[nodiscard]] entt::entity GetPlayerController() const
+        {
+            return m_PlayerController;
+        }
+        // The game rules of this played world (Core/GameMode.hpp): death and restart of the player's pawn.
+        [[nodiscard]] GameMode& GetGameMode()
+        {
+            return m_GameMode;
+        }
+        [[nodiscard]] const GameMode& GetGameMode() const
+        {
+            return m_GameMode;
+        }
         // Play from Here: the editor camera is an allowed last-resort view target (and ONLY then).
         void SetPlayFromHere( bool fromHere )
         {
@@ -606,6 +625,8 @@ namespace Desert::Core
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
+        entt::entity                  m_PlayerController   = entt::null; // see SetPlayerController
+        GameMode                      m_GameMode;                        // see GetGameMode
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
         uint64_t                      m_Generation         = NextSceneGeneration(); // see GetGeneration
         bool                          m_PlayFromHere   = false;
