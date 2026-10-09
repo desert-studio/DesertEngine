@@ -21,6 +21,7 @@
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 
@@ -242,6 +243,15 @@ namespace
                 using T = ::Desert::ECS::AnchorFieldData;
                 TypeBuilder( "AnchorFieldData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Extent", .Type = FieldType::Vec3, .Offset = offsetof( T, Extent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Extent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Extent", .Category = "Field", .Tooltip = "The box's full size along the entity's own axes, before the entity's scale.", .IsLength = true, .Summary = true, } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
+                using T = ::Desert::ECS::WaterBodyData;
+                TypeBuilder( "WaterBodyData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "WaterWaves", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterWaves ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterWaves )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Waves", .Category = "Wave", .Tooltip = "The wave set of this body (UE WaterWaves) — drag a .dwaves from the Content Browser. An empty slot is a flat ocean; a set that cannot be read is refused at Play by name.", .IsAsset = true, .AssetType = "WaterWavesAsset", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "OceanExtents", .Type = FieldType::Vec2, .Offset = offsetof( T, OceanExtents ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OceanExtents )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Ocean Extents", .Category = "Water", .Tooltip = "The footprint of the ocean around the entity, X by Z (UE OceanExtents). A point outside it is not in this body.", .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "TargetWaveMaskDepth", .Type = FieldType::Float, .Offset = offsetof( T, TargetWaveMaskDepth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TargetWaveMaskDepth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Target Wave Mask Depth", .Category = "Wave", .Tooltip = "Water depth at which the waves reach their full height; shallower water damps them (UE TargetWaveMaskDepth).", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
                     .WithDefault<T>()
                     .Register();
             }
