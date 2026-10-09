@@ -10,6 +10,7 @@
 #include <ranges>
 #include <map>
 #include <memory>
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -197,8 +198,9 @@ namespace Desert::Editor
         }
         if ( !records.empty() )
         {
-            std::string label = records.size() == 1 ? "Delete " + records.front().From.filename().string()
-                                                    : "Delete " + std::to_string( records.size() ) + " assets";
+            std::string label = records.size() == 1
+                                     ? std::format( "Delete {}", records.front().From.filename().string() )
+                                     : std::format( "Delete {} assets", records.size() );
             CommandHistory::Get().PushCommand(
                  std::make_unique<AssetTrashCommand>( std::move( records ), std::move( label ) ) );
         }

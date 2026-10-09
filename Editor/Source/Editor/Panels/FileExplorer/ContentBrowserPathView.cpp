@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,8 +44,7 @@ namespace Desert::Editor
                     const std::string label = std::filesystem::path( fav ).filename().string();
                     ImGui::PushID( fav.c_str() );
                     if ( ImGui::Selectable(
-                              ( std::string( "  " ) + ICON_MDI_FOLDER " " + ( label.empty() ? fav : label ) )
-                                   .c_str() ) )
+                              std::format( "  " ICON_MDI_FOLDER " {}", label.empty() ? fav : label ).c_str() ) )
                         m_On.OnFavouriteSelected( fav );
                     AcceptMoveDropOnLastItem( fav ); // a pinned folder is a drop target, as in UE's Favorites
                     if ( ImGui::BeginPopupContextItem( "##favctx" ) )

@@ -22,6 +22,7 @@
 #include <spawn.h>
 #include <sys/wait.h>
 #endif
+#include <format>
 #include <string>
 #include <vector>
 
@@ -99,7 +100,7 @@ namespace Desert::Editor::ContentBrowserUtils
 #if defined( DESERT_PLATFORM_WINDOWS )
         std::error_code    ec;
         const auto         abs    = std::filesystem::absolute( path, ec ).make_preferred().wstring();
-        const std::wstring params = L"/select,\"" + abs + L"\"";
+        const std::wstring params = std::format( L"/select,\"{}\"", abs );
         ShellExecuteW( nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL );
 #elif defined( DESERT_PLATFORM_MACOS )
         std::error_code   ec;

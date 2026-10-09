@@ -29,6 +29,7 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -191,7 +192,7 @@ namespace
                      source.compare( close - 4, 4, "Data" ) != 0 )
                     continue;
                 const std::string kind = source.substr( nameStart, close - 4 - nameStart );
-                const std::string row  = ", " + kind + ">";
+                const std::string row  = std::format( ", {}>", kind );
                 for ( std::size_t r = adapter.find( row ); r != std::string::npos; r = adapter.find( row, r + 1 ) )
                 {
                     const std::size_t open = adapter.rfind( "Row<ECS::", r );

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <format>
+#include <iterator>
 #include <ranges>
 #include <set>
 
@@ -46,19 +47,19 @@ namespace Common::Content
             std::error_code   ec;
             fs::create_directories( trashRoot, ec );
             if ( ec )
-                return MakeError<fs::path>( "trash: could not create '" + trashRoot.string() +
-                                            "': " + ec.message() );
+                return MakeError<fs::path>(
+                     std::format( "trash: could not create '{}': {}", trashRoot.string(), ec.message() ) );
             for ( int n = 0; n < 10000; ++n )
             {
                 const fs::path slot = trashRoot / std::format( "{}-{:04}", stamp, n );
                 if ( fs::create_directory( slot, ec ) )
                     return MakeSuccess( slot );
                 if ( ec )
-                    return MakeError<fs::path>( "trash: could not create '" + slot.string() +
-                                                "': " + ec.message() );
+                    return MakeError<fs::path>(
+                         std::format( "trash: could not create '{}': {}", slot.string(), ec.message() ) );
             }
-            return MakeError<fs::path>( "trash: no free slot name under '" + trashRoot.string() + "' for " +
-                                        stamp );
+            return MakeError<fs::path>(
+                 std::format( "trash: no free slot name under '{}' for {}", trashRoot.string(), stamp ) );
         }
 
         // Every file a path is on disk: itself, or everything under it.
@@ -79,10 +80,11 @@ namespace Common::Content
                 fs::create_directories( from.parent_path(), ec );
                 fs::rename( to, from, ec );
                 if ( ec )
-                    failures += " '" + to.string() + "' -> '" + from.string() + "' (" + ec.message() + ")";
+                    std::format_to( std::back_inserter( failures ), " '{}' -> '{}' ({})", to.string(),
+                                    from.string(), ec.message() );
             }
             if ( !failures.empty() )
-                return MakeError( "could not move back:" + failures );
+                return MakeError( std::format( "could not move back:{}", failures ) );
             return MakeSuccess( true );
         }
     } // namespace
@@ -97,9 +99,10 @@ namespace Common::Content
     {
         std::error_code ec;
         if ( !fs::exists( path, ec ) )
-            return MakeError<AssetTrashRecord>( "delete '" + path.string() +
-                                                "': it is not on disk (a file that lives only in a mounted pak "
-                                                "cannot be deleted)" );
+            return MakeError<AssetTrashRecord>(
+                 std::format( "delete '{}': it is not on disk (a file that lives only in a "
+                              "mounted pak cannot be deleted)",
+                              path.string() ) );
 
         AssetTrashRecord record;
         record.From = fs::absolute( path ).lexically_normal();
@@ -128,7 +131,7 @@ namespace Common::Content
 
         auto slot = NewSlot( trashRoot );
         if ( !slot )
-            return MakeError<AssetTrashRecord>( "delete '" + path.string() + "': " + slot.GetError() );
+            return MakeError<AssetTrashRecord>( std::format( "delete '{}': {}", path.string(), slot.GetError() ) );
         record.Slot = slot.GetValue();
 
         std::vector<std::pair<fs::path, fs::path>> moved;
@@ -144,9 +147,9 @@ namespace Common::Content
                 const std::string why = ec.message();
                 static_cast<void>( MoveBack( moved ) );
                 fs::remove_all( record.Slot, ec );
-                return MakeError<AssetTrashRecord>( "delete '" + path.string() + "': could not move '" +
-                                                    originals[i].string() + "' into the trash '" + to.string() +
-                                                    "': " + why + "; nothing was deleted" );
+                return MakeError<AssetTrashRecord>(
+                     std::format( "delete '{}': could not move '{}' into the trash '{}': {}; nothing was deleted",
+                                  path.string(), originals[i].string(), to.string(), why ) );
             }
             moved.emplace_back( originals[i], to );
             record.Files.push_back( { originals[i], stored } );
@@ -169,8 +172,8 @@ namespace Common::Content
         {
             static_cast<void>( MoveBack( moved ) );
             fs::remove_all( record.Slot, ec );
-            return MakeError<AssetTrashRecord>( "delete '" + path.string() + "': " + writtenRows.GetError() +
-                                                "; nothing was deleted" );
+            return MakeError<AssetTrashRecord>(
+                 std::format( "delete '{}': {}; nothing was deleted", path.string(), writtenRows.GetError() ) );
         }
 
         // A scene's `__ExternalEntities__` folder its entity folder left empty goes too (only when empty).
@@ -188,11 +191,13 @@ namespace Common::Content
         for ( const TrashedFile& file : record.Files )
         {
             if ( fs::exists( file.Original, ec ) )
-                return MakeError( "restore '" + record.From.string() + "': '" + file.Original.string() +
-                                  "' exists again; refusing to overwrite it, nothing was restored" );
+                return MakeError( std::format(
+                     "restore '{}': '{}' exists again; refusing to overwrite it, nothing was restored",
+                     record.From.string(), file.Original.string() ) );
             if ( !fs::exists( record.Slot / file.Stored, ec ) )
-                return MakeError( "restore '" + record.From.string() + "': the trash no longer holds '" +
-                                  ( record.Slot / file.Stored ).string() + "'; nothing was restored" );
+                return MakeError(
+                     std::format( "restore '{}': the trash no longer holds '{}'; nothing was restored",
+                                  record.From.string(), ( record.Slot / file.Stored ).string() ) );
         }
 
         std::vector<std::pair<fs::path, fs::path>> moved; // original <- stored, for the take-back
@@ -207,9 +212,9 @@ namespace Common::Content
                 const std::string why = ec.message();
                 for ( const auto& [original, back] : std::views::reverse( moved ) )
                     fs::rename( original, back, ec );
-                return MakeError( "restore '" + record.From.string() + "': could not move '" + stored.string() +
-                                  "' back to '" + file.Original.string() + "': " + why +
-                                  "; nothing was restored" );
+                return MakeError(
+                     std::format( "restore '{}': could not move '{}' back to '{}': {}; nothing was restored",
+                                  record.From.string(), stored.string(), file.Original.string(), why ) );
             }
             moved.emplace_back( file.Original, stored );
         }
@@ -219,26 +224,29 @@ namespace Common::Content
         {
             registry.Remove( row.Key ); // a stale row a rescan left for the missing file
             if ( const auto inserted = registry.Insert( row ); !inserted )
-                failures += " " + row.Key + " (" + inserted.GetError() + ")";
+                std::format_to( std::back_inserter( failures ), " {} ({})", row.Key, inserted.GetError() );
         }
         fs::remove_all( record.Slot, ec );
         if ( !failures.empty() )
-            return MakeError( "restore '" + record.From.string() +
-                              "': the files are back but these rows could not be restored:" + failures );
+            return MakeError(
+                 std::format( "restore '{}': the files are back but these rows could not be restored:{}",
+                              record.From.string(), failures ) );
         return MakeSuccess( true );
     }
 
     ResultStr<AssetTrashRecord> ReadTrashSlot( const fs::path& slot )
     {
+        const auto Refuse = [&slot]( const std::string& why )
+        { return MakeError<AssetTrashRecord>( std::format( "trash slot '{}': {}", slot.string(), why ) ); };
         const auto manifest = Json::ReadFile<TrashManifestJson>( slot / kManifestName );
         if ( !manifest )
-            return MakeError<AssetTrashRecord>( "trash slot '" + slot.string() + "': " + manifest.GetError() );
+            return Refuse( manifest.GetError() );
         const auto rowsText = Utils::FileSystem::ReadFileContent( slot / kRowsName );
         if ( !rowsText )
-            return MakeError<AssetTrashRecord>( "trash slot '" + slot.string() + "': " + rowsText.GetError() );
+            return Refuse( rowsText.GetError() );
         auto rows = Utils::AssetRegistry::Parse( rowsText.GetValue() );
         if ( !rows )
-            return MakeError<AssetTrashRecord>( "trash slot '" + slot.string() + "': " + rows.GetError() );
+            return Refuse( rows.GetError() );
 
         AssetTrashRecord record;
         record.From = fs::path( manifest.GetValue().From );
@@ -247,7 +255,7 @@ namespace Common::Content
         {
             const auto guid = AssetGuidFromText( manifest.GetValue().Guid );
             if ( !guid )
-                return MakeError<AssetTrashRecord>( "trash slot '" + slot.string() + "': " + guid.GetError() );
+                return Refuse( guid.GetError() );
             record.Guid = guid.GetValue();
         }
         for ( const TrashedFileJson& file : manifest.GetValue().Files )
