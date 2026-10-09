@@ -21,6 +21,7 @@
 #include "Services/Landscape/LandscapeLayerInfoService.hpp"
 #include "Services/Foliage/FoliageTypeService.hpp"
 #include "Services/Destruction/FractureService.hpp"
+#include "Services/Water/WaterWavesService.hpp"
 
 namespace Desert::Runtime
 {
@@ -65,6 +66,10 @@ namespace Desert::Runtime
 
         // The `.dfrac` fractures destructible entities name (DST-03b): read on demand, held as the assets.
         static FractureService* GetFractureService();
+
+        // The `.dwaves` wave sets water bodies name (WATER-W2): read on demand, each generated into its Gerstner
+        // waves once per load and shared by every body naming it.
+        static WaterWavesService* GetWaterWavesService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,

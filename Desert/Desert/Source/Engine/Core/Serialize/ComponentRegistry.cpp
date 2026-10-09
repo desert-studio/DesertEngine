@@ -39,6 +39,7 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
+#include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
@@ -898,6 +899,20 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::FractureAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::FractureAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "WaterWavesAsset" )
+            {
+                // A water body's wave set (WaterBodyData::WaterWaves). Announced, not read, as the fracture
+                // above: WaterWavesService reads the `.dwaves` when Play gathers the bodies, and the asset's
+                // constructor adopts the handle its header GUID names.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::WaterWavesAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PrefabAsset" )

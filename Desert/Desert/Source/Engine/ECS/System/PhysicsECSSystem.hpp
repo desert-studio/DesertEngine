@@ -3,6 +3,7 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
+#include <Engine/ECS/System/WaterBodyGather.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Physics/CollisionProfiles.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Engine/Destruction/DestructionWorld.hpp>
+#include <Engine/Water/WaterBodyQuery.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -79,6 +81,8 @@ namespace Desert::ECS
                     m_Landscape.reset();
                     m_Destructibles.reset();
                     m_Destruction.reset();
+                    m_Water.reset();
+                    m_WaterGather.Reset();
                     m_World->Shutdown();
                     m_World.reset();
                 }
@@ -109,6 +113,8 @@ namespace Desert::ECS
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
+                // The wave clock starts with the Play, at zero (UE: the water subsystem's time of a new world).
+                m_Water = std::make_unique<Water::WaterSubsystem>();
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -243,6 +249,15 @@ namespace Desert::ECS
 
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
+            // The water the step's bodies are in: this step's bodies over this step's ground, at the clock
+            // advanced by the step. Gathered every step so a moved, added or removed body is the water at once.
+            // The landscape tiles' heights are borrowed from the registry for the step's queries only.
+            // W-0 (PHYS-W0) makes the step fixed: Advance then takes the fixed step, once per substep.
+            m_Water->SetWorld( m_WaterGather.Gather(
+                                    registry, []( const Assets::AssetHandle& waves )
+                                    { return Runtime::ResourceRegistry::GetWaterWavesService()->Get( waves ); } ),
+                               m_Scene->GatherRaycastLandscape().Tiles );
+            m_Water->Advance( ts.GetSeconds() );
             m_World->Step( ts.GetSeconds() );
 
             // Write the simulated pose back into the transform for moving bodies.
@@ -405,6 +420,13 @@ namespace Desert::ECS
             return m_Destruction.get();
         }
 
+        /// The scene's water while Play runs, null in Edit: what buoyancy, swimming and scripts query
+        /// (UE UWaterSubsystem / QueryWaterInfoClosestToWorldLocation).
+        [[nodiscard]] const Water::WaterSubsystem* GetWater() const
+        {
+            return m_Water.get();
+        }
+
     private:
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
@@ -423,6 +445,10 @@ namespace Desert::ECS
         std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
         // Same rule, one level down: the destructible entities' objects live in m_Destruction.
         std::unique_ptr<DestructibleLifetime> m_Destructibles;
+        // The water bodies, ground and wave clock of this Play; null in Edit.
+        std::unique_ptr<Water::WaterSubsystem> m_Water;
+        // Refuses a body whose wave set cannot be read, once per entity per Play.
+        WaterBodyGather m_WaterGather;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.

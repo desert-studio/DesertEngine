@@ -13,6 +13,7 @@
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Assets/Serialization/WaterWaves.hpp>
 #include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Engine/Water/WaterBodyQuery.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
 
@@ -228,4 +229,102 @@ TEST( WaterWaves, OneContentKindsRowHasTheExtension )
                                 { return k.Extension == Desert::Assets::Serialization::kWaterWavesExtension; } ),
          1 );
     EXPECT_EQ( Common::Content::KindSpec( Common::Content::ContentKind::WaterWaves ).Name, "WaterWaves" );
+}
+
+// ── WATER-W2: the water query (UE QueryWaterInfoClosestToWorldLocation, ocean) ──────────────────────────────
+
+namespace
+{
+    Desert::Water::WaterBodyState WavedOcean( float levelY )
+    {
+        Desert::Water::WaterBodyState body;
+        body.Location = glm::vec3( 100.0f, levelY, -200.0f );
+        body.Extents  = glm::vec2( 10000.0f, 6000.0f );
+        body.Waves    = std::make_shared<const std::vector<Desert::Water::GerstnerWave>>(
+             Desert::Water::GenerateGerstnerWaves( Desert::Water::GerstnerWaveGenerator{} ) );
+        return body;
+    }
+} // namespace
+
+TEST( WaterQuery, AFlatOceanIsItsPlaneAndImmersionIsTheDistanceBelowIt )
+{
+    Desert::Water::WaterBodyState body;
+    body.Location = glm::vec3( 0.0f, 50.0f, 0.0f );
+    const auto r  = Desert::Water::QueryWaterBody( body, glm::vec3( 10.0f, 20.0f, 30.0f ), 3.0f, 0.0f );
+    EXPECT_FLOAT_EQ( r.SurfaceLocation.y, 50.0f );
+    EXPECT_FLOAT_EQ( r.PlaneDepth, 50.0f );
+    EXPECT_FLOAT_EQ( r.ImmersionDepth, 30.0f );
+    EXPECT_TRUE( r.IsInWater() );
+    EXPECT_FLOAT_EQ( r.WaveHeight, 0.0f );
+    EXPECT_EQ( r.SurfaceNormal, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+}
+
+TEST( WaterQuery, NoGroundOrGroundAboveThePlaneGivesTheFallbackDepth )
+{
+    const auto body  = WavedOcean( 0.0f );
+    const auto none  = Desert::Water::QueryWaterBody( body, glm::vec3( 0.0f ), 1.0f, std::nullopt );
+    const auto above = Desert::Water::QueryWaterBody( body, glm::vec3( 0.0f ), 1.0f, 40.0f );
+    EXPECT_FLOAT_EQ( none.PlaneDepth, Desert::Water::kOceanFallbackDepthCm );
+    EXPECT_FLOAT_EQ( above.PlaneDepth, Desert::Water::kOceanFallbackDepthCm );
+    // Under-landscape ocean: the waves are cancelled (UE :763-767).
+    EXPECT_FLOAT_EQ( above.WaveHeight, 0.0f );
+    EXPECT_FLOAT_EQ( above.WaveAttenuation, 0.0f );
+}
+
+TEST( WaterQuery, TheWavedSurfaceIsTheWaveHeightAtThePlanePointAttenuatedByDepth )
+{
+    const auto      body = WavedOcean( 25.0f );
+    const glm::vec3 point( 350.0f, -40.0f, 75.0f );
+    const float     time   = 2.5f;
+    const float     ground = -175.0f; // 200 cm of water
+    const auto      r      = Desert::Water::QueryWaterBody( body, point, time, ground );
+
+    const float att    = Desert::Water::WaveDepthAttenuation( 200.0f, body.TargetWaveMaskDepth );
+    const auto  sample = Desert::Water::WaveHeightAt(
+         *body.Waves, glm::vec2( point.x - body.Location.x, point.z - body.Location.z ), time );
+    EXPECT_FLOAT_EQ( r.WaveAttenuation, att );
+    EXPECT_FLOAT_EQ( r.WaveHeight, sample.Height * att );
+    EXPECT_FLOAT_EQ( r.SurfaceLocation.y, 25.0f + sample.Height * att );
+    EXPECT_FLOAT_EQ( r.SurfaceDepth, 200.0f + sample.Height * att );
+    EXPECT_FLOAT_EQ( r.ImmersionDepth, r.SurfaceLocation.y - point.y );
+    EXPECT_NEAR( glm::length( r.SurfaceNormal ), 1.0f, 1e-5f );
+    EXPECT_LE( std::abs( r.WaveHeight ), r.MaxWaveHeight + 1e-3f );
+}
+
+TEST( WaterQuery, ThePointIsAnsweredByTheBodyItIsDeepestInAndNoneOutsideEveryFootprint )
+{
+    Desert::Water::WaterBodyState low;
+    low.Location                       = glm::vec3( 0.0f, 0.0f, 0.0f );
+    low.Extents                        = glm::vec2( 1000.0f, 1000.0f );
+    Desert::Water::WaterBodyState high = low;
+    high.Location.y                    = 80.0f;
+    const std::vector<Desert::Water::WaterBodyState> bodies{ low, high };
+
+    const auto hit = Desert::Water::QueryWater( bodies, {}, glm::vec3( 10.0f, -5.0f, 10.0f ), 0.0f );
+    ASSERT_TRUE( hit.has_value() );
+    EXPECT_EQ( hit->Body, 1u );
+    EXPECT_FLOAT_EQ( hit->Result.ImmersionDepth, 85.0f );
+
+    EXPECT_FALSE( Desert::Water::QueryWater( bodies, {}, glm::vec3( 501.0f, -5.0f, 0.0f ), 0.0f ).has_value() );
+    EXPECT_FALSE( Desert::Water::QueryWater( bodies, {}, glm::vec3( 0.0f, 90.0f, 0.0f ), 0.0f ).has_value() );
+}
+
+TEST( WaterQuery, TheSubsystemClockIsTheSumOfThePhysicsStepsAndItsQueryUsesIt )
+{
+    Desert::Water::WaterSubsystem water;
+    for ( int i = 0; i < 120; ++i )
+        water.Advance( 1.0 / 60.0 );
+    EXPECT_NEAR( water.Time(), 2.0f, 1e-6f );
+
+    water.SetWorld( { WavedOcean( 0.0f ) }, {} );
+    // Below the deepest trough, so the point is in the water at any wave phase.
+    const float     belowTroughs = -( Desert::Water::MaxWaveHeight( *water.Bodies().front().Waves ) + 10.0f );
+    const glm::vec3 point( 120.0f, belowTroughs, 40.0f );
+    const auto      viaSubsystem = water.Query( point );
+    const auto      direct       = Desert::Water::QueryWater( water.Bodies(), {}, point, water.Time() );
+    ASSERT_TRUE( viaSubsystem.has_value() && direct.has_value() );
+    EXPECT_EQ( viaSubsystem->Result.SurfaceLocation, direct->Result.SurfaceLocation );
+
+    water.SetTime( 7.25 );
+    EXPECT_FLOAT_EQ( water.Time(), 7.25f );
 }

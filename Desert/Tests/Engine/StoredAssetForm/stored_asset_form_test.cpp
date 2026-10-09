@@ -73,6 +73,7 @@ TEST( StoredAssetForm, EveryAssetTypeTheEngineSerializesHasAForm )
     EXPECT_EQ( StoredFormFor( "AnimGraphAsset" ), StoredAssetForm::AssetsRelative );
     EXPECT_EQ( StoredFormFor( "UIThemeAsset" ), StoredAssetForm::AssetsRelative );
     EXPECT_EQ( StoredFormFor( "PrefabAsset" ), StoredAssetForm::AssetsRelative ); // SceneSettings::DefaultPawn
+    EXPECT_EQ( StoredFormFor( "WaterWavesAsset" ), StoredAssetForm::AssetsRelative ); // WaterBodyData::WaterWaves
 
     EXPECT_EQ( StoredFormFor( "StaticMeshAsset" ), StoredAssetForm::StableKey );  // BISTRO-OPEN
     EXPECT_EQ( StoredFormFor( "SkinnedMeshAsset" ), StoredAssetForm::StableKey ); // BISTRO-OPEN

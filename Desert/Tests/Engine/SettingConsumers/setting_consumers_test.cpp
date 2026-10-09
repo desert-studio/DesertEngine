@@ -840,6 +840,14 @@ namespace
          { "SlowMovingAsSleeping", kDestructibleSync },
          { "SlowMovingVelocityThreshold", kDestructibleSync },
     };
+    // A water body (WATER-W2): every field is read by ECS::WaterBodyGather into the Water::WaterBodyState the
+    // physics step's WaterSubsystem queries.
+    constexpr const char* kWaterBodyGather = "Desert/Desert/Source/Engine/ECS/System/WaterBodyGather.cpp";
+    constexpr Row         kWaterBodyRows[] = {
+         { "WaterWaves", kWaterBodyGather },
+         { "OceanExtents", kWaterBodyGather },
+         { "TargetWaveMaskDepth", kWaterBodyGather },
+    };
     // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
     // FieldCommand it hands DestructionWorld::ApplyField.
     constexpr const char* kFieldFire = "Desert/Desert/Source/Engine/ECS/System/DestructionFields.cpp";
@@ -1064,6 +1072,7 @@ namespace
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
+         { "WaterBodyData", "WaterBodyComponent", nullptr, CENSUS_ROWS( kWaterBodyRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
@@ -1278,7 +1287,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // DestructibleLifetime.cpp's Sync into the DestructionWorld description).
     // -> 57 with DST-04b's four field components (RadialImpulseField, StrainField, KillField, AnchorField:
     // every field read by ECS::FireDestructionField in DestructionFields.cpp).
-    EXPECT_EQ( all.size(), 57u );
+    // -> 58 with WATER-W2's WaterBodyData (kWaterBodyRows: every field read by WaterBodyGather.cpp into the
+    // water body state the physics step queries).
+    EXPECT_EQ( all.size(), 58u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
