@@ -53,6 +53,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -109,6 +110,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -165,6 +167,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -221,6 +224,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -277,6 +281,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -333,6 +338,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -389,6 +395,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -438,6 +445,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -494,6 +502,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -550,6 +559,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -606,6 +616,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -662,6 +673,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -718,6 +730,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -774,6 +787,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -830,6 +844,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -886,6 +901,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
