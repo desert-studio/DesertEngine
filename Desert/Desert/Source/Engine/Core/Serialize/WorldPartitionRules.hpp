@@ -492,6 +492,12 @@ namespace Desert::Core::Rules
          { "Landscape", ComponentLoading::Global },
          // The root's look travels with the root: every tile of it is drawn with it.
          { "LandscapeMaterial", ComponentLoading::Global },
+         // WATER-W1's body is UE's AWaterBodyOcean, the one body kind it has: the sea the whole world floats
+         // on and swims in, answered by buoyancy wherever a hull is. UE keeps the ocean out of the spatial
+         // hash for that reason (lakes and rivers are spatially loaded by their spline bounds); a footprint
+         // read from the entity's point would unload the sea under a boat standing far from its origin. A
+         // bounded body kind gets its own row (or ByField on the kind) when it exists, with its extent.
+         { "WaterBody", ComponentLoading::Global },
          // The author's override, and the only authored input to partitioning besides the grid.
          { "AlwaysLoaded", ComponentLoading::Global },
          // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a

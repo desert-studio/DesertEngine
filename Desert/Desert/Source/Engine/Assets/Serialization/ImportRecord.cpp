@@ -203,6 +203,9 @@ namespace Desert::Assets::Serialization
                 g_Held.erase( key );
                 return nullptr;
             }
+            // Sampled before the stat: a rewrite inside one file-system tick keeps (write time, size), so a parse
+            // taken while the stamp was racy is not held - the next ask parses again (Common::Utils::IsRacyWriteTime).
+            const auto        readBegan = std::filesystem::file_time_type::clock::now();
             std::error_code   writtenError;
             std::error_code   sizeError;
             const RecordStamp stamp{ std::filesystem::last_write_time( full, writtenError ),
@@ -228,7 +231,7 @@ namespace Desert::Assets::Serialization
                 held->Data = parsed.ExtractValue();
             else
                 held->Error = std::format( "'{}': {}", record.string(), parsed.GetError() );
-            if ( stamped )
+            if ( stamped && !Common::Utils::IsRacyWriteTime( stamp.Written, readBegan ) )
             {
                 const std::scoped_lock lock( g_HeldMutex );
                 g_Held[key] = held;
