@@ -205,6 +205,44 @@ TEST( GltfAlphaMask, ACutOutOverABaseColourWithoutAlphaIsImportedOpaqueAndSaysSo
     }
 }
 
+// An FBX states no alpha mode; Bistro's leaf cards carry their cut-out in the base colour's alpha (UE's FBX
+// import binds diffuse alpha to OpacityMask). A source with no statement over the 2x2 card (alpha 0 and 255) is
+// Mask at 0.5; over an RGB image, or a glTF that says OPAQUE over the same card, it stays opaque.
+TEST( GltfAlphaMask, AnUnstatedSourceWhoseBaseColourAlphaCutsOutIsMasked )
+{
+    const std::filesystem::path png = WriteCard( "unstated-rgba", "" ).parent_path() / "card.png";
+    aiMaterial                  fbx;
+    const aiString              name( "Leaves" );
+    fbx.AddProperty( &name, AI_MATKEY_NAME );
+
+    const SourceAlpha alpha = ResolveSourceAlpha( fbx, png );
+    EXPECT_EQ( alpha.Kind, SourceAlphaKind::Mask );
+    EXPECT_FLOAT_EQ( alpha.AlphaCutoff, 0.5f );
+    EXPECT_TRUE( alpha.AlphaMode.empty() );
+    EXPECT_TRUE( alpha.Warning.empty() ) << alpha.Warning;
+}
+
+TEST( GltfAlphaMask, AnUnstatedSourceWithoutCutOutAlphaStaysOpaque )
+{
+    const std::filesystem::path png = WriteCard( "unstated-rgb", "" ).parent_path() / "card.png";
+    {
+        std::ofstream out( png, std::ios::binary | std::ios::trunc );
+        for ( const uint8_t byte : kRgbCardPng )
+            out.put( static_cast<char>( byte ) );
+    }
+    const aiMaterial fbx;
+    EXPECT_EQ( ResolveSourceAlpha( fbx, png ).Kind, SourceAlphaKind::Opaque );
+    EXPECT_EQ( ResolveSourceAlpha( fbx ).Kind, SourceAlphaKind::Opaque ); // no base colour at all
+
+    Imported                    card;
+    const std::filesystem::path file = WriteCard( "stated-opaque-rgba", R"("alphaMode": "OPAQUE",)" );
+    Import( card, file );
+    if ( HasFatalFailure() )
+        return;
+    EXPECT_EQ( ResolveSourceAlpha( card.Material(), file.parent_path() / "card.png" ).Kind,
+               SourceAlphaKind::Opaque );
+}
+
 // Poly Haven's FBX states its textures Windows-style ("..\\..\\textures\\x.jpg"); on POSIX that was ONE
 // filename, so all three textures of the grass went NOT FOUND and the card imported without albedo or mask.
 TEST( GltfAlphaMask, AWindowsSeparatedTextureReferenceFindsTheFile )
