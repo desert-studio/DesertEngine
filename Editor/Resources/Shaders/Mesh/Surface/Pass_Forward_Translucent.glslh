@@ -53,7 +53,7 @@ void main()
     const SurfaceOutput s = EvaluateSurface( i );
 
     const vec3  N   = DesertSurfaceWorldNormal( i, s );
-    const vec3  V   = normalize( v_Surface.CameraPosition - v_Surface.WorldPosition );
+    const vec3  V   = normalize( i.CameraPosition - i.WorldPosition );
     const float ior = max( s.Refraction, 1.0 );
 
     // Schlick Fresnel with the IOR-derived normal reflectance (glass F0 ~0.04, water ~0.02).
