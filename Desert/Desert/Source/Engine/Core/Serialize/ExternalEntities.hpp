@@ -113,6 +113,11 @@ namespace Desert::Core::ExternalEntities
     //     fix is Tools/SceneMigrator, which the message names.
     [[nodiscard]] Common::ResultStr<std::string> ReadSceneFileText( const std::filesystem::path& path );
 
+    // The entity list of the partitioned header at `path`, in its order, without reading an entity (the
+    // descriptor index's input, EntityDescriptorIndex.hpp). Refused, naming the file: unreadable, not JSON,
+    // not a header.
+    [[nodiscard]] Common::ResultStr<std::vector<Common::UUID>> ListedEntities( const std::filesystem::path& path );
+
     // True when `document` is a partitioned header (states ExternalEntities).
     [[nodiscard]] bool IsHeader( const Common::Json::TextDocument& document );
 } // namespace Desert::Core::ExternalEntities

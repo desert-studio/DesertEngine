@@ -1,6 +1,7 @@
 #include "WorldCookMain.hpp"
 
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -119,7 +120,18 @@ namespace Desert::WorldCook
         const double readMs = MsSince( started );
 
         const auto cookStart = std::chrono::steady_clock::now();
-        auto       cooked    = Core::WorldCells::CookWorld( scene.GetValue().Scene, registries );
+        // The cells are planned from the world's descriptor index (WP18), brought up to date first: only the
+        // entities whose file changed since are read again.
+        auto descriptors = Core::DescriptorIndex::Refresh( options.Source );
+        if ( !descriptors )
+        {
+            err << "WorldCook: " << descriptors.GetError() << "\n";
+            return 3;
+        }
+        out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
+            << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
+        const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
+        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries );
         if ( !cooked )
         {
             err << "WorldCook: " << cooked.GetError() << "\n";

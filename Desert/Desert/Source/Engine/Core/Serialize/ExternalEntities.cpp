@@ -271,6 +271,28 @@ namespace Desert::Core::ExternalEntities
         return WriteSceneFile( scenePath, document.GetValue() );
     }
 
+    Common::ResultStr<std::vector<Common::UUID>> ListedEntities( const std::filesystem::path& path )
+    {
+        using Result = std::vector<Common::UUID>;
+        auto text    = Common::Utils::FileSystem::ReadFileContent( path );
+        if ( !text )
+            return Common::MakeError<Result>( text.GetError() );
+        auto document = Common::Json::TextDocument::Parse( text.GetValue() );
+        if ( !document )
+            return Common::MakeError<Result>( fmt::format( "'{}' is not JSON: {}", path.string(), document.GetError() ) );
+        if ( !IsHeader( document.GetValue() ) )
+            return Common::MakeError<Result>(
+                 fmt::format( "'{}' is not a partitioned world's header: it lists no {}", path.string(), kListMember ) );
+        auto list = document.GetValue().AsDocument<HeaderList>();
+        if ( !list )
+            return Common::MakeError<Result>(
+                 fmt::format( "'{}': the entity list cannot be read: {}", path.string(), list.GetError() ) );
+        Result ids;
+        for ( const std::uint64_t bits : list.GetValue().ExternalEntities )
+            ids.emplace_back( bits );
+        return Common::MakeSuccess( std::move( ids ) );
+    }
+
     Common::ResultStr<std::string> ReadSceneFileText( const std::filesystem::path& path )
     {
         auto text = Common::Utils::FileSystem::ReadFileContent( path );
