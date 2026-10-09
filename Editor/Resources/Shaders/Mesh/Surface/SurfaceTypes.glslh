@@ -37,6 +37,18 @@ vec3 SurfaceSampleTangentNormal( sampler2D normalMap, vec2 uv )
 }
 #endif
 
+// The particle half of the input (UE: the Particle Color / Particle Relative Time / Particle Random material
+// expressions, which the sprite vertex factory feeds). Filled by the ParticleSprite vertex path
+// (Vertex_ParticleSprite.glslh) from the particle the quad was expanded from; every mesh path gets the
+// neutral values below (DesertSurfaceInput), as UE's mesh vertex factories evaluate those expressions to
+// their defaults, so one surface function compiles into every cell of a `Usage ParticleSprites` template.
+struct SurfaceParticleInput
+{
+    vec4  Color;        // the particle's simulated colour, linear RGBA (alpha = the over-life alpha)
+    float RelativeTime; // age / lifetime in [0, 1]
+    float Random;       // [0, 1), constant over the particle's life, different per particle
+};
+
 struct SurfaceInput
 {
     vec3 WorldPosition;
@@ -45,7 +57,59 @@ struct SurfaceInput
     mat3 TBN; // tangent -> world; SurfaceOutput.Normal goes through it
     vec2 UV1;         // the mesh's second UV set; (0,0) when it has none
     vec4 VertexColor; // linear RGBA; white when the mesh has none (UE's VertexColor node)
+    SurfaceParticleInput Particle;
 };
+
+// Particle SubUV (UE's ParticleSubUV expression): the flipbook cell of a `columns x rows` sheet the particle is at,
+// stepped linearly over its life, and the next cell with the fraction between them for an optional frame blend.
+// Cells run left to right, top to bottom (UV (0,0) top-left, as every surface UV here).
+struct SurfaceSubUV
+{
+    vec2  UV0;   // the current cell
+    vec2  UV1;   // the next cell (the last cell's next is itself)
+    float Blend; // 0 = UV0 only, 1 = UV1 only
+};
+
+SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns, float rows )
+{
+    const float cols   = max( floor( columns ), 1.0 );
+    const float rws    = max( floor( rows ), 1.0 );
+    const float frames = cols * rws;
+    const float index  = clamp( p.RelativeTime, 0.0, 1.0 ) * ( frames - 1.0 );
+    const float first  = floor( index );
+    const float second = min( first + 1.0, frames - 1.0 );
+    const vec2  cell   = vec2( 1.0 / cols, 1.0 / rws );
+
+    SurfaceSubUV s;
+    s.UV0   = ( vec2( mod( first, cols ), floor( first / cols ) ) + uv ) * cell;
+    s.UV1   = ( vec2( mod( second, cols ), floor( second / cols ) ) + uv ) * cell;
+    s.Blend = index - first;
+    return s;
+}
+
+// Depth Fade (UE's DepthFade expression, "soft particles"): @p opacity scaled by how far the scene behind the pixel
+// is, over @p fadeDistance CENTIMETRES — 0 where the pixel touches the scene, @p opacity at fadeDistance or more.
+// Only the ParticleSprite cell reads the scene depth (the parser defines DESERT_SURFACE_PARTICLE_SPRITE in both stages
+// of that cell, and its fragment stage declares the depth here); a mesh cell has no scene depth behind it to read
+// and returns the opacity unchanged, as UE's DepthFade does outside translucency.
+#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+layout( binding = 26 ) uniform sampler2D u_SceneDepth; // 26: below the graph-owned 27+, above every hand template sampler (Unlit has one at 11)
+
+float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
+{
+    const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( u_SceneDepth, 0 ) );
+    const float depth  = texture( u_SceneDepth, uv ).r;
+    const vec4  scene  = cameraUB.InvJitteredViewProjection * vec4( uv * 2.0 - 1.0, depth, 1.0 );
+    const float behind = -( cameraUB.View * vec4( scene.xyz / scene.w, 1.0 ) ).z;
+    const float self   = -( cameraUB.View * vec4( worldPosition, 1.0 ) ).z;
+    return opacity * clamp( ( behind - self ) / max( fadeDistance, 0.001 ), 0.0, 1.0 );
+}
+#else
+float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
+{
+    return opacity;
+}
+#endif
 
 struct SurfaceOutput
 {
@@ -129,6 +193,10 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
     i.TBN           = tbn;
     i.UV1           = uv1;
     i.VertexColor   = vertexColor;
+    // A mesh is not a particle: white, the start of a life, no per-particle variation (the sprite pass overwrites).
+    i.Particle.Color        = vec4( 1.0 );
+    i.Particle.RelativeTime = 0.0;
+    i.Particle.Random       = 0.0;
     return i;
 }
 

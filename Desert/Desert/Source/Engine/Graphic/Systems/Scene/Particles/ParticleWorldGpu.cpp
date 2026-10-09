@@ -160,7 +160,7 @@ namespace Desert::Graphic::System
                  ParticleFrameEmitter fe;
                  fe.EntityId        = entityId;
                  fe.Gpu             = &gpu;
-                 fe.Additive        = ( d.Blend == ECS::ParticleBlendMode::Additive );
+                 fe.Material        = d.Material;
                  fe.StepCount       = stepCount;
                  fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
                  fe.Push.Gravity    = glm::vec4( d.Gravity, 0.0f );

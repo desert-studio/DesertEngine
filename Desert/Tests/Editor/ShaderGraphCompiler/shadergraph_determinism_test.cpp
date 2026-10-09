@@ -175,6 +175,8 @@ namespace
         doc        = SG::Document{};
         doc.Domain = static_cast<int>( domain );
         doc.Name   = "DeterminismProbe";
+        // The Particles nodes are refused in a material without the sprite usage; the probe is about pin order.
+        doc.UsedWithParticleSprites = SG::ReadsParticleInputs( kind );
         marks.clear();
 
         SG::Node       outputNode = SG::MakeNode( doc, SG::OutputKind( domain ) );

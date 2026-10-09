@@ -37,6 +37,9 @@
 
 namespace Desert::Graphic
 {
+    // The claiming view's simulation nodes (Compact 0, then per step Dispatch Args / Spawn+Update / Compact).
+    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer );
+
     void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph )
     {
         // The world's particle pool (VFX-07): the frame's fixed VFX steps (the scene's VFXWorld; no timestep is
@@ -58,9 +61,17 @@ namespace Desert::Graphic
         // twice. Spawn+Update s and compact s+1 are dispatched INDIRECT from what "Dispatch Args s" wrote from
         // compact s's GPU counts.
         particles->ImportFrameBuffers( graph );
-        if ( !particles->ClaimsSimulation() )
-            return;
-        const uint32_t steps = particles->SimulationStepCount();
+        if ( particles->ClaimsSimulation() )
+            AddParticleSimulationSteps( graph, *particles );
+        // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
+        // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers.
+        particles->AddSortPasses( graph );
+    }
+
+    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )
+    {
+        System::ParticleRenderer* particles = &renderer;
+        const uint32_t            steps     = particles->SimulationStepCount();
         graph.AddPass(
              "Particles: Compact 0", RDG::PassFlags::Compute,
              [particles]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0 ); },

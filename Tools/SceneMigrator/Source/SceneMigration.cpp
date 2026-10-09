@@ -560,6 +560,65 @@ namespace Desert::Migration
         return report;
     }
 
+    ParticleSpriteMaterialsReport
+    MigrateParticleSpriteMaterialsV43ToV44( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr const char*         kBlend    = "Blend";
+        constexpr const char*         kMaterial = "Material";
+        constexpr int64_t             kAdditive = 0; // ParticleBlendMode::Additive, the first enumerator
+        ParticleSpriteMaterialsReport report;
+
+        // Whether the block stated Additive; the key leaves either way. A missing key was AlphaBlend.
+        const auto takeAdditive = [&]( rfl::Generic::Object& block )
+        {
+            bool additive = false;
+            if ( const auto stated = block.get( kBlend ); stated.has_value() )
+                additive = stated.value().to_int64().value_or( 1 ) == kAdditive;
+            DropKey( block, kBlend );
+            return additive;
+        };
+        const auto additiveMaterial = []
+        {
+            rfl::Generic::Object ref;
+            ref["Guid"] = rfl::Generic( std::string( kParticleAdditiveMaterialGuid ) );
+            ref["Path"] = rfl::Generic( std::string( kParticleAdditiveMaterialPath ) );
+            return rfl::Generic( std::move( ref ) );
+        };
+
+        for ( auto& entity : entities )
+        {
+            EditBlock( entity.Components, "ParticleEmitter",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           ++report.Emitters;
+                           if ( takeAdditive( block ) && !block.get( kMaterial ).has_value() )
+                           {
+                               block[kMaterial] = additiveMaterial();
+                               ++report.MovedToAdditive;
+                           }
+                           return true;
+                       } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                EditBlock( override_.Components, "ParticleEmitter",
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               if ( !block.get( kBlend ).has_value() )
+                                   return false;
+                               if ( takeAdditive( block ) && !block.get( kMaterial ).has_value() )
+                               {
+                                   block[kMaterial] = additiveMaterial();
+                                   ++report.OverridesAdditive;
+                               }
+                               else
+                                   ++report.OverridesDropped;
+                               return true;
+                           } );
+        }
+        return report;
+    }
+
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
     {
         namespace TL = Animation::Timeline;
@@ -2026,6 +2085,13 @@ namespace Desert::Migration
                     report.Refused = RefusedWhole( name, report.TimeOfDayComponent.Refused );
                     return;
                 }
+            }
+
+            // A particle sprite composites by its material (VFX-08): ParticleEmitter.Blend moves onto Material.
+            if ( statedSceneVersion < kSceneVersionParticleSpriteMaterial )
+            {
+                report.ParticleSpriteMaterialsRaised = true;
+                report.ParticleSpriteMaterials       = MigrateParticleSpriteMaterialsV43ToV44( entities );
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

@@ -51,7 +51,8 @@ namespace Desert::Graphic::System
         // program — no parameter value of any material decides a pass.
         bool IsTranslucent( const DataDrivenMaterial* material )
         {
-            return material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent;
+            // Additive is a translucency-pass mode too (UE BLEND_Additive): never into depth or the G-buffer.
+            return Core::Formats::IsTranslucentBlend( material->GetSchema().Blend );
         }
 
         // Appends one row to a buffer of rows laid end to end and returns its index there. Every lit pass

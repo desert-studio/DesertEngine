@@ -6,6 +6,7 @@
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleSortGraph.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
@@ -340,6 +341,129 @@ namespace
         return {};
     }
 } // namespace
+
+// VFX-08e. The particle sprites draw through their material's ParticleSprite cell, so the renderer names no
+// shader of its own but the default sprite template and the three simulation programs; the old billboard
+// program and its hand-written material are gone. Red when a hard-wired sprite shader comes back.
+TEST( RenderGraphCompile, TheParticleRendererNamesNoSpriteShaderButTheDefaultTemplate )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const fs::path engine = root / "Desert/Desert/Source/Engine/Graphic";
+    std::ifstream  file( ( engine / "Systems/Scene/Particles/ParticleRenderer.cpp" ).string() );
+    ASSERT_TRUE( file.good() );
+    const std::string source( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+    for ( const char* gone : { "ParticleBillboard", ".shader", "DrawsAdditive" } )
+        EXPECT_EQ( source.find( gone ), std::string::npos ) << "ParticleRenderer.cpp names " << gone;
+    EXPECT_NE( source.find( "\"ParticleSpriteDefault\"" ), std::string::npos );
+    EXPECT_FALSE( fs::exists( engine / "Materials/Particles/MaterialParticleBillboard.hpp" ) );
+    EXPECT_FALSE( fs::exists( root / "Editor/Resources/Shaders/Programs/Particles/ParticleBillboard.shader" ) );
+}
+
+// VFX-08f. The translucent sprite sort, built from the declarations ParticleRenderer::AddSortPasses makes
+// (PlanParticleSort + DeclareParticleSortStage) between a stand-in for the last Compact (writes the pool, the
+// alive list and the draw slots) and a stand-in for ParticlePass (reads the sorted list for the sorted emitter and
+// the alive list for the opaque one). Red if an opaque / masked emitter gets sort nodes, a translucent / additive
+// one gets none or a stage count other than ParticleSortStages, a stage leaves a slot of the shader's layout
+// undeclared (Validation fault), or any sort node can run before the compact or after the draw.
+TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForBlendedEmittersOnly )
+{
+    using Desert::Core::Formats::SurfaceBlendMode;
+    namespace Sys = Desert::Graphic::System;
+
+    const std::vector<Sys::ParticleSortEmitter> emitters = {
+         { 0, SurfaceBlendMode::Opaque, 300, 0, 0 },
+         { 1, SurfaceBlendMode::Translucent, 3000, 2 * 300, 0 },
+         { 2, SurfaceBlendMode::Masked, 64, 2 * 3300 + 64, 1 },
+         { 3, SurfaceBlendMode::Additive, 16, 2 * 3364 + 16, 1 },
+    };
+    const Sys::ParticleSortPlan plan = Sys::PlanParticleSort( emitters );
+    ASSERT_EQ( plan.Ranges.size(), 2u );
+    EXPECT_EQ( plan.Ranges[0].Emitter, 1u );
+    EXPECT_EQ( plan.Ranges[1].Emitter, 3u );
+    EXPECT_EQ( plan.Ranges[0].Length, 4096u );
+    EXPECT_EQ( plan.Ranges[1].KeyBase, 4096u );
+    EXPECT_EQ( plan.KeyCount, 4096u + 16u );
+
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "particle sort" );
+    const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 3380u * 64u }, "ParticlePool" );
+    const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
+    const BufferRef  counters  = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
+    const TextureRef back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Particles: Compact 1", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Write( particles, Access::StorageWrite );
+             pass.Write( alive, Access::StorageWrite );
+             pass.Write( counters, Access::StorageWrite );
+         },
+         Ok );
+
+    const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 3380u * 4u );
+    const auto layout         = std::make_shared<const ShaderBindingLayout>(
+         ShaderBindingLayout{ "ParticleSort",
+                                      { { "Particles", ShaderResourceKind::StorageBuffer },
+                                        { "AliveList", ShaderResourceKind::StorageBuffer },
+                                        { "Counters", ShaderResourceKind::StorageBuffer },
+                                        { "SortKeys", ShaderResourceKind::StorageBuffer },
+                                        { "SortedAlive", ShaderResourceKind::StorageBuffer } },
+                              Sys::kParticleSortPushBytes } );
+    const Sys::ParticleSortBuffers buffers{ particles, alive, counters, keys, sorted };
+    std::vector<std::string>       sortNames;
+    for ( const Sys::ParticleSortRange& range : plan.Ranges )
+    {
+        const auto stages = Sys::ParticleSortStages( range.Length );
+        for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
+        {
+            const Sys::ParticleSortStageKind kind = stages[s].Kind;
+            sortNames.push_back( Sys::ParticleSortPassName( range.Emitter, s ) );
+            graph.AddPass(
+                 sortNames.back(), PassFlags::Compute, [&, kind]( PassBuilder& pass )
+                 { Sys::DeclareParticleSortStage( pass, layout, {}, buffers, kind ); }, Ok );
+        }
+    }
+    graph.AddPass(
+         "ParticlePass", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( particles, Access::StorageRead );
+             pass.Read( alive, Access::StorageRead );  // the opaque / masked emitters
+             pass.Read( sorted, Access::StorageRead ); // the translucent / additive ones
+             pass.Read( counters, Access::IndirectArgs );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    // 4096 keys: Keys, Local, (Global j=1024, Merge) for k = 2048 and (Global j=2048, Global j=1024, Merge) for
+    // k = 4096, Write; 16 keys: Keys, Local, Write.
+    EXPECT_EQ( sortNames.size(), Sys::ParticleSortStages( 4096 ).size() + 3u );
+    for ( const uint32_t unsorted : { 0u, 2u } )
+        EXPECT_EQ( result.FindPass( Sys::ParticleSortPassName( unsorted, 0 ) ), nullptr )
+             << "an opaque / masked emitter is drawn unsorted and has no sort node";
+
+    auto position = [&]( const std::string& name )
+    {
+        const auto it = std::find_if( result.Passes.begin(), result.Passes.end(),
+                                      [&]( const auto& pass ) { return pass.Name == name; } );
+        return it == result.Passes.end() ? -1 : static_cast<int>( it - result.Passes.begin() );
+    };
+    const int compact = position( "Particles: Compact 1" );
+    const int draw    = position( "ParticlePass" );
+    ASSERT_GE( compact, 0 );
+    ASSERT_GE( draw, 0 );
+    int previous = compact;
+    for ( const std::string& name : sortNames )
+    {
+        const int at = position( name );
+        EXPECT_GT( at, previous ) << name << " is culled or runs out of its stage order / before the compact";
+        EXPECT_LT( at, draw ) << name << " runs after the draw that reads its sorted list";
+        previous = at;
+    }
+}
 
 // ── Vulkan-free ─────────────────────────────────────────────────────────────────────────────────────────
 
@@ -2554,6 +2678,74 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
     EXPECT_EQ( colorBack, std::vector<ImageLayout>{ ImageLayout::ColorAttachment } );
     EXPECT_EQ( depthBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilReadOnly } );
     EXPECT_EQ( color.SubresourceStates[0], GetAccessState( Access::ColorTarget ) );
+}
+
+// VFX-08e. Depth-tested sprites that fade against the scene depth hold the depth as a READ-ONLY attachment and
+// sample it in the same pass (UE: FExclusiveDepthStencil::DepthRead + the SceneDepth SRV). Both accesses fold into
+// one use in DEPTH_STENCIL_READ_ONLY_OPTIMAL; a WRITTEN depth attachment that is also sampled stays refused.
+TEST( RenderGraphCompile, AReadOnlyDepthAttachmentSampledInTheSamePassHoldsTheDepthReadOnlyLayout )
+{
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "depth read sampled" );
+    const TextureRef depth = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::DEPTH32F ), "SceneDepth" );
+    const TextureRef back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Opaque", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+             pass.DepthTarget( depth, LoadOp::ClearDepth( 1.0f ) );
+         },
+         Ok );
+    graph.AddPass(
+         "Particles", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( depth, Access::SampledGraphics );
+             pass.ColorTarget( 0, back, LoadOp::Load() );
+             pass.DepthTarget( depth, LoadOp::Load(), false );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    const CompiledPass* particles = result.FindPass( "Particles" );
+    ASSERT_NE( particles, nullptr );
+
+    // The attachment is the read-only one (depth test, no write).
+    const auto attachment = std::find_if( particles->Attachments.begin(), particles->Attachments.end(),
+                                          []( const AttachmentDecision& decision ) { return decision.IsDepth; } );
+    ASSERT_NE( attachment, particles->Attachments.end() );
+    EXPECT_EQ( attachment->Usage, Access::DepthRead );
+
+    // One barrier into the read-only layout, covering the depth test AND the fragment sample.
+    const std::vector<Barrier> onDepth = BarriersOn( particles, depth.Index );
+    ASSERT_EQ( onDepth.size(), 1u );
+    EXPECT_EQ( onDepth[0].Before, GetAccessState( Access::DepthWrite ) );
+    EXPECT_EQ( onDepth[0].After.Layout, ImageLayout::DepthStencilReadOnly );
+    const AccessState sampled = GetAccessState( Access::SampledGraphics );
+    const AccessState tested  = GetAccessState( Access::DepthRead );
+    EXPECT_EQ( onDepth[0].After.Stages & sampled.Stages, sampled.Stages );
+    EXPECT_EQ( onDepth[0].After.Stages & tested.Stages, tested.Stages );
+    EXPECT_EQ( onDepth[0].After.Memory & sampled.Memory, sampled.Memory );
+    EXPECT_EQ( onDepth[0].After.Memory & tested.Memory, tested.Memory );
+
+    // Writing the depth while sampling it is a feedback loop: still one subresource in two states.
+    Builder          written( "depth write sampled" );
+    const TextureRef writtenDepth = written.CreateTexture( Tex2D( 64, 64, ImageFormat::DEPTH32F ), "SceneDepth" );
+    const TextureRef writtenBack  = written.RegisterExternal( backbuffer, "Backbuffer" );
+    written.AddPass(
+         "WritesAndSamples", PassFlags::Raster | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, writtenBack, LoadOp::DontCare() );
+             pass.DepthTarget( writtenDepth, LoadOp::ClearDepth( 1.0f ) );
+             pass.Read( writtenDepth, Access::SampledGraphics );
+         },
+         Ok );
+    const std::string fault = OnlyDeclarationFault( written );
+    ASSERT_FALSE( fault.empty() );
+    EXPECT_NE( fault.find( "WritesAndSamples" ), std::string::npos ) << fault;
+    EXPECT_NE( fault.find( "SceneDepth" ), std::string::npos ) << fault;
 }
 
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )

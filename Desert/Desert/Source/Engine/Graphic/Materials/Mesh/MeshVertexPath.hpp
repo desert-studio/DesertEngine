@@ -135,9 +135,14 @@ namespace Desert::Graphic
         Static    = 0, // one model matrix per draw, from the push constant
         Skinned   = 1, // bone matrices from the Bones SSBO, offset per draw
         Instanced = 2, // one model matrix per INSTANCE, from the InstanceTransforms SSBO
+        // A camera-facing quad per live particle, pulled from the particle pool (binding 9) through the alive
+        // list (binding 10), as's sprite vertex factory. Only a template that declares `Usage ParticleSprites`
+        // has its cell (ParticleSprite.Forward); it has no G-buffer, glass or shadow-depth cell: sprites are drawn
+        // over the lit scene by ParticleRenderer and cast nothing.
+        ParticleSprite = 3,
     };
 
-    inline constexpr uint32_t kMeshVertexPathCount = 3;
+    inline constexpr uint32_t kMeshVertexPathCount = 4;
 
     // What the fragment stage of the draw WRITES. Orthogonal to the path above: the same geometry can be
     // rasterized into the lit scene, into the deferred G-buffer, into the transparent composite or into a

@@ -41,7 +41,8 @@ namespace
 TEST( SceneTimeOfDayComponentMigration, VersionIsTheGenerationAfterWindSource )
 {
     EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Migration::kSceneVersionWindSource + 1 );
-    EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
+    // Not the newest any more: VFX-08 (v44) follows it, and that step pins kSceneVersion.
+    EXPECT_LT( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
 }
 
 TEST( SceneTimeOfDayComponentMigration, TheSkysClockBecomesATimeOfDayBlockOnTheSameRecord )

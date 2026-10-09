@@ -1396,10 +1396,19 @@ namespace Desert::Core::Preprocess
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
                                               const std::string_view shadingModelDefine )
         {
-            const bool        masked  = blend == SurfaceBlendMode::Masked;
-            const std::string defines = std::format( "#define DESERT_SURFACE_PASS_{} 1\n{}#define {} {}\n", pass,
-                                                     masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
-                                                     kSurfaceShadingModelDefine, shadingModelDefine );
+            const bool        masked   = blend == SurfaceBlendMode::Masked;
+            const bool        particle = path == kSurfaceParticleSpritePath;
+            const std::string defines  = std::format(
+                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}#define {} {}\n", pass,
+                 masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
+                 Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
+                                                       : std::string(),
+                 particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
+                 kSurfaceShadingModelDefine, shadingModelDefine );
+            // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
+            // mesh, the sprite header composites a particle.
+            const std::string passInclude =
+                 particle ? std::string( kSurfaceParticleSpritePassInclude ) : SurfacePassInclude( pass, blend );
             RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
@@ -1420,7 +1429,7 @@ namespace Desert::Core::Preprocess
                      std::format( "{}#define {} 1\n#include <{}>\n#line {}\n{}\n#include <{}>\n", defines,
                                   kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
-                                  SurfacePassInclude( pass, blend ) );
+                                  passInclude );
             return AssembleStage( stage, code, include, autoDecls );
         }
 
@@ -1513,7 +1522,7 @@ namespace Desert::Core::Preprocess
 
     bool SurfaceBlendHasPass( const SurfaceBlendMode blend, const std::string_view pass )
     {
-        return blend != SurfaceBlendMode::Translucent || pass == "Forward";
+        return !Formats::IsTranslucentBlend( blend ) || pass == "Forward";
     }
 
     std::string SurfacePassInclude( const std::string_view pass, const SurfaceBlendMode blend )
@@ -1521,7 +1530,7 @@ namespace Desert::Core::Preprocess
         // A translucent surface is shaded and composited over the scene by the translucency pass header (UE's
         // translucency base pass). The shading model picks no header: every model is lit by the same pass, which
         // dispatches on DESERT_SHADING_MODEL_INDEX.
-        if ( blend == SurfaceBlendMode::Translucent && pass == "Forward" )
+        if ( Formats::IsTranslucentBlend( blend ) && pass == "Forward" )
             return std::string( kSurfaceTranslucentPassInclude );
         return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
     }
@@ -1534,6 +1543,8 @@ namespace Desert::Core::Preprocess
         for ( const std::string_view pass : kSurfaceCellPasses )
             includes.push_back( SurfacePassInclude( pass, SurfaceBlendMode::Opaque ) );
         includes.emplace_back( kSurfaceTranslucentPassInclude );
+        includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
+        includes.emplace_back( kSurfaceParticleSpritePassInclude );
         return includes;
     }
 
@@ -1796,12 +1807,28 @@ namespace Desert::Core::Preprocess
                     result.Surface.Blend = SurfaceBlendMode::Masked;
                 else if ( v == "translucent" )
                     result.Surface.Blend = SurfaceBlendMode::Translucent;
+                else if ( v == "additive" )
+                    result.Surface.Blend = SurfaceBlendMode::Additive;
                 else
                 {
-                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked | Translucent)", v ) };
+                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked | Translucent | Additive)",
+                                               v ) };
                     return fail();
                 }
                 surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+            }
+            else if ( lower == "usage" )
+            {
+                // UE's material usage flags: which vertex factories the template is compiled for beyond the
+                // meshes.
+                const std::string v = Lower( ReadIdent( c ) );
+                if ( v != "particlesprites" )
+                {
+                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites)", v ) };
+                    return fail();
+                }
+                result.Surface.UsedWithParticleSprites = true;
+                surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "shadingmodel" )
             {
@@ -1916,8 +1943,9 @@ namespace Desert::Core::Preprocess
         }
         else if ( surfaceSettingLine != 0 )
         {
-            err = { surfaceSettingLine,
-                    "TwoSided, BlendMode and ShadingModel shape a Surface block, and this shader has none" };
+            err = {
+                 surfaceSettingLine,
+                 "TwoSided, BlendMode, ShadingModel and Usage shape a Surface block, and this shader has none" };
             return fail();
         }
 
@@ -2068,6 +2096,23 @@ namespace Desert::Core::Preprocess
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
                 }
+
+            // `Usage ParticleSprites`: the sprite cell, after every mesh cell (the mesh cells' order is
+            // unchanged).
+            if ( result.Surface.UsedWithParticleSprites )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace(
+                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
+                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
+                                                          autoDecls, result.Surface.Blend, shadingModelDefine ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
         }
 
         // The default program is the top-level stage set; when a shader consists solely of

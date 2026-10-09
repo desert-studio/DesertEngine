@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 
@@ -95,7 +96,9 @@ namespace Desert::Graphic::System
         uint32_t            EntityId = 0;
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
-        bool                Additive  = true;
+        // The emitter's ParticleEmitterData::Material (null = the default sprite template); the drawing view
+        // resolves its ParticleSprite.Forward cell and reads the blend mode off it.
+        Common::AssetHandle Material;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 
