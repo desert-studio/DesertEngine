@@ -71,8 +71,9 @@ namespace Desert::Editor
     AssetThumbnailRenderer::~AssetThumbnailRenderer()
     {
         // The worker holds the readback and writes a file: it finishes before the device it reads from goes.
-        if ( m_Encode.valid() )
-            m_Encode.wait();
+        for ( Writing& writing : m_Writing )
+            writing.Encode.wait();
+        m_Writing.clear();
         m_Readback.reset();
         if ( !m_Inited )
             return;
@@ -836,8 +837,14 @@ namespace Desert::Editor
         return true;
     }
 
+    bool AssetThumbnailRenderer::IsWriting( const std::string& png ) const
+    {
+        return std::ranges::any_of( m_Writing, [&]( const Writing& writing ) { return writing.Png == png; } );
+    }
+
     void AssetThumbnailRenderer::Tick()
     {
+        PollWriting();
         if ( !HasPending() )
             return;
         const auto began = std::chrono::steady_clock::now();
@@ -942,13 +949,12 @@ namespace Desert::Editor
     void AssetThumbnailRenderer::AdvanceReadback()
     {
         ++m_ReadbackFrames;
-        if ( !m_Encode.valid() )
+        if ( !m_Readback->IsComplete() )
+            return;
         {
-            if ( !m_Readback->IsComplete() )
-                return;
             // Read, downscale and write on a worker. The readback is shared so the object outlives the job
             // even if this renderer is torn down first (the destructor waits for the job anyway).
-            m_Encode = Common::JobSystem::Get().Async(
+            std::future<Encoded> encode = Common::JobSystem::Get().Async(
                  [readback = m_Readback, png = m_ReadbackPng]() -> Encoded
                  {
                      using Clock   = std::chrono::steady_clock;
@@ -976,23 +982,37 @@ namespace Desert::Editor
                      out.PngMs   = ms( t2, Clock::now() );
                      return out;
                  } );
-            return;
+            // THE SLOT IS FREE FROM HERE: the pixels are in the readback's own staging copy, so the next
+            // capture may render into the final image while this one is encoded.
+            m_Writing.push_back( { std::move( m_Readback ), std::move( encode ), m_ReadbackPng, m_ReadbackBegan,
+                                   m_ReadbackSubmitMs, m_ReadbackFrames, m_CaptureMainMs, m_CaptureTicks } );
+            m_Readback.reset();
         }
-        if ( m_Encode.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
-            return;
+    }
 
-        const Encoded encoded = m_Encode.get();
-        m_Readback.reset(); // staging buffer and fence go back on the device thread
-        if ( !encoded.Written.IsSuccess() )
-            LOG_ERROR( "[AssetThumbnailRenderer] '{}': {} — no thumbnail written.", m_ReadbackPng,
-                       encoded.Written.GetError() );
-        LOG_DEBUG( "[Thumbnails] captured '{}' in {:.0f} ms over {} frames (main: {:.1f} over {} ticks, submit "
-                   "{:.1f}; worker: read "
-                   "{:.0f}, downscale {:.0f}, png {:.0f}) at {}px from a {}px render",
-                   std::filesystem::path( m_ReadbackPng ).filename().string(),
-                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_ReadbackBegan )
-                        .count(),
-                   m_ReadbackFrames, m_CaptureMainMs, m_CaptureTicks, m_ReadbackSubmitMs, encoded.ReadMs,
-                   encoded.BoxMs, encoded.PngMs, kSize, kRenderSize );
+    void AssetThumbnailRenderer::PollWriting()
+    {
+        std::erase_if(
+             m_Writing,
+             [&]( Writing& writing )
+             {
+                 if ( writing.Encode.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+                     return false;
+                 const Encoded encoded = writing.Encode.get();
+                 writing.Readback.reset(); // staging buffer and fence go back on the device thread
+                 if ( !encoded.Written.IsSuccess() )
+                     LOG_ERROR( "[AssetThumbnailRenderer] '{}': {} — no thumbnail written.", writing.Png,
+                                encoded.Written.GetError() );
+                 LOG_DEBUG(
+                      "[Thumbnails] captured '{}' in {:.0f} ms over {} frames (main: {:.1f} over {} "
+                      "ticks, submit {:.1f}; worker: read {:.0f}, downscale {:.0f}, png {:.0f}) at "
+                      "{}px from a {}px render",
+                      std::filesystem::path( writing.Png ).filename().string(),
+                      std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - writing.Began )
+                           .count(),
+                      writing.Frames, writing.MainMs, writing.MainTicks, writing.SubmitMs, encoded.ReadMs,
+                      encoded.BoxMs, encoded.PngMs, kSize, kRenderSize );
+                 return true;
+             } );
     }
 } // namespace Desert::Editor

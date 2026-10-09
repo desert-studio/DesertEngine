@@ -104,11 +104,22 @@ namespace Desert::Editor
                                                          const std::string&                    outPng,
                                                          const Assets::ThumbnailOrbit&         orbit );
 
-        // Is a capture in flight? Gates requests to one at a time.
-        // Pending until the picture is ON DISK: the GPU copy and the worker's encode are part of the capture.
+        // Is the renderer's single slot taken? Gates requests to one at a time. The slot is the GPU's part of a
+        // capture — warm-up renders and the copy — and it is free again the moment the copy has landed: the
+        // worker's downscale and PNG write run while the NEXT capture warms up (THUMB-FOLDER-c: holding the
+        // slot through the encode left ~0.5 s idle between captures). Whether a picture is on disk yet is
+        // IsWriting's answer.
         [[nodiscard]] bool HasPending() const
         {
             return m_Phase != 0 || m_Readback != nullptr;
+        }
+
+        // A capture whose copy landed is still being encoded and written to @p png on a worker.
+        [[nodiscard]] bool IsWriting( const std::string& png ) const;
+        // Any capture is still being written.
+        [[nodiscard]] bool IsWriting() const
+        {
+            return !m_Writing.empty();
         }
 
         // Advance the capture state machine. Call ONCE per frame. Renders the pending material; on the
@@ -226,7 +237,22 @@ namespace Desert::Editor
         };
         void                                    AdvanceReadback();
         std::shared_ptr<Graphic::ImageReadback> m_Readback;
-        std::future<Encoded>                    m_Encode;
+        // Captures handed to a worker: the readback is kept here (released on this thread once the job is
+        // done) together with what the landing log line reports.
+        struct Writing
+        {
+            std::shared_ptr<Graphic::ImageReadback> Readback;
+            std::future<Encoded>                    Encode;
+            std::string                             Png;
+            std::chrono::steady_clock::time_point   Began;
+            double                                  SubmitMs  = 0.0;
+            int                                     Frames    = 0;
+            double                                  MainMs    = 0.0;
+            int                                     MainTicks = 0;
+        };
+        std::vector<Writing> m_Writing;
+        // Lands every finished write (logs it, releases its readback). Never blocks.
+        void                                    PollWriting();
         std::string                             m_ReadbackPng;
         std::chrono::steady_clock::time_point   m_ReadbackBegan;
         double                                  m_ReadbackSubmitMs = 0.0;

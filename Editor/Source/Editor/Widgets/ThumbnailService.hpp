@@ -4,6 +4,7 @@
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailPreview.hpp>
+#include <Editor/Widgets/ThumbnailWanted.hpp>
 
 #include <Engine/Assets/AssetRootPin.hpp>
 
@@ -251,8 +252,8 @@ namespace Desert::Editor
 
         [[nodiscard]] bool HasWork() const
         {
-            return CaptureOwed() || ( m_Renderer && m_Renderer->HasPending() ) || !m_PaintQueue.empty() ||
-                   m_PaintInFlight.valid();
+            return CaptureOwed() || ( m_Renderer && m_Renderer->HasPending() ) || !m_Writing.empty() ||
+                   !m_PaintQueue.empty() || m_PaintInFlight.valid();
         }
 
     private:
@@ -314,9 +315,10 @@ namespace Desert::Editor
         bool ReadMeshOrbit( Request& req );
         // RequestMesh and RequestPose: one enqueue, one deduplication.
         std::string EnqueueMeshLike( Request req );
-        // Identities a shower asked for since the last TickCapture (ShouldQueue marks every ask, queued or not).
-        std::unordered_set<std::string> m_Wanted;
-        // Drops every queued capture and paint not in m_Wanted, then clears it: the visibility rule above.
+        // What is queued and what a shower asked for since the last TickCapture (ShouldQueue marks every ask,
+        // queued or not) — the visibility rule above, device-free (ThumbnailWanted).
+        ThumbnailWanted m_Requests;
+        // Drops every queued capture and paint no shower asked for since the last tick (m_Requests).
         void DropUnwanted();
 
         // THE SUBJECT OF A QUEUED CAPTURE IS HELD RESIDENT, as UE's thumbnail renderer holds the object it
@@ -325,7 +327,7 @@ namespace Desert::Editor
         // not place: base/base_basic_pbr/base_basic_shaded were resolved on the splash, dropped by the sweep
         // ("Dropped 3 built mesh(es)") and then refused at dispatch as "not built in the MeshService", for
         // the rest of the session. One set of pins per identity, from the moment it is queued until it leaves
-        // m_Queued (settled, failed, skipped or invalidated) — reconciled by HoldSubjects.
+        // m_Requests (settled, failed, skipped or invalidated) — reconciled by HoldSubjects.
         std::unordered_map<std::string, std::vector<std::unique_ptr<Assets::AssetRootPin>>> m_Held;
         void                                                                                HoldSubjects();
 
@@ -361,13 +363,13 @@ namespace Desert::Editor
         // viewport's camera with no error message at all.
         std::unique_ptr<AssetThumbnailRenderer> m_Renderer;
         std::vector<Request>                    m_Queue;
-        // Keyed on ThumbnailKey::Identity, not on a path spelling, so two panels naming one asset
-        // differently cannot each hold their own entry (see Invalidate).
-        std::unordered_set<std::string> m_Queued; // asset identities currently queued or in flight
         std::unordered_set<std::string>
              m_Failed; // the renderer refused or wrote nothing: do not retry every frame
         // The dispatched capture, from dispatch until the renderer answers (ThumbnailFreshness::Capture).
         ThumbnailFreshness::Capture    m_Capture;
+        // Captures whose copy landed and whose picture a worker is still writing; the renderer's slot is already
+        // free for the next one (AssetThumbnailRenderer::IsWriting). Each settles when its write is done.
+        std::vector<ThumbnailFreshness::Capture> m_Writing;
         int                            m_IdleTicks     = 0; // consecutive frames with no work
         ThumbnailEncode::CaptureBudget m_Budget;            // paces dispatch by main-thread ms (TH3)
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
