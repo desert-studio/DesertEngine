@@ -1499,20 +1499,11 @@ namespace Desert::Assets
                     // ends where the turrets' centres stand, so their heads — and nothing else — reach the
                     // band's top. See kTurretsPerCrown.
                     const float crownRadiusKm    = lumpRadiusKm[stackCount - 1];
-                    // A TURRET THE VOLUME CANNOT CARRY IS NOT DRAWN (CLOUD-GAUNTLET r08). Floored up to the lump
-                    // floor (one 188 m voxel on the shipped region) a small body's turrets and billows came out
-                    // as large as its own stack lumps and sat on its crown as a pile of equal balls; a small
-                    // cumulus has no turrets, so the stack then takes the whole band. Same rule one level down
-                    // for the billows.
-                    const float turretRadiusKm = kTurretRadiusOfCrown * crownRadiusKm;
-                    const bool  hasTurrets     = turretRadiusKm >= lumpFloorKm;
-                    const bool  hasBillows     = kBillowOfTurret * turretRadiusKm >= lumpFloorKm;
-                    const float turretVerticalKm =
-                         hasTurrets ? std::max( std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) *
-                                                               turretRadiusKm,
-                                                          0.5f * kTurretShareOfBand * bandFullKm ),
-                                                marchFloorKm )
-                                    : 0.0f;
+                    const float turretRadiusKm   = std::max( kTurretRadiusOfCrown * crownRadiusKm, lumpFloorKm );
+                    const float turretVerticalKm = std::max(
+                         std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) * turretRadiusKm,
+                                   0.5f * kTurretShareOfBand * bandFullKm ),
+                         marchFloorKm );
                     const float stackBandKm = std::max( bandFullKm - turretVerticalKm, 0.0f );
                     lumpVerticalKm[stackCount - 1] =
                          std::min( lumpVerticalKm[stackCount - 1], 0.5f * stackBandKm );
@@ -1633,13 +1624,10 @@ namespace Desert::Assets
                     // Every turret carries kBillowsPerTurret smaller heads on its outer flank.
                     const float    turretPhase = HashUnit( HashCombine( clusterSeed, 0x4u ) ) * 6.2831853f;
                     const uint32_t turretCount =
-                         !hasTurrets
-                              ? 0u
-                              : kTurretsPerCrown - kTurretsSpreadPerCrown +
-                                     std::min( static_cast<uint32_t>(
-                                                    HashUnit( HashCombine( clusterSeed, 0x5u ) ) *
-                                                    static_cast<float>( 2u * kTurretsSpreadPerCrown + 1u ) ),
-                                               2u * kTurretsSpreadPerCrown );
+                         kTurretsPerCrown - kTurretsSpreadPerCrown +
+                         std::min( static_cast<uint32_t>( HashUnit( HashCombine( clusterSeed, 0x5u ) ) *
+                                                          static_cast<float>( 2u * kTurretsSpreadPerCrown + 1u ) ),
+                                   2u * kTurretsSpreadPerCrown );
                     const auto pushLump = [&]( const glm::vec3& centreKm, const glm::vec3& radiiKm )
                     {
                         CloudModellingBlob blob;
@@ -1693,7 +1681,7 @@ namespace Desert::Assets
                         // ITS BILLOWS, on the turret's outer flank: a billow's centre is on the turret's surface
                         // at the height where the billow's own top meets the turret's, so it widens the head
                         // without raising it out of the band.
-                        const float billowRadiusKm = kBillowOfTurret * turretRadiusKm;
+                        const float billowRadiusKm = std::max( kBillowOfTurret * turretRadiusKm, lumpFloorKm );
                         const float billowVerticalKm =
                              std::max( kBillowOfTurret * turretVerticalKm, marchFloorKm );
                         const float rise = std::max( turretVerticalKm - billowVerticalKm, 0.0f );
@@ -1702,7 +1690,7 @@ namespace Desert::Assets
                              std::sqrt( std::max(
                                   1.0f - ( rise * rise ) / std::max( turretVerticalKm * turretVerticalKm, 1e-12f ),
                                   0.0f ) );
-                        for ( uint32_t billow = 0; hasBillows && billow < kBillowsPerTurret; ++billow )
+                        for ( uint32_t billow = 0; billow < kBillowsPerTurret; ++billow )
                         {
                             const uint32_t billowSeed = HashCombine( turretSeed, 0x10u + billow );
                             const float    side       = ( static_cast<float>( billow ) + 0.5f ) /
