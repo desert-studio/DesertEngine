@@ -3,6 +3,8 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
+#include <entt/entt.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -17,6 +19,11 @@ namespace Desert::Core
 namespace Desert::Assets
 {
     class AssetManager;
+}
+
+namespace Desert::Input
+{
+    class LocalPlayerInput;
 }
 
 namespace Desert::Scripting
@@ -88,6 +95,13 @@ namespace Desert::Scripting
         // Advances the edge-detection state for Input.wasPressed() (down THIS frame, up LAST frame). Call once
         // per frame BEFORE running scripts so each key fires wasPressed() exactly on the press transition.
         void NewInputFrame();
+
+        // THE LOCAL PLAYER'S ENHANCED INPUT (GP1b). TickPlayerInput runs once per played frame, after
+        // SetFrameMouseDelta and before the scripts: the first call of a Play session is UE's BeginPlay (the
+        // EnhancedInputPlayerComponents' contexts are added); EndPlayerInput ends the session.
+        void                     TickPlayerInput( entt::registry& registry, float deltaSeconds );
+        void                     EndPlayerInput();
+        Input::LocalPlayerInput& PlayerInput();
 
         // A script may request cursor lock/unlock via Input.lockCursor()/showCursor(). ScriptSystem consumes the
         // pending request after running scripts and applies it (so it cooperates with the Escape toggle). Returns

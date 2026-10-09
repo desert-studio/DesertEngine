@@ -1727,3 +1727,17 @@ TEST( VolumetricCloudReflection, AKeyThatIsNotInTheSceneLeavesTheFieldAlone )
          << "a missing key OVERWROTE the field, so loading an old scene would move every cloud layer in "
             "the repository";
 }
+
+// GP1: the local player's Enhanced Input component (UE: the LocalPlayer subsystem's default contexts). Two
+// fields and no more: the contexts as `.deinputcontext` handles, highest priority first, and where that list
+// sits among the contexts scripts add. A per-entry priority field would be a second answer to the order.
+TEST( EnhancedInputPlayerReflection, ExposesTheContextHandlesAndTheBasePriorityOnly )
+{
+    const TypeInfo& player = Type( "EnhancedInputPlayerData" );
+    EXPECT_EQ( FieldNames( player ), ( std::vector<std::string>{ "Contexts", "BasePriority" } ) );
+    const FieldInfo* contexts = Find( player, "Contexts" );
+    ASSERT_NE( contexts, nullptr );
+    EXPECT_TRUE( contexts->Meta.IsAsset );
+    EXPECT_EQ( contexts->Meta.AssetType, "InputMappingContextAsset" );
+    EXPECT_EQ( CountInCategory( player, "Input" ), 2u );
+}

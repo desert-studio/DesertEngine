@@ -176,6 +176,7 @@ namespace Common::Constants
             VFX,
             Fracture,
             PhysicsAsset,
+            Input,
             Cooked,
             COUNT
         };
@@ -273,6 +274,8 @@ namespace Common::Constants
              /* Fracture      */ { "Fractures/", DirRoot::Assets },
              // Physics assets (`.dephysasset`, UE UPhysicsAsset): the ragdoll bodies and joints of a skeleton.
              /* PhysicsAsset  */ { "PhysicsAssets/", DirRoot::Assets },
+             // Input actions and mapping contexts (`.deinputaction`, `.deinputcontext`, UE Enhanced Input).
+             /* Input         */ { "Input/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -610,6 +613,7 @@ namespace Common::Constants
         inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
         inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
         inline const std::filesystem::path& PHYSICS_ASSET_PATH  = Detail::Slot( ContentDir::PhysicsAsset );
+        inline const std::filesystem::path& INPUT_PATH          = Detail::Slot( ContentDir::Input );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
     } // namespace Path
 

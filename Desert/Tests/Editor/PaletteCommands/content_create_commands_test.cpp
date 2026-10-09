@@ -13,6 +13,19 @@ namespace
     using Desert::Editor::kNewLevelSequenceLabel;
     using Desert::Editor::PaletteCommand;
 
+    std::function<Common::BoolResultStr()> NotCalled()
+    {
+        return [] { return Common::MakeError( "a creation the test did not run was run" ); };
+    }
+
+    const PaletteCommand* FindAsset( const std::vector<PaletteCommand>& commands, const std::string_view label )
+    {
+        for ( const PaletteCommand& command : commands )
+            if ( command.Group == "Assets" && command.Label == label )
+                return &command;
+        return nullptr;
+    }
+
     const PaletteCommand* FindNewLevelSequence( const std::vector<PaletteCommand>& commands )
     {
         for ( const PaletteCommand& command : commands )
@@ -31,7 +44,7 @@ TEST( ContentCreateCommands, NewLevelSequenceIsOfferedAndRunsTheCreationItWasHan
              ++calls;
              return Common::MakeSuccess( true );
          },
-         [] { return Common::MakeError( "not this entry" ); } );
+         NotCalled(), NotCalled(), NotCalled() );
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr ) << "no \"Assets / New Level Sequence\" palette entry";
     EXPECT_EQ( calls, 0 ) << "building the palette created an asset";
@@ -44,7 +57,7 @@ TEST( ContentCreateCommands, ACreationThatFailedAnswersWithItsOwnReason )
 {
     const auto commands = ContentCreatePaletteCommands(
          [] { return Common::MakeError( "New Level Sequence: the Assets window has no folder open" ); },
-         [] { return Common::MakeSuccess( true ); } );
+         NotCalled(), NotCalled(), NotCalled() );
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr );
     const auto outcome = command->Run();
@@ -67,7 +80,8 @@ TEST( ContentCreateCommands, NewVFXDataChannelIsOfferedAndRunsItsOwnCreation )
          {
              ++channels;
              return Common::MakeSuccess( true );
-         } );
+         },
+         NotCalled(), NotCalled() );
     const PaletteCommand* command = nullptr;
     for ( const PaletteCommand& c : commands )
         if ( c.Group == "Assets" && c.Label == Desert::Editor::kNewVFXDataChannelLabel )
@@ -76,4 +90,32 @@ TEST( ContentCreateCommands, NewVFXDataChannelIsOfferedAndRunsItsOwnCreation )
     EXPECT_TRUE( command->Run() );
     EXPECT_EQ( channels, 1 ) << "the entry did not call CreateNewVFXDataChannel exactly once";
     EXPECT_EQ( sequences, 0 ) << "the channel entry ran the level sequence creation";
+}
+
+// GP1d: "Assets / New Input Action" and "Assets / New Input Mapping Context" each run their own creation once.
+TEST( ContentCreateCommands, NewInputActionAndMappingContextRunTheirOwnCreation )
+{
+    int        actions  = 0;
+    int        contexts = 0;
+    const auto commands = ContentCreatePaletteCommands(
+         NotCalled(), NotCalled(),
+         [&actions]
+         {
+             ++actions;
+             return Common::MakeSuccess( true );
+         },
+         [&contexts]
+         {
+             ++contexts;
+             return Common::MakeSuccess( true );
+         } );
+    const PaletteCommand* action  = FindAsset( commands, Desert::Editor::kNewInputActionLabel );
+    const PaletteCommand* context = FindAsset( commands, Desert::Editor::kNewInputMappingContextLabel );
+    ASSERT_NE( action, nullptr ) << "no \"Assets / New Input Action\" palette entry";
+    ASSERT_NE( context, nullptr ) << "no \"Assets / New Input Mapping Context\" palette entry";
+    EXPECT_TRUE( action->Run() );
+    EXPECT_EQ( actions, 1 );
+    EXPECT_EQ( contexts, 0 );
+    EXPECT_TRUE( context->Run() );
+    EXPECT_EQ( contexts, 1 );
 }

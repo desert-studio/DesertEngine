@@ -1671,6 +1671,7 @@ namespace
              { "VFX_PATH", &P::VFX_PATH, RootVerdict::Packaged, "" },
              { "FRACTURE_PATH", &P::FRACTURE_PATH, RootVerdict::Packaged, "" },
              { "PHYSICS_ASSET_PATH", &P::PHYSICS_ASSET_PATH, RootVerdict::Packaged, "" },
+             { "INPUT_PATH", &P::INPUT_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
         };
         return roots;

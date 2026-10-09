@@ -13,6 +13,7 @@
 #include "Editor/Panels/Clouds/CloudModellingVolumePanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
+#include "Editor/Panels/Input/InputAssetPanels.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
@@ -251,6 +252,33 @@ namespace Desert::Editor
                   [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
                       return std::make_unique<Editor::CloudTypePanel>( Assets::AssetHandle( subject.Owner ),
                                                                        assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+        // UE's Input Action / Input Mapping Context editors: one window per asset, a working copy whose every
+        // edit is one undo entry, saved through the asset serializer (Panels/Input/InputAssetPanels.hpp).
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::InputAction ) ),
+             Registration{
+                  "InputAction", ICON_MDI_GESTURE_TAP,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
+                      return std::make_unique<Editor::InputActionPanel>( Assets::AssetHandle( subject.Owner ),
+                                                                         assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::InputMappingContext ) ),
+             Registration{
+                  "InputMappingContext", ICON_MDI_KEYBOARD,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::InputMappingContextPanel>(
+                           Assets::AssetHandle( subject.Owner ), assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&

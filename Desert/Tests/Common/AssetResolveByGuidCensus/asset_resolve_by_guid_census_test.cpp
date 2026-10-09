@@ -104,6 +104,12 @@ namespace
               ContentKind::PhysicsAsset,
               "RagdollData::PhysicsAsset refers by AssetHandle, stored AssetsRelative like the .dfrac above "
               "(StoredAssetForm.cpp); no {Guid, Path} referrer yet" },
+         PathOnlyRow{ ContentKind::InputAction,
+                      "header states a GUID but no component names an input action yet (GP1b: the player's "
+                      "input component)" },
+         PathOnlyRow{ ContentKind::InputMappingContext,
+                      "header states a GUID but no component names a mapping context yet (GP1b: the player's "
+                      "input component)" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -293,6 +299,20 @@ namespace
                      R"({{"Header":{{"Kind":"VFXDataChannel","Guid":"{}","Versions":{{"VFXD":1}},"Dependencies":[]}}}})"
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::InputAction:
+            case ContentKind::InputMappingContext:
+            {
+                // No input asset ships with the corpus yet; the least header the scan reads.
+                const bool        action = kind == ContentKind::InputAction;
+                const std::string text   = std::format(
+                     R"({{"Header":{{"Kind":"{}","Guid":"{}","Versions":{{"{}":1}},"Dependencies":[]}}}})"
+                     "\n",
+                          action
+                          ? "InputAction"
+                          : "InputMappingContext",
+                     Common::Content::AssetGuidToText( guid ), action ? "INAC" : "INMC" );
                 return { text.begin(), text.end() };
             }
             case ContentKind::LevelSequence:

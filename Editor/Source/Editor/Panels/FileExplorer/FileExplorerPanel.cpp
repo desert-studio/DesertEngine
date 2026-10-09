@@ -17,6 +17,7 @@
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
+#include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
@@ -202,6 +203,8 @@ namespace Desert::Editor
          { FileType::Retarget, "Retarget" },
          { FileType::FoliageType, "Foliage Type" },
          { FileType::StringTable, "String Table" },
+         { FileType::InputAction, "Input Action" },
+         { FileType::InputMappingContext, "Input Mapping Context" },
          { FileType::CookedWorld, "Cooked World" },
          { FileType::Skybox, "Skybox" },
     };
@@ -236,6 +239,8 @@ namespace Desert::Editor
          { FileType::Retarget, { 0.95f, 0.50f, 0.60f, 1.00f } },
          { FileType::FoliageType, { 0.30f, 0.75f, 0.35f, 1.00f } },
          { FileType::StringTable, { 0.60f, 0.60f, 0.85f, 1.00f } },
+         { FileType::InputAction, { 0.35f, 0.80f, 0.45f, 1.00f } },
+         { FileType::InputMappingContext, { 0.20f, 0.65f, 0.55f, 1.00f } },
          { FileType::CookedWorld, { 0.50f, 0.50f, 0.55f, 1.00f } },
          { FileType::Skybox, { 0.82f, 0.18f, 0.30f, 1.00f } },
     };
@@ -272,6 +277,8 @@ namespace Desert::Editor
          { FileType::Retarget, ICON_MDI_SWAP_HORIZONTAL },
          { FileType::FoliageType, ICON_MDI_TREE },
          { FileType::StringTable, ICON_MDI_TRANSLATE },
+         { FileType::InputAction, ICON_MDI_GESTURE_TAP },
+         { FileType::InputMappingContext, ICON_MDI_KEYBOARD },
          { FileType::CookedWorld, ICON_MDI_MAP },
          { FileType::Skybox, ICON_MDI_IMAGE_FILTER_HDR },
     };
@@ -877,6 +884,36 @@ namespace Desert::Editor
         data.Fields = { { "Position", Assets::Serialization::VFXDataChannelFieldType::Position } };
         if ( const auto saved = Assets::VFXDataChannelAsset::Save( path, data ); !saved )
             return Common::MakeFormattedError( "New VFX Data Channel: {}", saved.GetError() );
+    Common::BoolResultStr FileExplorerPanel::CreateNewInputAction()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Input Action: the Assets window has no folder open" );
+        const std::filesystem::path folder( m_CurrentDir->AssetPath );
+        const std::string           name = AssetFileOps::UniqueName(
+             "IA_NewAction", Assets::Serialization::kInputActionExtension,
+             [&]( const std::string& n ) { return std::filesystem::exists( folder / n ); } );
+        const auto path = folder / name;
+        if ( const auto saved = Assets::InputActionAsset::Save( path, Assets::Serialization::InputActionData{} );
+             !saved )
+            return Common::MakeFormattedError( "New Input Action: {}", saved.GetError() );
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewInputMappingContext()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Input Mapping Context: the Assets window has no folder open" );
+        const std::filesystem::path folder( m_CurrentDir->AssetPath );
+        const std::string           name = AssetFileOps::UniqueName(
+             "IMC_NewContext", Assets::Serialization::kInputMappingContextExtension,
+             [&]( const std::string& n ) { return std::filesystem::exists( folder / n ); } );
+        const auto path = folder / name;
+        if ( const auto saved =
+                  Assets::InputMappingContextAsset::Save( path, Assets::Serialization::InputMappingContextData{} );
+             !saved )
+            return Common::MakeFormattedError( "New Input Mapping Context: {}", saved.GetError() );
         m_SelectAfterRefresh = path.generic_string();
         QueueRefresh();
         return Common::MakeSuccess( true );
@@ -1528,6 +1565,8 @@ namespace Desert::Editor
                          { "Fractures", static_cast<int>( FileType::Fracture ) },
                          { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
                          { "Physics Assets", static_cast<int>( FileType::PhysicsAsset ) },
+                         { "Input Actions", static_cast<int>( FileType::InputAction ) },
+                         { "Input Mapping Contexts", static_cast<int>( FileType::InputMappingContext ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )
@@ -1794,6 +1833,17 @@ namespace Desert::Editor
 
                             if ( ImGui::Selectable( std::string( kNewVFXDataChannelLabel ).c_str() ) )
                                 if ( const auto created = CreateNewVFXDataChannel(); !created )
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+                            if ( ImGui::Selectable( std::string( kNewInputActionLabel ).c_str() ) )
+                                if ( const auto created = CreateNewInputAction(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
+
+                            if ( ImGui::Selectable( std::string( kNewInputMappingContextLabel ).c_str() ) )
+                                if ( const auto created = CreateNewInputMappingContext(); !created )
                                     LOG_ERROR( "[Content] {}", created.GetError() );
 
                             // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
