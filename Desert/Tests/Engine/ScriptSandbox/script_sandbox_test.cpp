@@ -29,7 +29,8 @@ TEST( ScriptSandbox, OsExecuteFailsAndRunsNothing )
     const auto   result = engine.RunString( std::format( "os.execute('touch \"{}\"')", marker.generic_string() ) );
 
     ASSERT_FALSE( result.IsSuccess() ) << "os.execute is callable from a game script";
-    EXPECT_NE( result.GetError().find( "execute" ), std::string::npos ) << result.GetError();
+    // Luau reports the call of the absent field, not its name: "attempt to call a nil value".
+    EXPECT_NE( result.GetError().find( "nil value" ), std::string::npos ) << result.GetError();
     EXPECT_FALSE( fs::exists( marker ) ) << "the shell command ran: " << marker.generic_string();
 }
 
