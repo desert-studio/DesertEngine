@@ -35,18 +35,19 @@
 
 namespace Desert::Animation::Timeline
 {
-    /// A channel kind, or one of the two non-channel section contents. STORED AS AN INTEGER: append only;
+    /// A channel kind, or one of the three non-channel section contents. STORED AS AN INTEGER: append only;
     /// the first six are `ChannelKind` value for value, so a channel track's kind converts without a table.
     enum class TrackKind : uint8_t
     {
-        Float     = 0,
-        Vector    = 1,
-        Rotation  = 2,
-        Transform = 3,
-        Bool      = 4,
-        Event     = 5,
-        Animation = 6,
-        CameraCut = 7,
+        Float       = 0,
+        Vector      = 1,
+        Rotation    = 2,
+        Transform   = 3,
+        Bool        = 4,
+        Event       = 5,
+        Animation   = 6,
+        CameraCut   = 7,
+        Subsequence = 8,
     };
 
     [[nodiscard]] const char* ToString( TrackKind kind );

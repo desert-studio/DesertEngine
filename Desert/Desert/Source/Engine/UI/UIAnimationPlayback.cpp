@@ -63,7 +63,7 @@ namespace Desert::UI
                               property, value.index() );
             }
 
-            void Fire( const TL::FiredEvent& ) override
+            void Fire( const TL::FiredEvent&, const std::optional<TL::ResolvedBinding>& ) override
             {
             }
             void SetCamera( const std::optional<TL::ResolvedBinding>& ) override

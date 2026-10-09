@@ -183,21 +183,21 @@ namespace Desert::Scripting
         }
     }
 
-    void ScriptEngine::CallAnimationNotify( uint32_t entity, uint32_t slot, const char* callback,
-                                            const std::string& name )
+    void ScriptEngine::CallSlotFunction( uint32_t entity, uint32_t slot, const char* function,
+                                         const std::string& argument )
     {
         sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
         if ( !env )
             return;
-        const sol::protected_function fn = ( *env )[callback];
+        const sol::protected_function fn = ( *env )[function];
         if ( !fn.valid() )
             return;
         m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot ); // Timer.after ownership
-        sol::protected_function_result r = fn( name );
+        sol::protected_function_result r = fn( argument );
         if ( !r.valid() )
         {
             sol::error err = r;
-            LOG_ERROR( "[Lua] {} error: {}", callback, err.what() );
+            LOG_ERROR( "[Lua] {} error: {}", function, err.what() );
         }
     }
 

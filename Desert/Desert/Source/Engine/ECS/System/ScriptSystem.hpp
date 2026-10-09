@@ -166,10 +166,21 @@ namespace Desert::ECS
                                 callback = "OnAnimationNotifyEnd";
                             for ( uint32_t slot = 0; slot < sc.Scripts.size(); ++slot )
                                 if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
-                                    m_Engine.CallAnimationNotify( id, slot, callback, notify.Name );
+                                    m_Engine.CallSlotFunction( id, slot, callback, notify.Name );
                         }
                         anim.PendingNotifies.clear();
                     }
+                }
+
+                // Level sequence Event keys' CallScript actions (LevelSequenceEntityHost::Fire), in firing order,
+                // to every started slot; cleared so each fires exactly once.
+                if ( !sc.PendingSequenceCalls.empty() )
+                {
+                    for ( const SequenceScriptCall& call : sc.PendingSequenceCalls )
+                        for ( uint32_t slot = 0; slot < sc.Scripts.size(); ++slot )
+                            if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
+                                m_Engine.CallSlotFunction( id, slot, call.Function.c_str(), call.EventName );
+                    sc.PendingSequenceCalls.clear();
                 }
             }
 
