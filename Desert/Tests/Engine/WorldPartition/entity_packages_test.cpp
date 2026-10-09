@@ -20,7 +20,7 @@
 
 namespace
 {
-    using Desert::Common::UUID;
+    using Common::UUID;
     using namespace Desert::Core;
     namespace EE = Desert::Core::ExternalEntities;
 
@@ -61,7 +61,7 @@ namespace
             auto       saved = SaveThroughPackages(
                  Scene, Packages, live, true,
                  [&]( const std::unordered_set<std::uint64_t>* only )
-                      -> Desert::Common::ResultStr<Desert::Common::Json::TextDocument>
+                      -> Common::ResultStr<Common::Json::TextDocument>
                  {
                      std::string   records;
                      std::uint32_t index = 0;
@@ -75,7 +75,7 @@ namespace
                                     std::to_string( id ) + R"(,"Tag":")" + tag + R"(","siblingIndex":)" +
                                     std::to_string( sibling ) + "}";
                      }
-                     return Desert::Common::Json::TextDocument::Parse(
+                     return Common::Json::TextDocument::Parse(
                           R"({"SceneName":"World","Entities":[)" + records +
                           R"(],"WorldPartition":{"Grids":[{"CellSize":12800.0,"LoadingRange":25600.0}]}})" );
                  } );
