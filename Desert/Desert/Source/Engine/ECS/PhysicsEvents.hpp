@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
 #include <entt/entt.hpp>
@@ -13,13 +12,13 @@
 
 namespace Desert::ECS
 {
-    /// What happened to Self (UE OnComponentHit / OnComponentBeginOverlap / OnComponentEndOverlap, Chaos break).
+    /// What happened to Self (UE OnComponentHit / OnComponentBeginOverlap / OnComponentEndOverlap). Contact facts
+    /// only: a destructible breaking is destruction's own event (DestructionEvents.hpp).
     enum class PhysicsEventKind : uint8_t
     {
         Hit,
         BeginOverlap,
         EndOverlap,
-        Break, ///< A piece of Self's destructible broke off (Node names it)
     };
 
     /**
@@ -33,11 +32,9 @@ namespace Desert::ECS
         PhysicsEventKind Kind    = PhysicsEventKind::Hit;
         entt::entity     Self    = entt::null;
         entt::entity     Other   = entt::null;
-        glm::vec3        Point   = { 0.0f, 0.0f, 0.0f }; ///< World contact point / the broken piece's centre
+        glm::vec3        Point   = { 0.0f, 0.0f, 0.0f }; ///< World contact point
         glm::vec3        Normal  = { 0.0f, 0.0f, 0.0f }; ///< World, from Self towards Other
         float            Impulse = 0.0f;                 ///< Hit: kg·cm/s
-        glm::vec3        Velocity = { 0.0f, 0.0f, 0.0f }; ///< Break: the piece's velocity, cm/s
-        int32_t          Node     = -1;                   ///< Break: the fracture node
     };
 
     /// The frame's physics events in the registry's context (registry.ctx): written by PhysicsECSSystem after
@@ -74,29 +71,6 @@ namespace Desert::ECS
                 out.push_back( { kind, e1, e2, event.Point, event.Normal, event.Impulse } );
             if ( event.Notify2 && e2 != entt::null )
                 out.push_back( { kind, e2, e1, event.Point, -event.Normal, event.Impulse } );
-        }
-    }
-
-    /// Appends the Break events of @p events to @p out, Self the destructible entity of the event's object
-    /// (@p objects: DestructibleHandle → entity). Removed events are the simulation's bookkeeping, not news.
-    inline void NameBreakEvents( std::span<const Destruction::DestructionEvent>                         events,
-                                 const std::unordered_map<Destruction::DestructibleHandle, entt::entity>& objects,
-                                 std::vector<PhysicsEvent>&                                              out )
-    {
-        for ( const Destruction::DestructionEvent& event : events )
-        {
-            if ( event.Kind != Destruction::DestructionEventKind::Break )
-                continue;
-            const auto found = objects.find( event.Object );
-            if ( found == objects.end() )
-                continue;
-            PhysicsEvent named;
-            named.Kind     = PhysicsEventKind::Break;
-            named.Self     = found->second;
-            named.Point    = event.Position;
-            named.Velocity = event.Velocity;
-            named.Node     = event.Node;
-            out.push_back( named );
         }
     }
 } // namespace Desert::ECS

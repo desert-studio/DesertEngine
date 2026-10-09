@@ -1,12 +1,14 @@
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/DestructionEvents.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <glm/gtc/quaternion.hpp>
 
 #include <format>
+#include <unordered_map>
 #include <type_traits>
 
 namespace Desert::ECS
@@ -35,8 +37,21 @@ namespace Desert::ECS
             return;
         m_Registry->on_destroy<DestructibleComponent>().disconnect<&DestructibleLifetime::OnDestructibleDestroyed>(
              *this );
+        // The simulation that broke them is going: its breaks are no one's news any more.
+        if ( auto* queue = m_Registry->try_ctx<DestructionEventQueue>() )
+            queue->Breaks.clear();
         m_Registry = nullptr;
         m_Refused.clear();
+    }
+
+    void DestructibleLifetime::PublishEvents( entt::registry& registry ) const
+    {
+        auto& queue = registry.ctx_or_set<DestructionEventQueue>();
+        queue.Breaks.clear();
+        std::unordered_map<Destruction::DestructibleHandle, entt::entity> objects;
+        for ( auto entity : registry.view<DestructibleComponent>() )
+            objects[registry.get<DestructibleComponent>( entity ).RuntimeObject] = entity;
+        NameBreakEvents( m_World->GetEvents(), objects, queue.Breaks );
     }
 
     void DestructibleLifetime::OnDestructibleDestroyed( entt::registry& registry, entt::entity entity )

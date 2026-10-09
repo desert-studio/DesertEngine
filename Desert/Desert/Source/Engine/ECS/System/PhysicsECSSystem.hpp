@@ -7,7 +7,6 @@
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Physics/CollisionProfiles.hpp>
@@ -295,6 +294,8 @@ namespace Desert::ECS
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
             PublishEvents( registry );
+            // The steps' breaks are destruction's own news, published by its owner into its own queue.
+            m_Destructibles->PublishEvents( registry );
 
             // Write the pose to DRAW back into the transform for moving bodies: interpolated between the last
             // two fixed steps, so motion is smooth at any frame rate.
@@ -387,7 +388,7 @@ namespace Desert::ECS
         }
 
     private:
-        // This frame's steps' events, named by entity, into the registry's PhysicsEventQueue (see PhysicsEvents.hpp).
+        // This frame's steps' contact events, named by entity, into the registry's PhysicsEventQueue (see PhysicsEvents.hpp).
         // The body → entity map keeps an entity whose body went this frame until its EndOverlap is named.
         void PublishEvents( entt::registry& registry )
         {
@@ -400,11 +401,6 @@ namespace Desert::ECS
                     m_BodyEntities[rb.RuntimeBody] = entity;
             }
             NameContactEvents( m_World->GetContactEvents(), m_BodyEntities, queue.Events );
-
-            std::unordered_map<Destruction::DestructibleHandle, entt::entity> objects;
-            for ( auto entity : registry.view<DestructibleComponent>() )
-                objects[registry.get<DestructibleComponent>( entity ).RuntimeObject] = entity;
-            NameBreakEvents( m_Destruction->GetEvents(), objects, queue.Events );
 
             std::erase_if( m_BodyEntities,
                            [&]( const auto& entry )

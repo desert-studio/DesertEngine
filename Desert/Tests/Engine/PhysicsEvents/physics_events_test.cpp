@@ -6,6 +6,8 @@
 //   3. A Hit is a contact BEGUN: a ball landing on a floor reports Hit(s) on landing and none while resting; a
 //      profile that does not generate hit events gets none.
 //   4. Named by entity: each side that asked gets its own event, Normal pointing from Self to Other.
+//   5. Contact facts only: a destructible's break is not a physics event (it is DestructionEventQueue's) —
+//      refused at compile time below.
 //
 // Mutations this suite must turn red:
 //   * PhysicsWorld.cpp ImpulseListener::OnContactRemoved — drop the Events.push_back   (OneBeginThenOneEnd...)
@@ -14,6 +16,7 @@
 //   (NoHitWithoutTheFlag)
 //   * PhysicsEvents.hpp NameContactEvents — drop the `-` on the second side's Normal     (EachSideIsNamed...)
 
+#include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/Physics/CollisionProfiles.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
@@ -23,6 +26,7 @@
 #include <glm/glm.hpp>
 #include <gtest/gtest.h>
 
+#include <span>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -198,3 +202,24 @@ TEST( PhysicsEvents, EachSideIsNamedWithTheNormalTowardsTheOther )
     EXPECT_EQ( named[2].Self, e1 );
     EXPECT_TRUE( named[2].Other == entt::null );
 }
+
+
+// The physics queue cannot carry a break: a physics event names no fracture node, and destruction's events do
+// not name into it.
+namespace
+{
+    template <class Event>
+    concept NamesAFractureNode = requires( Event event ) { event.Node; };
+
+    template <class Events>
+    concept NamesIntoThePhysicsQueue =
+         requires( Events events, const std::unordered_map<Desert::Physics::BodyHandle, entt::entity>& bodies,
+                   std::vector<Desert::ECS::PhysicsEvent>& out ) { Desert::ECS::NameContactEvents( events, bodies, out ); };
+} // namespace
+
+static_assert( !NamesAFractureNode<Desert::ECS::PhysicsEvent>,
+               "a physics event names no fracture node: breaks are DestructionEventQueue's" );
+static_assert( NamesIntoThePhysicsQueue<std::span<const Desert::Physics::ContactEvent>>,
+               "the probe itself: contact events do name into the physics queue" );
+static_assert( !NamesIntoThePhysicsQueue<std::span<const Desert::Destruction::DestructionEvent>>,
+               "destruction events do not name into the physics queue" );
