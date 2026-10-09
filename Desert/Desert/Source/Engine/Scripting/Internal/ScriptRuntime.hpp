@@ -531,4 +531,5 @@ namespace Desert::Scripting
     void RegisterLocalizationBindings( ScriptEngine::Impl& impl ); // loc.text/plural/number/money/date
     void RegisterProjectBindings( ScriptEngine::Impl& impl );      // project.name/company
     void RegisterLevelBindings( ScriptEngine::Impl& impl );        // level.open (Core::OpenLevel)
+    void RegisterSaveGameBindings( ScriptEngine::Impl& impl );     // savegame.save/load/exists/delete/list/scene
 } // namespace Desert::Scripting

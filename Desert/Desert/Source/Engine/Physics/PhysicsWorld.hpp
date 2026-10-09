@@ -328,6 +328,9 @@ namespace Desert::Physics
         /// a body at its target is moved by nothing. Ignored for a handle that is not a kinematic body.
         void SetKinematicTarget( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
+        /// Moves the body to the pose and STOPS it (linear and angular velocity zero), waking it: a restored
+        /// save, a respawn — the body is where the game put it, and the next step does not carry the old motion.
+        void TeleportBody( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         /// Adds @p impulse (kg*cm/s) at the centre of mass and wakes the body; a static body ignores it.
         void                    AddImpulse( BodyHandle handle, const glm::vec3& impulse );
         [[nodiscard]] glm::vec3 GetLinearVelocity( BodyHandle handle ) const;  ///< cm/s, at the centre of mass
@@ -398,6 +401,9 @@ namespace Desert::Physics
         /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body): what a
         /// trigger sees of it, and the handle its overlap events carry. kInvalidBody for no character.
         [[nodiscard]] BodyHandle GetCharacterBody( CharacterHandle handle ) const;
+
+        /// Moves the capsule centre to @p position and stops it (its velocity zero); see TeleportBody.
+        void TeleportCharacter( CharacterHandle handle, const glm::vec3& position );
 
     private:
         struct Impl;

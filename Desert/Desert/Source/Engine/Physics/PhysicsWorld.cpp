@@ -1194,6 +1194,16 @@ namespace Desert::Physics
         m_Impl->Bodies->SetLinearVelocity( JPH::BodyID( handle ), ToJolt( velocity ) );
     }
 
+    void PhysicsWorld::TeleportBody( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        const JPH::BodyID id( handle );
+        m_Impl->Bodies->SetPositionAndRotation( id, JPH::RVec3( position.x, position.y, position.z ),
+                                                ToJolt( rotation ), JPH::EActivation::Activate );
+        m_Impl->Bodies->SetLinearAndAngularVelocity( id, JPH::Vec3::sZero(), JPH::Vec3::sZero() );
+    }
+
     void PhysicsWorld::AddImpulse( BodyHandle handle, const glm::vec3& impulse )
     {
         if ( !m_Impl || handle == kInvalidBody )
@@ -1542,5 +1552,13 @@ namespace Desert::Physics
                                     m_Impl->System.GetDefaultBroadPhaseLayerFilter( Layers::MOVING ),
                                     m_Impl->System.GetDefaultLayerFilter( Layers::MOVING ), {}, {},
                                     *m_Impl->TempAllocator );
+    }
+
+    void PhysicsWorld::TeleportCharacter( CharacterHandle handle, const glm::vec3& position )
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return;
+        m_Impl->Characters[handle]->SetPosition( ToJolt( position ) );
+        m_Impl->Characters[handle]->SetLinearVelocity( JPH::Vec3::sZero() );
     }
 } // namespace Desert::Physics

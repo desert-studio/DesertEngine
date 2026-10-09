@@ -338,6 +338,13 @@ namespace Desert::ECS
 
         /// The scene's destruction world while Play runs, null in Edit: what a field entity fires into
         /// (ECS::FireDestructionField), from the Sequencer or from gameplay.
+        /// The scene's physics world while Play runs, null in Edit: what moves a body the game teleports
+        /// (Core::LoadGameFromSlot restoring a pawn) so the next step does not put it back.
+        [[nodiscard]] Physics::PhysicsWorld* GetPhysicsWorld() const
+        {
+            return m_World.get();
+        }
+
         [[nodiscard]] Destruction::DestructionWorld* GetDestructionWorld() const
         {
             return m_Destruction.get();
