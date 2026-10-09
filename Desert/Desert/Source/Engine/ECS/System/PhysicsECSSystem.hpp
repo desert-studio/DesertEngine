@@ -243,25 +243,6 @@ namespace Desert::ECS
 
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
-            m_World->Step( ts.GetSeconds() );
-
-            // Write the simulated pose back into the transform for moving bodies.
-            for ( auto entity : bodies )
-            {
-                auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type == Physics::BodyType::Static )
-                    continue;
-
-                auto& transform       = bodies.get<TransformComponent>( entity );
-                transform.Translation = m_World->GetPosition( rb.RuntimeBody );
-                transform.Rotation    = glm::eulerAngles( m_World->GetRotation( rb.RuntimeBody ) );
-            }
-
-            // ---- Character controllers: the controller SCRIPT (e.g. player_controller.lua) sets the move
-            // INTENT each frame; the engine only resolves it against the camera and steps Jolt. Cursor
-            // capture, mouse delta and the WASD/sprint/look POLICY now live in the script (via ScriptSystem) —
-            // engine = mechanism, script = behavior. ----
-            const float dt = ts.GetSeconds();
 
             // Movement basis from the active camera (flattened to the ground plane). The script's MoveInput is
             // in local forward/right axes; resolving it here keeps "forward" following wherever the camera looks.
@@ -280,68 +261,35 @@ namespace Desert::ECS
             if ( glm::length( camRight ) > 1e-4f )
                 camRight = glm::normalize( camRight );
 
-            for ( auto entity : characters )
+            // ---- Character controllers: the controller SCRIPT (e.g. player_controller.lua) sets the move
+            // INTENT each frame; the engine resolves it against the camera and moves the capsule on every FIXED
+            // step, so a character moves at the world's rate whatever the frame rate. Cursor capture, mouse
+            // delta and the WASD/sprint/look POLICY live in the script (via ScriptSystem) — engine = mechanism,
+            // script = behavior. Unsubscribed after Step: the callback holds this frame's registry. ----
+            m_World->SetPreStepCallback( [&]( float dt ) { StepCharacters( registry, camFwd, camRight, dt ); } );
+            m_World->Step( ts.GetSeconds() );
+            m_World->SetPreStepCallback( {} );
+
+            // Write the pose to DRAW back into the transform for moving bodies: interpolated between the last
+            // two fixed steps, so motion is smooth at any frame rate.
+            for ( auto entity : bodies )
             {
-                auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                auto& rb = bodies.get<RigidBodyComponent>( entity );
+                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type == Physics::BodyType::Static )
                     continue;
 
-                // World move direction from the script's local intent (y = forward, x = strafe/right).
-                glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
-                if ( glm::length( wish ) > 1e-4f )
-                    wish = glm::normalize( wish );
+                auto& transform       = bodies.get<TransformComponent>( entity );
+                transform.Translation = m_World->GetInterpolatedPosition( rb.RuntimeBody );
+                transform.Rotation    = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
+            }
 
-                const bool onGround = m_World->IsCharacterOnGround( cc.RuntimeCharacter );
-                cc.OnGround         = onGround; // exposed to scripts via self:isOnGround()
-                // Gravity is authored per-character (CharacterControllerData::Gravity), not a baked constant —
-                // default ~2x real so the jump arc is SNAPPY (real 9.81 feels floaty / cartoonish).
-                const float kGravity = cc.Data.Gravity;
-
-                glm::vec3 horiz;
-                if ( cc.Swimming )
-                {
-                    // BUOYANCY: no hard gravity. Vertical follows the swim intent (up/down); when neutral the
-                    // body drifts gently up toward the surface. Full 3D control, but slower than on land.
-                    const float targetV = cc.SwimVertical * cc.DesiredSpeed;
-                    cc.VerticalVelocity = glm::mix( cc.VerticalVelocity, targetV, 0.15f );
-                    if ( glm::abs( cc.SwimVertical ) < 0.01f )
-                        cc.VerticalVelocity += 2.5f * dt; // gentle rise (float up)
-                    cc.JumpRequested = false;
-
-                    horiz          = wish * ( cc.DesiredSpeed * 0.6f ); // water drag
-                    cc.AirVelocity = { horiz.x, horiz.z };
-                }
-                else
-                {
-                    if ( onGround )
-                        cc.VerticalVelocity = cc.JumpRequested ? cc.JumpStrength : -1.0f; // jump (script) or stick
-                    else
-                        cc.VerticalVelocity -= kGravity * dt;
-                    cc.JumpRequested = false; // one-shot, consumed
-
-                    // NO AIR CONTROL: on the ground the script's input steers (and we remember that horizontal
-                    // velocity); in the air the takeoff velocity is locked, so a jump goes one direction and
-                    // there's no bunny-hop strafing.
-                    if ( onGround )
-                    {
-                        horiz          = wish * cc.DesiredSpeed;
-                        cc.AirVelocity = { horiz.x, horiz.z }; // capture for the moment we leave the ground
-                    }
-                    else
-                    {
-                        horiz = { cc.AirVelocity.x, 0.0f, cc.AirVelocity.y };
-                    }
-                }
-                const glm::vec3 vel( horiz.x, cc.VerticalVelocity, horiz.z );
-                m_World->UpdateCharacter( cc.RuntimeCharacter, vel, dt );
-
-                cc.CurrentSpeed = glm::length( glm::vec2( horiz.x, horiz.z ) ); // 0 when idle, drives anim
-
-                auto& transform       = characters.get<TransformComponent>( entity );
-                transform.Translation = m_World->GetCharacterPosition( cc.RuntimeCharacter );
-
-                // NOTE: physics only PRODUCES state (cc.CurrentSpeed / cc.OnGround). Mapping that state to a
-                // locomotion clip is behaviour and lives in LocomotionSystem (runs after this), not here.
+            for ( auto entity : characters )
+            {
+                const auto& cc = characters.get<CharacterControllerComponent>( entity );
+                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                    continue;
+                characters.get<TransformComponent>( entity ).Translation =
+                     m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter );
             }
         }
 
@@ -406,6 +354,74 @@ namespace Desert::ECS
         }
 
     private:
+        // One fixed step of every character controller: the script's intent resolved against the camera basis,
+        // gravity/jump/swim integrated over @p dt (the fixed step), the capsule moved through Jolt.
+        void StepCharacters( entt::registry& registry, const glm::vec3& camFwd, const glm::vec3& camRight,
+                             float dt )
+        {
+            auto characters = registry.view<TransformComponent, CharacterControllerComponent>();
+            for ( auto entity : characters )
+            {
+                auto& cc = characters.get<CharacterControllerComponent>( entity );
+                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                    continue;
+
+                // World move direction from the script's local intent (y = forward, x = strafe/right).
+                glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
+                if ( glm::length( wish ) > 1e-4f )
+                    wish = glm::normalize( wish );
+
+                const bool onGround = m_World->IsCharacterOnGround( cc.RuntimeCharacter );
+                cc.OnGround         = onGround; // exposed to scripts via self:isOnGround()
+                // Gravity is authored per-character (CharacterControllerData::Gravity), not a baked constant —
+                // default ~2x real so the jump arc is SNAPPY (real 9.81 feels floaty / cartoonish).
+                const float kGravity = cc.Data.Gravity;
+
+                glm::vec3 horiz;
+                if ( cc.Swimming )
+                {
+                    // BUOYANCY: no hard gravity. Vertical follows the swim intent (up/down); when neutral the
+                    // body drifts gently up toward the surface. Full 3D control, but slower than on land.
+                    const float targetV = cc.SwimVertical * cc.DesiredSpeed;
+                    cc.VerticalVelocity = glm::mix( cc.VerticalVelocity, targetV, 0.15f );
+                    if ( glm::abs( cc.SwimVertical ) < 0.01f )
+                        cc.VerticalVelocity += 2.5f * dt; // gentle rise (float up)
+                    cc.JumpRequested = false;
+
+                    horiz          = wish * ( cc.DesiredSpeed * 0.6f ); // water drag
+                    cc.AirVelocity = { horiz.x, horiz.z };
+                }
+                else
+                {
+                    if ( onGround )
+                        cc.VerticalVelocity = cc.JumpRequested ? cc.JumpStrength : -1.0f; // jump (script) or stick
+                    else
+                        cc.VerticalVelocity -= kGravity * dt;
+                    cc.JumpRequested = false; // one-shot, consumed
+
+                    // NO AIR CONTROL: on the ground the script's input steers (and we remember that horizontal
+                    // velocity); in the air the takeoff velocity is locked, so a jump goes one direction and
+                    // there's no bunny-hop strafing.
+                    if ( onGround )
+                    {
+                        horiz          = wish * cc.DesiredSpeed;
+                        cc.AirVelocity = { horiz.x, horiz.z }; // capture for the moment we leave the ground
+                    }
+                    else
+                    {
+                        horiz = { cc.AirVelocity.x, 0.0f, cc.AirVelocity.y };
+                    }
+                }
+                const glm::vec3 vel( horiz.x, cc.VerticalVelocity, horiz.z );
+                m_World->UpdateCharacter( cc.RuntimeCharacter, vel, dt );
+
+                cc.CurrentSpeed = glm::length( glm::vec2( horiz.x, horiz.z ) ); // 0 when idle, drives anim
+
+                // NOTE: physics only PRODUCES state (cc.CurrentSpeed / cc.OnGround). Mapping that state to a
+                // locomotion clip is behaviour and lives in LocomotionSystem (runs after this), not here.
+            }
+        }
+
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {
