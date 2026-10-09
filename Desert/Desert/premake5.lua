@@ -18,6 +18,7 @@ project "Desert"
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
             .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
+            .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
             .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
@@ -57,6 +58,9 @@ project "Desert"
         -- (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua).
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/opus/include",
+        -- Luau, by module path (<VM/include/lua.h>, <Compiler/include/luacode.h>): its lua.h shares a name with
+        -- PUC Lua's, which sol2 includes as <lua.h>, so the two VMs' headers can never resolve to each other.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
     
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -75,6 +79,13 @@ project "Desert"
         "Common",
         "Jolt",
         "Lua",
+        -- Luau (BuildScripts/ThirdParty/Luau.lua): Engine/Scripting/Luau. Dependants before what they use.
+        "LuauCodeGen",
+        "LuauCompiler",
+        "LuauAst",
+        "LuauBytecode",
+        "LuauVM",
+        "LuauCommon",
         "Optick",
         "MeshOptimizer",
         "Voro",

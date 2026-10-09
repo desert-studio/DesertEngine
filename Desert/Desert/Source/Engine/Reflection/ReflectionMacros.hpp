@@ -30,5 +30,29 @@
 //   EditCondition("Foo")  grey the row out while the bool field Foo of the same block is false ("!Foo" inverts)
 //
 // REFLECT() marks a struct/class for reflection. PROPERTY(...) marks the field that follows it.
+//
+// FUNCTION(...) marks the member function (or static function) that follows it, inside a REFLECT() type:
+//
+//       FUNCTION( ScriptCallable, Category( "Light" ), Tooltip( "Scales the intensity." ) )
+//       void ScaleIntensity( float factor );
+//
+// The tool emits a FunctionInfo whose Invoke calls it through Values (Engine/Reflection/Value.hpp) — the one
+// layer any language binds to (FunctionThunk.hpp). Attributes: ScriptCallable, Category("..."), Tooltip("...").
+// Every parameter is named; a name is a FUNCTION once per type (no overloads: a caller calls by name).
+//
+// COMPONENT(...) marks an ECS component whose whole scene block is its reflection (a struct, not REFLECT()):
+//
+//       struct CameraComponent
+//       {
+//           COMPONENT( Key( "Camera" ), Block( Data ), Run( ActorsAndUI ) )
+//           CameraData Data;
+//       };
+//
+// Key("...") is the block's key in a scene record; Block( Member ) names the reflected member written as the
+// block, or Whole when the component itself is REFLECT() (Skybox); Run( ... ) is the ReflectedBlockRun the
+// serializer is registered in. The tool emits Engine/Generated/ReflectedComponentBlocks.gen.hpp from these
+// markers - the one list ComponentRegistry, ECS::ReflectedComponents and SceneMigrator read.
 #define REFLECT()
 #define PROPERTY( ... )
+#define FUNCTION( ... )
+#define COMPONENT( ... )

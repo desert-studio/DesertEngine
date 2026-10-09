@@ -56,6 +56,7 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <limits>
 
 namespace Desert::Core::Serialize
@@ -1233,6 +1234,10 @@ namespace Desert::Core::Serialize
     ComponentRegistry::ComponentRegistry()
     {
         RegisterBuiltins();
+        for ( const auto& serializer : m_Serializers )
+            m_InFileOrder.push_back( &serializer );
+        std::sort( m_InFileOrder.begin(), m_InFileOrder.end(),
+                   []( const ComponentSerializer* a, const ComponentSerializer* b ) { return a->Key < b->Key; } );
     }
 
     void ComponentRegistry::Register( ComponentSerializer serializer )
@@ -1843,7 +1848,7 @@ namespace Desert::Core::Serialize
             Register( std::move( s ) );
         }
 
-        // ---- Reflected data blocks: the rows of ReflectedComponentBlocks.hpp, run by run ----
+        // ---- Reflected data blocks: the generated rows (COMPONENT markers), run by run ----
         const auto registerRun = [this]( ReflectedBlockRun run )
         {
             ForEachReflectedComponentBlock(

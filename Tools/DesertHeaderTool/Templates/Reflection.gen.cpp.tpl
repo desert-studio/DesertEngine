@@ -19,8 +19,10 @@
 
 #include <Engine/Reflection/TypeRegistrar.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ContainerAccess.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
-#include <cstddef>
+{% if hasFunctions %}#include <Engine/Reflection/FunctionThunk.hpp>
+{% endif %}#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <type_traits>
@@ -38,7 +40,7 @@ namespace
 {% for t in types %}            {
                 using T = ::{{ t.fqn }};
                 TypeBuilder( "{{ t.registryName }}", sizeof( T ) )
-{% for f in t.fields %}{% include "Field.tpl" %}{% endfor %}                    .WithDefault<T>()
+{% for f in t.fields %}{% include "Field.tpl" %}{% endfor %}{% for fn in t.functions %}{% include "Function.tpl" %}{% endfor %}                    .WithDefault<T>()
 {#- ^ a default-constructed instance, so the editor can offer reset-to-default per field. #}
                     .Register();
             }
@@ -52,6 +54,6 @@ namespace
    guarantee the registrations actually run. -#}
 namespace Desert::Reflection
 {
-    void ForceLinkGeneratedReflection() {}
+    void {{ anchor }}() {}
 }
 // NOLINTEND

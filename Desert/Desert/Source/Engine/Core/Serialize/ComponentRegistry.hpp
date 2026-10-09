@@ -41,9 +41,18 @@ namespace Desert::Core::Serialize
     public:
         static const ComponentRegistry& Get();
 
+        // Registration order: the order a record's blocks are READ in (a block may rely on one registered
+        // before it, e.g. a landscape tile on its root).
         const std::vector<ComponentSerializer>& All() const
         {
             return m_Serializers;
+        }
+
+        // The order a record's blocks are WRITTEN in: sorted by key, so the file does not depend on where a
+        // serializer happens to be registered (or on the order the header tool generated a row in).
+        const std::vector<const ComponentSerializer*>& InFileOrder() const
+        {
+            return m_InFileOrder;
         }
 
     private:
@@ -52,7 +61,8 @@ namespace Desert::Core::Serialize
         void Register( ComponentSerializer serializer );
         void RegisterBuiltins();
 
-        std::vector<ComponentSerializer> m_Serializers;
+        std::vector<ComponentSerializer>        m_Serializers;
+        std::vector<const ComponentSerializer*> m_InFileOrder;
     };
 
     // The one place an AssetResolver is built (the invariant is stated on AssetResolver itself). Exposed

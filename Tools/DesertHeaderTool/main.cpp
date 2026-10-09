@@ -5,15 +5,18 @@
 // metadata) into Desert::Reflection::ReflectionRegistry at static-init time.
 //
 // Usage:
-//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file>]
+//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor <Name>]]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
 //     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates).
-//     --reflect      REFLECT()/PROPERTY() registration of <source-root>/<scan-subdir> into <output-file>.
+//     --reflect      REFLECT()/PROPERTY()/FUNCTION() registration of <source-root>/<scan-subdir> into <output-file>.
+//     --reflect-anchor <Name>  after --reflect: the force-link function the output defines (default
+//                    ForceLinkGeneratedReflection; a second generated set in one image names its own).
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
 //
+//     --reflect-components  after --reflect: the COMPONENT(...) rows as a header (ReflectedComponentBlocks.gen.hpp).
 // The annotation macros (REFLECT/PROPERTY) expand to nothing during normal compilation; only this
 // tool reads them. See Engine/Reflection/ReflectionMacros.hpp.
 
@@ -33,6 +36,7 @@
 #include <set>
 #include <utility>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <charconv>
 #include <string_view>
@@ -90,12 +94,46 @@ namespace
         std::vector<std::pair<std::string, long long>> values;
     };
 
+    // FUNCTION(...) attributes (Engine/Reflection/ReflectionMacros.hpp).
+    struct FunctionMeta
+    {
+        bool        scriptCallable = false;
+        std::string category;
+        std::string tooltip;
+    };
+
+    // A FUNCTION(...)-annotated member. Only what the compiler cannot know is read here: the parameters' names
+    // and the attributes. The kinds, static and const come from &T::name in the generated file
+    // (Engine/Reflection/FunctionThunk.hpp); the spellings below are kept for diagnostics and binding generators.
+    struct Function
+    {
+        std::string                                      name;
+        std::string                                      returnType;
+        std::vector<std::pair<std::string, std::string>> params; // { name, C++ spelling }
+        FunctionMeta                                     meta;
+    };
+
     struct ReflectedType
     {
-        std::string        fqn;          // fully-qualified C++ name, e.g. Desert::Assets::SurfaceMaterialData
-        std::string        registryName; // short name used as the registry key, e.g. SurfaceMaterialData
-        std::vector<Field> fields;
+        std::string           fqn;          // fully-qualified C++ name, e.g. Desert::Assets::SurfaceMaterialData
+        std::string           registryName; // short name used as the registry key, e.g. SurfaceMaterialData
+        std::vector<Field>    fields;
+        std::vector<Function> functions;
         std::string        headerInclude; // include path relative to source root
+    };
+
+    // A COMPONENT(...)-marked ECS component (Engine/Reflection/ReflectionMacros.hpp): one row of the generated
+    // ReflectedComponentBlocks.gen.hpp. The component struct itself is NOT reflected; its Block( Member ) is.
+    struct ComponentBlock
+    {
+        std::string fqn;           // the component, fully qualified
+        std::string key;           // Key( "..." ): the block's key in a scene record
+        std::string member;        // Block( Member ); empty for Whole
+        std::string memberType;    // the member's declared type spelling, read from the struct body
+        std::string run;           // Run( ... ): a ReflectedBlockRun enumerator
+        std::string typeName;      // the reflected type's registry name, resolved once every header is parsed
+        std::string headerInclude; // include path relative to source root
+        std::string where;         // file:line of the marker, for diagnostics
     };
 
     // --------------------------------------------------------------------- helpers
@@ -506,7 +544,163 @@ namespace
         bool        reflected = false;
         std::vector<Field> fields =
              {}; // the two `scopes.push_back( { name, depth, isStruct } )` below stop here on purpose
+        std::vector<Function> functions = {};
+        size_t                        open      = 0;  // the position just after the struct's '{'
+        std::optional<ComponentBlock> component = {}; // its COMPONENT(...) marker, if any
     };
+
+    std::string Trimmed( std::string v )
+    {
+        while ( !v.empty() && std::isspace( (unsigned char)v.front() ) )
+            v.erase( v.begin() );
+        while ( !v.empty() && std::isspace( (unsigned char)v.back() ) )
+            v.pop_back();
+        return v;
+    }
+
+    // FUNCTION( ScriptCallable, Category( "..." ), Tooltip( "..." ) ). An unknown token is an error, not a
+    // silently ignored attribute: a misspelt ScriptCallable would otherwise hide the function from every language.
+    FunctionMeta ParseFunctionMeta( const std::string& argsRaw, std::string& error )
+    {
+        FunctionMeta m;
+        for ( const auto& tokRaw : SplitTopLevel( argsRaw ) )
+        {
+            const std::string tok = Trimmed( tokRaw );
+            if ( tok.empty() )
+                continue;
+            if ( tok == "ScriptCallable" )
+                m.scriptCallable = true;
+            else if ( tok.rfind( "Category", 0 ) == 0 )
+                m.category = ExtractStringLiteral( tok );
+            else if ( tok.rfind( "Tooltip", 0 ) == 0 )
+                m.tooltip = ExtractStringLiteral( tok );
+            else
+                error = "FUNCTION: unknown attribute '" + tok + "' (ScriptCallable, Category(\"...\"), Tooltip(\"...\"))";
+        }
+        return m;
+    }
+
+    // The identifier inside "Word( Ident )", or empty.
+    std::string ParenIdent( const std::string& tok )
+    {
+        const auto open  = tok.find( '(' );
+        const auto close = tok.rfind( ')' );
+        if ( open == std::string::npos || close == std::string::npos || close <= open )
+            return {};
+        return Trimmed( tok.substr( open + 1, close - open - 1 ) );
+    }
+
+    // COMPONENT( Key( "Camera" ), Block( Data ) | Whole, Run( ActorsAndUI ) ). Every attribute is required and an
+    // unknown one is an error: a block without a key or a run cannot be registered anywhere.
+    ComponentBlock ParseComponentMeta( const std::string& argsRaw, std::string& error )
+    {
+        ComponentBlock c;
+        bool           whole = false;
+        for ( const auto& tokRaw : SplitTopLevel( argsRaw ) )
+        {
+            const std::string tok = Trimmed( tokRaw );
+            if ( tok.empty() )
+                continue;
+            if ( tok == "Whole" )
+                whole = true;
+            else if ( tok.rfind( "Key", 0 ) == 0 )
+                c.key = ExtractStringLiteral( tok );
+            else if ( tok.rfind( "Block", 0 ) == 0 )
+                c.member = ParenIdent( tok );
+            else if ( tok.rfind( "Run", 0 ) == 0 )
+                c.run = ParenIdent( tok );
+            else
+                error = "COMPONENT: unknown attribute '" + tok + "' (Key(\"...\"), Block( Member ) | Whole, Run( ... ))";
+        }
+        if ( error.empty() && c.key.empty() )
+            error = "COMPONENT: Key(\"...\") is required";
+        else if ( error.empty() && c.run.empty() )
+            error = "COMPONENT " + c.key + ": Run( ... ) is required";
+        else if ( error.empty() && whole == !c.member.empty() )
+            error = "COMPONENT " + c.key + ": exactly one of Block( Member ) and Whole";
+        return c;
+    }
+
+    // The trailing identifier of `text` ("const std::string& name" -> "name"), or empty.
+    std::string TrailingIdent( const std::string& text )
+    {
+        size_t e = text.size();
+        size_t b = e;
+        while ( b > 0 && IsIdentChar( text[b - 1] ) )
+            --b;
+        return text.substr( b, e - b );
+    }
+
+    // Reads a FUNCTION-annotated declaration starting at `start` ("[[nodiscard]] static float Name( int a ) const
+    // { ... }" or "...;"). Returns the index just past it (past the body's closing brace when it has one).
+    size_t ParseFunctionDecl( const std::string& raw, size_t start, Function& fn, std::string& error )
+    {
+        const size_t open = raw.find( '(', start );
+        if ( open == std::string::npos )
+        {
+            error = "FUNCTION: no declaration follows";
+            return raw.size();
+        }
+        std::string head = raw.substr( start, open - start );
+        if ( const size_t attr = head.rfind( "]]" ); attr != std::string::npos )
+            head = head.substr( attr + 2 );
+        head    = Trimmed( head );
+        fn.name = TrailingIdent( head );
+        std::string ret = Trimmed( head.substr( 0, head.size() - fn.name.size() ) );
+        for ( const char* specifier : { "static ", "virtual ", "inline ", "constexpr ", "explicit " } )
+            while ( ret.rfind( specifier, 0 ) == 0 )
+                ret = Trimmed( ret.substr( std::string_view( specifier ).size() ) );
+        fn.returnType = ret;
+        if ( fn.name.empty() || fn.returnType.empty() )
+        {
+            error = "FUNCTION: expected '<return type> <name>(' after the annotation";
+            return raw.size();
+        }
+
+        size_t close = open;
+        for ( int p = 0; close < raw.size(); ++close )
+        {
+            if ( raw[close] == '(' )
+                ++p;
+            else if ( raw[close] == ')' && --p == 0 )
+                break;
+        }
+        const std::string list = Trimmed( raw.substr( open + 1, close - open - 1 ) );
+        if ( !list.empty() && list != "void" )
+        {
+            for ( const auto& paramRaw : SplitTopLevel( list ) )
+            {
+                std::string param = paramRaw;
+                if ( const size_t eq = param.find( '=' ); eq != std::string::npos )
+                    param = param.substr( 0, eq );
+                param                   = Trimmed( param );
+                const std::string pname = TrailingIdent( param );
+                const std::string ptype = Trimmed( param.substr( 0, param.size() - pname.size() ) );
+                if ( pname.empty() || ptype.empty() )
+                {
+                    error = "FUNCTION " + fn.name + ": parameter '" + param +
+                            "' has no name (a caller sees every parameter by its name)";
+                    return raw.size();
+                }
+                fn.params.emplace_back( pname, ptype );
+            }
+        }
+
+        size_t j = close + 1;
+        while ( j < raw.size() && raw[j] != ';' && raw[j] != '{' )
+            ++j;
+        if ( j < raw.size() && raw[j] == '{' )
+        {
+            for ( int b = 0; j < raw.size(); ++j )
+            {
+                if ( raw[j] == '{' )
+                    ++b;
+                else if ( raw[j] == '}' && --b == 0 )
+                    break;
+            }
+        }
+        return j + 1;
+    }
 
     std::string JoinScopes( const std::vector<Scope>& scopes )
     {
@@ -521,10 +715,11 @@ namespace
     }
 
     void ParseFile( const fs::path& file, const fs::path& sourceRoot, std::vector<ReflectedType>& out,
-                    const std::vector<EnumDef>& enums )
+                    std::vector<ComponentBlock>& components, const std::vector<EnumDef>& enums,
+                    std::vector<std::string>& errors )
     {
         const std::string raw = StripComments( ReadFile( file ) );
-        if ( raw.find( "REFLECT()" ) == std::string::npos )
+        if ( raw.find( "REFLECT()" ) == std::string::npos && raw.find( "COMPONENT(" ) == std::string::npos )
             return;
 
         std::string headerInclude =
@@ -536,11 +731,28 @@ namespace
         Metadata pendingMeta;
         bool     hasPendingMeta = false;
 
+        FunctionMeta pendingFunction;
+        bool         hasPendingFunction = false;
+        const auto   fail = [&]( size_t at, const std::string& message )
+        {
+            const auto line = std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( at ), '\n' ) + 1;
+            errors.push_back( file.generic_string() + ":" + std::to_string( line ) + ": " + message );
+        };
+
         for ( size_t i = 0; i < raw.size(); )
         {
             char c = raw[i];
 
             if ( std::isspace( (unsigned char)c ) ) { ++i; continue; }
+
+            // A preprocessor directive is not a declaration: `#define FUNCTION( ... )` in ReflectionMacros.hpp
+            // is not an annotation. Skipped to the end of its (backslash-continued) line.
+            if ( c == '#' )
+            {
+                while ( i < raw.size() && raw[i] != '\n' )
+                    i += ( raw[i] == '\\' && i + 1 < raw.size() ) ? 2 : 1;
+                continue;
+            }
 
             // identifiers / keywords
             if ( IsIdentChar( c ) )
@@ -570,6 +782,7 @@ namespace
                     {
                         ++i; ++depth;
                         scopes.push_back( { typeName, depth, true } );
+                        scopes.back().open = i;
                     }
                     else if ( i < raw.size() && raw[i] == ';' )
                     {
@@ -605,6 +818,100 @@ namespace
                     }
                     pendingMeta = ParseMetadata( args );
                     hasPendingMeta = true;
+                    continue;
+                }
+
+                if ( word == "FUNCTION" )
+                {
+                    SkipWs( raw, i );
+                    std::string args;
+                    if ( i < raw.size() && raw[i] == '(' )
+                    {
+                        int    p  = 0;
+                        size_t s0 = i;
+                        do
+                        {
+                            if ( raw[i] == '(' )
+                                ++p;
+                            else if ( raw[i] == ')' )
+                                --p;
+                            ++i;
+                        } while ( i < raw.size() && p > 0 );
+                        args = raw.substr( s0 + 1, ( i - 1 ) - ( s0 + 1 ) );
+                    }
+                    if ( scopes.empty() || !scopes.back().isStruct || !scopes.back().reflected )
+                    {
+                        fail( start, "FUNCTION outside a REFLECT() type" );
+                        continue;
+                    }
+                    std::string error;
+                    pendingFunction = ParseFunctionMeta( args, error );
+                    if ( !error.empty() )
+                        fail( start, error );
+                    hasPendingFunction = true;
+                    continue;
+                }
+                if ( word == "COMPONENT" )
+                {
+                    SkipWs( raw, i );
+                    if ( i >= raw.size() || raw[i] != '(' )
+                        continue; // the word, not the marker
+                    const size_t s0 = i;
+                    int          p  = 0;
+                    do
+                    {
+                        if ( raw[i] == '(' )
+                            ++p;
+                        else if ( raw[i] == ')' )
+                            --p;
+                        ++i;
+                    } while ( i < raw.size() && p > 0 );
+                    const std::string args = raw.substr( s0 + 1, ( i - 1 ) - ( s0 + 1 ) );
+                    if ( scopes.empty() || !scopes.back().isStruct )
+                    {
+                        fail( start, "COMPONENT outside a struct" );
+                        continue;
+                    }
+                    if ( scopes.back().component.has_value() )
+                    {
+                        fail( start, "COMPONENT twice in " + scopes.back().name );
+                        continue;
+                    }
+                    std::string    error;
+                    ComponentBlock c = ParseComponentMeta( args, error );
+                    if ( !error.empty() )
+                    {
+                        fail( start, error );
+                        continue;
+                    }
+                    const auto line =
+                         std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( start ), '\n' ) + 1;
+                    c.where                   = file.generic_string() + ":" + std::to_string( line );
+                    c.headerInclude           = headerInclude;
+                    scopes.back().component = std::move( c );
+                    continue;
+                }
+                if ( hasPendingFunction )
+                {
+                    Function    fn;
+                    std::string error;
+                    fn.meta = pendingFunction;
+                    i       = ParseFunctionDecl( raw, start, fn, error );
+                    hasPendingFunction = false;
+                    if ( !error.empty() )
+                    {
+                        fail( start, error );
+                        continue;
+                    }
+                    auto& functions = scopes.back().functions;
+                    if ( std::any_of( functions.begin(), functions.end(),
+                                      [&]( const Function& other ) { return other.name == fn.name; } ) )
+                    {
+                        fail( start, "FUNCTION " + fn.name +
+                                          " is declared twice in this type (no overloads: a caller calls by name)" );
+                        continue;
+                    }
+                    functions.push_back( std::move( fn ) );
                     continue;
                 }
 
@@ -689,7 +996,25 @@ namespace
                 {
                     Scope sc = scopes.back();
                     scopes.pop_back();
-                    if ( sc.isStruct && sc.reflected && !sc.fields.empty() )
+                    if ( sc.isStruct && sc.component.has_value() )
+                    {
+                        ComponentBlock c = std::move( *sc.component );
+                        c.fqn = JoinScopes( scopes ).empty() ? sc.name : JoinScopes( scopes ) + "::" + sc.name;
+                        if ( !c.member.empty() )
+                        {
+                            // The member's declared type, from the struct's own body: "<type> <Member> ;|=|{".
+                            const std::string body = raw.substr( sc.open, i - sc.open );
+                            const std::regex  decl( "([A-Za-z_][A-Za-z0-9_:]*)\\s+" + c.member + "\\s*[;={]" );
+                            std::smatch       m;
+                            if ( std::regex_search( body, m, decl ) )
+                                c.memberType = m[1].str();
+                            else
+                                errors.push_back( c.where + ": COMPONENT " + c.key + ": no member '" + c.member +
+                                                  "' declared in " + sc.name );
+                        }
+                        components.push_back( std::move( c ) );
+                    }
+                    if ( sc.isStruct && sc.reflected && ( !sc.fields.empty() || !sc.functions.empty() ) )
                     {
                         ReflectedType t;
                         t.registryName  = sc.name;
@@ -697,6 +1022,7 @@ namespace
                                              ? sc.name
                                              : JoinScopes( scopes ) + "::" + sc.name;
                         t.fields        = sc.fields;
+                        t.functions     = sc.functions;
                         t.headerInclude = headerInclude;
                         out.push_back( std::move( t ) );
                     }
@@ -767,7 +1093,23 @@ namespace
         return b.Build();
     }
 
-    Common::Json::Value ReflectionModel( const std::vector<ReflectedType>& types )
+    Common::Json::Value FunctionModel( const Function& fn )
+    {
+        Common::Json::Value::Array params;
+        for ( const auto& [name, cppType] : fn.params )
+            params.emplace_back( Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
+        return Common::Json::ObjectBuilder()
+             .Set( "name", fn.name )
+             .Set( "returnType", fn.returnType )
+             .Set( "paramCount", static_cast<long long>( fn.params.size() ) )
+             .Set( "params", Common::Json::Value( std::move( params ) ) )
+             .Set( "scriptCallable", std::string( fn.meta.scriptCallable ? "true" : "false" ) )
+             .Set( "category", fn.meta.category )
+             .Set( "tooltip", fn.meta.tooltip )
+             .Build();
+    }
+
+    Common::Json::Value ReflectionModel( const std::vector<ReflectedType>& types, const std::string& anchor )
     {
         // Each header is included once, in first-use order.
         std::vector<std::string> includes;
@@ -777,20 +1119,28 @@ namespace
         Common::Json::Value::Array includeValues( includes.begin(), includes.end() );
 
         Common::Json::Value::Array typeValues;
+        bool                       hasFunctions = false;
         for ( const auto& t : types )
         {
             Common::Json::Value::Array fields;
             for ( const auto& f : t.fields )
                 fields.push_back( FieldModel( f ) );
+            Common::Json::Value::Array functions;
+            for ( const auto& fn : t.functions )
+                functions.push_back( FunctionModel( fn ) );
+            hasFunctions = hasFunctions || !t.functions.empty();
             typeValues.emplace_back( Common::Json::ObjectBuilder()
                                           .Set( "fqn", t.fqn )
                                           .Set( "registryName", t.registryName )
                                           .Set( "fields", Common::Json::Value( std::move( fields ) ) )
+                                          .Set( "functions", Common::Json::Value( std::move( functions ) ) )
                                           .Build() );
         }
         return Common::Json::ObjectBuilder()
              .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
              .Set( "types", Common::Json::Value( std::move( typeValues ) ) )
+             .Set( "hasFunctions", hasFunctions )
+             .Set( "anchor", anchor )
              .Build();
     }
 
@@ -867,11 +1217,79 @@ namespace
         return Common::MakeSuccess( true );
     }
 
+    // Each COMPONENT's reflected type by registry name: its Block member's type, or the component itself
+    // (Whole). Unknown types and a key stated twice are errors; the rows end up ordered by key, so the list does
+    // not depend on the order the directory iterator hands the headers out in.
+    void ResolveComponents( const std::vector<ReflectedType>& types, std::vector<ComponentBlock>& components,
+                            std::vector<std::string>& errors )
+    {
+        for ( auto& c : components )
+        {
+            if ( c.member.empty() )
+            {
+                const auto found = std::find_if( types.begin(), types.end(),
+                                                 [&]( const ReflectedType& t ) { return t.fqn == c.fqn; } );
+                if ( found == types.end() )
+                    errors.push_back( c.where + ": COMPONENT " + c.key + " is Whole but " + c.fqn +
+                                      " is not a REFLECT() type with properties" );
+                else
+                    c.typeName = found->registryName;
+                continue;
+            }
+            const auto        colon = c.memberType.rfind( "::" );
+            const std::string shortName =
+                 colon == std::string::npos ? c.memberType : c.memberType.substr( colon + 2 );
+            const auto matches = std::count_if( types.begin(), types.end(),
+                                                [&]( const ReflectedType& t ) { return t.registryName == shortName; } );
+            if ( matches != 1 )
+                errors.push_back( c.where + ": COMPONENT " + c.key + ": " + c.member + "'s type '" + c.memberType +
+                                  ( matches == 0 ? "' is not a REFLECT() type" : "' names several reflected types" ) );
+            else
+                c.typeName = shortName;
+        }
+        std::sort( components.begin(), components.end(),
+                   []( const ComponentBlock& a, const ComponentBlock& b ) { return a.key < b.key; } );
+        for ( size_t k = 1; k < components.size(); ++k )
+            if ( components[k].key == components[k - 1].key )
+                errors.push_back( components[k].where + ": COMPONENT key '" + components[k].key +
+                                  "' is also stated at " + components[k - 1].where );
+    }
+
+    Common::Json::Value ComponentsModel( const std::vector<ComponentBlock>& components )
+    {
+        std::vector<std::string> includes;
+        for ( const auto& c : components )
+            if ( std::find( includes.begin(), includes.end(), c.headerInclude ) == includes.end() )
+                includes.push_back( c.headerInclude );
+        std::sort( includes.begin(), includes.end() );
+        Common::Json::Value::Array includeValues( includes.begin(), includes.end() );
+
+        Common::Json::Value::Array rows;
+        for ( const auto& c : components )
+            rows.emplace_back( Common::Json::ObjectBuilder()
+                                    .Set( "fqn", c.fqn )
+                                    .Set( "key", c.key )
+                                    .Set( "member", c.member )
+                                    .Set( "whole", c.member.empty() )
+                                    .Set( "typeName", c.typeName )
+                                    .Set( "run", c.run )
+                                    .Build() );
+        return Common::Json::ObjectBuilder()
+             .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
+             .Set( "components", Common::Json::Value( std::move( rows ) ) )
+             .Build();
+    }
+
     struct ReflectRequest
     {
         fs::path SourceRoot;
         fs::path ScanRoot;
         fs::path Output;
+        // The force-link function the output defines. The engine's is ForceLinkGeneratedReflection; a second
+        // generated set linked into the same image (a test fixture's) names its own (--reflect-anchor).
+        std::string Anchor = "ForceLinkGeneratedReflection";
+        // Where the COMPONENT(...) rows are emitted (--reflect-components); empty: not requested.
+        fs::path Components;
     };
 
     struct SubsystemsRequest
@@ -908,11 +1326,19 @@ namespace
             CollectEnums( StripComments( ReadFile( h ) ), enums );
 
         // Pass 2: reflected types, resolving enum field types against the collected enums.
-        std::vector<ReflectedType> types;
+        std::vector<ReflectedType>  types;
+        std::vector<ComponentBlock> components;
+        std::vector<std::string>    errors;
         for ( const auto& h : headers )
-            ParseFile( h, request.SourceRoot, types, enums );
+            ParseFile( h, request.SourceRoot, types, components, enums, errors );
+        ResolveComponents( types, components, errors );
+        for ( const std::string& error : errors )
+            std::cerr << error << "\n";
+        if ( !errors.empty() )
+            return 1;
 
-        auto rendered = RenderTemplate( templateDir, "Reflection.gen.cpp.tpl", ReflectionModel( types ) );
+        auto rendered =
+             RenderTemplate( templateDir, "Reflection.gen.cpp.tpl", ReflectionModel( types, request.Anchor ) );
         if ( !rendered.IsSuccess() )
         {
             std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
@@ -927,6 +1353,23 @@ namespace
         std::cout << "[DesertHeaderTool] " << ( written.GetValue() ? "generated " : "up to date " )
                   << request.Output.string() << " (" << types.size() << " reflected types, " << headers.size()
                   << " headers scanned)\n";
+        if ( request.Components.empty() )
+            return 0;
+
+        auto blocks = RenderTemplate( templateDir, "ReflectedComponentBlocks.gen.hpp.tpl", ComponentsModel( components ) );
+        if ( !blocks.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << blocks.GetError() << "\n";
+            return 1;
+        }
+        const Common::BoolResultStr blocksWritten = WriteIfChanged( request.Components, blocks.ExtractValue() );
+        if ( !blocksWritten.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << blocksWritten.GetError() << "\n";
+            return 1;
+        }
+        std::cout << "[DesertHeaderTool] " << ( blocksWritten.GetValue() ? "generated " : "up to date " )
+                  << request.Components.string() << " (" << components.size() << " component blocks)\n";
         return 0;
     }
 } // namespace
@@ -954,6 +1397,10 @@ static int RunTool( int argc, char** argv )
             reflect             = ReflectRequest{ root, root / argv[i + 2], argv[i + 3] };
             i += 3;
         }
+        else if ( arg == "--reflect-anchor" && left >= 1 && reflect )
+            reflect->Anchor = argv[++i];
+        else if ( arg == "--reflect-components" && left >= 1 && reflect )
+            reflect->Components = argv[++i];
         else if ( arg == "--subsystems" && left >= 4 )
         {
             subsystemRequests.push_back( { argv[i + 1], argv[i + 2], argv[i + 3], argv[i + 4] } );
