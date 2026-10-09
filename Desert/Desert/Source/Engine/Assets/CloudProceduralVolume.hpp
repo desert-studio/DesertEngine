@@ -811,23 +811,15 @@ namespace Desert::Assets
     /// CloudProceduralColumnKept takes, because a column's remap reads the weather of the species that wins it.
     glm::vec4 CloudProceduralLocalWeathers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
 
-    /// THE ALTITUDE DENSITY H (H-BASE) the bake multiplies a body's profile by at altitude @p altitudeKm:
-    /// the type's Profile.Density at the height fraction of THE BODY'S OWN height — from the type's base
-    /// (the condensation level, where every body of the type stands) to @p bodyTopKm, the body's crown.
-    /// Unreal's altitude curve and Nubis' height gradient, applied BEFORE the march's coverage remap so the
-    /// threshold eats the base and its corners first. Zero outside would be a second clamp of what the lumps
-    /// already respect, so the curve is simply clamped at its ends.
-    ///
-    /// PER BODY AND NOT PER BAND (CLOUD-GAUNTLET-d): a small cumulus is the same type at a smaller scale,
-    /// and Nubis' gradient is a function of the CLOUD'S height fraction. Read over the type's 3.6 km
-    /// congestus band, the ramp's lowest fifth (0.72 km) erased the lower half of a 1.2 km body — its base
-    /// lumps never cleared the remap and the body hung as round balls a third of a kilometre over the
-    /// condensation level. Over the body's own height the ramp is a fifth of THAT body.
-    inline float CloudProceduralAltitudeDensity( const Graphic::CloudTypeShape& shape, float bodyTopKm,
-                                                 float altitudeKm )
+    /// THE ALTITUDE DENSITY H (H-BASE) the bake multiplies a species' profile by at altitude @p altitudeKm:
+    /// the type's Profile.Density at the height fraction of its own band. Unreal's altitude curve and Nubis'
+    /// height gradient, applied BEFORE the march's coverage remap so the threshold eats the base and its
+    /// corners first. Zero outside the band would be a second clamp of what the lumps already respect, so
+    /// the curve is simply clamped at its ends.
+    inline float CloudProceduralAltitudeDensity( const Graphic::CloudTypeShape& shape, float altitudeKm )
     {
-        const float heightKm = std::max( bodyTopKm - shape.BaseAltitudeKm, 1e-4f );
-        return Graphic::CloudProfileDensity( shape.Profile, ( altitudeKm - shape.BaseAltitudeKm ) / heightKm );
+        const float bandKm = std::max( shape.TopAltitudeKm - shape.BaseAltitudeKm, 1e-4f );
+        return Graphic::CloudProfileDensity( shape.Profile, ( altitudeKm - shape.BaseAltitudeKm ) / bandKm );
     }
 
     /// THE CLUSTER'S REACH (CUT-AT-BAKE), the bake's per-cluster decision: g = saturate((Coverage - rank) /
@@ -913,7 +905,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000018ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000016ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
