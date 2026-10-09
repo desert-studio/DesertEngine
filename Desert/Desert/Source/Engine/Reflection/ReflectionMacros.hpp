@@ -40,6 +40,18 @@
 // layer any language binds to (FunctionThunk.hpp). Attributes: ScriptCallable, Category("..."), Tooltip("...").
 // Every parameter is named; a name is a FUNCTION once per type (no overloads: a caller calls by name).
 //
+// EVENT(...) marks the event signature that follows it, inside a REFLECT() type — UE's
+// DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE (PrimitiveComponent.h OnComponentHit): a named alias of a void function
+// type whose parameters are the event's payload:
+//
+//       EVENT( Category( "Collision" ), Tooltip( "This body struck another." ) )
+//       using OnHit = void( entt::entity other, glm::vec3 point, glm::vec3 normal, float impulse );
+//
+// The tool emits an EventInfo (name, owner, parameters as Value kinds deduced from the alias by MakeEvent in
+// FunctionThunk.hpp); a subscriber in any language binds to it by type and name (ECS/ComponentEvents.hpp) and
+// receives the payload as Values. Every parameter is named; a name is an EVENT once per type. Attributes:
+// Category("..."), Tooltip("...").
+//
 // COMPONENT(...) marks an ECS component whose whole scene block is its reflection (a struct, not REFLECT()):
 //
 //       struct CameraComponent
@@ -55,4 +67,5 @@
 #define REFLECT()
 #define PROPERTY( ... )
 #define FUNCTION( ... )
+#define EVENT( ... )
 #define COMPONENT( ... )

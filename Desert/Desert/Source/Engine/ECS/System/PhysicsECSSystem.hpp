@@ -395,6 +395,7 @@ namespace Desert::ECS
         {
             auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
             queue.Events.clear();
+            ++queue.Publication;
             for ( auto entity : registry.view<RigidBodyComponent>() )
             {
                 const auto& rb = registry.get<RigidBodyComponent>( entity );

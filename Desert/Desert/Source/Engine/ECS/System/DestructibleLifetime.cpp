@@ -48,6 +48,7 @@ namespace Desert::ECS
     {
         auto& queue = registry.ctx_or_set<DestructionEventQueue>();
         queue.Breaks.clear();
+        ++queue.Publication;
         std::unordered_map<Destruction::DestructibleHandle, entt::entity> objects;
         for ( auto entity : registry.view<DestructibleComponent>() )
             objects[registry.get<DestructibleComponent>( entity ).RuntimeObject] = entity;

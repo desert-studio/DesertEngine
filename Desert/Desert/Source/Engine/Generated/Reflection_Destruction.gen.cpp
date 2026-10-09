@@ -8,6 +8,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ContainerAccess.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Engine/Reflection/FunctionThunk.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -36,6 +37,7 @@ void RegisterReflection_Destruction()
                     .Field( FieldInfo{ .Name = "MaxSleepTime", .Type = FieldType::Vec2, .Offset = offsetof( T, MaxSleepTime ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxSleepTime )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Max Sleep Time", .Category = "Removal", .Tooltip = "Seconds asleep before removal, drawn per piece in [x, y] (UE MaximumSleepTime).", .Units = "s", } } )
                     .Field( FieldInfo{ .Name = "SlowMovingAsSleeping", .Type = FieldType::Bool, .Offset = offsetof( T, SlowMovingAsSleeping ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SlowMovingAsSleeping )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Slow Moving As Sleeping", .Category = "Removal", .Tooltip = "A piece creeping slower than the threshold counts as asleep (UE bSlowMovingAsSleeping).", } } )
                     .Field( FieldInfo{ .Name = "SlowMovingVelocityThreshold", .Type = FieldType::Float, .Offset = offsetof( T, SlowMovingVelocityThreshold ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SlowMovingVelocityThreshold )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Slow Moving Velocity Threshold", .Category = "Removal", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000.0f, .Units = "cm/s", } } )
+                    .Event( ::Desert::Reflection::MakeEvent<T::OnBreak>( "OnBreak", "DestructibleData", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "node", "int32_t" }, ::Desert::Reflection::ParamSpelling{ "position", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "velocity", "glm::vec3" }, }, ::Desert::Reflection::EventMetadata{ .Category = "Destructible", .Tooltip = "A piece broke off (UE OnChaosBreakEvent): its fracture node, its world centre of mass in cm and its velocity in cm/s." } ) )
             .WithDefault<T>()
             .Register();
     }

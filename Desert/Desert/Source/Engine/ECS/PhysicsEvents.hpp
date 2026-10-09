@@ -42,6 +42,9 @@ namespace Desert::ECS
     struct PhysicsEventQueue
     {
         std::vector<PhysicsEvent> Events;
+        /// Bumped by every publish: a reader that runs on frames physics did not step (a paused scene) tells a
+        /// new batch from the one it already delivered (ComponentEventSystem).
+        std::uint64_t Publication = 0;
     };
 
     /**

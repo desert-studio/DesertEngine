@@ -1415,6 +1415,23 @@ namespace Desert::ECS
         // the body is created; a name the register lacks refuses the body by name (no fallback profile).
         PROPERTY( DisplayName( "Collision Profile" ), Category( "Collision" ) )
         std::string CollisionProfile = "PhysicsActor";
+
+        // THE BODY'S EVENTS — UE UPrimitiveComponent::OnComponentHit / OnComponentBeginOverlap /
+        // OnComponentEndOverlap (PrimitiveComponent.h). Physics reports the facts (PhysicsEventQueue); the
+        // Gameplay Framework delivers them here (ComponentEventSystem) to whoever subscribed to THIS entity
+        // (ComponentEvents). The profile decides whether a body reports at all (Generates Hit/Overlap Events).
+        EVENT( Category( "Collision" ),
+               Tooltip( "This body struck another and the contact began (UE OnComponentHit). Normal points from "
+                        "this body towards the other; impulse in kg*cm/s." ) )
+        using OnHit = void( entt::entity other, glm::vec3 point, glm::vec3 normal, float impulse );
+
+        EVENT( Category( "Collision" ), Tooltip( "Another body began to overlap this one (UE OnComponentBeginOverlap)." ) )
+        using OnBeginOverlap = void( entt::entity other );
+
+        EVENT( Category( "Collision" ),
+               Tooltip( "Another body stopped overlapping this one, also when it was destroyed while overlapping "
+                        "(UE OnComponentEndOverlap)." ) )
+        using OnEndOverlap = void( entt::entity other );
     };
 
     // Marks an entity as a physics body. Static = immovable, Dynamic = simulated, Kinematic = code-driven.

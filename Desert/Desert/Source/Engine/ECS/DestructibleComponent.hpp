@@ -9,6 +9,7 @@
 #include <Engine/Reflection/ReflectionMacros.hpp>
 
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -64,6 +65,14 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Slow Moving Velocity Threshold" ), Category( "Removal" ), Range( 0.0f, 1000.0f ),
                   Units( "cm/s" ) )
         float SlowMovingVelocityThreshold = 1.0f;
+
+        // UE UGeometryCollectionComponent::OnChaosBreakEvent (GeometryCollectionComponent.h:1269): a piece of
+        // THIS destructible broke off. Destruction publishes the fact (DestructionEventQueue); the Gameplay
+        // Framework delivers it here (ComponentEventSystem) to whoever subscribed to this entity.
+        EVENT( Category( "Destructible" ),
+               Tooltip( "A piece broke off (UE OnChaosBreakEvent): its fracture node, its world centre of mass "
+                        "in cm and its velocity in cm/s." ) )
+        using OnBreak = void( int32_t node, glm::vec3 position, glm::vec3 velocity );
     };
 
     struct DestructibleComponent

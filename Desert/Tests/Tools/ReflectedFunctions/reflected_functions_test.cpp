@@ -11,10 +11,12 @@
 
 #include "Fixture/FunctionFixture.hpp"
 
+#include <Engine/Reflection/FunctionThunk.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
 
+#include <entt/entt.hpp>
 #include <glm/vec3.hpp>
 
 #include <gtest/gtest.h>
@@ -180,5 +182,45 @@ namespace
         const std::array fits = { Value::Int( -100 ) };
         ASSERT_TRUE( Function( "SetSmall" ).Invoke( &counter, fits.data(), fits.size(), nullptr ).IsSuccess() );
         EXPECT_EQ( counter.Count, -100 );
+    }
+    // EVENT(...): the scanner read the alias, the template emitted MakeEvent<T::OnReached>, the compiler gave the
+    // kinds — an entity travels as its UInt id, never as an Enum.
+    TEST( ReflectedFunctions, AnEventIsDescribedByTheSignatureTheCompilerSees )
+    {
+        Desert::Reflection::ForceLinkReflectedFunctionFixture();
+        const Desert::Reflection::TypeInfo* type = Desert::Reflection::ReflectionRegistry::Get().Find( "Counter" );
+        ASSERT_NE( type, nullptr );
+        const Desert::Reflection::EventInfo* event = type->FindEvent( "OnReached" );
+        ASSERT_NE( event, nullptr ) << "Counter::OnReached is not reflected";
+        EXPECT_EQ( type->FindEvent( "Add" ), nullptr ) << "a function is not an event";
+        EXPECT_EQ( type->FindFunction( "OnReached" ), nullptr ) << "an event is not a function";
+        EXPECT_EQ( event->Owner, "Counter" );
+        EXPECT_EQ( event->Meta.Category, "Counter" );
+        EXPECT_EQ( event->Meta.Tooltip, "The count reached a mark." );
+        ASSERT_EQ( event->Params.size(), 3u );
+        EXPECT_EQ( event->Params[0].Name, "mark" );
+        EXPECT_EQ( event->Params[0].Type, FieldType::Int );
+        EXPECT_EQ( event->Params[1].Name, "by" );
+        EXPECT_EQ( event->Params[1].Type, FieldType::UInt );
+        EXPECT_EQ( event->Params[1].TypeName, "entt::entity" );
+        EXPECT_EQ( event->Params[2].Type, FieldType::Vec3 );
+        EXPECT_EQ( event->Params[2].TypeName, "const glm::vec3&" );
+    }
+
+    TEST( ReflectedFunctions, AnEventPayloadIsPackedInTheDeclaredKinds )
+    {
+        const auto by      = static_cast<entt::entity>( 42u );
+        const auto payload = Desert::Reflection::EventPayload<Counter::OnReached>( 7, by, glm::vec3( 1.0f, 2.0f, 3.0f ) );
+        ASSERT_EQ( payload.size(), 3u );
+        ASSERT_NE( payload[0].Get<std::int64_t>(), nullptr );
+        EXPECT_EQ( *payload[0].Get<std::int64_t>(), 7 );
+        ASSERT_NE( payload[1].Get<std::uint64_t>(), nullptr );
+        EXPECT_EQ( *payload[1].Get<std::uint64_t>(), 42u );
+        ASSERT_NE( payload[2].Get<Value::Float3>(), nullptr );
+        EXPECT_EQ( ( *payload[2].Get<Value::Float3>() )[2], 3.0f );
+
+        using EntityTraits = Desert::Reflection::ValueTraits<entt::entity>;
+        EXPECT_TRUE( EntityTraits::From( EntityTraits::To( entt::null ) ) == entt::null ) << "null survives the trip";
+        EXPECT_FALSE( EntityTraits::Fits( Value::UInt( ~std::uint64_t{ 0 } ) ) ) << "an id wider than an entity";
     }
 } // namespace

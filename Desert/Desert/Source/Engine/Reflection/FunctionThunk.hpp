@@ -15,6 +15,7 @@
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
 
+#include <entt/entt.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -197,6 +198,27 @@ namespace Desert::Reflection
         }
     };
 
+    /// An entity travels as its id, a UInt (as an asset handle does): the identity a language holds and hands
+    /// back; entt::null is the all-ones id. Spelled before the enum rule so an entity is never an Enum.
+    template <>
+    struct ValueTraits<entt::entity>
+    {
+        using Id                        = std::underlying_type_t<entt::entity>;
+        static constexpr FieldType Kind = FieldType::UInt;
+        static bool                Fits( const Value& v )
+        {
+            return *v.Get<std::uint64_t>() <= std::numeric_limits<Id>::max();
+        }
+        static entt::entity From( const Value& v )
+        {
+            return static_cast<entt::entity>( static_cast<Id>( *v.Get<std::uint64_t>() ) );
+        }
+        static Value To( entt::entity v )
+        {
+            return Value::UInt( static_cast<std::uint64_t>( static_cast<Id>( v ) ) );
+        }
+    };
+
     /// A parameter is taken by value or by const reference; a non-const reference would be an OUT parameter,
     /// which this layer does not have (a second result is a second return, REMAINDER of SCR-API-1).
     template <typename A>
@@ -350,5 +372,49 @@ namespace Desert::Reflection
         info.Meta     = std::move( meta );
         info.Thunk    = &Thunk<F>;
         return info;
+    }
+
+    // ------------------------------------------------------------------ events
+
+    template <typename F>
+    struct EventSignature
+    {
+        static_assert( sizeof( F ) == 0, "EVENT(...): the alias must name a function type, `using OnX = void( ... );`" );
+    };
+    template <typename... A>
+    struct EventSignature<void( A... )>
+    {
+        using Args = std::tuple<A...>;
+    };
+
+    /// The EventInfo of the alias `F` (EVENT(...) in ReflectionMacros.hpp), as the generated reflection registers
+    /// it: the names are the tool's, the kinds the compiler's — exactly as MakeFunction.
+    template <typename F, std::size_t N>
+    EventInfo MakeEvent( const char* name, const char* owner, const std::array<ParamSpelling, N>& params,
+                         EventMetadata meta )
+    {
+        using Args = typename EventSignature<F>::Args;
+        static_assert( std::tuple_size_v<Args> == N,
+                       "EVENT(...): the header tool read another parameter count than the compiler sees" );
+        EventInfo info;
+        info.Name   = name;
+        info.Owner  = owner;
+        info.Params = Detail::Params<Args>( params, std::make_index_sequence<N>{} );
+        info.Meta   = std::move( meta );
+        return info;
+    }
+
+    /// The payload of one firing of `F`, packed as its subscribers receive it — the arguments converted by the
+    /// same ValueTraits a reflected call uses, so a C++ broadcaster cannot send another signature than declared.
+    template <typename F, typename... A>
+    std::array<Value, sizeof...( A )> EventPayload( A&&... args )
+    {
+        using Args = typename EventSignature<F>::Args;
+        static_assert( std::tuple_size_v<Args> == sizeof...( A ), "EventPayload: another argument count than the event's" );
+        return [&]<std::size_t... I>( std::index_sequence<I...> )
+        {
+            return std::array<Value, sizeof...( A )>{ ValueTraits<ParamValueType<std::tuple_element_t<I, Args>>>::To(
+                 static_cast<ParamValueType<std::tuple_element_t<I, Args>>>( std::forward<A>( args ) ) )... };
+        }( std::index_sequence_for<A...>{} );
     }
 } // namespace Desert::Reflection

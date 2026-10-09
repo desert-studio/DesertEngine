@@ -32,6 +32,8 @@ namespace Desert::ECS
     struct DestructionEventQueue
     {
         std::vector<DestructionBreakEvent> Breaks;
+        /// Bumped by every publish (see PhysicsEventQueue::Publication).
+        std::uint64_t Publication = 0;
     };
 
     /// Appends the Break events of @p events to @p out, Self the destructible entity of the event's object
