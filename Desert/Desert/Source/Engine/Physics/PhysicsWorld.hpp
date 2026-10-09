@@ -207,6 +207,8 @@ namespace Desert::Physics
         // Applies a new gravity to a running world. Called when the scene's setting changes so the knob is
         // honest while playing, instead of only at the next Play.
         void SetGravity( float gravityCmPerS2 );
+        /// The DOWNWARD magnitude the world falls at, cm/s^2 (what Init / SetGravity were given).
+        [[nodiscard]] float GetGravity() const;
 
         // Advance the simulation by dt seconds (fixed-step accumulated internally).
         void Step( float dt );
@@ -252,6 +254,18 @@ namespace Desert::Physics
         [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance ) const;
 
+        /// UE SweepSingleByChannel with a sphere: the first body a sphere of @p radius meets travelling from
+        /// @p origin along @p direction (normalised here) within @p maxDistance, or nullopt. RayHit::Distance
+        /// is how far the sphere's CENTRE travelled before touching; Point / Normal are the contact's. A sphere
+        /// that already overlaps something at @p origin reports that body at distance 0.
+        [[nodiscard]] std::optional<RayHit> CastSphere( const glm::vec3& origin, const glm::vec3& direction,
+                                                        float radius, float maxDistance ) const;
+
+        /// UE OverlapAnyTestByChannel with a capsule standing on Y: does any body intersect the capsule of
+        /// @p radius and cylinder @p halfHeight (excluding the caps) centred at @p center? Characters are not
+        /// bodies, so a character never overlaps itself here.
+        [[nodiscard]] bool OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const;
+
         // Read simulated transform (body origin, not center-of-mass).
         glm::vec3 GetPosition( BodyHandle handle ) const;
         glm::quat GetRotation( BodyHandle handle ) const;
@@ -282,6 +296,11 @@ namespace Desert::Physics
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         bool            IsCharacterOnGround( CharacterHandle handle ) const;
         void            SetCharacterPosition( CharacterHandle handle, const glm::vec3& position );
+        /// Replaces the character's capsule (UE crouch: UCapsuleComponent::SetCapsuleSize). The centre stays
+        /// where it is — the caller moves it so the feet stay put. Refused (false, shape unchanged) when the new
+        /// capsule would penetrate the world: growing back under a low ceiling is the caller's overlap check
+        /// to make first, and this is the guard that it was made.
+        bool SetCharacterCapsule( CharacterHandle handle, float radius, float halfHeight );
 
         // ---- Ragdolls (JPH::RagdollSettings / JPH::Ragdoll; UE: the physics asset's bodies and constraints
         // instanced for one skeletal mesh component) ----

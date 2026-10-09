@@ -1,0 +1,129 @@
+{
+    "Header": {
+        "Kind": "InputMappingContext",
+        "Guid": "9094930061274307aa5c9c03a80cd08e",
+        "Versions": {
+            "INMC": 1
+        },
+        "Dependencies": [
+            "cc4f358acea646eb8f653102109b9703",
+            "9f0eb363e22a475a9224622fa23d4950",
+            "f414c8e6e4464cfbae03203945e91afc",
+            "316d0b6b3f764db6a9dac3bc795e08a5"
+        ]
+    },
+    "Mappings": [
+        {
+            "Action": {
+                "Guid": "cc4f358acea646eb8f653102109b9703",
+                "Path": "engine:Engine/Input/IA_Move.deinputaction"
+            },
+            "Key": "W",
+            "Modifiers": [
+                {
+                    "Type": "Swizzle",
+                    "Swizzle": {
+                        "Order": "YXZ"
+                    }
+                }
+            ],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "cc4f358acea646eb8f653102109b9703",
+                "Path": "engine:Engine/Input/IA_Move.deinputaction"
+            },
+            "Key": "S",
+            "Modifiers": [
+                {
+                    "Type": "Swizzle",
+                    "Swizzle": {
+                        "Order": "YXZ"
+                    }
+                },
+                {
+                    "Type": "Negate",
+                    "Negate": {
+                        "X": true,
+                        "Y": true,
+                        "Z": true
+                    }
+                }
+            ],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "cc4f358acea646eb8f653102109b9703",
+                "Path": "engine:Engine/Input/IA_Move.deinputaction"
+            },
+            "Key": "D",
+            "Modifiers": [],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "cc4f358acea646eb8f653102109b9703",
+                "Path": "engine:Engine/Input/IA_Move.deinputaction"
+            },
+            "Key": "A",
+            "Modifiers": [
+                {
+                    "Type": "Negate",
+                    "Negate": {
+                        "X": true,
+                        "Y": true,
+                        "Z": true
+                    }
+                }
+            ],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "9f0eb363e22a475a9224622fa23d4950",
+                "Path": "engine:Engine/Input/IA_Look.deinputaction"
+            },
+            "Key": "Mouse2D",
+            "Modifiers": [
+                {
+                    "Type": "Negate",
+                    "Negate": {
+                        "X": false,
+                        "Y": true,
+                        "Z": false
+                    }
+                }
+            ],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "f414c8e6e4464cfbae03203945e91afc",
+                "Path": "engine:Engine/Input/IA_Jump.deinputaction"
+            },
+            "Key": "Space",
+            "Modifiers": [],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "316d0b6b3f764db6a9dac3bc795e08a5",
+                "Path": "engine:Engine/Input/IA_Crouch.deinputaction"
+            },
+            "Key": "C",
+            "Modifiers": [],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "316d0b6b3f764db6a9dac3bc795e08a5",
+                "Path": "engine:Engine/Input/IA_Crouch.deinputaction"
+            },
+            "Key": "LeftControl",
+            "Modifiers": [],
+            "Triggers": []
+        }
+    ]
+}

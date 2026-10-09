@@ -9,6 +9,8 @@ namespace Desert::Scripting
         sol::table entity = impl.Lua["Entity"];
         entity["move"]           = &ScriptEntity::Move;
         entity["jump"]           = &ScriptEntity::Jump;
+        entity["crouch"]         = &ScriptEntity::Crouch;
+        entity["isCrouched"]     = &ScriptEntity::IsCrouched;
         entity["isOnGround"]     = &ScriptEntity::IsOnGround;
         entity["addYaw"]         = &ScriptEntity::AddYaw;
         entity["addCameraPitch"] = &ScriptEntity::AddCameraPitch;

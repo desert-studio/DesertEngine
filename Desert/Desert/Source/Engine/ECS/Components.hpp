@@ -747,21 +747,6 @@ namespace Desert::ECS
         RetargetData Data;
     };
 
-    // Data-driven state -> clip mapping for LocomotionSystem, so the SYSTEM holds NO clip knowledge (no clip
-    // names or instances baked in). The system maps planar speed / on-ground to one of these clip NAMES and
-    // hands it to AnimationComponent.CurrentClip; the clips themselves come from the AnimationLibrary (imported
-    // assets or the procedural humanoid's built-in clips). LocomotionSystem falls back to a default-constructed
-    // instance of THIS struct when the component is absent, so the defaults live in data, not in the system.
-    struct LocomotionComponent
-    {
-        std::string IdleClip  = "Idle";
-        std::string WalkClip  = "Walk";
-        std::string RunClip   = "Run";
-        std::string JumpClip  = "Jump";
-        float       WalkSpeed = 0.2f; // planar speed above which -> walk
-        float       RunSpeed  = 6.5f; // planar speed above which -> run
-    };
-
     // Blendshape / morph-target weights for the entity's mesh. Weights[k] (0..1, though over/undershoot is
     // allowed) scales morph target k of the mesh asset; the CPU blend is base + Σ(weight·delta) (see
     // Geometry::ApplyMorphTargets). TargetNames mirrors the mesh's target names for the Details UI and stays
@@ -2819,56 +2804,145 @@ namespace Desert::ECS
         Physics::BodyHandle RuntimeBody = Physics::kInvalidBody;
     };
 
-    // Playable character controller params (reflected -> Details UI + serialization). Drives a Jolt
-    // CharacterVirtual capsule (walks slopes/steps, blocked by world geometry) via WASD + jump.
+    // THE PLAYABLE CHARACTER'S MOVEMENT (GP2a; UE: ACharacter's UCapsuleComponent + UCharacterMovementComponent in
+    // MOVE_Walking / MOVE_Falling, crouch included). Drives a Jolt CharacterVirtual capsule (walks slopes/steps,
+    // blocked by world geometry); the model itself - acceleration, braking, friction, air control, jump, the
+    // crouch shrink and the can-uncrouch overlap - is ECS/System/CharacterMovement.cpp. Every speed is cm/s,
+    // every acceleration cm/s^2, every length cm. The INPUT is not here: the pawn's script reads the Enhanced
+    // Input actions (IA_Move / IA_Look / IA_Jump / IA_Crouch) and calls self:move / jump / crouch.
     struct CharacterControllerData
     {
         REFLECT()
 
-        // PHYSICS / capsule only. The control FEEL (move/sprint/look/jump speed) lives in the controller
-        // SCRIPT's Properties — not here — so there's a single source of truth for behavior. See ScriptComponent.
-        PROPERTY( DisplayName( "Radius" ), Category( "Character" ), Range( 5.0f, 500.0f ), Length )
-        float Radius = 30.0f;
+        PROPERTY( DisplayName( "Radius" ), Category( "Capsule" ), Range( 5.0f, 500.0f ), Length )
+        float Radius = 34.0f;
 
-        PROPERTY( DisplayName( "Height" ), Category( "Character" ), Range( 20.0f, 1000.0f ), Length )
-        float Height = 180.0f; // total capsule height (HalfHeight = (Height - 2*Radius) / 2)
+        // Total standing capsule height, caps included (cylinder half-height = (Height - 2*Radius) / 2).
+        PROPERTY( DisplayName( "Height" ), Category( "Capsule" ), Range( 20.0f, 1000.0f ), Length )
+        float Height = 176.0f;
 
-        PROPERTY( DisplayName( "Max Slope" ), Category( "Character" ), Range( 0.0f, 89.0f ), Units( "deg" ) )
+        PROPERTY( DisplayName( "Max Slope" ), Category( "Capsule" ), Range( 0.0f, 89.0f ), Units( "deg" ) )
         float MaxSlopeDeg = 50.0f;
 
-        // Fall acceleration (m/s^2). Default ~2x real gravity so the jump arc feels SNAPPY (real 9.81 reads as
-        // floaty). Authorable per-character instead of a baked engine constant — a moon level just lowers it.
-        PROPERTY( DisplayName( "Gravity" ), Category( "Character" ), Range( 0.0f, 6000.0f ), Units( "cm/s2" ),
-                  Advanced )
-        float Gravity = 2000.0f;
+        // UE MaxWalkSpeed: the ground speed a full stick reaches.
+        PROPERTY( DisplayName( "Max Walk Speed" ), Category( "Walking" ), Range( 0.0f, 5000.0f ), Units( "cm/s" ),
+                  Summary )
+        float MaxWalkSpeed = 600.0f;
+
+        // UE MaxAcceleration: how fast input changes the velocity (ground; times Air Control in the air).
+        PROPERTY( DisplayName( "Max Acceleration" ), Category( "Walking" ), Range( 0.0f, 20000.0f ),
+                  Units( "cm/s2" ) )
+        float MaxAcceleration = 2048.0f;
+
+        // UE BrakingDecelerationWalking: the constant deceleration with no input on the ground.
+        PROPERTY( DisplayName( "Braking Deceleration" ), Category( "Walking" ), Range( 0.0f, 20000.0f ),
+                  Units( "cm/s2" ) )
+        float BrakingDecelerationWalking = 2048.0f;
+
+        // UE GroundFriction: turning friction while accelerating, and (times Braking Friction Factor) the
+        // velocity-proportional part of braking.
+        PROPERTY( DisplayName( "Ground Friction" ), Category( "Walking" ), Range( 0.0f, 100.0f ), Advanced )
+        float GroundFriction = 8.0f;
+
+        // UE BrakingFrictionFactor (default 2): ground friction is multiplied by this while braking.
+        PROPERTY( DisplayName( "Braking Friction Factor" ), Category( "Walking" ), Range( 0.0f, 10.0f ), Advanced )
+        float BrakingFrictionFactor = 2.0f;
+
+        // UE JumpZVelocity: the upward launch speed; the apex is JumpZVelocity^2 / (2 * gravity).
+        PROPERTY( DisplayName( "Jump Z Velocity" ), Category( "Jumping / Falling" ), Range( 0.0f, 5000.0f ),
+                  Units( "cm/s" ), Summary )
+        float JumpZVelocity = 700.0f;
+
+        // UE AirControl: the fraction of Max Acceleration the input has while falling (0 = none, 1 = as on
+        // the ground).
+        PROPERTY( DisplayName( "Air Control" ), Category( "Jumping / Falling" ), Range( 0.0f, 1.0f ) )
+        float AirControl = 0.35f;
+
+        // UE GravityScale: times the scene's gravity (the physics world's), not a gravity of its own.
+        PROPERTY( DisplayName( "Gravity Scale" ), Category( "Jumping / Falling" ), Range( 0.0f, 10.0f ) )
+        float GravityScale = 1.0f;
+
+        // UE MaxWalkSpeedCrouched.
+        PROPERTY( DisplayName( "Max Walk Speed Crouched" ), Category( "Crouching" ), Range( 0.0f, 5000.0f ),
+                  Units( "cm/s" ) )
+        float MaxWalkSpeedCrouched = 300.0f;
+
+        // Total crouched capsule height, caps included (UE CrouchedHalfHeight x 2). The radius stays.
+        PROPERTY( DisplayName( "Crouched Height" ), Category( "Crouching" ), Range( 20.0f, 1000.0f ), Length )
+        float CrouchedHeight = 120.0f;
+
+        // UE MaxSwimSpeed: horizontal and vertical speed while the script says the body is swimming.
+        PROPERTY( DisplayName( "Max Swim Speed" ), Category( "Swimming" ), Range( 0.0f, 5000.0f ),
+                  Units( "cm/s" ) )
+        float MaxSwimSpeed = 300.0f;
     };
 
-    // A WASD-driven player. The follow camera is NOT here — parent a child entity with a CameraComponent
-    // (offset behind = 3rd person, at the head = 1st person); it tracks the player via the hierarchy.
+    // A playable character. The follow camera is NOT here - a child entity with a SpringArmComponent and its
+    // camera child (third person), or a camera child at the head (first person).
     struct CharacterControllerComponent
     {
         CharacterControllerData Data;
 
-        // Transient (Play only): the live Jolt character + the integrated vertical velocity (gravity/jump).
+        // Transient (Play only): the live Jolt character and the movement state.
         Physics::CharacterHandle RuntimeCharacter = Physics::kInvalidCharacter;
-        float                    VerticalVelocity = 0.0f;
-        float                    CurrentSpeed     = 0.0f; // planar move speed this frame (drives locomotion anim)
+        glm::vec3                Velocity         = { 0.0f, 0.0f, 0.0f }; // cm/s, what the model asked of Jolt
+        float                    CurrentSpeed     = 0.0f;  // planar |Velocity|, cm/s (drives locomotion)
+        bool                     OnGround         = false; // last physics result (self:isOnGround())
+        bool                     IsCrouched       = false; // UE bIsCrouched: the capsule IS the crouched one
 
-        // Move INTENT, set by the controller SCRIPT each frame (the engine only executes the physics). This is
-        // the mechanism/behavior split: the script reads input + decides where to go; PhysicsECSSystem turns
-        // this into a camera-relative velocity and steps Jolt.
-        glm::vec2 MoveInput     = { 0.0f, 0.0f }; // x = strafe (right), y = forward; each -1..1
-        float     DesiredSpeed  = 0.0f;           // m/s the script asked for (sprint etc. is script policy)
-        bool      JumpRequested = false;          // set by script:jump(strength), consumed + cleared by physics
-        float     JumpStrength  = 5.0f;           // launch velocity the script passed to self:jump()
-        bool      OnGround      = false;          // last physics result, exposed to scripts (self:isOnGround())
-        glm::vec2 AirVelocity   = { 0.0f, 0.0f }; // horizontal velocity locked at takeoff (no air control)
+        // INTENT, written by the pawn's script each frame and executed by PhysicsECSSystem (UE: AddMovementInput,
+        // Jump, Crouch / UnCrouch). MoveInput is camera-relative (x = right, y = forward), length clamped to 1.
+        glm::vec2 MoveInput       = { 0.0f, 0.0f };
+        bool      JumpRequested   = false; // one-shot, consumed by the next physics step
+        bool      CrouchRequested = false; // UE bWantsToCrouch: held; standing up waits for head room
 
-        // Swimming (set by the controller SCRIPT when it detects the body is below the water level). While
-        // swimming, PhysicsECSSystem replaces gravity with buoyancy, gives full 3D control, and drives the
-        // vertical from SwimVertical (+1 = up, -1 = down) instead of jump/gravity.
+        // Swimming (set by the controller SCRIPT when it detects the body is below the water level): gravity is
+        // replaced by the swim intent (+1 up, -1 down) at Max Swim Speed.
         bool  Swimming     = false;
-        float SwimVertical = 0.0f; // -1..1 swim up/down intent (script)
+        float SwimVertical = 0.0f;
+    };
+
+    // UE USpringArmComponent: on a child entity of the pawn, whose rotation is the arm's (scripts pitch it, the
+    // pawn yaws). Each frame PhysicsECSSystem places the arm's CAMERA child TargetArmLength behind the arm's
+    // origin (along the arm's +Z, the camera's back) plus SocketOffset in arm space; with Do Collision Test a
+    // sphere of Probe Size is swept from the origin to that point and the camera is pulled in to the first hit,
+    // and it goes back out when the obstacle is gone. Camera Lag smooths the ORIGIN the arm hangs from (UE
+    // bEnableCameraLag), never the collision. The solve is ECS/System/SpringArm.cpp.
+    struct SpringArmData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Target Arm Length" ), Category( "Camera" ), Range( 0.0f, 5000.0f ), Length,
+                  Summary )
+        float TargetArmLength = 300.0f;
+
+        // Arm-space offset of the camera at the arm's end (UE SocketOffset): (0, 60, 0) lifts it over the head.
+        PROPERTY( DisplayName( "Socket Offset" ), Category( "Camera" ), Length )
+        glm::vec3 SocketOffset = { 0.0f, 0.0f, 0.0f };
+
+        PROPERTY( DisplayName( "Do Collision Test" ), Category( "Camera Collision" ) )
+        bool DoCollisionTest = true;
+
+        // Radius of the swept probe sphere (UE ProbeSize): how far the camera keeps from the wall it meets.
+        PROPERTY( DisplayName( "Probe Size" ), Category( "Camera Collision" ), Range( 0.0f, 200.0f ), Length )
+        float ProbeSize = 12.0f;
+
+        PROPERTY( DisplayName( "Enable Camera Lag" ), Category( "Lag" ) )
+        bool EnableCameraLag = false;
+
+        // UE CameraLagSpeed: the origin closes this fraction of its distance per second (VInterpTo).
+        PROPERTY( DisplayName( "Camera Lag Speed" ), Category( "Lag" ), Range( 0.0f, 1000.0f ) )
+        float CameraLagSpeed = 10.0f;
+    };
+
+    struct SpringArmComponent
+    {
+        SpringArmData Data;
+
+        // Transient: the lagged origin (valid once HasLaggedOrigin) and the length the last solve reached.
+        glm::vec3 LaggedOrigin     = { 0.0f, 0.0f, 0.0f };
+        bool      HasLaggedOrigin  = false;
+        float     CurrentArmLength = 0.0f;
     };
 
     // UE's APlayerStart: where Play puts the player's pawn (SceneSettings::DefaultPawn). Its transform is

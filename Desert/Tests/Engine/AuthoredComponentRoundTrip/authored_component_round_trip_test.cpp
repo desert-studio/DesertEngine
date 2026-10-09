@@ -89,7 +89,7 @@ namespace
     // ── THE FIELD CENSUS ───────────────────────────────────────────────────────────────────────────
     //
     // Comparing the keys the writer emits against the fields the STRUCT declares. Without this, adding
-    // a field to LocomotionComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
+    // a field to SocketAttachmentComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
     // round-trips, the suite still passes, and one slider out of eleven stops being saved.
 
     std::string RepoRoot()
@@ -260,32 +260,6 @@ namespace
     }
 } // namespace
 
-// ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────────
-TEST( AuthoredComponentRoundTrip, EveryLocomotionFieldComesBack )
-{
-    ECS::LocomotionComponent written;
-    written.IdleClip  = "Anim_Idle_Relaxed";
-    written.WalkClip  = "Anim_Walk_Fwd";
-    written.RunClip   = "Anim_Sprint";
-    written.JumpClip  = "Anim_Jump_Start";
-    written.WalkSpeed = 33.75f;
-    written.RunSpeed  = 412.5f;
-
-    const ECS::LocomotionComponent read = RoundTrip( written );
-
-    EXPECT_EQ( read.IdleClip, written.IdleClip );
-    EXPECT_EQ( read.WalkClip, written.WalkClip );
-    EXPECT_EQ( read.RunClip, written.RunClip );
-    EXPECT_EQ( read.JumpClip, written.JumpClip );
-    EXPECT_FLOAT_EQ( read.WalkSpeed, written.WalkSpeed );
-    EXPECT_FLOAT_EQ( read.RunSpeed, written.RunSpeed );
-}
-
-TEST( AuthoredComponentRoundTrip, TheLocomotionBlockNamesEveryLocomotionField )
-{
-    ExpectEveryFieldIsWritten( "LocomotionComponent", WriteComponent( ECS::LocomotionComponent{} ) );
-}
-
 // ── MORPH ──────────────────────────────────────────────────────────────────────────────────────────
 TEST( AuthoredComponentRoundTrip, EveryMorphWeightComesBackIndexAligned )
 {
@@ -418,12 +392,12 @@ TEST( AuthoredComponentRoundTrip, TheProjectileBlockNamesEveryProjectileField )
 // property that lets a field be ADDED to one of these blocks with no scene version bump.
 TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 {
-    ECS::LocomotionComponent locomotion;
-    locomotion.RunClip  = "Anim_Sprint";
-    locomotion.RunSpeed = 999.0f;
-    ReadAt( Common::Json::Object{}, locomotion );
-    EXPECT_EQ( locomotion.RunClip, "Anim_Sprint" );
-    EXPECT_FLOAT_EQ( locomotion.RunSpeed, 999.0f );
+    ECS::ProjectileComponent projectile;
+    projectile.Damage       = 999.0f;
+    projectile.GravityScale = 0.25f;
+    ReadAt( Common::Json::Object{}, projectile );
+    EXPECT_FLOAT_EQ( projectile.Damage, 999.0f );
+    EXPECT_FLOAT_EQ( projectile.GravityScale, 0.25f );
 
     ECS::SocketAttachmentComponent socket;
     socket.Target   = Common::UUID( 777ull );
@@ -447,17 +421,24 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZeroing )
 {
     Common::Json::Object block;
-    block["WalkSpeed"] = Common::Json::Value( std::string( "lots" ) );
-    block["IdleClip"]  = Common::Json::Value( 3.5 );
-    block["RunSpeed"]  = Common::Json::Value( 8.5 ); // a good key beside the bad ones still lands
+    block["Damage"]       = Common::Json::Value( std::string( "lots" ) );
+    block["GravityScale"] = Common::Json::Value( 0.5 ); // a good key beside the bad one still lands
 
-    ECS::LocomotionComponent locomotion;
-    locomotion.WalkSpeed = 42.0f;
-    ReadAt( ThroughJsonText( block ), locomotion );
+    ECS::ProjectileComponent projectile;
+    projectile.Damage = 42.0f;
+    ReadAt( ThroughJsonText( block ), projectile );
 
-    EXPECT_FLOAT_EQ( locomotion.WalkSpeed, 42.0f );
-    EXPECT_EQ( locomotion.IdleClip, "Idle" );
-    EXPECT_FLOAT_EQ( locomotion.RunSpeed, 8.5f );
+    EXPECT_FLOAT_EQ( projectile.Damage, 42.0f );
+    EXPECT_FLOAT_EQ( projectile.GravityScale, 0.5f );
+
+    Common::Json::Object socketBlock;
+    socketBlock["BoneName"] = Common::Json::Value( 3.5 );
+
+    ECS::SocketAttachmentComponent socket;
+    socket.BoneName = "Hand_R";
+    ReadAt( ThroughJsonText( socketBlock ), socket );
+
+    EXPECT_EQ( socket.BoneName, "Hand_R" );
 }
 
 // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────────
@@ -618,13 +599,13 @@ TEST( AuthoredComponentRoundTrip, ANegativeIdIsRefusedNotWrappedToTheLargestId )
 
 TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfinity )
 {
-    ECS::LocomotionComponent locomotion;
-    const float              walk = locomotion.WalkSpeed;
+    ECS::ProjectileComponent projectile;
+    const float              damage = projectile.Damage;
     Common::Json::Object     block;
-    block["WalkSpeed"] = Common::Json::Value( 1e300 );
-    const auto issues  = ReadAt( ThroughJsonText( block ), locomotion );
-    EXPECT_EQ( locomotion.WalkSpeed, walk );
+    block["Damage"]   = Common::Json::Value( 1e300 );
+    const auto issues = ReadAt( ThroughJsonText( block ), projectile );
+    EXPECT_EQ( projectile.Damage, damage );
     ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "WalkSpeed" ).ToString() );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Damage" ).ToString() );
     EXPECT_EQ( issues[0].Expected, "number" );
 }

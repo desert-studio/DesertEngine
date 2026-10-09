@@ -68,6 +68,7 @@ namespace Desert::Scripting
              MakeEntry<ECS::KillFieldComponent>( "KillField", "KillFieldData" ),
              MakeEntry<ECS::AnchorFieldComponent>( "AnchorField", "AnchorFieldData" ),
              MakeEntry<ECS::CharacterControllerComponent>( "CharacterController", "CharacterControllerData" ),
+             MakeEntry<ECS::SpringArmComponent>( "SpringArm", "SpringArmData" ),
              MakeEntry<ECS::SkyAtmosphereComponent>( "SkyAtmosphere", "SkyAtmosphereData" ),
              MakeEntry<ECS::TimeOfDayComponent>( "TimeOfDay", "TimeOfDayData" ),
              MakeEntry<ECS::ExponentialHeightFogComponent>( "ExponentialHeightFog", "ExponentialHeightFogData" ),

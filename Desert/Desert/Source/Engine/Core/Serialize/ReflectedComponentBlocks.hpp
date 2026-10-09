@@ -80,6 +80,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<ColliderComponent, ColliderData>{ "Collider", "ColliderData", &ColliderComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<RigidBodyComponent, RigidBodyData>{ "RigidBody", "RigidBodyData", &RigidBodyComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<CharacterControllerComponent, CharacterControllerData>{ "CharacterController", "CharacterControllerData", &CharacterControllerComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<SpringArmComponent, SpringArmData>{ "SpringArm", "SpringArmData", &SpringArmComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<PlayerStartComponent, PlayerStartData>{ "PlayerStart", "PlayerStartData", &PlayerStartComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<StreamingSourceComponent, StreamingSourceData>{ "StreamingSource", "StreamingSourceData", &StreamingSourceComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<AudioSourceComponent, AudioSourceData>{ "AudioSource", "AudioSourceData", &AudioSourceComponent::Data, R::ActorsAndUI } );

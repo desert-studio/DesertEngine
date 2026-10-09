@@ -633,11 +633,22 @@ namespace
          { "Restitution", kPhysicsSystem },
     };
 
-    constexpr Row kCharacterControllerRows[] = {
-         { "Radius", kPhysicsSystem },
-         { "Height", kPhysicsSystem },
-         { "MaxSlopeDeg", kPhysicsSystem },
-         { "Gravity", kPhysicsSystem },
+    // GP2a: the movement model (UE CharacterMovementComponent) is the one reader of every field.
+    constexpr const char* kCharacterMovement = "Desert/Desert/Source/Engine/ECS/System/CharacterMovement.cpp";
+    constexpr Row         kCharacterControllerRows[] = {
+         { "Radius", kCharacterMovement },          { "Height", kCharacterMovement },
+         { "MaxSlopeDeg", kCharacterMovement },     { "MaxWalkSpeed", kCharacterMovement },
+         { "MaxAcceleration", kCharacterMovement }, { "BrakingDecelerationWalking", kCharacterMovement },
+         { "GroundFriction", kCharacterMovement },  { "BrakingFrictionFactor", kCharacterMovement },
+         { "JumpZVelocity", kCharacterMovement },   { "AirControl", kCharacterMovement },
+         { "GravityScale", kCharacterMovement },    { "MaxWalkSpeedCrouched", kCharacterMovement },
+         { "CrouchedHeight", kCharacterMovement },  { "MaxSwimSpeed", kCharacterMovement },
+    };
+
+    constexpr const char* kSpringArm       = "Desert/Desert/Source/Engine/ECS/System/SpringArm.cpp";
+    constexpr Row         kSpringArmRows[] = {
+         { "TargetArmLength", kSpringArm }, { "SocketOffset", kSpringArm },    { "DoCollisionTest", kSpringArm },
+         { "ProbeSize", kSpringArm },       { "EnableCameraLag", kSpringArm }, { "CameraLagSpeed", kSpringArm },
     };
 
     constexpr Row kAudioRows[] = {
@@ -1052,6 +1063,7 @@ namespace
          { "RigidBodyData", "RigidBodyComponent", nullptr, CENSUS_ROWS( kRigidBodyRows ) },
          { "CharacterControllerData", "CharacterControllerComponent", nullptr,
            CENSUS_ROWS( kCharacterControllerRows ) },
+         { "SpringArmData", "SpringArmComponent", nullptr, CENSUS_ROWS( kSpringArmRows ) },
          { "AudioSourceData", "AudioSourceComponent", nullptr, CENSUS_ROWS( kAudioRows ) },
 
          { "UICanvasData", "UICanvasComponent", nullptr, CENSUS_ROWS( kCanvasRows ) },
