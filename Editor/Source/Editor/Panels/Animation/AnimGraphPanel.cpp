@@ -944,8 +944,54 @@ namespace Desert::Editor
                                 tr.To = s.Name;
                     dirty = true;
                 }
+                // A state plays ONE clip or ONE Blend Space 1D (State::BlendSpace, Clip then empty): switching
+                // carries the clip over as the row's first sample and back, so nothing authored is dropped.
+                bool playsBlendSpace = s.BlendSpace.has_value();
+                if ( ImGui::Checkbox( "Plays a Blend Space 1D", &playsBlendSpace ) )
+                {
+                    if ( playsBlendSpace )
+                    {
+                        G::StateBlendSpace space;
+                        const auto         axis = std::find_if(
+                             graph.Parameters.begin(), graph.Parameters.end(), []( const G::Parameter& p )
+                             { return static_cast<G::ParamType>( p.Type ) == G::ParamType::Float; } );
+                        if ( axis != graph.Parameters.end() )
+                            space.Axis = axis->Name;
+                        if ( !s.Clip.empty() )
+                            space.Space.Samples.push_back( G::BlendSample{ s.Clip, 0.0f } );
+                        s.BlendSpace = std::move( space );
+                        s.Clip.clear();
+                    }
+                    else
+                    {
+                        s.Clip = s.BlendSpace->Space.Samples.empty() ? std::string()
+                                                                     : s.BlendSpace->Space.Samples.front().Clip;
+                        s.BlendSpace.reset();
+                    }
+                    dirty = true;
+                }
+                if ( s.BlendSpace )
+                {
+                    // The axis is named, not a pin: a state has none. Only declared Floats are offered; the plan
+                    // (PlanPoseGraph) states what is wrong with the row, e.g. samples out of order.
+                    ImGui::PushID( "stateBlendSpace" );
+                    if ( ImGui::BeginCombo( "Axis", s.BlendSpace->Axis.empty() ? "<no axis>"
+                                                                               : s.BlendSpace->Axis.c_str() ) )
+                    {
+                        for ( const auto& p : graph.Parameters )
+                            if ( static_cast<G::ParamType>( p.Type ) == G::ParamType::Float &&
+                                 ImGui::Selectable( p.Name.c_str(), p.Name == s.BlendSpace->Axis ) )
+                            {
+                                s.BlendSpace->Axis = p.Name;
+                                dirty              = true;
+                            }
+                        ImGui::EndCombo();
+                    }
+                    dirty |= DrawBlendSpaceRow( s.BlendSpace->Space, clipNames );
+                    ImGui::PopID();
+                }
                 const char* preview = s.Clip.empty() ? "Select Clip" : s.Clip.c_str();
-                if ( ImGui::BeginCombo( "Clip", preview ) )
+                if ( !s.BlendSpace && ImGui::BeginCombo( "Clip", preview ) )
                 {
                     for ( const auto& name : clipNames )
                         if ( ImGui::Selectable( name.c_str(), s.Clip == name ) )

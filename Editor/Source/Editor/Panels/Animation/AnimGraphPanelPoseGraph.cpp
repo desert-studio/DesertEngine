@@ -445,6 +445,50 @@ namespace Desert::Editor
             MarkEdited();
     }
 
+    bool AnimGraphPanel::DrawBlendSpaceRow( G::BlendSpace1DNode& space, const std::vector<std::string>& clipNames )
+    {
+        bool dirty   = false;
+        int  removed = -1;
+        for ( size_t s = 0; s < space.Samples.size(); ++s )
+        {
+            G::BlendSample& sample = space.Samples[s];
+            ImGui::PushID( static_cast<int>( s ) );
+            ImGui::SetNextItemWidth( 140.0f );
+            if ( ImGui::BeginCombo( "##sampleClip", sample.Clip.empty() ? "<no clip>" : sample.Clip.c_str() ) )
+            {
+                for ( const std::string& clip : clipNames )
+                    if ( ImGui::Selectable( clip.c_str(), clip == sample.Clip ) )
+                    {
+                        sample.Clip = clip;
+                        dirty       = true;
+                    }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 90.0f );
+            dirty |= ImGui::DragFloat( "##sampleValue", &sample.Value, 1.0f );
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( "x" ) )
+                removed = static_cast<int>( s );
+            ImGui::PopID();
+        }
+        if ( removed >= 0 )
+        {
+            space.Samples.erase( space.Samples.begin() + removed );
+            dirty = true;
+        }
+        if ( ImGui::Button( "Add Sample" ) )
+        {
+            const float next = space.Samples.empty() ? 0.0f : space.Samples.back().Value + 100.0f;
+            space.Samples.push_back(
+                 G::BlendSample{ space.Samples.empty() ? std::string() : space.Samples.back().Clip, next } );
+            dirty = true;
+        }
+        dirty |= ImGui::DragFloat( "Weight Speed (/s, 0 = none)", &space.WeightSpeed, 0.1f, 0.0f, 100.0f );
+        dirty |= ImGui::Checkbox( "Loop##blendSpace", &space.Loop );
+        return dirty;
+    }
+
     bool AnimGraphPanel::DrawPinBinding( G::AnimGraph& graph, G::PoseNode& node, const std::string& pin )
     {
         const std::string bound   = Graph::BoundParameter( node, pin );
@@ -522,47 +566,9 @@ namespace Desert::Editor
         {
             // A thin view over the payload: the plan (PlanPoseGraph) states what is wrong with an edit, e.g.
             // samples out of order; the axis is the X pin, bound below like any parameter pin.
-            G::BlendSpace1DNode& space = *node.BlendSpace;
             ImGui::TextUnformatted( "Blend Space 1D samples (axis = X pin)" );
-            int removed = -1;
-            for ( size_t s = 0; s < space.Samples.size(); ++s )
-            {
-                G::BlendSample& sample = space.Samples[s];
-                ImGui::PushID( static_cast<int>( s ) );
-                ImGui::SetNextItemWidth( 140.0f );
-                if ( ImGui::BeginCombo( "##sampleClip", sample.Clip.empty() ? "<no clip>" : sample.Clip.c_str() ) )
-                {
-                    for ( const std::string& clip : clipNames )
-                        if ( ImGui::Selectable( clip.c_str(), clip == sample.Clip ) )
-                        {
-                            sample.Clip = clip;
-                            dirty       = true;
-                        }
-                    ImGui::EndCombo();
-                }
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth( 90.0f );
-                dirty |= ImGui::DragFloat( "##sampleValue", &sample.Value, 1.0f );
-                ImGui::SameLine();
-                if ( ImGui::SmallButton( "x" ) )
-                    removed = static_cast<int>( s );
-                ImGui::PopID();
-            }
-            if ( removed >= 0 )
-            {
-                space.Samples.erase( space.Samples.begin() + removed );
-                dirty = true;
-            }
-            if ( ImGui::Button( "Add Sample" ) )
-            {
-                const float next = space.Samples.empty() ? 0.0f : space.Samples.back().Value + 100.0f;
-                space.Samples.push_back(
-                     G::BlendSample{ space.Samples.empty() ? std::string() : space.Samples.back().Clip, next } );
-                dirty = true;
-            }
+            dirty |= DrawBlendSpaceRow( *node.BlendSpace, clipNames );
             dirty |= DrawPinBinding( graph, node, std::string( G::kBlendSpaceAxisPin ) );
-            dirty |= ImGui::DragFloat( "Weight Speed (/s, 0 = none)", &space.WeightSpeed, 0.1f, 0.0f, 100.0f );
-            dirty |= ImGui::Checkbox( "Loop##blendSpace", &space.Loop );
         }
 
         if ( node.LayeredBlend )
