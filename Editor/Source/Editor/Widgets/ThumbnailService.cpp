@@ -134,6 +134,13 @@ namespace Desert::Editor
         return RequestMaterial( resolved.GetValue(), assetPath );
     }
 
+    bool ThumbnailService::StillAsked( const std::string& assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        m_Wanted.insert( identity ); // shown this frame (DropUnwanted)
+        return m_Queued.contains( identity ) || m_Failed.contains( identity );
+    }
+
     void ThumbnailService::Refuse( const std::string& assetPath, const std::string& reason )
     {
         if ( !m_Failed.insert( ThumbnailKey::Identity( assetPath ) ).second )

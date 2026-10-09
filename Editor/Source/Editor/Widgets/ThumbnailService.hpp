@@ -111,6 +111,11 @@ namespace Desert::Editor
         // in the failure set, so the card keeps its type icon for a stated reason — never silently (THM1n-10).
         void Refuse( const std::string& assetPath, const std::string& reason );
 
+        /// A shower that already asked for @p assetPath's picture says it is still on screen this frame (keeps it
+        /// past DropUnwanted) without re-resolving its subject. False when the service no longer holds the ask —
+        /// dropped while off screen (a folder left, a tile scrolled away) — so the shower asks again in full.
+        [[nodiscard]] bool StillAsked( const std::string& assetPath );
+
         // Queue a mesh preview, optionally with the material to apply to every slot.
         std::string
         RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,

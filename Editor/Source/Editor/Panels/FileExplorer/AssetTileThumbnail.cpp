@@ -182,6 +182,14 @@ namespace Desert::Editor
             m_CaptureAsked.erase( entry->AssetPath ); // current: a later edit that makes it stale asks again
             return true;
         }
+        // THE ASK IS RENEWED EVERY FRAME THE TILE IS DRAWN (THUMB-FOLDER): the service drops on its next tick
+        // whatever no shower asked for (DropUnwanted). Asking once and then only painting the swatch left every
+        // material but the first dispatched one dropped from the queue and a swatch forever — measured on the
+        // 132-material Bistro folder, cold: 1 picture made in 3 minutes. An ask the service no longer holds
+        // (dropped while the folder was left) is forgotten here and made again in full below.
+        if ( const auto asked = m_CaptureAsked.find( entry->AssetPath );
+             asked != m_CaptureAsked.end() && !ThumbnailService::Get().StillAsked( entry->AssetPath ) )
+            m_CaptureAsked.erase( asked );
         if ( const auto asked = m_CaptureAsked.find( entry->AssetPath ); asked != m_CaptureAsked.end() )
         {
             if ( !drew )
