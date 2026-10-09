@@ -1,0 +1,36 @@
+{
+    "Header": {
+        "Kind": "VFXDataChannel",
+        "Guid": "1fa62436408541dcb1e0ecc5ea5c1052",
+        "Versions": {
+            "VFXD": 1
+        },
+        "Dependencies": []
+    },
+    "Fields": [
+        {
+            "Name": "Position",
+            "Type": "Position"
+        },
+        {
+            "Name": "Normal",
+            "Type": "Direction"
+        },
+        {
+            "Name": "Impulse",
+            "Type": "Float"
+        },
+        {
+            "Name": "Velocity",
+            "Type": "Direction"
+        },
+        {
+            "Name": "MassKg",
+            "Type": "Float"
+        },
+        {
+            "Name": "SourceEntity",
+            "Type": "Int"
+        }
+    ]
+}

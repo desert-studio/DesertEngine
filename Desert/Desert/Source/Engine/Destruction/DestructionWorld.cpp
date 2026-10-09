@@ -115,6 +115,9 @@ namespace Desert::Destruction
         if ( !( settings.MaxSleepTime.x >= 0.0f ) || settings.MaxSleepTime.y < settings.MaxSleepTime.x )
             return Common::MakeError<Result>( std::format( "sleep time range [{}, {}] s is not a range",
                                                            settings.MaxSleepTime.x, settings.MaxSleepTime.y ) );
+        if ( !( settings.CollisionEventMinImpulse >= 0.0f ) )
+            return Common::MakeError<Result>( std::format(
+                 "collision event minimum impulse {} kg*cm/s is negative", settings.CollisionEventMinImpulse ) );
 
         const std::vector<FractureNode>& nodes = data->Nodes;
         const auto                       count = static_cast<int32_t>( nodes.size() );
@@ -265,6 +268,61 @@ namespace Desert::Destruction
         return volume > 0.0 ? sum / volume : object.Data->Nodes[members[0]].CenterOfMass;
     }
 
+    float DestructionWorld::MassOf( const Object& object, const std::vector<int32_t>& members )
+    {
+        double volume = 0.0;
+        for ( const int32_t m : members )
+            volume += object.Data->Nodes[m].Volume;
+        return static_cast<float>( volume ) * object.Settings.DensityKgPerCm3; // as SpawnBody gives the body
+    }
+
+    uint32_t DestructionWorld::PiecesOf( const Object& object, const std::vector<int32_t>& members )
+    {
+        size_t leaves = 0;
+        for ( const int32_t m : members )
+            leaves += object.Nodes[m].Leaves.size();
+        return static_cast<uint32_t>( leaves );
+    }
+
+    void DestructionWorld::RecordCollision( Physics::BodyHandle handle, uint32_t part, const glm::vec3& point,
+                                            const glm::vec3& normal, float impulse )
+    {
+        const auto found = m_BodyLookup.find( handle );
+        if ( found == m_BodyLookup.end() )
+            return;
+        const Object& object = m_Objects[found->second.Object];
+        if ( !object.Settings.CollisionEvents || impulse < object.Settings.CollisionEventMinImpulse )
+            return;
+        const BodyState& body = object.Bodies[found->second.Body];
+        DestructionEvent event;
+        event.Kind       = DestructionEventKind::Collision;
+        event.Object     = found->second.Object;
+        event.Node       = part < body.PartLeaf.size() ? UnitOfLeaf( object, body, body.PartLeaf[part] ) : -1;
+        event.Position   = point;
+        event.Velocity   = m_Physics.GetLinearVelocity( handle );
+        event.Normal     = normal;
+        event.Impulse    = impulse;
+        event.MassKg     = MassOf( object, body.Members );
+        event.PieceCount = PiecesOf( object, body.Members );
+        m_Events.push_back( event );
+    }
+
+    DestructionEvent DestructionWorld::RemovedEvent( uint32_t objectIndex, int32_t member,
+                                                     const glm::vec3& position, const glm::vec3& velocity ) const
+    {
+        const Object&              object = m_Objects[objectIndex];
+        const std::vector<int32_t> members{ member };
+        DestructionEvent           event;
+        event.Kind       = DestructionEventKind::Removed;
+        event.Object     = objectIndex;
+        event.Node       = member;
+        event.Position   = position;
+        event.Velocity   = velocity;
+        event.MassKg     = MassOf( object, members );
+        event.PieceCount = PiecesOf( object, members );
+        return event;
+    }
+
     void DestructionWorld::AssignBody( Object& object, int32_t node, int32_t body )
     {
         std::vector<int32_t> pending{ node };
@@ -373,6 +431,10 @@ namespace Desert::Destruction
                 continue;
             strain( contact.Body1, contact.Part1, contact.Impulse );
             strain( contact.Body2, contact.Part2, contact.Impulse );
+            // Before Release: the contact is on the bodies as they were during the step. The normal points out
+            // of the destructible's side (Jolt's runs from Body1 to Body2).
+            RecordCollision( contact.Body1, contact.Part1, contact.Point, contact.Normal, contact.Impulse );
+            RecordCollision( contact.Body2, contact.Part2, contact.Point, -contact.Normal, contact.Impulse );
         }
 
         // A unit whose strain is zero or less breaks without being touched (AdvanceClustering :1730).
@@ -411,9 +473,8 @@ namespace Desert::Destruction
                 const glm::quat rotation = m_Physics.GetRotation( body.Handle );
                 for ( const int32_t m : body.Members )
                     m_Events.push_back(
-                         DestructionEvent{ DestructionEventKind::Removed, o, m,
-                                           position + rotation * glm::vec3( object.Data->Nodes[m].CenterOfMass ),
-                                           glm::vec3( 0.0f ) } );
+                         RemovedEvent( o, m, position + rotation * glm::vec3( object.Data->Nodes[m].CenterOfMass ),
+                                       glm::vec3( 0.0f ) ) );
                 DestroyBody( o, b );
             }
         }
@@ -514,10 +575,9 @@ namespace Desert::Destruction
                             0.0f ) )
                         continue;
                     for ( const int32_t m : body.Members )
-                        m_Events.push_back(
-                             DestructionEvent{ DestructionEventKind::Removed, ref.Object, m,
-                                               WorldPoint( body, object.Data->Nodes[m].CenterOfMass ),
-                                               m_Physics.GetLinearVelocity( body.Handle ) } );
+                        m_Events.push_back( RemovedEvent( ref.Object, m,
+                                                          WorldPoint( body, object.Data->Nodes[m].CenterOfMass ),
+                                                          m_Physics.GetLinearVelocity( body.Handle ) ) );
                     DestroyBody( ref.Object, ref.Body );
                     ++acted;
                 }
@@ -605,9 +665,11 @@ namespace Desert::Destruction
 
         // Each new body moves as the old body's material moved where the new body's mass is.
         std::vector<glm::vec3> linear;
+        std::vector<glm::vec3> centres;
         for ( const std::vector<int32_t>& group : groups )
         {
             const glm::vec3 com = position + rotation * glm::vec3( CenterOfMass( m_Objects[objectIndex], group ) );
+            centres.push_back( com );
             linear.push_back( m_Physics.GetPointVelocity( old.Handle, com ) );
         }
         DestroyBody( objectIndex, bodyIndex );
@@ -626,11 +688,15 @@ namespace Desert::Destruction
             }
             if ( isReleased )
             {
-                const glm::vec3 com =
-                     position +
-                     rotation * glm::vec3( m_Objects[objectIndex].Data->Nodes[groups[g][0]].CenterOfMass );
-                m_Events.push_back(
-                     DestructionEvent{ DestructionEventKind::Break, objectIndex, groups[g][0], com, linear[g] } );
+                DestructionEvent event;
+                event.Kind       = DestructionEventKind::Break;
+                event.Object     = objectIndex;
+                event.Node       = groups[g][0];
+                event.Position   = centres[g];
+                event.Velocity   = linear[g];
+                event.MassKg     = MassOf( m_Objects[objectIndex], groups[g] );
+                event.PieceCount = PiecesOf( m_Objects[objectIndex], groups[g] );
+                m_Events.push_back( event );
             }
         }
     }

@@ -7,6 +7,7 @@
 #include <Engine/ECS/System/EntityOverlaps.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
+#include <Engine/ECS/System/DestructionVFXEvents.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -220,6 +221,8 @@ namespace Desert::ECS
                  },
                  &MeshSkeletonOf );
             const uint32_t fixedSteps = m_World->Step( ts.GetSeconds() );
+            // DST-05: the step's breaks, collisions and removals into the scene's VFX data channels.
+            PublishDestructionEvents( registry );
             m_Destructibles->WritePoses( registry );
             m_Ragdolls->WriteBackAfterStep( registry );
             // Queued on both entities for their scripts (ScriptSystem, next frame) and given to C++ subscribers.
@@ -378,6 +381,29 @@ namespace Desert::ECS
             return Common::MakeSuccess( asset->GetSkeleton() );
         }
 
+        // DST-05: this frame's breaks, collisions and removals into the scene's VFX data channels, read by the
+        // VFXWorld tick that follows the systems. A refusal (no channel asset, a layout without a field) is said
+        // once until it changes, not every frame.
+        void PublishDestructionEvents( entt::registry& registry )
+        {
+            if ( m_Scene == nullptr )
+                return;
+            const DestructionEventSources sources  = CollectDestructionEventSources( registry );
+            VFX::VFXDataChannels&         channels = m_Scene->GetVFXWorld().GetDataChannels();
+            Common::BoolResultStr         outcome  = Common::MakeSuccess( true );
+            if ( const auto assets = Runtime::ResourceRegistry::GetFractureService()->LockAssetManager() )
+                outcome = UseDestructionChannels( sources, channels, *assets );
+            if ( outcome.IsSuccess() )
+            {
+                DestructionVFXReport report;
+                outcome = WriteDestructionEventsToVFX( m_Destruction->GetEvents(), sources, channels, report );
+            }
+            const std::string refusal = outcome.IsSuccess() ? std::string() : outcome.GetError();
+            if ( !refusal.empty() && refusal != m_DestructionVFXRefusal )
+                LOG_ERROR( "[Destruction] events not published to VFX: {}", refusal );
+            m_DestructionVFXRefusal = refusal;
+        }
+
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {
@@ -403,5 +429,7 @@ namespace Desert::ECS
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.
         std::unordered_set<entt::entity> m_RefusedColliders;
+        // The last refusal PublishDestructionEvents said; empty while publishing works.
+        std::string m_DestructionVFXRefusal;
     };
 } // namespace Desert::ECS
