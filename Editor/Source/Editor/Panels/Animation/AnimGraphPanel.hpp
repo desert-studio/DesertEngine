@@ -258,6 +258,10 @@ namespace Desert::Editor
         /// A parameter pin's binding as a combo of the declared parameters ("unbound" = the pin's default).
         bool DrawPinBinding( Animation::Graph::AnimGraph& graph, Animation::Graph::PoseNode& node,
                              const std::string& pin );
+        /// A Blend Space 1D row's widgets (sample clip + value rows, Add Sample, Weight Speed, Loop): ONE
+        /// spelling for the BlendSpace1D node and a state that plays a blend space. True when edited.
+        static bool DrawBlendSpaceRow( Animation::Graph::BlendSpace1DNode& space,
+                                       const std::vector<std::string>&     clipNames );
 
         // WEAK, not shared. A document that held its scene alive would keep a closed level in memory for
         // as long as its window was open, and — worse — would then answer "my subject is alive" about an

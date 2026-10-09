@@ -90,6 +90,16 @@ namespace Desert::Animation::Graph
         bool CanInterrupt = true;
     };
 
+    /// What a state plays when it plays a Blend Space 1D instead of one clip (UE: a state whose graph is a Blend
+    /// Space Player). A state has no pins, so the axis parameter is named here: a declared Float parameter
+    /// (Speed in cm/s for locomotion). The samples play synced at one shared phase (BlendSpace1D.hpp), and that
+    /// phase is the state's normalized time an exit-time transition reads.
+    struct StateBlendSpace
+    {
+        std::string      Axis;
+        BlendSpace1DNode Space;
+    };
+
     struct State
     {
         std::string             Name;
@@ -99,6 +109,11 @@ namespace Desert::Animation::Graph
         float                   X     = 0.0f; // editor canvas position (persisted, unused at runtime)
         float                   Y     = 0.0f;
         std::vector<Transition> Transitions;
+        /// Present when the state plays a blend space, and then `Clip` is empty: PlanPoseGraph refuses a state
+        /// naming both, a row BlendSpace1DError refuses and an axis that is no declared Float parameter. (A state
+        /// with neither is the editor's W1 warning.) Absent in a file written before blend-space states, which
+        /// reads unchanged.
+        std::optional<StateBlendSpace> BlendSpace;
     };
 
     /// A state machine: the payload of a StateMachine pose node (UE: FAnimNode_StateMachine). Its states
@@ -368,6 +383,12 @@ namespace Desert::Animation::Graph
     /// "none at all". ONE spelling, because both refusals that need it — the evaluator's and the Lua
     /// binding's — are the same sentence to the same reader, and two copies of a message drift.
     [[nodiscard]] std::string DeclaredParameterList( const AnimGraph& graph );
+
+    /// Every clip name the graph's own nodes can play, in node order, empties skipped: each state's clip or
+    /// its blend space's sample clips, each SequencePlayer's clip, each Blend Space 1D node's sample clips. The
+    /// ONE list of what a graph plays, so the runtime's per-tick request (AnimationECSSystem) cannot miss a
+    /// kind of playable that the Animator plays.
+    [[nodiscard]] std::vector<std::string> GraphClipNames( const AnimGraph& graph );
 
     // JSON round-trip (reflect-cpp). Serialize never fails and stamps the header (the GUID kept, or minted for
     // a new graph). Deserialize refuses a file with no header (generation 0, before T7d) by name, pointing at

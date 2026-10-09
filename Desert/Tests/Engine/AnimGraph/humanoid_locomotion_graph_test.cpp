@@ -1,13 +1,16 @@
 // GP2c: the engine's default Humanoid locomotion graph (Editor/Resources/Engine/Meshes/Skinned/
 // Humanoid_Locomotion.danimgraph), fed the parameters CharacterMovement::PublishAnimGraphParameters writes:
-// Speed (cm/s) picks Idle / Walk / Run, IsFalling enters Jump and landing leaves it.
+// Speed (cm/s) is the axis of the Locomotion state's Idle / Walk / Run blend space, IsFalling enters Jump and
+// landing leaves it.
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace Desert::Animation::Graph;
 
@@ -57,28 +60,50 @@ namespace
     }
 } // namespace
 
-TEST( HumanoidLocomotionGraph, SpeedZeroThreeHundredSixHundredSettleOnIdleWalkRun )
+// GP2f: the ground is ONE state playing a Blend Space 1D over Speed (UE's locomotion Blend Space Player), not
+// three clip states switched at thresholds: red if the file went back to Idle / Walk / Run states, or if its row
+// stopped planning (a sample out of order, the axis not the Float Speed).
+TEST( HumanoidLocomotionGraph, TheGroundIsOneLocomotionBlendSpaceOverSpeed )
+{
+    const AnimGraph graph = LoadLocomotionGraph();
+    const auto      plan  = PlanPoseGraph( graph );
+    ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
+
+    const StateMachine* machine = OutputMachine( graph );
+    ASSERT_NE( machine, nullptr );
+    EXPECT_EQ( machine->Entry, "Locomotion" );
+    const auto ground = std::find_if( machine->States.begin(), machine->States.end(),
+                                      []( const State& s ) { return s.Name == "Locomotion"; } );
+    ASSERT_NE( ground, machine->States.end() );
+    EXPECT_TRUE( ground->Clip.empty() );
+    ASSERT_TRUE( ground->BlendSpace.has_value() );
+    EXPECT_EQ( ground->BlendSpace->Axis, "Speed" );
+    const std::vector<BlendSample>& row = ground->BlendSpace->Space.Samples;
+    ASSERT_EQ( row.size(), 3u );
+    EXPECT_EQ( row[0].Clip, "Idle" );
+    EXPECT_EQ( row[0].Value, 0.0F );
+    EXPECT_EQ( row[1].Clip, "Walk" );
+    EXPECT_EQ( row[1].Value, 300.0F );
+    EXPECT_EQ( row[2].Clip, "Run" );
+    EXPECT_EQ( row[2].Value, 600.0F );
+    EXPECT_TRUE( ground->BlendSpace->Space.Loop );
+    EXPECT_EQ( machine->States.size(), 2u ) << "Locomotion and Jump only";
+}
+
+// Red if any speed switched states: the blend space is what changes with Speed, the machine stays put.
+TEST( HumanoidLocomotionGraph, EverySpeedSettlesOnLocomotion )
 {
     Evaluator evaluator( LoadLocomotionGraph() );
     ASSERT_TRUE( evaluator.GetStructureError().empty() ) << evaluator.GetStructureError();
 
-    ASSERT_TRUE( evaluator.SetFloat( "Speed", 0.0f ).IsSuccess() );
-    EXPECT_EQ( SettledState( evaluator ), "Idle" );
-
-    ASSERT_TRUE( evaluator.SetFloat( "Speed", 300.0f ).IsSuccess() );
-    EXPECT_EQ( SettledState( evaluator ), "Walk" );
-
-    ASSERT_TRUE( evaluator.SetFloat( "Speed", 600.0f ).IsSuccess() );
-    EXPECT_EQ( SettledState( evaluator ), "Run" );
-
-    ASSERT_TRUE( evaluator.SetFloat( "Speed", 300.0f ).IsSuccess() );
-    EXPECT_EQ( SettledState( evaluator ), "Walk" ) << "slowing down must leave Run";
-
-    ASSERT_TRUE( evaluator.SetFloat( "Speed", 0.0f ).IsSuccess() );
-    EXPECT_EQ( SettledState( evaluator ), "Idle" );
+    for ( const float speed : { 0.0f, 300.0f, 600.0f, 150.0f, 0.0f } )
+    {
+        ASSERT_TRUE( evaluator.SetFloat( "Speed", speed ).IsSuccess() );
+        EXPECT_EQ( SettledState( evaluator ), "Locomotion" ) << "at " << speed << " cm/s";
+    }
 }
 
-TEST( HumanoidLocomotionGraph, FallingEntersJumpFromEveryGroundStateAndLandingLeavesIt )
+TEST( HumanoidLocomotionGraph, FallingEntersJumpAtEverySpeedAndLandingReturnsToLocomotion )
 {
     Evaluator evaluator( LoadLocomotionGraph() );
     ASSERT_TRUE( evaluator.GetStructureError().empty() ) << evaluator.GetStructureError();
@@ -87,15 +112,13 @@ TEST( HumanoidLocomotionGraph, FallingEntersJumpFromEveryGroundStateAndLandingLe
     {
         ASSERT_TRUE( evaluator.SetBool( "IsFalling", false ).IsSuccess() );
         ASSERT_TRUE( evaluator.SetFloat( "Speed", speed ).IsSuccess() );
-        const std::string ground = SettledState( evaluator );
-        ASSERT_FALSE( ground.empty() );
+        ASSERT_EQ( SettledState( evaluator ), "Locomotion" );
 
         ASSERT_TRUE( evaluator.SetBool( "IsFalling", true ).IsSuccess() );
-        EXPECT_EQ( SettledState( evaluator ), "Jump" ) << "falling out of " << ground;
+        EXPECT_EQ( SettledState( evaluator ), "Jump" ) << "falling at " << speed << " cm/s";
 
         ASSERT_TRUE( evaluator.SetBool( "IsFalling", false ).IsSuccess() );
-        EXPECT_EQ( SettledState( evaluator ), speed > 10.0f ? ( speed > 450.0f ? "Run" : "Walk" ) : "Idle" )
-             << "landing at " << speed << " cm/s";
+        EXPECT_EQ( SettledState( evaluator ), "Locomotion" ) << "landing at " << speed << " cm/s";
     }
 }
 
