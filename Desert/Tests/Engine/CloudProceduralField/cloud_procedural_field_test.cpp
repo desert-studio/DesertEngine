@@ -516,7 +516,8 @@ TEST( CloudProceduralField, TheFloorIsLevelAcrossTheBody )
     const float density = 0.4f;
     const float core    = CloudProceduralFloorProfile( 0.9f, density );
     const float edge    = CloudProceduralFloorProfile( 0.45f, density );
-    EXPECT_EQ( core, edge ) << "two points deeper than the altitude density at one altitude differ: the floor bows";
+    EXPECT_EQ( core, edge )
+         << "two points deeper than the altitude density at one altitude differ: the floor bows";
     EXPECT_EQ( core, density ) << "the density does not cap the profile";
 
     // Shallower than the cap, the body's own depth still decides — the silhouette is not flattened sideways.
