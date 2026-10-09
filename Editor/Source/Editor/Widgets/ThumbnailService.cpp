@@ -50,8 +50,8 @@ namespace Desert::Editor
     {
         if ( identity.empty() )
             return false;
-        m_Wanted.insert( identity ); // shown this frame (DropUnwanted)
-        if ( m_Failed.count( identity ) || m_Queued.count( identity ) )
+        m_Requests.Ask( identity ); // shown this frame (DropUnwanted)
+        if ( m_Failed.count( identity ) || m_Requests.IsQueued( identity ) )
             return false;
 
         return NeedsCapture( png, current );
@@ -94,7 +94,7 @@ namespace Desert::Editor
         {
             m_Queue.push_back( { Kind::Material, material, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
                                  identity, assetPath, png, how } );
-            m_Queued.insert( identity );
+            m_Requests.Queue( identity );
             HoldSubjects();
         }
         return png;
@@ -108,7 +108,7 @@ namespace Desert::Editor
         if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             m_Queue.push_back( MaterialRequestOf( material, identity, assetPath, png ) );
-            m_Queued.insert( identity );
+            m_Requests.Queue( identity );
             HoldSubjects();
         }
         return png;
@@ -132,6 +132,12 @@ namespace Desert::Editor
             return {};
         }
         return RequestMaterial( resolved.GetValue(), assetPath );
+    }
+
+    bool ThumbnailService::StillAsked( const std::string& assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        return m_Requests.StillAsked( identity ) || m_Failed.contains( identity ); // shown this frame
     }
 
     void ThumbnailService::Refuse( const std::string& assetPath, const std::string& reason )
@@ -188,7 +194,7 @@ namespace Desert::Editor
 
     void ThumbnailService::HoldSubjects()
     {
-        std::erase_if( m_Held, [this]( const auto& held ) { return !m_Queued.contains( held.first ); } );
+        std::erase_if( m_Held, [this]( const auto& held ) { return !m_Requests.IsQueued( held.first ); } );
         for ( const Request& req : m_Queue )
         {
             if ( m_Held.contains( req.Identity ) )
@@ -255,7 +261,7 @@ namespace Desert::Editor
                                  assetPath, png, ThumbnailSubject::Preview::Sphere,
                                  Assets::AssetHandle( static_cast<uint64_t>( 0 ) ), Assets::ThumbnailInfo{},
                                  nullptr } );
-            m_Queued.insert( identity );
+            m_Requests.Queue( identity );
             HoldSubjects();
         }
         return png;
@@ -275,7 +281,7 @@ namespace Desert::Editor
         {
             if ( !ReadMeshOrbit( req ) )
                 return {};
-            m_Queued.insert( req.Identity );
+            m_Requests.Queue( req.Identity );
             m_Queue.push_back( std::move( req ) );
             HoldSubjects();
         }
@@ -293,7 +299,7 @@ namespace Desert::Editor
         if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             m_PaintQueue.push_back( { identity, assetPath, png } );
-            m_Queued.insert( identity );
+            m_Requests.Queue( identity );
         }
         return png;
     }
@@ -304,7 +310,7 @@ namespace Desert::Editor
         // spelling of the asset clears the right entries.
         const std::string identity = ThumbnailKey::Identity( assetPath );
         m_Failed.erase( identity );
-        m_Queued.erase( identity );
+        m_Requests.Release( identity );
     }
 
     void ThumbnailService::Shutdown()
@@ -342,10 +348,10 @@ namespace Desert::Editor
         // than a half-cancelled capture: an in-flight PNG that no longer has a renderer behind it would be
         // reported as "never completed" by the give-up path if the service were ever ticked again.
         m_Queue.clear();
-        m_Queued.clear();
+        m_Requests.Clear();
         m_Held.clear();
-        m_Wanted.clear();
         m_Capture.Reset();
+        m_Writing.clear();
         m_Captured      = 0;
         m_Skipped       = 0;
         m_BudgetRefused = false;
@@ -420,7 +426,7 @@ namespace Desert::Editor
                           result.GetError() );
                 m_Failed.insert( m_PaintInFlightIdentity );
             }
-            m_Queued.erase( m_PaintInFlightIdentity );
+            m_Requests.Release( m_PaintInFlightIdentity );
             m_PaintInFlightIdentity.clear();
             m_PaintInFlightSource.clear();
         }
@@ -435,7 +441,7 @@ namespace Desert::Editor
                 !NeedsCapture( m_PaintQueue.front().Png,
                                ThumbnailFreshness::ContentHash( m_PaintQueue.front().Source ) ) )
         {
-            m_Queued.erase( m_PaintQueue.front().Identity );
+            m_Requests.Release( m_PaintQueue.front().Identity );
             m_PaintQueue.erase( m_PaintQueue.begin() );
             ++m_Skipped;
         }
@@ -553,7 +559,7 @@ namespace Desert::Editor
     {
         if ( m_Preview.InFlight() )
         {
-            if ( m_Renderer->HasPending() )
+            if ( m_Renderer->HasPending() || m_Renderer->IsWriting() )
                 return true;
             m_Preview.Land(); // written (ThumbnailCache re-decodes the rewritten file) or refused below
             return true;
@@ -587,16 +593,9 @@ namespace Desert::Editor
     {
         // What no shower asked for since the last tick is off screen: it leaves both queues (and its pins with
         // HoldSubjects below). A capture or paint already in flight is not in either queue and finishes.
-        const auto unwanted = [this]( const std::string& identity )
-        {
-            if ( m_Wanted.contains( identity ) )
-                return false;
-            m_Queued.erase( identity );
-            return true;
-        };
-        std::erase_if( m_Queue, [&]( const Request& req ) { return unwanted( req.Identity ); } );
-        std::erase_if( m_PaintQueue, [&]( const PaintRequest& req ) { return unwanted( req.Identity ); } );
-        m_Wanted.clear();
+        m_Requests.DropUnwanted( m_Queue );
+        m_Requests.DropUnwanted( m_PaintQueue );
+        m_Requests.EndTick();
     }
 
     void ThumbnailService::TickCapture()
@@ -640,7 +639,8 @@ namespace Desert::Editor
         // Idle for long enough: hand the renderer slot back. Counted here rather than at the point the last
         // capture finished, because "the queue drained" and "no panel has asked for anything since" are
         // different facts and only the second one means the service is done.
-        if ( m_Renderer && !CaptureOwed() && !m_Capture.Outstanding() && !m_Renderer->HasPending() )
+        if ( m_Renderer && !CaptureOwed() && !m_Capture.Outstanding() && m_Writing.empty() &&
+             !m_Renderer->HasPending() )
         {
             // The run's own report used to be here, and it moved to the top of this function when the
             // paint queue arrived — see the note there. What is left in this branch is only the thing
@@ -678,30 +678,42 @@ namespace Desert::Editor
         // — scene init refused, no final image, readback refused, encode failed — each drops its pending
         // state). There used to be a 240-frame watchdog here that declared a slow capture "never completed";
         // it was a time budget, and on a debug build it fired on healthy 8-11 s captures.
+        // THE SLOT AND THE PICTURE END APART (THUMB-FOLDER-c): the renderer is idle once the copy has landed,
+        // and the worker writes the PNG while the next capture warms up. The capture moves to m_Writing then,
+        // and settles — written or not — only when the renderer says its write is done.
         if ( m_Capture.Outstanding() && !m_Renderer->HasPending() )
         {
-            const std::optional<ThumbnailFreshness::Capture::Settled> settled = m_Capture.Settle();
-            if ( !settled )
-                return;
-            if ( settled->What == ThumbnailFreshness::Capture::Landed::NotWritten )
-            {
-                // The renderer finished but produced nothing — the asset cannot be previewed. Remember
-                // it, or every frame from now on would re-queue the same doomed request.
-                LOG_WARN( "[Thumbnails] no preview produced for '{}' — not retrying (the file at '{}' was "
-                          "left unchanged or not written)",
-                          settled->Identity, settled->Png.string() );
-                m_Failed.insert( settled->Identity );
-            }
-            else
-            {
-                ++m_Captured;
-                if ( settled->RecordError )
-                    LOG_WARN( "[Thumbnails] '{}': {} — it will be captured again next session.", settled->Identity,
-                              *settled->RecordError );
-            }
-            m_Queued.erase( settled->Identity );
-            return; // one capture at a time — the renderer has a single slot
+            m_Writing.push_back( m_Capture );
+            m_Capture.Reset();
         }
+        std::erase_if(
+             m_Writing,
+             [this]( ThumbnailFreshness::Capture& writing )
+             {
+                 if ( m_Renderer->IsWriting( writing.Png().string() ) )
+                     return false;
+                 const std::optional<ThumbnailFreshness::Capture::Settled> settled = writing.Settle();
+                 if ( !settled )
+                     return true;
+                 if ( settled->What == ThumbnailFreshness::Capture::Landed::NotWritten )
+                 {
+                     // The renderer finished but produced nothing — the asset cannot be previewed. Remember
+                     // it, or every frame from now on would re-queue the same doomed request.
+                     LOG_WARN( "[Thumbnails] no preview produced for '{}' — not retrying (the file at '{}' was "
+                               "left unchanged or not written)",
+                               settled->Identity, settled->Png.string() );
+                     m_Failed.insert( settled->Identity );
+                 }
+                 else
+                 {
+                     ++m_Captured;
+                     if ( settled->RecordError )
+                         LOG_WARN( "[Thumbnails] '{}': {} — it will be captured again next session.",
+                                   settled->Identity, *settled->RecordError );
+                 }
+                 m_Requests.Release( settled->Identity );
+                 return true;
+             } );
         if ( m_Capture.Outstanding() )
             return; // the renderer is still working on it; its answer settles it above
 
@@ -725,7 +737,7 @@ namespace Desert::Editor
         while ( !m_Queue.empty() &&
                 !NeedsCapture( m_Queue.front().Png, SourceHash( m_Queue.front().Type, m_Queue.front().Source ) ) )
         {
-            m_Queued.erase( m_Queue.front().Identity );
+            m_Requests.Release( m_Queue.front().Identity );
             m_Queue.erase( m_Queue.begin() );
             ++m_Skipped;
         }
@@ -764,7 +776,7 @@ namespace Desert::Editor
             LOG_WARN( "[Thumbnails] '{}' was refused by the renderer: {} — not retrying.", req.Identity,
                       queued.GetError() );
             m_Failed.insert( req.Identity );
-            m_Queued.erase( req.Identity );
+            m_Requests.Release( req.Identity );
             return;
         }
 

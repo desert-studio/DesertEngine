@@ -271,68 +271,54 @@ namespace Desert::Graphic
         return ComputeImages::ProccessForImageCube( batch, processingInfo );
     }
 
-    Environment EnvironmentManager::CreateProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
-                                                      ShaderResources::StorageBuffer* skyParams,
-                                                      Image2D* transmittanceLut, Image2D* multiScatterLut,
-                                                      const CloudBakeBinding& clouds )
+    ProceduralEnvironmentBake::~ProceduralEnvironmentBake()
     {
-        // Same reason as Create() above: a procedural sky's bake products have no file behind them at all.
-        const ResourceAttributionScope owned( ResourceOwner::Environment );
+        ReleaseAll();
+    }
+
+    bool ProceduralEnvironmentBake::IsComplete() const
+    {
+        return !m_Batch || m_Batch->IsComplete();
+    }
+
+    void ProceduralEnvironmentBake::Wait()
+    {
+        if ( m_Batch )
+            m_Batch->Wait();
+    }
+
+    void ProceduralEnvironmentBake::ReleaseAll()
+    {
+        // The batch first: its destructor waits for the GPU, and only then may the images it writes go.
+        m_Batch.reset();
+        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        for ( Runtime::ImageHandle* handle : { &m_Panorama, &m_Radiance, &m_Irradiance, &m_Prefiltered } )
+        {
+            if ( handle->IsValid() )
+                imageService->Unregister( *handle );
+            *handle = {};
+        }
+    }
+
+    Environment ProceduralEnvironmentBake::Finish()
+    {
+        if ( !IsComplete() )
+        {
+            LOG_ERROR( "[SceneEnvironment] a procedural sky bake was finished before the GPU had written it; "
+                       "nothing is handed over." );
+            return {};
+        }
+        m_Batch.reset();
 
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
 
-        // Bake the atmosphere AND the cloud layer standing in it into one equirect HDR panorama, then run
-        // the standard IBL pipeline on it. The clouds go in HERE, at the producer, rather than into any of
-        // the three stages below: the diffuse irradiance and the prefiltered specular both descend from
-        // this one image, and giving them the clouds separately would be two sources of truth for one sky.
-        auto panorama = ComputeImages::BakeProceduralPanorama( panoramaWidth, panoramaHeight, skyParams,
-                                                               transmittanceLut, multiScatterLut, clouds );
-        if ( !panorama )
-            return {};
-        const auto panoramaHandle =
-             imageService->Register( std::move( panorama ), Runtime::ImageHandle::Type::Image2D );
-
-        // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
-        // THE IDENTITY LOOK, EXPLICITLY. A procedural sky is generated from its own authored parameters;
-        // there is no file to rotate or grade, so the panorama it bakes is already the sky as asked for.
-        // Named rather than defaulted so the asymmetry with the .hdr path above is visible here.
-        // The same one-batch recording as `Create`, but WAITED: this sky is re-baked when the sun moves,
-        // inside the frame that asked, and its callers read the cubes on return. One wait instead of the
-        // eleven the per-pass buffers used to cost.
-        auto begun = GpuBatch::Begin();
-        if ( !begun )
-        {
-            LOG_ERROR( "[SceneEnvironment] the procedural sky gets NO environment: {}", begun.GetError() );
-            imageService->Unregister( panoramaHandle );
-            return {};
-        }
-        const std::unique_ptr<GpuBatch> batch = begun.ExtractValue();
-
-        auto       radianceCube   = ConvertPanoramaToRadianceCube( *batch, panoramaHandle );
-        const auto radianceHandle = imageService->Register( std::move( radianceCube ),
-                                                            Runtime::ImageHandle::Type::ImageCube );
-
-        // 2) Diffuse irradiance (from the panorama directly).
-        auto       diffuseIrradiance       = CreateDiffuseIrradiance( *batch, panoramaHandle );
-        const auto diffuseIrradianceHandle = imageService->Register(
-             std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
-
-        // 3) Prefiltered specular (real GGX per-mip convolution of the radiance cube).
-        auto       prefiltered       = CreatePrefilteredMap( *batch, radianceHandle );
-        const auto prefilteredHandle = imageService->Register( std::move( prefiltered ),
-                                                              Runtime::ImageHandle::Type::ImageCube );
-
-        if ( const auto submitted = batch->Submit(); !submitted )
-            LOG_ERROR( "[SceneEnvironment] the procedural sky's convolution batch was not submitted, so its "
-                       "irradiance and prefiltered cubes hold no sky: {}",
-                       submitted.GetError() );
-        batch->Wait();
-
-        // The panorama was only an intermediate (consumed by the synchronous compute dispatches above).
-        imageService->Unregister( panoramaHandle );
+        // The panorama was only an intermediate (consumed by the dispatches recorded after it).
+        if ( m_Panorama.IsValid() )
+            imageService->Unregister( m_Panorama );
+        m_Panorama = {};
 
         // AND SO WAS THE RADIANCE CUBE, ON THIS PATH ONLY. The sharp cube has exactly one consumer here
-        // — `CreatePrefilteredMap` three lines up, which has already convolved it — and then nothing at
+        // — `CreatePrefilteredMap` in `BeginProcedural`, which has already convolved it — and then nothing at
         // all. The procedural sky's BACKDROP is marched fullscreen: `SkyboxRenderer::Render` submits the
         // atmosphere quad and RETURNS before `MaterialSkybox::BindInputs`, the only code in the engine
         // that samples a radiance cube for the sky. What lights and reflects the world is the other two
@@ -355,10 +341,84 @@ namespace Desert::Graphic
         // measured substitutes for it both lose — prefilter mip 0 is visibly blockier (max delta 123/255
         // at the zenith on real content) and the panorama sampled directly crawls under motion (rms
         // 14.33 vs 10.60 under a 0.40 deg camera nudge, coherence 1.49 — per-pixel speckle).
-        imageService->Unregister( radianceHandle );
+        if ( m_Radiance.IsValid() )
+            imageService->Unregister( m_Radiance );
+        m_Radiance = {};
 
-        return { Common::Filepath( "ProceduralSky" ), Runtime::ImageHandle{}, diffuseIrradianceHandle,
-                 prefilteredHandle };
+        Environment baked{ Common::Filepath( "ProceduralSky" ), Runtime::ImageHandle{}, m_Irradiance,
+                           m_Prefiltered };
+        m_Irradiance  = {};
+        m_Prefiltered = {};
+        return baked;
+    }
+
+    Environment EnvironmentManager::CreateProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
+                                                      ShaderResources::StorageBuffer* skyParams,
+                                                      Image2D* transmittanceLut, Image2D* multiScatterLut,
+                                                      const CloudBakeBinding& clouds )
+    {
+        const auto bake = BeginProcedural( panoramaWidth, panoramaHeight, skyParams, transmittanceLut,
+                                           multiScatterLut, clouds );
+        if ( !bake )
+            return {};
+        bake->Wait();
+        return bake->Finish();
+    }
+
+    std::unique_ptr<ProceduralEnvironmentBake>
+    EnvironmentManager::BeginProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
+                                         ShaderResources::StorageBuffer* skyParams, Image2D* transmittanceLut,
+                                         Image2D* multiScatterLut, const CloudBakeBinding& clouds )
+    {
+        // Same reason as Create() above: a procedural sky's bake products have no file behind them at all.
+        const ResourceAttributionScope owned( ResourceOwner::Environment );
+
+        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+
+        // ONE BATCH FOR THE WHOLE CHAIN, panorama included, and NOT WAITED: the owner polls it. The
+        // dispatches are ordered inside the buffer by the barriers each records, and the frames that sample
+        // the cubes go to the same queue after it, so submission order is the only cross-batch dependency.
+        auto begun = GpuBatch::Begin();
+        if ( !begun )
+        {
+            LOG_ERROR( "[SceneEnvironment] the procedural sky gets NO environment: {}", begun.GetError() );
+            return nullptr;
+        }
+        auto bake       = std::make_unique<ProceduralEnvironmentBake>();
+        bake->m_Batch   = begun.ExtractValue();
+        GpuBatch& batch = *bake->m_Batch;
+
+        // Bake the atmosphere AND the cloud layer standing in it into one equirect HDR panorama, then run
+        // the standard IBL pipeline on it. The clouds go in HERE, at the producer, rather than into any of
+        // the three stages below: the diffuse irradiance and the prefiltered specular both descend from
+        // this one image, and giving them the clouds separately would be two sources of truth for one sky.
+        auto panorama = ComputeImages::BakeProceduralPanorama( batch, panoramaWidth, panoramaHeight, skyParams,
+                                                               transmittanceLut, multiScatterLut, clouds );
+        if ( !panorama )
+            return nullptr; // the bake's destructor waits for the (empty) batch and releases nothing
+        bake->m_Panorama = imageService->Register( std::move( panorama ), Runtime::ImageHandle::Type::Image2D );
+
+        // 1) Radiance cube (sharp environment) — the source the prefilter convolves. The identity look: a
+        // procedural sky is generated from its own authored parameters, there is no file to rotate or grade.
+        bake->m_Radiance = imageService->Register( ConvertPanoramaToRadianceCube( batch, bake->m_Panorama ),
+                                                   Runtime::ImageHandle::Type::ImageCube );
+
+        // 2) Diffuse irradiance (from the panorama directly).
+        bake->m_Irradiance = imageService->Register( CreateDiffuseIrradiance( batch, bake->m_Panorama ),
+                                                     Runtime::ImageHandle::Type::ImageCube );
+
+        // 3) Prefiltered specular (real GGX per-mip convolution of the radiance cube).
+        bake->m_Prefiltered = imageService->Register( CreatePrefilteredMap( batch, bake->m_Radiance ),
+                                                      Runtime::ImageHandle::Type::ImageCube );
+
+        if ( const auto submitted = batch.Submit(); !submitted )
+        {
+            LOG_ERROR( "[SceneEnvironment] the procedural sky's bake batch was not submitted, so it gets NO "
+                       "environment: {}",
+                       submitted.GetError() );
+            return nullptr;
+        }
+        return bake;
     }
 
     std::shared_ptr<ImageCube> EnvironmentManager::CreatePrefilteredMap( GpuBatch&                   batch,

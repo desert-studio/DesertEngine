@@ -173,6 +173,11 @@ namespace
 
 // ------------------------------------------------------------------------------------------------
 // 1. The producer: the procedural bake frees the cube AND does not hand the freed handle out.
+//
+// The bake is asynchronous: `BeginProcedural` records the chain into one batch and the cubes are handed
+// over by `ProceduralEnvironmentBake::Finish` once the GPU is done. So the release lives in `Finish`,
+// and BOTH routes to a procedural environment -- `CreateProcedural` (waits) and the renderer's
+// `SkyboxRenderer::LandPendingBake` (polls) -- must take their environment from `Finish` and nowhere else.
 // ------------------------------------------------------------------------------------------------
 TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNothingOfIt )
 {
@@ -180,10 +185,10 @@ TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNo
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
 
     const std::string source = StripComments( ReadAll( root + kSceneEnvironment ) );
-    const std::string body   = BodyOf( source, "Environment EnvironmentManager::CreateProcedural" );
-    ASSERT_FALSE( body.empty() ) << "EnvironmentManager::CreateProcedural is not where this suite expects it";
+    const std::string body   = BodyOf( source, "Environment ProceduralEnvironmentBake::Finish" );
+    ASSERT_FALSE( body.empty() ) << "ProceduralEnvironmentBake::Finish is not where this suite expects it";
 
-    constexpr const char* kFree = "Unregister( radianceHandle )";
+    constexpr const char* kFree = "Unregister( m_Radiance )";
     const std::size_t     freed = body.find( kFree );
     ASSERT_NE( freed, std::string::npos )
          << "the procedural bake is keeping its radiance cube alive. Nothing on this path samples it -- "
@@ -191,9 +196,15 @@ TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNo
             "BindInputs is reached, and the ambient path reads IrradianceMap and PreFilteredMap by name -- "
             "so it is 96 MiB per live environment held for no reader. Free it beside the panorama.";
 
-    // From PAST the release call, not from one character into it: the handle's own name inside
-    // `Unregister( radianceHandle )` is the release, not an escape.
-    EXPECT_EQ( FindIdentifier( body, "radianceHandle", freed + std::char_traits<char>::length( kFree ) ),
+    // From PAST the release call: the only further mention of the member may be the one that clears it.
+    constexpr const char* kCleared = "m_Radiance = {}";
+    const std::size_t     after    = freed + std::char_traits<char>::length( kFree );
+    const std::size_t     cleared  = body.find( kCleared, after );
+    ASSERT_NE( cleared, std::string::npos )
+         << "the procedural bake unregisters its radiance cube and does not clear the member afterwards";
+    EXPECT_EQ( FindIdentifier( body.substr( 0, cleared ), "m_Radiance", after ), std::string::npos )
+         << "the freed radiance handle is named between its release and its clearing";
+    EXPECT_EQ( FindIdentifier( body, "m_Radiance", cleared + std::char_traits<char>::length( kCleared ) ),
                std::string::npos )
          << "the procedural bake unregisters its radiance cube and then still names the handle "
             "afterwards. A freed handle must not escape this function: ImageService::Resolve answers "
@@ -203,6 +214,20 @@ TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNo
 
     EXPECT_NE( body.find( "Runtime::ImageHandle{}" ), std::string::npos )
          << "the procedural Environment must state the absence of its radiance cube explicitly";
+
+    // Both routes hand out what Finish hands out -- neither builds an Environment of its own.
+    const std::string create = BodyOf( source, "Environment EnvironmentManager::CreateProcedural" );
+    ASSERT_FALSE( create.empty() ) << "EnvironmentManager::CreateProcedural is not where this suite expects it";
+    EXPECT_NE( create.find( "return bake->Finish();" ), std::string::npos )
+         << "CreateProcedural no longer returns what the bake's Finish hands over";
+
+    const std::string skybox = StripComments(
+         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp" ) );
+    const std::string land = BodyOf( skybox, "bool SkyboxRenderer::LandPendingBake" );
+    ASSERT_FALSE( land.empty() ) << "SkyboxRenderer::LandPendingBake is not where this suite expects it";
+    EXPECT_NE( land.find( "m_PendingBake->Finish()" ), std::string::npos )
+         << "the renderer lands its asynchronous bake without ProceduralEnvironmentBake::Finish, so the "
+            "radiance cube it drops is not dropped";
 }
 
 // ------------------------------------------------------------------------------------------------

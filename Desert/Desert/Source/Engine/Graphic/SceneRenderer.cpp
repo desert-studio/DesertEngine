@@ -79,10 +79,15 @@ namespace Desert::Graphic
         // wrongly dropped.
         if ( built )
         {
-            LOG_INFO( "[SceneRenderer] View '{}' built in {:.1f} ms ({} systems, {} cached pipelines) "
-                      "and bound its first scene in {:.1f} ms.",
-                      m_ViewResources.GetName(), ms( started, resourcesDone ), m_RenderSystemOrder.size(),
-                      m_PipelineCache.Size(), ms( resourcesDone, done ) );
+            // The build is staged (AdvanceRendererBuild), so "built in" is the stages' sum wherever they ran
+            // and "of it here" is what THIS call still had to do; the worst stage is the frame an owner that
+            // advances one stage per tick actually pays.
+            LOG_INFO( "[SceneRenderer] View '{}' built in {:.1f} ms over {} stages ({:.1f} ms of it here; worst "
+                      "stage '{}' {:.1f} ms; {} systems, {} cached pipelines) and bound its first scene in "
+                      "{:.1f} ms.",
+                      m_ViewResources.GetName(), m_RendererBuildMs, m_RendererBuildStage,
+                      ms( started, resourcesDone ), m_RendererBuildWorstStage, m_RendererBuildWorstMs,
+                      m_RenderSystemOrder.size(), m_PipelineCache.Size(), ms( resourcesDone, done ) );
         }
         else
         {
@@ -158,8 +163,41 @@ namespace Desert::Graphic
         if ( m_RendererResourcesBuilt )
             return false;
 
+        // Whatever an owner already advanced ahead of time (AdvanceRendererBuild) is not rebuilt; the rest
+        // is built here, in this call.
+        while ( !AdvanceRendererBuild() )
+        {
+        }
         m_RendererResourcesBuilt = true;
+        return true;
+    }
 
+    bool SceneRenderer::AdvanceRendererBuild()
+    {
+        if ( m_RendererBuildDone )
+            return true;
+
+        const auto  started = std::chrono::steady_clock::now();
+        const char* stage   = BuildRendererStage( m_RendererBuildStage );
+        if ( stage == nullptr )
+        {
+            m_RendererBuildDone = true;
+            return true;
+        }
+        const float ms =
+             std::chrono::duration<float, std::milli>( std::chrono::steady_clock::now() - started ).count();
+        m_RendererBuildMs += ms;
+        if ( ms >= m_RendererBuildWorstMs )
+        {
+            m_RendererBuildWorstMs    = ms;
+            m_RendererBuildWorstStage = stage;
+        }
+        ++m_RendererBuildStage;
+        return false;
+    }
+
+    const char* SceneRenderer::BuildRendererStage( std::size_t stage )
+    {
         // EVERYTHING BUILT BELOW BELONGS TO THIS RENDERER, and one scope says so for all of it. This
         // function and the twenty render systems it constructs create roughly a hundred and twenty device
         // objects — framebuffers, LUT images, pipelines and the materials the passes own — across twenty
@@ -171,259 +209,356 @@ namespace Desert::Graphic
         // theirs explicitly after the build, and an explicit claim overrides the ambient one.
         const ResourceAttributionScope owned( ResourceOwner::SceneRenderer );
 
-        // Ensure the phase registry exists before any system registers custom phases or passes.
-        RenderPhaseRegistry::CreateInstance();
-
-        // The surface's size, never the window's: see ViewExtent.
-        const uint32_t width  = m_ViewExtent.Width;
-        const uint32_t height = m_ViewExtent.Height;
-
-        // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N samples and
-        // the render pass resolves to single-sample for the post stack. The count follows the anti-aliasing
-        // method every frame (ApplySceneSampleCount, from BeginScene); this is the count it starts at.
-        //
-        // ONE SAMPLE HERE, whatever the machine chose: MSAA applies only on the forward path (AA2,
-        // Scalability::ResolveAntiAliasingForPath) and no scene — so no path — is known until the first
-        // BeginScene, which raises the count for a forward scene under MSAA. Starting at 1 means a deferred scene
-        // never allocates a multisampled target it cannot use.
-        FramebufferSpecification fbSpec;
-        fbSpec.DebugName = "Composite framebuffer";
-        fbSpec.Samples   = 1;
-        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColor );
-        // DEPTH32F, AND THE FLOAT IS THE POINT. Reversed-Z (Core/Projection.hpp) works by lining the
-        // 1/z curve up against the float exponent so the two cancel; on a UNORM24 attachment, which
-        // quantizes uniformly in NDC, reversing the range just relabels the same 2^24 levels and buys
-        // literally nothing. This was DEPTH24STENCIL8, and no pass in the engine enables a stencil test,
-        // so the packed stencil byte was paying for nothing either.
-        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneDepth );
-
-        m_TargetFramebuffer = Graphic::Framebuffer::Create( fbSpec );
-        m_TargetFramebuffer->Resize( width, height );
-
-        // Deferred G-buffer (populated only when SceneSettings::RenderPath == Deferred; allocated always so the
-        // toggle is live). GBufferA = Albedo.rgb + Metallic.a (RGBA8F); GBufferB = Normal.rgb + Roughness.a
-        // (kGBufferB); slot 2 = the shading word (R32_UINT, ShadingModelContract.glslh). World position is not
-        // stored: readers rebuild it from the depth attachment (Common/ReconstructPosition.glslh); shared depth.
-        FramebufferSpecification gbufferSpec;
-        gbufferSpec.DebugName = "GBuffer";
-        gbufferSpec.Attachments.Attachments.emplace_back(
-             ViewTargetFormats::kGBufferA ); // GBufferA Albedo+Metallic
-        gbufferSpec.Attachments.Attachments.emplace_back(
-             ViewTargetFormats::kGBufferB ); // GBufferB Normal+Roughness
-        gbufferSpec.Attachments.Attachments.emplace_back(
-             ViewTargetFormats::kGBufferShadingWord ); // shading word (uint)
-        gbufferSpec.Attachments.Attachments.emplace_back(
-             ViewTargetFormats::kGBufferEmissive ); // GBufferEmissive (HDR self-illum)
-        // DEPTH32F for the same reason as the forward target above — and it is this attachment the
-        // height fog reads back as a texture, so its precision is the precision of every distance it
-        // reconstructs.
-        gbufferSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGBufferDepth );
-        m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
-        m_GBuffer->Resize( width, height );
-
-        // NOTE: SSR and RSM-GI resources are deliberately NOT created here — see EnsureSSRResources() /
-        // EnsureGIResources(). Every PreviewViewport (asset thumbnails, the Details mesh preview) builds its
-        // OWN SceneRenderer, so anything allocated in this constructor is paid for once PER PREVIEW. Between
-        // them SSR and RSM-GI want six full-screen RGBA32F targets plus a five-attachment RSM, and a preview
-        // never turns either feature on. They are now allocated on first actual use instead.
-
-        // Scene systems render into the shared target framebuffer; post-process systems form an
-        // explicit chain (Mesh silhouette mask -> Jump Flood outline -> Tonemap).
-        RegisterSystem<System::SkyboxRenderer>( "SkyboxSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
-        RegisterSystem<System::MeshRenderer>( "MeshSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
-        RegisterSystem<System::JumpFloodOutlineRenderer>( "JumpFloodSystem", this, m_TargetFramebuffer,
-                                                          m_RenderGraphBuilder );
-
-        // NAMED AND SURVIVED, NOT VERIFIED. `DESERT_VERIFY( false )` stood at each of the nine sites
-        // below, so a render system that refused to initialise took the whole process with it — and
-        // after Г22 that became REACHABLE for the first time: a typo in StaticMeshLit.shader now
-        // produces an honest refusal from MeshRenderer::Initialize, which this line then turned into a
-        // crash. The engine already has the rule for this one rung lower — VulkanRendererAPI::
-        // BindGraphicsPipeline skips every draw through a pipeline that was not built — so a system
-        // that could not initialise means its passes draw nothing, not that the editor vanishes.
-        if ( !SP_CAST( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->Initialize() )
-            LOG_ERROR( "[SceneRenderer] the skybox system did not initialise; the sky will not draw." );
-
-        const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        if ( !meshSystem->Initialize() )
-            LOG_ERROR( "[SceneRenderer] the mesh system did not initialise; meshes will not draw." );
-
-        // GPU terrain (tessellated patch grid; opaque geometry, depth-tested with the meshes).
-        RegisterSystem<System::TerrainRenderer>( "TerrainSystem", this, m_TargetFramebuffer,
-                                                 m_RenderGraphBuilder );
-        const auto& terrainSystem = SP_CAST( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
-        if ( const auto init = terrainSystem->Initialize(); !init )
+        // ONE STAGE PER CALL, in the order the systems depend on each other: the post chain is wired to
+        // framebuffers the earlier stages made, so a later stage reads its predecessors from m_RenderSystems.
+        switch ( stage )
         {
-            LOG_ERROR( "[SceneRenderer] the terrain system did not initialise; terrain will not draw: {}",
-                       init.GetError() );
-        }
-        // The terrain casts into the sun's cascades from inside the mesh renderer's cascade passes, which
-        // own and clear those targets (IShadowCaster says why it is not a pass of its own).
-        else if ( const auto caster = terrainSystem->CreateShadowPipeline( meshSystem->GetCascadeFramebuffer() );
-                  !caster )
-        {
-            LOG_ERROR( "[SceneRenderer] the terrain will not cast shadows: {}", caster.GetError() );
-        }
-        else
-        {
-            meshSystem->AddShadowCaster( terrainSystem );
-        }
+            case 0:
+            {
+                // Ensure the phase registry exists before any system registers custom phases or passes.
+                RenderPhaseRegistry::CreateInstance();
 
-        const auto& jumpFloodSystem =
-             SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-        if ( !jumpFloodSystem->Initialize() )
-            LOG_ERROR( "[SceneRenderer] the outline system did not initialise; selection outlines are off." );
+                // The surface's size, never the window's: see ViewExtent.
+                const uint32_t width  = m_ViewExtent.Width;
+                const uint32_t height = m_ViewExtent.Height;
 
-        // Feed the silhouette mask (produced by the mesh system) into the Jump Flood outline.
-        jumpFloodSystem->SetMaskFramebuffer( meshSystem->GetSilhouetteMaskFramebuffer() );
+                // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N samples
+                // and the render pass resolves to single-sample for the post stack. The count follows the
+                // anti-aliasing method every frame (ApplySceneSampleCount, from BeginScene); this is the count it
+                // starts at.
+                //
+                // ONE SAMPLE HERE, whatever the machine chose: MSAA applies only on the forward path (AA2,
+                // Scalability::ResolveAntiAliasingForPath) and no scene — so no path — is known until the first
+                // BeginScene, which raises the count for a forward scene under MSAA. Starting at 1 means a
+                // deferred scene never allocates a multisampled target it cannot use.
+                FramebufferSpecification fbSpec;
+                fbSpec.DebugName = "Composite framebuffer";
+                fbSpec.Samples   = 1;
+                fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColor );
+                // DEPTH32F, AND THE FLOAT IS THE POINT. Reversed-Z (Core/Projection.hpp) works by lining the
+                // 1/z curve up against the float exponent so the two cancel; on a UNORM24 attachment, which
+                // quantizes uniformly in NDC, reversing the range just relabels the same 2^24 levels and buys
+                // literally nothing. This was DEPTH24STENCIL8, and no pass in the engine enables a stencil test,
+                // so the packed stencil byte was paying for nothing either.
+                fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneDepth );
 
-        // Tonemap consumes the Jump Flood output (the outlined scene).
-        RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this, jumpFloodSystem->GetSystemFramebuffer(),
-                                                 m_RenderGraphBuilder );
-        const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-        if ( !tonemapSystem->Initialize() )
-            LOG_ERROR( "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
+                m_TargetFramebuffer = Graphic::Framebuffer::Create( fbSpec );
+                m_TargetFramebuffer->Resize( width, height );
 
-        // Backdrop blur: a blurred snapshot of the scene colour the UI canvas samples for "glass" panels.
-        // Runs before the UI phase (which writes into this same target, so it cannot sample it directly).
-        RegisterSystem<System::BackdropBlurRenderer>( "BackdropBlurSystem", this, m_TargetFramebuffer,
+                // Deferred G-buffer (populated only when SceneSettings::RenderPath == Deferred; allocated always
+                // so the toggle is live). GBufferA = Albedo.rgb + Metallic.a (RGBA8F); GBufferB = Normal.rgb +
+                // Roughness.a (kGBufferB); slot 2 = the shading word (R32_UINT, ShadingModelContract.glslh). World
+                // position is not stored: readers rebuild it from the depth attachment
+                // (Common/ReconstructPosition.glslh); shared depth.
+                FramebufferSpecification gbufferSpec;
+                gbufferSpec.DebugName = "GBuffer";
+                gbufferSpec.Attachments.Attachments.emplace_back(
+                     ViewTargetFormats::kGBufferA ); // GBufferA Albedo+Metallic
+                gbufferSpec.Attachments.Attachments.emplace_back(
+                     ViewTargetFormats::kGBufferB ); // GBufferB Normal+Roughness
+                gbufferSpec.Attachments.Attachments.emplace_back(
+                     ViewTargetFormats::kGBufferShadingWord ); // shading word (uint)
+                gbufferSpec.Attachments.Attachments.emplace_back(
+                     ViewTargetFormats::kGBufferEmissive ); // GBufferEmissive (HDR self-illum)
+                // DEPTH32F for the same reason as the forward target above — and it is this attachment the
+                // height fog reads back as a texture, so its precision is the precision of every distance it
+                // reconstructs.
+                gbufferSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGBufferDepth );
+                m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
+                m_GBuffer->Resize( width, height );
+
+                // NOTE: SSR and RSM-GI resources are deliberately NOT created here — see EnsureSSRResources() /
+                // EnsureGIResources(). Every PreviewViewport (asset thumbnails, the Details mesh preview) builds
+                // its OWN SceneRenderer, so anything allocated in this constructor is paid for once PER PREVIEW.
+                // Between them SSR and RSM-GI want six full-screen RGBA32F targets plus a five-attachment RSM, and
+                // a preview never turns either feature on. They are now allocated on first actual use instead.
+
+                // Scene systems render into the shared target framebuffer; post-process systems form an
+                // explicit chain (Mesh silhouette mask -> Jump Flood outline -> Tonemap).
+                RegisterSystem<System::SkyboxRenderer>( "SkyboxSystem", this, m_TargetFramebuffer,
+                                                        m_RenderGraphBuilder );
+                RegisterSystem<System::MeshRenderer>( "MeshSystem", this, m_TargetFramebuffer,
                                                       m_RenderGraphBuilder );
-        if ( const auto& backdropSystem =
-                  SP_CAST( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
-             !backdropSystem->Initialize() )
-        {
-            LOG_WARN( "Backdrop blur unavailable — UI glass panels will draw as flat tint" );
-        }
-
-        // Bloom reads the HDR scene color and produces a compute mip-chain glow that tonemap adds in.
-        RegisterSystem<System::BloomRenderer>( "BloomSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
-        const auto& bloomSystem = SP_CAST( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
-        if ( !bloomSystem->Initialize() )
-            LOG_ERROR( "[SceneRenderer] the bloom system did not initialise; the scene renders without glow." );
-
-        // Light shafts: the atmosphere sun's screen-space streaks, masked and radially blurred from the
-        // HDR scene colour; tonemap adds them in the way it adds bloom. Non-fatal: a sky without streaks
-        // must never take a scene down.
-        RegisterSystem<System::LightShaftRenderer>( "LightShaftSystem", this, m_TargetFramebuffer,
-                                                    m_RenderGraphBuilder );
-        const auto& lightShaftSystem = SP_CAST( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
-        if ( !lightShaftSystem->Initialize() )
-            LOG_WARN( "[SceneRenderer] Light shaft system unavailable." );
-
-        // Lens flare: the camera's own response to the sun disc — ghosts, halo and streak gathered from
-        // the same HDR scene colour, added in by the tonemap the way bloom is. Non-fatal, like the shafts.
-        RegisterSystem<System::LensFlareRenderer>( "LensFlareSystem", this, m_TargetFramebuffer,
-                                                   m_RenderGraphBuilder );
-        const auto& lensFlareSystem = SP_CAST( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
-        if ( const auto flareInit = lensFlareSystem->Initialize(); !flareInit )
-            LOG_WARN( "[SceneRenderer] Lens flare system unavailable: {}", flareInit.GetError() );
-
-        // SSAO (fullscreen G-buffer -> AO factor). Its target is a per-frame graph transient (AddFrameSSAO);
-        // the deferred Composite reads it. Deferred only. Non-fatal.
-        RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
-        if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
-            LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
-
-        // The G-buffer depth into a multisampled scene depth (Deferred: DepthExpand); nothing is built at MSAA 1.
-        RegisterSystem<System::DepthExpandRenderer>( "DepthExpandSystem", this, m_TargetFramebuffer,
-                                                     m_RenderGraphBuilder );
-        if ( const auto expandInit =
-                  SP_CAST( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] )->Initialize();
-             !expandInit )
-            LOG_ERROR( "[SceneRenderer] DepthExpand unavailable (deferred depth at MSAA): {}",
-                       expandInit.GetError() );
-
-        // The multisampled scene depth into the 1x depth compute passes sample (Scene: DepthResolve); MSAA > 1
-        // only.
-        RegisterSystem<System::SceneDepthResolveRenderer>( "SceneDepthResolveSystem", this, m_TargetFramebuffer,
-                                                           m_RenderGraphBuilder );
-        if ( const auto resolveInit =
-                  SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] )
-                       ->Initialize();
-             !resolveInit )
-            LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
-                       resolveInit.GetError() );
-
-        // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity at
-        // MSAA).
-        RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this, m_TargetFramebuffer,
-                                                           m_RenderGraphBuilder );
-        if ( const auto colorResolveInit =
-                  SP_CAST( System::GraphColorResolveRenderer, m_RenderSystems["GraphColorResolveSystem"] )
-                       ->Initialize();
-             !colorResolveInit )
-            LOG_ERROR( "[SceneRenderer] GraphColorResolve unavailable (velocity at MSAA reads zero motion): {}",
-                       colorResolveInit.GetError() );
-
-        RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
-                                              m_RenderGraphBuilder );
-        if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
-            LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
-
-        // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
-        // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
-        // Transparency phase, self-ordered below the particles by RenderPassOrder::AtmosphericFog.
-        // Non-fatal: neither must ever take a scene down.
-        RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer,
-                                                   m_RenderGraphBuilder );
-        if ( const auto fogInit =
-                  SP_CAST( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->Initialize();
-             !fogInit )
-            LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
-
-        // Volumetric clouds: a march through a spherical shell, issued outside the graph
-        // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the Transparency phase,
-        // self-ordered above the fog and below the particles by RenderPassOrder::FarField. Registered after the
-        // fog so that if the two ever end up on the same rung the registration order breaks the tie the same way
-        // the phase order already does. Non-fatal: a missing sky must never take a scene down.
-        RegisterSystem<System::VolumetricCloudRenderer>( "VolumetricCloudSystem", this, m_TargetFramebuffer,
+                RegisterSystem<System::JumpFloodOutlineRenderer>( "JumpFloodSystem", this, m_TargetFramebuffer,
+                                                                  m_RenderGraphBuilder );
+                return "Targets";
+            }
+            case 1:
+            {
+                // NAMED AND SURVIVED, NOT VERIFIED. `DESERT_VERIFY( false )` stood at each of the nine sites
+                // below, so a render system that refused to initialise took the whole process with it — and
+                // after Г22 that became REACHABLE for the first time: a typo in StaticMeshLit.shader now
+                // produces an honest refusal from MeshRenderer::Initialize, which this line then turned into a
+                // crash. The engine already has the rule for this one rung lower — VulkanRendererAPI::
+                // BindGraphicsPipeline skips every draw through a pipeline that was not built — so a system
+                // that could not initialise means its passes draw nothing, not that the editor vanishes.
+                if ( !SP_CAST( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->Initialize() )
+                    LOG_ERROR( "[SceneRenderer] the skybox system did not initialise; the sky will not draw." );
+                return "Skybox";
+            }
+            case 2:
+            {
+                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                if ( !meshSystem->Initialize() )
+                    LOG_ERROR( "[SceneRenderer] the mesh system did not initialise; meshes will not draw." );
+                return "Mesh";
+            }
+            case 3:
+            {
+                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                // GPU terrain (tessellated patch grid; opaque geometry, depth-tested with the meshes).
+                RegisterSystem<System::TerrainRenderer>( "TerrainSystem", this, m_TargetFramebuffer,
                                                          m_RenderGraphBuilder );
-        if ( const auto cloudInit =
-                  SP_CAST( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-                       ->Initialize();
-             !cloudInit )
-            LOG_WARN( "[SceneRenderer] Volumetric cloud system unavailable: {}", cloudInit.GetError() );
+                const auto& terrainSystem = SP_CAST( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+                if ( const auto init = terrainSystem->Initialize(); !init )
+                {
+                    LOG_ERROR( "[SceneRenderer] the terrain system did not initialise; terrain will not draw: {}",
+                               init.GetError() );
+                }
+                // The terrain casts into the sun's cascades from inside the mesh renderer's cascade passes, which
+                // own and clear those targets (IShadowCaster says why it is not a pass of its own).
+                else if ( const auto caster =
+                               terrainSystem->CreateShadowPipeline( meshSystem->GetCascadeFramebuffer() );
+                          !caster )
+                {
+                    LOG_ERROR( "[SceneRenderer] the terrain will not cast shadows: {}", caster.GetError() );
+                }
+                else
+                {
+                    meshSystem->AddShadowCaster( terrainSystem );
+                }
+                return "Terrain";
+            }
+            case 4:
+            {
+                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                const auto& jumpFloodSystem =
+                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
+                if ( !jumpFloodSystem->Initialize() )
+                    LOG_ERROR(
+                         "[SceneRenderer] the outline system did not initialise; selection outlines are off." );
 
-        // GPU particles: compute-simulated billboards drawn in the Transparency phase. Non-fatal.
-        RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer,
-                                                  m_RenderGraphBuilder );
-        if ( !SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->Initialize() )
-            LOG_WARN( "[SceneRenderer] Particle system unavailable." );
-
-        // Deferred lighting (fullscreen G-buffer shade + debug view). Runs in the manual chain, only when
-        // RenderPath == Deferred. Non-fatal if it fails to init (deferred path is simply unavailable).
-        RegisterSystem<System::DeferredLightingRenderer>( "DeferredLightingSystem", this, m_TargetFramebuffer,
-                                                          m_RenderGraphBuilder );
-        if ( !SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
-                   ->Initialize() )
-            LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable." );
-
-        // Auto-exposure measures the HDR scene luminance into a 1x1 buffer that tonemap reads.
-        RegisterSystem<System::AutoExposureRenderer>( "AutoExposureSystem", this, m_TargetFramebuffer,
+                // Feed the silhouette mask (produced by the mesh system) into the Jump Flood outline.
+                jumpFloodSystem->SetMaskFramebuffer( meshSystem->GetSilhouetteMaskFramebuffer() );
+                return "JumpFlood";
+            }
+            case 5:
+            {
+                const auto& jumpFloodSystem =
+                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
+                // Tonemap consumes the Jump Flood output (the outlined scene).
+                RegisterSystem<System::TonemapRenderer>(
+                     "TonemapSystem", this, jumpFloodSystem->GetSystemFramebuffer(), m_RenderGraphBuilder );
+                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                if ( !tonemapSystem->Initialize() )
+                    LOG_ERROR(
+                         "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
+                return "Tonemap";
+            }
+            case 6:
+            {
+                // Backdrop blur: a blurred snapshot of the scene colour the UI canvas samples for "glass" panels.
+                // Runs before the UI phase (which writes into this same target, so it cannot sample it directly).
+                RegisterSystem<System::BackdropBlurRenderer>( "BackdropBlurSystem", this, m_TargetFramebuffer,
+                                                              m_RenderGraphBuilder );
+                if ( const auto& backdropSystem =
+                          SP_CAST( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
+                     !backdropSystem->Initialize() )
+                {
+                    LOG_WARN( "Backdrop blur unavailable — UI glass panels will draw as flat tint" );
+                }
+                return "BackdropBlur";
+            }
+            case 7:
+            {
+                // Bloom reads the HDR scene color and produces a compute mip-chain glow that tonemap adds in.
+                RegisterSystem<System::BloomRenderer>( "BloomSystem", this, m_TargetFramebuffer,
+                                                       m_RenderGraphBuilder );
+                const auto& bloomSystem = SP_CAST( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
+                if ( !bloomSystem->Initialize() )
+                    LOG_ERROR(
+                         "[SceneRenderer] the bloom system did not initialise; the scene renders without glow." );
+                return "Bloom";
+            }
+            case 8:
+            {
+                // Light shafts: the atmosphere sun's screen-space streaks, masked and radially blurred from the
+                // HDR scene colour; tonemap adds them in the way it adds bloom. Non-fatal: a sky without streaks
+                // must never take a scene down.
+                RegisterSystem<System::LightShaftRenderer>( "LightShaftSystem", this, m_TargetFramebuffer,
+                                                            m_RenderGraphBuilder );
+                const auto& lightShaftSystem =
+                     SP_CAST( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
+                if ( !lightShaftSystem->Initialize() )
+                    LOG_WARN( "[SceneRenderer] Light shaft system unavailable." );
+                return "LightShaft";
+            }
+            case 9:
+            {
+                // Lens flare: the camera's own response to the sun disc — ghosts, halo and streak gathered from
+                // the same HDR scene colour, added in by the tonemap the way bloom is. Non-fatal, like the shafts.
+                RegisterSystem<System::LensFlareRenderer>( "LensFlareSystem", this, m_TargetFramebuffer,
+                                                           m_RenderGraphBuilder );
+                const auto& lensFlareSystem =
+                     SP_CAST( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
+                if ( const auto flareInit = lensFlareSystem->Initialize(); !flareInit )
+                    LOG_WARN( "[SceneRenderer] Lens flare system unavailable: {}", flareInit.GetError() );
+                return "LensFlare";
+            }
+            case 10:
+            {
+                // SSAO (fullscreen G-buffer -> AO factor). Its target is a per-frame graph transient
+                // (AddFrameSSAO); the deferred Composite reads it. Deferred only. Non-fatal.
+                RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer,
                                                       m_RenderGraphBuilder );
-        const auto& autoExposureSystem =
-             SP_CAST( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-        if ( !autoExposureSystem->Initialize() )
-            LOG_ERROR( "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
-        tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
+                if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
+                    LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
+                return "SSAO";
+            }
+            case 11:
+            {
+                // The G-buffer depth into a multisampled scene depth (Deferred: DepthExpand); nothing is built at
+                // MSAA 1.
+                RegisterSystem<System::DepthExpandRenderer>( "DepthExpandSystem", this, m_TargetFramebuffer,
+                                                             m_RenderGraphBuilder );
+                if ( const auto expandInit =
+                          SP_CAST( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] )
+                               ->Initialize();
+                     !expandInit )
+                    LOG_ERROR( "[SceneRenderer] DepthExpand unavailable (deferred depth at MSAA): {}",
+                               expandInit.GetError() );
+                return "DepthExpand";
+            }
+            case 12:
+            {
+                // The multisampled scene depth into the 1x depth compute passes sample (Scene: DepthResolve); MSAA
+                // > 1 only.
+                RegisterSystem<System::SceneDepthResolveRenderer>( "SceneDepthResolveSystem", this,
+                                                                   m_TargetFramebuffer, m_RenderGraphBuilder );
+                if ( const auto resolveInit =
+                          SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] )
+                               ->Initialize();
+                     !resolveInit )
+                    LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
+                               resolveInit.GetError() );
+                return "SceneDepthResolve";
+            }
+            case 13:
+            {
+                // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity
+                // at MSAA).
+                RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this,
+                                                                   m_TargetFramebuffer, m_RenderGraphBuilder );
+                if ( const auto colorResolveInit =
+                          SP_CAST( System::GraphColorResolveRenderer, m_RenderSystems["GraphColorResolveSystem"] )
+                               ->Initialize();
+                     !colorResolveInit )
+                    LOG_ERROR(
+                         "[SceneRenderer] GraphColorResolve unavailable (velocity at MSAA reads zero motion): {}",
+                         colorResolveInit.GetError() );
+                return "GraphColorResolve";
+            }
+            case 14:
+            {
+                RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
+                                                      m_RenderGraphBuilder );
+                if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
+                    LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
+                return "SceneColorCopy";
+            }
+            case 15:
+            {
+                // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
+                // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
+                // Transparency phase, self-ordered below the particles by RenderPassOrder::AtmosphericFog.
+                // Non-fatal: neither must ever take a scene down.
+                RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer,
+                                                           m_RenderGraphBuilder );
+                if ( const auto fogInit =
+                          SP_CAST( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->Initialize();
+                     !fogInit )
+                    LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
+                return "HeightFog";
+            }
+            case 16:
+            {
+                // Volumetric clouds: a march through a spherical shell, issued outside the graph
+                // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the Transparency phase,
+                // self-ordered above the fog and below the particles by RenderPassOrder::FarField. Registered
+                // after the fog so that if the two ever end up on the same rung the registration order breaks the
+                // tie the same way the phase order already does. Non-fatal: a missing sky must never take a scene
+                // down.
+                RegisterSystem<System::VolumetricCloudRenderer>( "VolumetricCloudSystem", this,
+                                                                 m_TargetFramebuffer, m_RenderGraphBuilder );
+                if ( const auto cloudInit =
+                          SP_CAST( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
+                               ->Initialize();
+                     !cloudInit )
+                    LOG_WARN( "[SceneRenderer] Volumetric cloud system unavailable: {}", cloudInit.GetError() );
+                return "VolumetricCloud";
+            }
+            case 17:
+            {
+                // GPU particles: compute-simulated billboards drawn in the Transparency phase. Non-fatal.
+                RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer,
+                                                          m_RenderGraphBuilder );
+                if ( !SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->Initialize() )
+                    LOG_WARN( "[SceneRenderer] Particle system unavailable." );
+                return "Particle";
+            }
+            case 18:
+            {
+                // Deferred lighting (fullscreen G-buffer shade + debug view). Runs in the manual chain, only when
+                // RenderPath == Deferred. Non-fatal if it fails to init (deferred path is simply unavailable).
+                RegisterSystem<System::DeferredLightingRenderer>( "DeferredLightingSystem", this,
+                                                                  m_TargetFramebuffer, m_RenderGraphBuilder );
+                if ( !SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
+                           ->Initialize() )
+                    LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable." );
+                return "DeferredLighting";
+            }
+            case 19:
+            {
+                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                // Auto-exposure measures the HDR scene luminance into a 1x1 buffer that tonemap reads.
+                RegisterSystem<System::AutoExposureRenderer>( "AutoExposureSystem", this, m_TargetFramebuffer,
+                                                              m_RenderGraphBuilder );
+                const auto& autoExposureSystem =
+                     SP_CAST( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
+                if ( !autoExposureSystem->Initialize() )
+                    LOG_ERROR(
+                         "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
+                tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
+                return "AutoExposure";
+            }
+            case 20:
+            {
+                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                // FXAA consumes the tonemapped image (LDR). It only runs when the machine's post AA is FXAA
+                // (Common::Settings::MachineSettings::AA — it left SceneSettings with К3).
+                RegisterSystem<System::FXAARenderer>( "FXAASystem", this, tonemapSystem->GetSystemFramebuffer(),
+                                                      m_RenderGraphBuilder );
+                if ( !SP_CAST( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Initialize() )
+                    LOG_ERROR( "[SceneRenderer] FXAA did not initialise; the image is drawn without post AA." );
+                return "FXAA";
+            }
+            case 21:
+            {
+                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                // SMAA consumes the same tonemapped image. Runs only when the machine's post AA is SMAA.
+                RegisterSystem<System::SMAARenderer>( "SMAASystem", this, tonemapSystem->GetSystemFramebuffer(),
+                                                      m_RenderGraphBuilder );
+                if ( !SP_CAST( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Initialize() )
+                    LOG_ERROR( "[SceneRenderer] SMAA did not initialise; the image is drawn without post AA." );
 
-        // FXAA consumes the tonemapped image (LDR). It only runs when the machine's post AA is FXAA
-        // (Common::Settings::MachineSettings::AA — it left SceneSettings with К3).
-        RegisterSystem<System::FXAARenderer>( "FXAASystem", this, tonemapSystem->GetSystemFramebuffer(),
-                                              m_RenderGraphBuilder );
-        if ( !SP_CAST( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Initialize() )
-            LOG_ERROR( "[SceneRenderer] FXAA did not initialise; the image is drawn without post AA." );
-
-        // SMAA consumes the same tonemapped image. Runs only when the machine's post AA is SMAA.
-        RegisterSystem<System::SMAARenderer>( "SMAASystem", this, tonemapSystem->GetSystemFramebuffer(),
-                                              m_RenderGraphBuilder );
-        if ( !SP_CAST( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Initialize() )
-            LOG_ERROR( "[SceneRenderer] SMAA did not initialise; the image is drawn without post AA." );
-
-        // The graph is NOT built here: RebindScene() runs immediately after and builds it once, over the
-        // engine systems above plus whatever external passes survive. Building it twice on the first Init
-        // would be the only place in the engine that did.
-        return true;
+                // The graph is NOT built here: RebindScene() runs immediately after and builds it once, over the
+                // engine systems above plus whatever external passes survive. Building it twice on the first Init
+                // would be the only place in the engine that did.
+                return "SMAA";
+            }
+            default:
+                return nullptr;
+        }
     }
 
     void SceneRenderer::RebindScene()
@@ -1448,6 +1583,16 @@ namespace Desert::Graphic
 
         const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
         return clouds && clouds->IsModellingVolumeBaking();
+    }
+
+    bool SceneRenderer::IsEnvironmentSettling() const
+    {
+        const auto it = m_RenderSystems.find( "SkyboxSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+
+        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        return sky && sky->IsEnvironmentSettling();
     }
 
     float SceneRenderer::CloudVolumeBakeProgress() const

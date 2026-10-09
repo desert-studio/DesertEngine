@@ -71,10 +71,11 @@ namespace Desert::Editor
     AssetThumbnailRenderer::~AssetThumbnailRenderer()
     {
         // The worker holds the readback and writes a file: it finishes before the device it reads from goes.
-        if ( m_Encode.valid() )
-            m_Encode.wait();
+        for ( Writing& writing : m_Writing )
+            writing.Encode.wait();
+        m_Writing.clear();
         m_Readback.reset();
-        if ( !m_Inited )
+        if ( !m_Renderer )
             return;
 
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
@@ -93,8 +94,19 @@ namespace Desert::Editor
         // the budget the renderer was BUILT with, so `settings.EnableShadows = false` a few lines further
         // down arrives after the money is spent. It was: 320 MiB of shadow maps for a renderer that has
         // never drawn a shadow and never will. See Graphic::ShadowQuality.
-        m_Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ kRenderSize, kRenderSize },
-                                                               Graphic::kThumbnailViewProfile );
+        if ( !m_Renderer )
+        {
+            m_Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ kRenderSize, kRenderSize },
+                                                                   Graphic::kThumbnailViewProfile );
+        }
+
+        // THE VIEW IS BUILT ONE STAGE PER TICK, not in the tick that first wants a picture. Built whole it was
+        // 172.1 ms on the main thread in ONE frame (21 render systems and their ~40 pipelines, measured cold
+        // on the first capture of a Content Browser folder); staged, the editor keeps drawing between the
+        // stages and the frame pays only the stage it runs. The capture waits meanwhile (TickCapture).
+        if ( !m_Renderer->AdvanceRendererBuild() )
+            return;
+
         m_Scene           = std::make_shared<::Desert::Core::Scene>( "ThumbnailPreview", m_Renderer.get() );
         const auto inited = m_Scene->Init();
         if ( !inited.IsSuccess() )
@@ -795,6 +807,26 @@ namespace Desert::Editor
         return true;
     }
 
+    bool AssetThumbnailRenderer::EnvironmentIsStillSettling()
+    {
+        if ( !m_Renderer->IsEnvironmentSettling() )
+        {
+            m_EnvironmentFrames = 0;
+            return false;
+        }
+        if ( m_EnvironmentFrames >= kDomeMaxSettleFrames )
+        {
+            if ( m_EnvironmentFrames == kDomeMaxSettleFrames )
+                LOG_WARN( "[AssetThumbnailRenderer] the sky environment for '{}' had not landed after {} "
+                          "frames — capturing anyway, so the tile may be lit without its sky.",
+                          m_PendingPng, kDomeMaxSettleFrames );
+            ++m_EnvironmentFrames;
+            return false;
+        }
+        ++m_EnvironmentFrames;
+        return true;
+    }
+
     bool AssetThumbnailRenderer::DomeIsStillSettling()
     {
         if ( !IsDomeCapture() )
@@ -836,8 +868,14 @@ namespace Desert::Editor
         return true;
     }
 
+    bool AssetThumbnailRenderer::IsWriting( const std::string& png ) const
+    {
+        return std::ranges::any_of( m_Writing, [&]( const Writing& writing ) { return writing.Png == png; } );
+    }
+
     void AssetThumbnailRenderer::Tick()
     {
+        PollWriting();
         if ( !HasPending() )
             return;
         const auto began = std::chrono::steady_clock::now();
@@ -857,6 +895,8 @@ namespace Desert::Editor
         if ( m_Phase == 0 )
             return;
         EnsureInit();
+        if ( !m_Inited && m_Renderer )
+            return; // the view is still being built, one stage per tick (EnsureInit)
         if ( !m_Inited )
         {
             // The scene refused to initialise and EnsureInit has already said why. ABANDON the capture
@@ -898,6 +938,12 @@ namespace Desert::Editor
 
         // The dome's frames do not count as warm-up until the volume is there and the march has settled.
         if ( DomeIsStillSettling() )
+            return;
+
+        // NOR DOES ANY CAPTURE'S, until the sky that lights it has landed: the renderer's environment bake is
+        // submitted, not waited for, so the first frames of a new renderer have no ambient or reflections at
+        // all. Bounded by the dome's window, for the dome's reason — a late picture beats no pictures.
+        if ( EnvironmentIsStillSettling() )
             return;
 
         if ( m_Phase > 1 )
@@ -942,13 +988,12 @@ namespace Desert::Editor
     void AssetThumbnailRenderer::AdvanceReadback()
     {
         ++m_ReadbackFrames;
-        if ( !m_Encode.valid() )
+        if ( !m_Readback->IsComplete() )
+            return;
         {
-            if ( !m_Readback->IsComplete() )
-                return;
             // Read, downscale and write on a worker. The readback is shared so the object outlives the job
             // even if this renderer is torn down first (the destructor waits for the job anyway).
-            m_Encode = Common::JobSystem::Get().Async(
+            std::future<Encoded> encode = Common::JobSystem::Get().Async(
                  [readback = m_Readback, png = m_ReadbackPng]() -> Encoded
                  {
                      using Clock   = std::chrono::steady_clock;
@@ -976,23 +1021,37 @@ namespace Desert::Editor
                      out.PngMs   = ms( t2, Clock::now() );
                      return out;
                  } );
-            return;
+            // THE SLOT IS FREE FROM HERE: the pixels are in the readback's own staging copy, so the next
+            // capture may render into the final image while this one is encoded.
+            m_Writing.push_back( { std::move( m_Readback ), std::move( encode ), m_ReadbackPng, m_ReadbackBegan,
+                                   m_ReadbackSubmitMs, m_ReadbackFrames, m_CaptureMainMs, m_CaptureTicks } );
+            m_Readback.reset();
         }
-        if ( m_Encode.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
-            return;
+    }
 
-        const Encoded encoded = m_Encode.get();
-        m_Readback.reset(); // staging buffer and fence go back on the device thread
-        if ( !encoded.Written.IsSuccess() )
-            LOG_ERROR( "[AssetThumbnailRenderer] '{}': {} — no thumbnail written.", m_ReadbackPng,
-                       encoded.Written.GetError() );
-        LOG_DEBUG( "[Thumbnails] captured '{}' in {:.0f} ms over {} frames (main: {:.1f} over {} ticks, submit "
-                   "{:.1f}; worker: read "
-                   "{:.0f}, downscale {:.0f}, png {:.0f}) at {}px from a {}px render",
-                   std::filesystem::path( m_ReadbackPng ).filename().string(),
-                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_ReadbackBegan )
-                        .count(),
-                   m_ReadbackFrames, m_CaptureMainMs, m_CaptureTicks, m_ReadbackSubmitMs, encoded.ReadMs,
-                   encoded.BoxMs, encoded.PngMs, kSize, kRenderSize );
+    void AssetThumbnailRenderer::PollWriting()
+    {
+        std::erase_if(
+             m_Writing,
+             [&]( Writing& writing )
+             {
+                 if ( writing.Encode.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+                     return false;
+                 const Encoded encoded = writing.Encode.get();
+                 writing.Readback.reset(); // staging buffer and fence go back on the device thread
+                 if ( !encoded.Written.IsSuccess() )
+                     LOG_ERROR( "[AssetThumbnailRenderer] '{}': {} — no thumbnail written.", writing.Png,
+                                encoded.Written.GetError() );
+                 LOG_DEBUG(
+                      "[Thumbnails] captured '{}' in {:.0f} ms over {} frames (main: {:.1f} over {} "
+                      "ticks, submit {:.1f}; worker: read {:.0f}, downscale {:.0f}, png {:.0f}) at "
+                      "{}px from a {}px render",
+                      std::filesystem::path( writing.Png ).filename().string(),
+                      std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - writing.Began )
+                           .count(),
+                      writing.Frames, writing.MainMs, writing.MainTicks, writing.SubmitMs, encoded.ReadMs,
+                      encoded.BoxMs, encoded.PngMs, kSize, kRenderSize );
+                 return true;
+             } );
     }
 } // namespace Desert::Editor

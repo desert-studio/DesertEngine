@@ -360,6 +360,10 @@ namespace Desert::Editor::ThumbnailFreshness
         {
             return m_Identity;
         }
+        [[nodiscard]] const std::filesystem::path& Png() const
+        {
+            return m_Png;
+        }
 
         /// Call once the renderer is idle. Empty when nothing was outstanding.
         [[nodiscard]] std::optional<Settled> Settle()
