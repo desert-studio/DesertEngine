@@ -137,8 +137,9 @@ TEST( HeaderToolChecks, AMarkerMissingOrMisspellingAnAttributeIsAnError )
 {
     EXPECT_NE( ParseError( R"(Key( "A" ), Block( Data ), Runn( Actors ))" ).find( "unknown attribute" ),
                std::string::npos );
-    EXPECT_NE( ParseError( R"(Block( Data ), Run( Actors ))" ).find( "Key(\"...\") is required" ),
-               std::string::npos );
+    // Named first: a raw string and an escaped quote in one macro argument is MSVC C2017.
+    const std::string keyRequired = "Key(\"...\") is required";
+    EXPECT_NE( ParseError( R"(Block( Data ), Run( Actors ))" ).find( keyRequired ), std::string::npos );
     EXPECT_NE( ParseError( R"(Key( "A" ), Block( Data ))" ).find( "Run( ... ) is required" ), std::string::npos );
     EXPECT_NE( ParseError( R"(Key( "A" ), Block( Data ), Whole, Run( Actors ))" ).find( "exactly one of" ),
                std::string::npos );

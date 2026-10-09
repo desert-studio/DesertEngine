@@ -197,6 +197,10 @@ namespace
               "drops the hidden light from its candidates so nothing lit is affected." },
          Row{ "VolumetricCloudECSSystem.hpp", Verdict::Honours,
               "the cloud layer and every sculpted hero body; same stale-state argument as the fog." },
+         Row{ "WaterBodyGather.hpp", Verdict::MustNot,
+              "it hands the physics step the water bodies buoyancy floats against (UE: the solver-safe "
+              "water body data); same argument as PhysicsECSSystem: hiding a lake in the outliner must "
+              "not sink every boat on it." },
     };
 
     // ── ONE ROW PER SITE, NOT PER FILE ──────────────────────────────────────────────────────────────

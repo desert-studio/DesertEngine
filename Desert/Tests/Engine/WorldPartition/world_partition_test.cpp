@@ -256,8 +256,9 @@ namespace
              std::distance( std::sregex_iterator( source.begin(), source.end(), call ), std::sregex_iterator() ) );
 
         // The reflected blocks are ONE `Register( MakeReflectedBlock( row ) )` call run over the rows of
-        // ReflectedComponentBlocks.hpp, so their keys are read from that header - the single list the
-        // registry and the migrator share - and that one call stands for one registration per row.
+        // Generated/ReflectedComponentBlocks.gen.hpp (DesertHeaderTool writes it from the COMPONENT markers),
+        // so their keys are read from that header - the single list the registry and the migrator share - and
+        // that one call stands for one registration per row.
         const std::regex blockCall( R"(\bRegister\s*\(\s*MakeReflectedBlock\s*\()" );
         const auto       blockCalls = static_cast<std::size_t>( std::distance(
              std::sregex_iterator( source.begin(), source.end(), blockCall ), std::sregex_iterator() ) );
@@ -265,7 +266,7 @@ namespace
         {
             std::string header =
                  ReadAll( Desert::TestSupport::RepositoryRoot() /
-                          "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp" );
+                          "Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp" );
             header = std::regex_replace( header, std::regex( "//[^\n]*" ), "" );
             const std::regex row( "\\bReflected(?:Member|Whole)Block\\s*<[^>]*>\\s*\\{\\s*\"(\\w+)\"" );
             std::size_t      rows = 0;
