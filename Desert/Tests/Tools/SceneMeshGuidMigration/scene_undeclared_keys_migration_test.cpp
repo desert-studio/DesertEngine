@@ -83,7 +83,7 @@ TEST( SceneUndeclaredKeysMigration, ActionNameBecomesSendEventWithThatTarget )
     EXPECT_EQ( report.ButtonActionNamesMoved, 1u );
     const auto block = BlockOf( entities[0].Components, "UIButton" );
     EXPECT_EQ( block.get( "Action" ).value().to_int().value(),
-               static_cast<int>( Desert::ECS::UIButtonAction::SendEvent ) );
+               static_cast<int>( Desert::UI::UIButtonAction::SendEvent ) );
     EXPECT_EQ( block.get( "OnClickMessage" ).value().to_string().value(), "ui.over.probe" );
 }
 

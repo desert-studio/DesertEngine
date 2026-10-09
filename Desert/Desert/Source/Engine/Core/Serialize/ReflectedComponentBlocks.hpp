@@ -84,36 +84,36 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<StreamingSourceComponent, StreamingSourceData>{ "StreamingSource", "StreamingSourceData", &StreamingSourceComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<AudioSourceComponent, AudioSourceData>{ "AudioSource", "AudioSourceData", &AudioSourceComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<ParticleEmitterComponent, ParticleEmitterData>{ "ParticleEmitter", "ParticleEmitterData", &ParticleEmitterComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UICanvasComponent, UICanvasData>{ "UICanvas", "UICanvasData", &UICanvasComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UILayoutComponent, UILayoutData>{ "UILayout", "UILayoutData", &UILayoutComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UIPanelComponent, UIPanelData>{ "UIPanel", "UIPanelData", &UIPanelComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UITextComponent2D, UITextData>{ "UIText", "UITextData", &UITextComponent2D::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UIButtonComponent, UIButtonData>{ "UIButton", "UIButtonData", &UIButtonComponent::Data, R::ActorsAndUI } );
-        visit( ReflectedMemberBlock<UIIconComponent, UIIconData>{ "UIIcon", "UIIconData", &UIIconComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<UICanvasComponent, UI::UICanvasData>{ "UICanvas", "UICanvasData", &UICanvasComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<UILayoutComponent, UI::UILayoutData>{ "UILayout", "UILayoutData", &UILayoutComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<UIPanelComponent, UI::UIPanelData>{ "UIPanel", "UIPanelData", &UIPanelComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<UITextComponent2D, UI::UITextData>{ "UIText", "UITextData", &UITextComponent2D::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<UIButtonComponent, UI::UIButtonData>{ "UIButton", "UIButtonData", &UIButtonComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<UIIconComponent, UI::UIIconData>{ "UIIcon", "UIIconData", &UIIconComponent::Data, R::ActorsAndUI } );
 
-        visit( ReflectedMemberBlock<UIBindingComponent, UIBindingData>{ "UIBinding", "UIBindingData", &UIBindingComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIScreenComponent, UIScreenData>{ "UIScreen", "UIScreenData", &UIScreenComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIScreenStackComponent, UIScreenStackData>{ "UIScreenStack", "UIScreenStackData", &UIScreenStackComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UITweenComponent, UITweenData>{ "UITween", "UITweenData", &UITweenComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIPointerEventsComponent, UIPointerEventsData>{ "UIPointerEvents", "UIPointerEventsData", &UIPointerEventsComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIDraggableComponent, UIDraggableData>{ "UIDraggable", "UIDraggableData", &UIDraggableComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIDropTargetComponent, UIDropTargetData>{ "UIDropTarget", "UIDropTargetData", &UIDropTargetComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIImageComponent, UIImageData>{ "UIImage", "UIImageData", &UIImageComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UILayoutGroupComponent, UILayoutGroupData>{ "UILayoutGroup", "UILayoutGroupData", &UILayoutGroupComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIProgressBarComponent, UIProgressBarData>{ "UIProgressBar", "UIProgressBarData", &UIProgressBarComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIPathComponent, UIPathData>{ "UIPath", "UIPathData", &UIPathComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIRetainerComponent, UIRetainerData>{ "UIRetainer", "UIRetainerData", &UIRetainerComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIStyleComponent, UIStyleData>{ "UIStyle", "UIStyleData", &UIStyleComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIToggleComponent, UIToggleData>{ "UIToggle", "UIToggleData", &UIToggleComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UISliderComponent, UISliderData>{ "UISlider", "UISliderData", &UISliderComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIScrollViewComponent, UIScrollViewData>{ "UIScrollView", "UIScrollViewData", &UIScrollViewComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIListViewComponent, UIListViewData>{ "UIListView", "UIListViewData", &UIListViewComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIInputFieldComponent, UIInputFieldData>{ "UIInputField", "UIInputFieldData", &UIInputFieldComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIDropdownComponent, UIDropdownData>{ "UIDropdown", "UIDropdownData", &UIDropdownComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIBindingComponent, UI::UIBindingData>{ "UIBinding", "UIBindingData", &UIBindingComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIScreenComponent, UI::UIScreenData>{ "UIScreen", "UIScreenData", &UIScreenComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIScreenStackComponent, UI::UIScreenStackData>{ "UIScreenStack", "UIScreenStackData", &UIScreenStackComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UITweenComponent, UI::UITweenData>{ "UITween", "UITweenData", &UITweenComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIPointerEventsComponent, UI::UIPointerEventsData>{ "UIPointerEvents", "UIPointerEventsData", &UIPointerEventsComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIDraggableComponent, UI::UIDraggableData>{ "UIDraggable", "UIDraggableData", &UIDraggableComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIDropTargetComponent, UI::UIDropTargetData>{ "UIDropTarget", "UIDropTargetData", &UIDropTargetComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIImageComponent, UI::UIImageData>{ "UIImage", "UIImageData", &UIImageComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UILayoutGroupComponent, UI::UILayoutGroupData>{ "UILayoutGroup", "UILayoutGroupData", &UILayoutGroupComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIProgressBarComponent, UI::UIProgressBarData>{ "UIProgressBar", "UIProgressBarData", &UIProgressBarComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIPathComponent, UI::UIPathData>{ "UIPath", "UIPathData", &UIPathComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIRetainerComponent, UI::UIRetainerData>{ "UIRetainer", "UIRetainerData", &UIRetainerComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIStyleComponent, UI::UIStyleData>{ "UIStyle", "UIStyleData", &UIStyleComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIToggleComponent, UI::UIToggleData>{ "UIToggle", "UIToggleData", &UIToggleComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UISliderComponent, UI::UISliderData>{ "UISlider", "UISliderData", &UISliderComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIScrollViewComponent, UI::UIScrollViewData>{ "UIScrollView", "UIScrollViewData", &UIScrollViewComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIListViewComponent, UI::UIListViewData>{ "UIListView", "UIListViewData", &UIListViewComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIInputFieldComponent, UI::UIInputFieldData>{ "UIInputField", "UIInputFieldData", &UIInputFieldComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIDropdownComponent, UI::UIDropdownData>{ "UIDropdown", "UIDropdownData", &UIDropdownComponent::Data, R::UIAfterRenderTexture } );
         // Overlays (Ю12): an overlay canvas and a trigger are ordinary scene data, so a tooltip, a menu, a
         // dialog and a toast stack survive a save and a reload because they are entities like any other.
-        visit( ReflectedMemberBlock<UIOverlayComponent, UIOverlayData>{ "UIOverlay", "UIOverlayData", &UIOverlayComponent::Data, R::UIAfterRenderTexture } );
-        visit( ReflectedMemberBlock<UIOverlayTriggerComponent, UIOverlayTriggerData>{ "UIOverlayTrigger", "UIOverlayTriggerData", &UIOverlayTriggerComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIOverlayComponent, UI::UIOverlayData>{ "UIOverlay", "UIOverlayData", &UIOverlayComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIOverlayTriggerComponent, UI::UIOverlayTriggerData>{ "UIOverlayTrigger", "UIOverlayTriggerData", &UIOverlayTriggerComponent::Data, R::UIAfterRenderTexture } );
 
         visit( ReflectedMemberBlock<LandscapeMaterialComponent, LandscapeMaterialData>{ "LandscapeMaterial", "LandscapeMaterialData", &LandscapeMaterialComponent::Data, R::Landscape } );
 

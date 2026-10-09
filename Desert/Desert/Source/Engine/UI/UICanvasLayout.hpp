@@ -1,8 +1,9 @@
 #pragma once
 
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Render2D/ClipRegion2D.hpp>
+#include <Engine/UI/Args/UIArgs.hpp>
 #include <Engine/UI/UILayout.hpp>
+#include <Engine/UI/UITree.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -26,6 +27,10 @@
 // mode, the safe-area inset, the aspect fitter, the content-size fitter and auto-layout group placement.
 // If the two ever drift, a click lands on nothing while the element is plainly on screen. Anything added
 // to the renderer's rect resolution belongs here too.
+//
+// THEY READ AN IUITree (UI-FW1), not the ECS: the same walk answers for any storage the framework is handed.
+// The `entt::registry&` overloads at the bottom keep every existing caller's signature; they wrap the
+// registry in an EcsUITree and are defined in Engine/UI/Ecs/UICanvasLayoutEcs.cpp.
 namespace Desert::UI
 {
     class UIDataStore;
@@ -61,21 +66,21 @@ namespace Desert::UI
     //                toast) are each an extra canvas drawn over the rest.
 
     // The canvas @p e belongs to: @p e itself when it carries a UICanvasComponent, otherwise the nearest
-    // ancestor that does. entt::null when @p e is not under a canvas at all (a plain 3D entity, or a UI
+    // ancestor that does. NodeId::Null when @p e is not under a canvas at all (a plain 3D entity, or a UI
     // element that has not been parented yet). Cycle-safe: the walk is bounded by the entity count.
-    [[nodiscard]] entt::entity CanvasOf( entt::registry& reg, entt::entity e );
+    [[nodiscard]] NodeId CanvasOf( const IUITree& tree, NodeId e );
 
-    // How many UICanvasComponents this scene holds.
-    [[nodiscard]] std::size_t CanvasCount( entt::registry& reg );
+    // How many canvases this tree holds.
+    [[nodiscard]] std::size_t CanvasCount( const IUITree& tree );
 
-    // The scene's ONE canvas. Refuses, by name and with the count, when there is not exactly one.
-    [[nodiscard]] Common::ResultStr<entt::entity> SoleCanvas( entt::registry& reg );
+    // The tree's ONE canvas. Refuses, by name and with the count, when there is not exactly one.
+    [[nodiscard]] Common::ResultStr<NodeId> SoleCanvas( const IUITree& tree );
 
     // Every canvas of the scene, in the order a view must draw them: ascending UICanvasData::SortOrder,
     // and within one SortOrder the order the scene created them (which is the order the file lists them).
     // Later in the list = drawn later = on top, both for pixels and for the pointer, since the hot election
     // keeps the last writer.
-    [[nodiscard]] std::vector<entt::entity> CanvasesInDrawOrder( entt::registry& reg );
+    [[nodiscard]] std::vector<NodeId> CanvasesInDrawOrder( const IUITree& tree );
 
     // --- The visibility axis, asked once ------------------------------------------------------------
     // Three places resolve an element's rect — the renderer's walk, the editor's pick, the editor's
@@ -84,14 +89,14 @@ namespace Desert::UI
     // drawn where nothing can click it, which is this project's recurring defect shape. So the two
     // questions are asked through these two functions and nowhere else.
 
-    // Does @p e occupy a slot in its parent's auto-layout group? Only ECS::UIVisibility::Collapsed drops
+    // Does @p e occupy a slot in its parent's auto-layout group? Only UIVisibility::Collapsed drops
     // out; Hidden keeps its slot, and that difference IS the layout axis. An element with no UILayout has
     // nothing to say and takes its slot.
-    [[nodiscard]] bool TakesLayoutSpace( entt::registry& reg, entt::entity e );
+    [[nodiscard]] bool TakesLayoutSpace( const IUITree& tree, NodeId e );
 
     // Is @p e drawn at all — and therefore hit-testable at all? False for Hidden and Collapsed, both of
     // which take their whole sub-tree with them.
-    [[nodiscard]] bool IsElementVisible( entt::registry& reg, entt::entity e );
+    [[nodiscard]] bool IsElementVisible( const IUITree& tree, NodeId e );
 
     // --- ONE WALK, AND EVERY QUERY BELOW IS A READ OF IT ---------------------------------------------
     //
@@ -132,14 +137,14 @@ namespace Desert::UI
     // elected in — so `Order` answers "what is on top of what" without anybody re-deriving it.
     struct UIElementNode
     {
-        entt::entity Entity = entt::null;
-        entt::entity Parent = entt::null;
+        NodeId       Entity = NodeId::Null;
+        NodeId       Parent = NodeId::Null;
         int          Depth  = 0;  // 0 = a direct child of the canvas
         int          Order  = -1; // index among the DRAWN elements; -1 when this one is not drawn
 
         bool         Drawn   = false;
         UISkipCause  Cause   = UISkipCause::None;
-        entt::entity CauseBy = entt::null; // who stopped it: itself, or the ancestor that did
+        NodeId       CauseBy = NodeId::Null; // who stopped it: itself, or the ancestor that did
 
         // Inside a collection-bound UIListView (UIL1): the RECORD index this node was walked for, -1
         // elsewhere. The entry template is one entity walked once per visible record, so the entity alone
@@ -178,7 +183,7 @@ namespace Desert::UI
         bool Clipped = false;
 
         bool           TakesSlot     = true; // counted by a parent auto-layout group (Collapsed drops out)
-        ECS::UIHitTest HitTest       = ECS::UIHitTest::All;
+        UIHitTest      HitTest       = UIHitTest::All;
         bool           ElectsSelf    = false; // may the pointer STOP here — own value narrowed by its ancestors'
         bool           ClipsChildren = false;
     };
@@ -197,8 +202,8 @@ namespace Desert::UI
     //
     // Refuses (and leaves @p out empty) when @p canvas is not a canvas of @p reg, or is not Visible — the
     // same three distinguishable refusals the queries below already had.
-    NO_DISCARD Common::BoolResultStr EnumerateCanvas( entt::registry& reg, entt::entity canvas,
-                                                      const Rect& viewportPx, std::vector<UIElementNode>& out,
+    NO_DISCARD Common::BoolResultStr EnumerateCanvas( const IUITree& tree, NodeId canvas, const Rect& viewportPx,
+                                                      std::vector<UIElementNode>&   out,
                                                       const struct UICanvasContext* ctx = nullptr );
 
     // Does a UIBinding with target Visible currently say NO for @p e? The runtime walk asks the same
@@ -209,16 +214,16 @@ namespace Desert::UI
     // caller that has no view — and the same nullptr that already means "no view" everywhere else here.
     //
     // @p row is the record of the collection-bound list row @p e is walked for (UIL1), asked before both.
-    [[nodiscard]] bool BindingHidesElement( entt::registry& reg, entt::entity e,
+    [[nodiscard]] bool BindingHidesElement( const IUITree& tree, NodeId e,
                                             const struct UICanvasContext* ctx = nullptr,
                                             const UIDataStore*            row = nullptr );
 
     // In-scene UI editing (viewport WYSIWYG). Returns the topmost element of @p canvas whose resolved rect
-    // contains `pointPx`, or entt::null. `viewportPx` must be the SAME rect the canvas was drawn into so
+    // contains `pointPx`, or NodeId::Null. `viewportPx` must be the SAME rect the canvas was drawn into so
     // hit-testing matches what is on screen. A host with several canvases asks each one and keeps the last
     // hit — which is what makes an overlay in front of a HUD pickable at all.
-    [[nodiscard]] entt::entity PickElement( entt::registry& reg, entt::entity canvas, const glm::vec2& pointPx,
-                                            const Rect& viewportPx );
+    [[nodiscard]] NodeId PickElement( const IUITree& tree, NodeId canvas, const glm::vec2& pointPx,
+                                      const Rect& viewportPx );
 
     // Resolves the on-screen rect of @p target (an element of @p canvas, or @p canvas itself) under the same
     // layout the renderer uses — for the selection marquee and the drag handles. false if @p target is not
@@ -231,8 +236,8 @@ namespace Desert::UI
     // accumulated transform — its own composed inside its ancestors' — that maps that rect onto the
     // screen, so a caller that wants to DRAW something over the element (a marquee, handles) has both
     // halves and neither has to guess. Identity when nothing in the chain is transformed.
-    [[nodiscard]] bool GetElementRect( entt::registry& reg, entt::entity canvas, entt::entity target,
-                                       const Rect& viewportPx, Rect& out, glm::mat3* outXform = nullptr );
+    [[nodiscard]] bool GetElementRect( const IUITree& tree, NodeId canvas, NodeId target, const Rect& viewportPx,
+                                       Rect& out, glm::mat3* outXform = nullptr );
 
     // @p canvas's current uniform scale (design px -> screen px) for the given viewport, per its scale mode
     // (1 in Stretch). The editor divides on-screen sizes by this when writing UILayout offsets so a value it
@@ -241,6 +246,35 @@ namespace Desert::UI
     // IT REFUSES RATHER THAN ANSWERING 1. This used to elect a canvas itself and return 1 when it found none
     // — and 1 is a perfectly plausible scale (it is what Stretch gives), so a caller could not tell a real
     // answer from "there was nothing to measure" and would write offsets scaled by the wrong factor.
+    [[nodiscard]] Common::ResultStr<float> CanvasScale( const IUITree& tree, NodeId canvas,
+                                                        const Rect& viewportPx );
+
+} // namespace Desert::UI
+
+#include <Engine/UI/Ecs/EcsUITree.hpp>
+
+namespace Desert::UI
+{
+    // --- ECS overloads (Engine/UI/Ecs/UICanvasLayoutEcs.cpp) -----------------------------------------
+    // The same questions with the signatures every engine and editor caller already has: each wraps @p reg in
+    // an EcsUITree and asks the tree overload above, so there is one walk, not one per storage. UIElementNode
+    // ids are NodeIds either way; UI::ToEntity / UI::ToNode (Ecs/EcsUITree.hpp) convert, bit for bit.
+    [[nodiscard]] entt::entity                    CanvasOf( entt::registry& reg, entt::entity e );
+    [[nodiscard]] std::size_t                     CanvasCount( entt::registry& reg );
+    [[nodiscard]] Common::ResultStr<entt::entity> SoleCanvas( entt::registry& reg );
+    [[nodiscard]] std::vector<entt::entity>       CanvasesInDrawOrder( entt::registry& reg );
+    [[nodiscard]] bool                            TakesLayoutSpace( entt::registry& reg, entt::entity e );
+    [[nodiscard]] bool                            IsElementVisible( entt::registry& reg, entt::entity e );
+    NO_DISCARD Common::BoolResultStr EnumerateCanvas( entt::registry& reg, entt::entity canvas,
+                                                      const Rect& viewportPx, std::vector<UIElementNode>& out,
+                                                      const struct UICanvasContext* ctx = nullptr );
+    [[nodiscard]] bool               BindingHidesElement( entt::registry& reg, entt::entity e,
+                                                          const struct UICanvasContext* ctx = nullptr,
+                                                          const UIDataStore*            row = nullptr );
+    [[nodiscard]] entt::entity PickElement( entt::registry& reg, entt::entity canvas, const glm::vec2& pointPx,
+                                            const Rect& viewportPx );
+    [[nodiscard]] bool         GetElementRect( entt::registry& reg, entt::entity canvas, entt::entity target,
+                                               const Rect& viewportPx, Rect& out, glm::mat3* outXform = nullptr );
     [[nodiscard]] Common::ResultStr<float> CanvasScale( entt::registry& reg, entt::entity canvas,
                                                         const Rect& viewportPx );
 } // namespace Desert::UI

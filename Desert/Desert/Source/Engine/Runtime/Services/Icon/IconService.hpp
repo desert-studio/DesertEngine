@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Text/IconLayer.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -10,21 +11,11 @@
 
 namespace Desert::Runtime
 {
-    // One colour run of an icon: the sub-rect of the shared atlas holding its distance field, plus the
-    // fill the .svg authored. A plain monochrome icon has exactly one layer (white), so it tints as a
-    // whole; a multi-colour icon has one layer per colour, drawn back-to-front in document order.
-    struct IconLayer
-    {
-        float    U0 = 0.0f, V0 = 0.0f;
-        float    U1 = 1.0f, V1 = 1.0f;
-        uint32_t RGBA = 0xFFFFFFFFu;
-    };
-
     // A baked icon. Icons are drawn by the TEXT shader — an SDF is an SDF — so they stay crisp at any
     // size and inherit outline / glow / shadow for free.
     struct Icon
     {
-        std::vector<IconLayer> Layers;
+        std::vector<Text::IconLayer> Layers;
         float                  Aspect = 1.0f; // source viewBox width / height
 
         bool Valid() const

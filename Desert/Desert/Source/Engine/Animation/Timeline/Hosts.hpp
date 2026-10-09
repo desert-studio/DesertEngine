@@ -57,10 +57,10 @@
 #include <string_view>
 #include <vector>
 
-namespace Desert::ECS
+namespace Desert::UI
 {
     enum class UIEasing;
-} // namespace Desert::ECS
+} // namespace Desert::UI
 
 namespace Desert::Animation::Timeline
 {
@@ -71,5 +71,5 @@ namespace Desert::Animation::Timeline
     // v40 UIAnim → sequence, UILift.hpp) — live in Tools/SceneMigrator: the engine reads neither old form.
 
     /// `UIEasing`'s one table into `EasingPreset`, value for value (UITween, UIScreenStack and the UI lift).
-    [[nodiscard]] EasingPreset PresetOf( ECS::UIEasing easing );
+    [[nodiscard]] EasingPreset PresetOf( UI::UIEasing easing );
 } // namespace Desert::Animation::Timeline

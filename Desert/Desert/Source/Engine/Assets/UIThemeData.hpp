@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/UI/UIStyleSlots.hpp>
+#include <Engine/UI/Style/UIThemeRuntime.hpp>
 
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
@@ -80,11 +81,6 @@ namespace Desert::Assets
                                                 static_cast<uint32_t>( kUIThemeFormatVersion ) } };
         return versions;
     }
-
-    /// The style every element uses unless it names another one. A theme without it themes nothing and
-    /// says so once; it is a name and not an empty string so that "no style" cannot be confused with "the
-    /// author left the field blank".
-    inline constexpr const char* kUIThemeDefaultStyle = "Default";
 
     /// One named colour. Linear RGB, exactly as the components' own colour fields are, so a token and the
     /// literal it replaces are the same number and swapping one for the other cannot shift the picture.
@@ -199,58 +195,6 @@ namespace Desert::Assets
     // that does not exist, or a token in the wrong table, is refused with both names in the message,
     // instead of that binding quietly not being there.
 
-    /// A font token after the asset path has been bound to a handle. A null handle is the built-in face,
-    /// not an error — an empty `Asset` path means exactly that.
-    struct UIThemeResolvedFont
-    {
-        AssetHandle Asset;
-        float       Size = 20.0f;
-    };
-
-    /// "this style does not bind this slot" — the value every slot of a style starts at.
-    inline constexpr uint16_t kUIThemeUnbound = 0xFFFF;
-
-    /// One style, flattened: per slot, the index of the token in the table its kind names, or
-    /// `kUIThemeUnbound`.
-    struct UIThemeStyleTable
-    {
-        std::array<uint16_t, UI::kStyleSlotCount> Slots{};
-    };
-
-    /**
-     * @brief A theme ready to be asked a question sixty times a second.
-     *
-     * Built by BuildUIThemeRuntime from a parsed file plus the font handles its paths resolved to. Pure
-     * data: no asset manager, no GPU, no globals, so the whole resolution path is testable without either.
-     */
-    struct UIThemeRuntime
-    {
-        std::string Name; // DisplayName, or the file stem — for log messages and the Details style table
-
-        std::vector<std::string> ColorNames;
-        std::vector<glm::vec3>   Colors;
-        /// Parallel to `Colors`; an entry without a value is a token the high-contrast pass leaves alone.
-        std::vector<std::optional<glm::vec3>> HighContrast;
-
-        std::vector<std::string> MetricNames;
-        std::vector<float>       Metrics;
-
-        std::vector<std::string>         FontNames;
-        std::vector<UIThemeResolvedFont> Fonts;
-
-        std::unordered_map<std::string, UIThemeStyleTable> Styles;
-
-        /// Bumped by the owning asset on every successful load, so a view that caches a resolved style can
-        /// tell a hot-reloaded theme from the same one.
-        uint32_t Revision = 0;
-
-        [[nodiscard]] const UIThemeStyleTable* FindStyle( const std::string& name ) const
-        {
-            const auto it = Styles.find( name );
-            return it == Styles.end() ? nullptr : &it->second;
-        }
-    };
-
     // ----------------------------------------------------------------------------------------------
     // Pure functions over the two forms
     // ----------------------------------------------------------------------------------------------
@@ -288,7 +232,7 @@ namespace Desert::Assets
      * Returns an error for exactly the things Validate rejects — it calls it — so a runtime built from a
      * file the loader accepted cannot fail here.
      */
-    NO_DISCARD Common::ResultStr<UIThemeRuntime>
+    NO_DISCARD Common::ResultStr<UI::UIThemeRuntime>
                BuildUIThemeRuntime( const UIThemeData& data, std::string_view name,
                                     const std::unordered_map<std::string, AssetHandle>& fontHandles );
 

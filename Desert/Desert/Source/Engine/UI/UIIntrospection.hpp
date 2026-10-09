@@ -140,7 +140,7 @@ namespace Desert::UI
         std::vector<UIElementNode> Elements;
 
         Rect                      ViewportPx{};
-        std::vector<entt::entity> Canvases; // in draw order — the frame's canvases, all of them
+        std::vector<NodeId>       Canvases; // in draw order — the frame's canvases, all of them
 
         // Forget the frame while keeping the allocated capacity — the same no-reallocation-per-frame
         // discipline DrawList2D::Reset follows, because this runs every frame the panel is open.
@@ -156,8 +156,24 @@ namespace Desert::UI
     // ended up with, read ONCE for the frame. Refuses, into out.Refusal, when a canvas is not drawable in
     // @p reg — an empty successful probe would read as "this canvas costs nothing", which is the silent
     // wrong answer this project forbids.
+    //
+    // The registry overload (Engine/UI/Ecs/UIIntrospectionEcs.cpp) finds each canvas's cell in @p view and
+    // asks the tree overload below.
     NO_DISCARD Common::BoolResultStr CaptureFrame( const UIViewContext& view, entt::registry& reg,
                                                    const std::vector<entt::entity>&     canvases,
+                                                   const Graphic::Render2D::DrawList2D& dl, const Rect& viewportPx,
+                                                   UIFrameProbe& out );
+
+    // One canvas of a frame, with the cell of the view it was drawn under — nullptr when the view never drew
+    // it, which is EnumerateCanvas's authoring mode (no screen, no binding is asked), not "its first screen".
+    struct UICanvasWalk
+    {
+        NodeId                 Canvas = NodeId::Null;
+        const UICanvasContext* Cell   = nullptr;
+    };
+
+    // The tree half of CaptureFrame: every canvas of @p canvases enumerated in @p tree with its own cell.
+    NO_DISCARD Common::BoolResultStr CaptureFrame( const IUITree& tree, const std::vector<UICanvasWalk>& canvases,
                                                    const Graphic::Render2D::DrawList2D& dl, const Rect& viewportPx,
                                                    UIFrameProbe& out );
 

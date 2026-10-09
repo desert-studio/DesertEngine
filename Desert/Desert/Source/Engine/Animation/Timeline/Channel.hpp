@@ -163,7 +163,7 @@ namespace Desert::Animation::Timeline
     /**
      * @brief How a segment eases — an AUTHORING PRESET that sets interp and tangents on real keys.
      *
-     * The values mirror `ECS::UIEasing` one for one so the UI migration is a table, and `UIEasing` is
+     * The values mirror `UI::UIEasing` one for one so the UI migration is a table, and `UIEasing` is
      * deleted by that migration: this is the one home of the idea. Stored nowhere — a key does not
      * remember which preset made it, exactly as a UE key does not remember "ease out".
      */
