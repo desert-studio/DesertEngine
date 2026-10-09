@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <string_view>
 
 namespace Desert::UI
 {
@@ -213,7 +214,7 @@ namespace Desert::UI
         struct DirectionRule
         {
             UINavigationRule   Rule   = UINavigationRule::Escape;
-            const std::string* Target = nullptr;
+            std::string_view   Target;
         };
 
         DirectionRule RuleOf( const UINavigationData& d, UINavigation dir )
@@ -221,13 +222,13 @@ namespace Desert::UI
             switch ( dir )
             {
                 case UINavigation::Up:
-                    return { d.Up, &d.UpTarget };
+                    return { d.Up, d.UpTarget };
                 case UINavigation::Down:
-                    return { d.Down, &d.DownTarget };
+                    return { d.Down, d.DownTarget };
                 case UINavigation::Left:
-                    return { d.Left, &d.LeftTarget };
+                    return { d.Left, d.LeftTarget };
                 case UINavigation::Right:
-                    return { d.Right, &d.RightTarget };
+                    return { d.Right, d.RightTarget };
                 default:
                     return {};
             }
@@ -252,10 +253,10 @@ namespace Desert::UI
                     continue;
                 if ( r.Rule == UINavigationRule::Explicit )
                 {
-                    if ( r.Target->empty() )
+                    if ( r.Target.empty() )
                         return NodeId::Null; // an Explicit rule naming nothing goes nowhere
                     for ( const FocusEntry& e : entries )
-                        if ( e.Node != from && tree.Name( e.Node ) == *r.Target )
+                        if ( e.Node != from && tree.Name( e.Node ) == r.Target )
                             return e.Node;
                     return NodeId::Null;
                 }
