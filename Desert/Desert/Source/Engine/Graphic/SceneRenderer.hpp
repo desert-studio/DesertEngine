@@ -20,6 +20,8 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/View/DepthOfField.hpp>
+#include <Engine/Graphic/View/MotionBlur.hpp>
 #include <Engine/Graphic/View/SpatialUpscale.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Core/ViewBudget.hpp>
@@ -495,6 +497,12 @@ namespace Desert::Graphic
         // sharpen after any resolve (View/SpatialUpscale.hpp). Each owns its compute pipeline, like the above.
         SpatialUpscale m_SpatialUpscale;
         Sharpen        m_Sharpen;
+        // MR2: the view's motion blur (View/MotionBlur.hpp) and this frame's settings (BeginScene).
+        std::unique_ptr<MotionBlur> m_MotionBlur = std::make_unique<MotionBlur>();
+        MotionBlurSettings          m_MotionBlurSettings;
+        // MR3: the view's depth of field (View/DepthOfField.hpp) and this frame's settings (BeginScene).
+        std::unique_ptr<DepthOfField> m_DepthOfField = std::make_unique<DepthOfField>();
+        DepthOfFieldSettings          m_DepthOfFieldSettings;
         // ViewInputs::Quality: SCAL1 AntiAliasing.TemporalQuality, read with the rest of the quality (BeginScene).
         TemporalAAQuality m_TemporalAAQuality = TemporalAAQuality::Medium;
         // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's

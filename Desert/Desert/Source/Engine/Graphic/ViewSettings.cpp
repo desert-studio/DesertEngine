@@ -70,6 +70,16 @@ namespace Desert::Graphic
         target.BloomThreshold    = Lerp( target.BloomThreshold, volume.BloomThreshold, weight );
         target.BloomIntensity    = Lerp( target.BloomIntensity, volume.BloomIntensity, weight );
         target.LensDispersion    = Lerp( target.LensDispersion, volume.LensDispersion, weight );
+        target.DepthOfFieldFocalDistance =
+             Lerp( target.DepthOfFieldFocalDistance, volume.DepthOfFieldFocalDistance, weight );
+        target.DepthOfFieldFstop = Lerp( target.DepthOfFieldFstop, volume.DepthOfFieldFstop, weight );
+        target.DepthOfFieldSensorWidth =
+             Lerp( target.DepthOfFieldSensorWidth, volume.DepthOfFieldSensorWidth, weight );
+        target.DepthOfFieldMaxBokehSize =
+             Lerp( target.DepthOfFieldMaxBokehSize, volume.DepthOfFieldMaxBokehSize, weight );
+        target.MotionBlurAmount    = Lerp( target.MotionBlurAmount, volume.MotionBlurAmount, weight );
+        target.MotionBlurMax       = Lerp( target.MotionBlurMax, volume.MotionBlurMax, weight );
+        target.MotionBlurTargetFPS = Lerp( target.MotionBlurTargetFPS, volume.MotionBlurTargetFPS, weight );
 
         target.LensFlareIntensity    = Lerp( target.LensFlareIntensity, volume.LensFlareIntensity, weight );
         target.LensFlareTint         = Lerp( target.LensFlareTint, volume.LensFlareTint, weight );
