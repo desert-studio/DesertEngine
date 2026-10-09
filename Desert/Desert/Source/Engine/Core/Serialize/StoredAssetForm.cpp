@@ -18,7 +18,8 @@ namespace Desert::Core::Serialize
         // the sculpted body, the rig, the graph and the theme each copied the reasoning.
         if ( type == "MaterialAsset" || type == "CloudModellingVolumeAsset" || type == "ControlRigAsset" ||
              type == "AnimGraphAsset" || type == "UIThemeAsset" || type == "RetargetAsset" ||
-             type == "PrefabAsset" || type == "FoliageTypeAsset" || type == "FractureAsset" )
+             type == "PrefabAsset" || type == "FoliageTypeAsset" || type == "FractureAsset" ||
+             type == "PhysicsAsset" )
             return StoredAssetForm::AssetsRelative;
 
         // Meshes (static/skinned both resolved handle->path through the MeshAsset base) and skyboxes.

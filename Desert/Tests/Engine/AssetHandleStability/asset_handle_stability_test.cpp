@@ -52,6 +52,7 @@
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
+#include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -188,6 +189,8 @@ namespace
              { AssetTypeID::VFXDataChannel, "VFXDataChannelAsset", &HandleOf<Desert::Assets::VFXDataChannelAsset>,
                &MetadataTypeOf<Desert::Assets::VFXDataChannelAsset>,
                &DeclaredTypeOf<Desert::Assets::VFXDataChannelAsset> },
+             { AssetTypeID::PhysicsAsset, "PhysicsAsset", &HandleOf<Desert::Assets::PhysicsAsset>,
+               &MetadataTypeOf<Desert::Assets::PhysicsAsset>, &DeclaredTypeOf<Desert::Assets::PhysicsAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1328,6 +1331,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::VFXSystem,
          AssetTypeID::Fracture,
          AssetTypeID::VFXDataChannel,
+         AssetTypeID::PhysicsAsset,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

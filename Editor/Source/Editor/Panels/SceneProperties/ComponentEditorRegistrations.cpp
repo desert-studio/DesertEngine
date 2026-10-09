@@ -93,6 +93,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "S
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data, "DestructibleData",
                                      "Destructible" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RagdollComponent, Data, "RagdollData", "Ragdoll" )
 // Fields (UE Field System actors): placed at the entity, fired once by ECS::FireDestructionField.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RadialImpulseFieldComponent, Data, "RadialImpulseFieldData",
                                      "Radial Impulse Field" )

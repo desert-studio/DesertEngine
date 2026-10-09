@@ -141,6 +141,10 @@ namespace
               "it picks the mesh a collider is built from and carries the entity scale into its "
               "points (M22); it serves PhysicsECSSystem, whose verdict it shares: a hidden body is "
               "still simulated, so hiding must not change the shape it collides with." },
+         Row{ "RagdollLifetime.hpp", Verdict::MustNot,
+              "it puts a character's physics-asset bodies into the physics world and writes the simulated "
+              "pose back; the bodies are simulated like PhysicsECSSystem's, so a ragdoll hidden in the "
+              "outliner must neither leave the simulation nor stop colliding." },
          Row{ "DestructibleLifetime.hpp", Verdict::MustNot,
               "it adds a destructible's fracture to the destruction world on Play and releases it on "
               "destroy; the pieces are simulated like PhysicsECSSystem's bodies, so a destructible hidden "

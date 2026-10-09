@@ -45,6 +45,7 @@
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -191,6 +192,7 @@ namespace Desert::Editor
          { FileType::VFXSystem, "VFX System" },
          { FileType::Fracture, "Fracture" },
          { FileType::VFXDataChannel, "VFX Data Channel" },
+         { FileType::PhysicsAsset, "Physics Asset" },
          { FileType::Ini, "Settings" },
          { FileType::SkinnedMesh, "Skeletal Mesh" },
          { FileType::Skeleton, "Skeleton" },
@@ -223,6 +225,7 @@ namespace Desert::Editor
          { FileType::VFXSystem, { 0.95f, 0.45f, 0.10f, 1.00f } },
          { FileType::Fracture, { 0.75f, 0.55f, 0.35f, 1.00f } },
          { FileType::VFXDataChannel, { 0.95f, 0.70f, 0.20f, 1.00f } },
+         { FileType::PhysicsAsset, { 0.95f, 0.60f, 0.25f, 1.00f } },
          { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
          // UE's class colours for the animation family, so a folder of rig content reads as one family.
          { FileType::SkinnedMesh, { 0.90f, 0.35f, 0.90f, 1.00f } },
@@ -259,6 +262,7 @@ namespace Desert::Editor
          { FileType::VFXSystem, ICON_MDI_FIRE },
          { FileType::Fracture, ICON_MDI_CUBE_UNFOLDED },
          { FileType::VFXDataChannel, ICON_MDI_ACCESS_POINT },
+         { FileType::PhysicsAsset, ICON_MDI_BONE },
          { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
          { FileType::SkinnedMesh, ICON_MDI_HUMAN },
          { FileType::Skeleton, ICON_MDI_BONE },
@@ -1523,6 +1527,7 @@ namespace Desert::Editor
                          { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
                          { "Fractures", static_cast<int>( FileType::Fracture ) },
                          { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
+                         { "Physics Assets", static_cast<int>( FileType::PhysicsAsset ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )
@@ -2508,6 +2513,13 @@ namespace Desert::Editor
                 CommandMenuItem( ContentBrowserCommand::ReimportWithNewFile );
             }
 
+            // UE's Skeletal Mesh Asset Actions > Create > Physics Asset.
+            if ( entry.Type == FileType::SkinnedMesh && m_AssetManager )
+            {
+                ImGui::Separator();
+                CommandMenuItem( ContentBrowserCommand::CreatePhysicsAsset );
+            }
+
             // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
             if ( ThumbnailProducers::CaptureKeyOf( entry.Type ) && !m_ViewportScene.expired() )
             {
@@ -3016,6 +3028,24 @@ namespace Desert::Editor
                     CommitThumbnailGesture();
                 m_EditThumbnailPath      = entry.AssetPath;
                 m_EditThumbnailOrbitFile = *orbitFile;
+                return Common::MakeSuccess( true );
+            }
+            case ContentBrowserCommand::CreatePhysicsAsset:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const DirectoryInformation& entry = *target.GetValue();
+                if ( !entry.IsFile || entry.Type != FileType::SkinnedMesh || m_AssetManager == nullptr )
+                    return Common::MakeFormattedError<bool>( "'{}': '{}' is not a skeletal mesh", label,
+                                                             entry.AssetPath );
+                const auto created = CreatePhysicsAssetForMesh( *m_AssetManager, entry.AssetPath );
+                if ( !created )
+                    return Common::MakeFormattedError<bool>( "'{}': {}", label, created.GetError() );
+                LOG_INFO( "[Content Browser] Created physics asset '{}'", created.GetValue().generic_string() );
+                // Opened through the path route, as a double-click on it would (RequestPhysicsAssetDocument).
+                if ( m_SubjectEditors != nullptr )
+                    (void)m_SubjectEditors->OpenPath( created.GetValue().string() );
                 return Common::MakeSuccess( true );
             }
             case ContentBrowserCommand::ClearSelection:

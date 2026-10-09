@@ -100,6 +100,10 @@ namespace
               "header states a GUID but a module names its channel by file stem (DataChannel.<stem>, VFX-10)" },
          PathOnlyRow{ ContentKind::Fracture,
                       "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
+         PathOnlyRow{
+              ContentKind::PhysicsAsset,
+              "RagdollData::PhysicsAsset refers by AssetHandle, stored AssetsRelative like the .dfrac above "
+              "(StoredAssetForm.cpp); no {Guid, Path} referrer yet" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -253,6 +257,7 @@ namespace
             case ContentKind::WorldIndex:
             case ContentKind::Skybox:
             case ContentKind::Fracture:
+            case ContentKind::PhysicsAsset:
                 return SyntheticEnvelope( kind, guid );
             case ContentKind::Shader:
             {

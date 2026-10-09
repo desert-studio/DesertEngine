@@ -107,6 +107,10 @@ namespace Desert::Assets
         // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
         // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
         VFXDataChannel,
+        // A PHYSICS ASSET (`.dephysasset`): UE's UPhysicsAsset — one sphere / box / capsule body per bone and the
+        // swing-twist joints between them, naming its skeleton by GUID (Engine/Physics/PhysicsAssetFormat.hpp).
+        // See Engine/Assets/PhysicsAsset.hpp.
+        PhysicsAsset,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -203,6 +207,10 @@ namespace Desert::Assets
             // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
             // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
             case AssetTypeID::VFXDataChannel:
+            // A PHYSICS ASSET IS SCENE-SCOPED for the retarget's reason: the ragdolled entity names it through an
+            // `AssetHandle` (UE's USkeletalMeshComponent::PhysicsAssetOverride), so it lives as long as that
+            // entity.
+            case AssetTypeID::PhysicsAsset:
             case AssetTypeID::Count:
                 return false;
         }
@@ -275,6 +283,8 @@ namespace Desert::Assets
                 return "Fracture";
             case AssetTypeID::VFXDataChannel:
                 return "VFXDataChannel";
+            case AssetTypeID::PhysicsAsset:
+                return "PhysicsAsset";
             case AssetTypeID::Count:
                 return "Count";
         }

@@ -80,6 +80,7 @@ namespace Common::Content
         VFXSystem,
         Fracture,
         VFXDataChannel,
+        PhysicsAsset,
         COUNT,
     };
 
@@ -172,6 +173,8 @@ namespace Common::Content
              // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
              // (Engine/Assets/Serialization/VFXDataChannel.hpp).
              /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
+             // UE's UPhysicsAsset: a DPHA payload in the asset envelope (Physics/PhysicsAssetFormat.hpp).
+             /* PhysicsAsset         */ { "PhysicsAsset", ".dephysasset", &P::PHYSICS_ASSET_PATH },
         } };
     }
 

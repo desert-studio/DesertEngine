@@ -761,6 +761,7 @@ namespace Desert::Core
         r.prepare<ECS::DestructibleComponent>();
         // The editor's Fracture preview: viewed by FracturePieceDraw inside MeshECSSystem's parallel group.
         r.prepare<ECS::FracturePreviewComponent>();
+        r.prepare<ECS::RagdollComponent>();
         r.prepare<ECS::RadialImpulseFieldComponent>();
         r.prepare<ECS::StrainFieldComponent>();
         r.prepare<ECS::KillFieldComponent>();
