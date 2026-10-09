@@ -311,6 +311,139 @@ TEST( CloudFieldVolume, TheShaderAndTheGeneratorAgreeAboutHowTallTheVolumeIs )
             "rows the volume has, so the march's half-texel clamp is half of the wrong texel";
 }
 
+// THE CLIP LEVELS' TWO STATEMENTS (CLIP-3): Common/CloudField.glslh names how many levels the stacked image
+// has and how many texels a level's side carries; Engine/Assets/CloudProceduralVolume.hpp bakes them. The
+// level count sets the stack's row count, the side sets the guard that keeps a trilinear fetch inside a
+// level's window — both are half-texel-shaped defects nothing in a frame would show.
+TEST( CloudFieldVolume, TheShaderAndTheBakeAgreeOnTheClipLevels )
+{
+    EXPECT_EQ( CLOUD_PROCEDURAL_CLIP_LEVELS, static_cast<int>( Desert::Assets::kCloudProceduralClipLevels ) );
+    EXPECT_FLOAT_EQ( CLOUD_PROCEDURAL_VOLUME_SIDE, static_cast<float>( Desert::Assets::kCloudProceduralVolumeSide ) );
+}
+
+namespace
+{
+    // One level's own fetch, with no choice and no blend: what the stacked image holds for @p level at
+    // @p windPos. The relation tests below compare the shader's CloudSampleProceduralVolume against it.
+    vec4 CloudLevelFetch( const CloudFieldParams& params, int level, float fraction, vec3 windPos )
+    {
+        return CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level, fraction, windPos ) );
+    }
+
+    float CloudLargestChannelStep( vec4 a, vec4 b )
+    {
+        const vec4 d = glm::abs( a - b );
+        return std::max( std::max( d.x, d.y ), std::max( d.z, d.w ) );
+    }
+
+    // A cumulus sky dense enough that the two levels disagree somewhere along every boundary walked.
+    CloudFieldParams CloudClipFixture()
+    {
+        static const CloudTypeShape shape = Desert::Assets::CloudTypeDefaultShape();
+        CloudFieldParams            params{};
+        params.DetailTileKm   = 4.0f;
+        params.DetailStrength = 0.0f;
+        params.DensityScale   = 1.0f;
+        params.WindOffsetKm   = vec3( 0.0f );
+        params.ShadowRay      = CLOUD_RAY_VIEW;
+        CloudBindSpecies( params, &shape, 1u, vec3( 1.0f, 0.0f, 0.0f ), /*coverage=*/0.6f );
+        return params;
+    }
+} // namespace
+
+// THE BLEND BETWEEN TWO LEVELS HAS NO STEP (CLIP-3). Where a level hands the column to the next coarser one
+// the sample must be continuous: one centimetre either side of the boundary — at the guard, where the
+// finer level's weight reaches zero, and at the inner edge of the band, where it reaches one — the shader's
+// sample moves by no more than one byte of the volume (1/255). A hard switch would move it by the whole
+// difference between the two resolutions of the same field, which is what a flying camera sees as a ring
+// popping in. The walk covers both x edges of levels 0 and 1, sixty-four columns along each, at four heights,
+// and it also measures that hard-switch difference so the test cannot pass on an empty sky.
+// MUTATION: return `fine` instead of `mix( coarse, fine, weight )` in CloudSampleProceduralVolume -> red.
+TEST( CloudFieldVolume, TheLevelBlendHasNoStep )
+{
+    const CloudFieldParams params = CloudClipFixture();
+
+    constexpr float kOneByte   = 1.0f / 255.0f;
+    constexpr float kEpsilonKm = 1e-5f; // one centimetre
+    const float     guard      = 0.5f / CLOUD_PROCEDURAL_VOLUME_SIDE;
+
+    float largestStep   = 0.0f;
+    float largestSwitch = 0.0f;
+
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1; ++level )
+    {
+        const vec4  window = params.ProceduralLevel[level];
+        const float sideKm = 1.0f / window.z;
+
+        // The four x positions where the weight leaves 0 or reaches 1, on both sides of the window.
+        const float boundaries[4] = { window.x + guard * sideKm, window.x + CLOUD_PROCEDURAL_CLIP_BLEND * sideKm,
+                                      window.x + ( 1.0f - CLOUD_PROCEDURAL_CLIP_BLEND ) * sideKm,
+                                      window.x + ( 1.0f - guard ) * sideKm };
+
+        for ( const float boundaryX : boundaries )
+        {
+            for ( int iz = 0; iz < 64; ++iz )
+            {
+                const float z = window.y + sideKm * ( 0.2f + 0.6f * ( iz + 0.5f ) / 64.0f );
+
+                for ( const float fraction : { 0.1f, 0.3f, 0.5f, 0.7f } )
+                {
+                    const vec3 below( boundaryX - kEpsilonKm, 0.0f, z );
+                    const vec3 above( boundaryX + kEpsilonKm, 0.0f, z );
+
+                    largestStep = std::max( largestStep,
+                                            CloudLargestChannelStep( CloudSampleProceduralVolume( params, fraction, below ),
+                                                                     CloudSampleProceduralVolume( params, fraction, above ) ) );
+
+                    const vec3 on( boundaryX, 0.0f, z );
+                    largestSwitch = std::max( largestSwitch,
+                                              CloudLargestChannelStep( CloudLevelFetch( params, level, fraction, on ),
+                                                                       CloudLevelFetch( params, level + 1, fraction, on ) ) );
+                }
+            }
+        }
+    }
+
+    std::printf( "[CloudFieldVolume] level blend: largest step across a boundary %.6f, largest hard-switch "
+                 "difference between the two levels there %.6f\n",
+                 largestStep, largestSwitch );
+
+    ASSERT_GT( largestSwitch, kOneByte )
+         << "the two levels agree everywhere along the boundaries walked, so a hard switch would pass too";
+    EXPECT_LE( largestStep, kOneByte ) << "the sample steps where one clip level hands over to the next";
+}
+
+// THE FINEST LEVEL THAT HOLDS A COLUMN ANSWERS FOR IT (CLIP-3): deep inside level 0 the sample IS level 0's
+// fetch, between level 0's window and level 1's band it IS level 1's, past level 1 it is level 2's —
+// exactly, not within a tolerance, because no blend is in play there.
+// MUTATION: walk CloudProceduralLevelOf from the coarsest level down -> red.
+TEST( CloudFieldVolume, ASampleReadsTheFinestLevelThatHoldsIt )
+{
+    const CloudFieldParams params = CloudClipFixture();
+
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        const vec4  window = params.ProceduralLevel[level];
+        const float sideKm = 1.0f / window.z;
+
+        // A column inside this level's full-weight core but outside every finer level's window: for level
+        // 0 the window's centre, for the others a quarter of the way in from the min-x edge.
+        const float x = level == 0 ? window.x + 0.5f * sideKm : window.x + 0.2f * sideKm;
+        for ( int iz = 0; iz < 16; ++iz )
+        {
+            const vec3 at( x, 0.0f, window.y + sideKm * ( 0.3f + 0.4f * ( iz + 0.5f ) / 16.0f ) );
+
+            EXPECT_EQ( CloudProceduralLevelOf( params, vec2( at.x, at.z ) ), level );
+            for ( const float fraction : { 0.2f, 0.6f } )
+            {
+                const vec4 sample = CloudSampleProceduralVolume( params, fraction, at );
+                const vec4 own    = CloudLevelFetch( params, level, fraction, at );
+                EXPECT_EQ( sample, own ) << "level " << level << " does not answer for a column it holds alone";
+            }
+        }
+    }
+}
+
 TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
 {
     // THE PROPERTY THE PROFILE TABLE'S OWN TEST USED TO KEEP, and it was deleted with the table instead of
@@ -356,21 +489,24 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
         params.SpeciesWispTop[0]  = wisp.y;
     }
 
-    params.RegionOriginKm  = ModellingVolume().OriginKm;
-    params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
+    CloudBindProceduralLevels( params );
     const vec4 farWeather  = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
     params.Weather         = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
 
-    // FIRST: the coordinate itself never reaches either face.
-    const vec3 atTop    = CloudProceduralVolumeUvw( params, 1.0f, vec3( 0.0f ) );
-    const vec3 atBottom = CloudProceduralVolumeUvw( params, 0.0f, vec3( 0.0f ) );
+    // FIRST: the coordinate itself never reaches either face of ANY level's rows in the stack.
+    const float stackRows = CLOUD_PROCEDURAL_VOLUME_HEIGHT * static_cast<float>( CLOUD_PROCEDURAL_CLIP_LEVELS );
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        const vec3  atTop    = CloudProceduralLevelUvw( params, level, 1.0f, vec3( 0.0f ) );
+        const vec3  atBottom = CloudProceduralLevelUvw( params, level, 0.0f, vec3( 0.0f ) );
+        const float floorRow = static_cast<float>( level ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT;
 
-    const float halfTexel = 0.5f / CLOUD_PROCEDURAL_VOLUME_HEIGHT;
-
-    EXPECT_FLOAT_EQ( atTop.y, 1.0f - halfTexel )
-         << "a height fraction of 1 addresses the volume's very edge, where a REPEAT sampler wraps";
-    EXPECT_FLOAT_EQ( atBottom.y, halfTexel )
-         << "a height fraction of 0 addresses the volume's very edge, where a REPEAT sampler wraps";
+        EXPECT_FLOAT_EQ( atTop.y, ( floorRow + CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f ) / stackRows )
+             << "level " << level << ": a height fraction of 1 addresses the level's very edge, where the "
+                "fetch blends with the next level's floor (or wraps)";
+        EXPECT_FLOAT_EQ( atBottom.y, ( floorRow + 0.5f ) / stackRows )
+             << "level " << level << ": a height fraction of 0 addresses the level's very edge";
+    }
 
     // SECOND, AND THIS IS THE ONE THAT MATTERS: the consequence. At the top of this layer there is no
     // cloud, and there must be none however the coordinate is addressed. Without the clamp the fetch
@@ -1204,7 +1340,7 @@ namespace
     // the sampler mirror in CloudFieldReference.hpp exists to keep.
     float SpeciesProfileAt( const CloudFieldParams& params, int slot, float fraction, vec3 positionKm )
     {
-        const vec4 volume = CLOUD_SAMPLE_MODELLING( CloudProceduralVolumeUvw( params, fraction, positionKm ) );
+        const vec4 volume = CloudSampleProceduralVolume( params, fraction, positionKm );
         return clamp( volume[slot], 0.0f, 1.0f );
     }
 } // namespace
@@ -1362,7 +1498,7 @@ TEST( CloudFieldSpecies, AnEmptySetStillHasASkyAndAnUnfilledSlotCostsNothing )
             const vec3 position( OriginKm().x + PeriodKm() * ( j + 0.5f ) / 8.0f, fraction * envelopeUnusedKm,
                                  OriginKm().y + PeriodKm() * ( j * 3 + 1.5f ) / 8.0f );
 
-            const vec4 volume = CLOUD_SAMPLE_MODELLING( CloudProceduralVolumeUvw( params, fraction, position ) );
+            const vec4 volume = CloudSampleProceduralVolume( params, fraction, position );
 
             EXPECT_FLOAT_EQ( volume.y, 0.0f ) << "an unwritten channel is not zero";
             EXPECT_FLOAT_EQ( volume.z, 0.0f ) << "an unwritten channel is not zero";

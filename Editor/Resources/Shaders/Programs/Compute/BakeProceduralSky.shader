@@ -430,7 +430,8 @@ Shader "BakeProceduralSky"
                                                    fieldPos.y - params.WindOffsetKm.y,
                                                    fieldPos.z - params.WindOffsetKm.z);
 
-                            vec3 skyUvw = CloudSkyOcclusionUvw(params.RegionOriginKm, params.InvRegionSizeKm,
+                            vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
+                                                               params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
                                                                heightFraction, skyWindPos);
 
                             ambientOcclusion =

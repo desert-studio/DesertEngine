@@ -515,11 +515,25 @@ Shader "CloudRaymarch"
             //   2: along the ray, 32 samples — R the share the remap keeps, G the largest weather step between
             //      neighbours x 8 (a seam reads bright), B the share inside a baked body (species profile
             //      > 0); R is at most B, since air is never cloud (CUT-CORE).
+            //   3: at the ray's entry into the layer — which clip level of the modelling volume answers there
+            //      (CloudProceduralLevelOf): level 0 red, 1 green, 2 blue, and inside a blend band the
+            //      coarser level's colour mixed in by the blend weight, so the bands read as gradients.
             int visualize = int(u_CloudVisualize.x + 0.5f);
             if (visualize != 0)
             {
                 vec3 shown = vec3(0.0f);
-                if (visualize == 1)
+                if (visualize == 3)
+                {
+                    vec3  entryKm   = originKm + rayDir * segment.x;
+                    vec2  column    = (entryKm - params.WindOffsetKm).xz;
+                    int   level     = CloudProceduralLevelOf(params, column);
+                    vec3  colours[3] = vec3[3](vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f));
+                    shown           = colours[level];
+                    if (level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1)
+                        shown = mix(colours[level + 1], colours[level],
+                                    CloudProceduralLevelWeight(params, level, column));
+                }
+                else if (visualize == 1)
                 {
                     vec3  entryKm = originKm + rayDir * segment.x;
                     vec3  windPos = entryKm - params.WindOffsetKm;
@@ -530,8 +544,7 @@ Shader "CloudRaymarch"
                     float deepest      = 0.0f;
                     for (int k = 0; k < 8; ++k)
                     {
-                        vec3  uvw    = CloudProceduralVolumeUvw(params, (float(k) + 0.5f) / 8.0f, windPos);
-                        vec4  volume = CLOUD_SAMPLE_MODELLING(uvw);
+                        vec4  volume = CloudSampleProceduralVolume(params, (float(k) + 0.5f) / 8.0f, windPos);
                         int   winner = 0;
                         for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
                             winner = volume[slot] > volume[winner] ? slot : winner;
@@ -553,8 +566,7 @@ Shader "CloudRaymarch"
                         vec3  p       = originKm + rayDir * tk;
                         float hf      = CloudHeightFraction(layer, p);
                         vec3  windPos = vec3(p.x, length(p) - layer.BottomRadiusKm, p.z) - params.WindOffsetKm;
-                        vec3  uvw     = CloudProceduralVolumeUvw(params, hf, windPos);
-                        vec4  volume  = CLOUD_SAMPLE_MODELLING(uvw);
+                        vec4  volume  = CloudSampleProceduralVolume(params, hf, windPos);
                         int   winner  = 0;
                         for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
                             winner = volume[slot] > volume[winner] ? slot : winner;
@@ -753,7 +765,8 @@ Shader "CloudRaymarch"
                                                    fieldPos.y - params.WindOffsetKm.y,
                                                    fieldPos.z - params.WindOffsetKm.z);
 
-                            vec3 skyUvw = CloudSkyOcclusionUvw(params.RegionOriginKm, params.InvRegionSizeKm,
+                            vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
+                                                               params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
                                                                heightFraction, skyWindPos);
 
                             // textureLod AND NOT texture, for the reason every other volume fetch in this

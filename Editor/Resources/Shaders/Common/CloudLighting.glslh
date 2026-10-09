@@ -444,9 +444,12 @@ float CloudSkyLightBottomVisibility( float heightFraction, float occlusion )
 // THE VOLUME ITSELF — its extents, and where a sample lands in it
 // ---------------------------------------------------------------------------------------------------
 //
-// IT SHARES THE PROCEDURAL MODELLING VOLUME'S FRAME EXACTLY: the same region origin, the same side, the
-// same wind shift, the same REPEAT horizontally (Common/CloudField.glslh, CloudProceduralVolumeUvw). That
-// is the one design decision in this feature and it is what kills the seam an earlier attempt had.
+// IT SHARES THE PROCEDURAL MODELLING VOLUME'S COARSEST CLIP LEVEL'S WINDOW: the same origin, the same side
+// (the whole region), the same wind shift, REPEAT horizontally (Common/CloudField.glslh,
+// CloudFieldParams::ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1]; callers pass its .xy and .z). That
+// is the one design decision in this feature and it is what kills the seam an earlier attempt had. Only
+// the coarsest level: the term is a hemispherical integral whose footprint is kilometres, so the finer
+// levels hold structure it does not have (the halving argument below, twice over).
 //
 // THE SEAM IT AVOIDS. Docs/Sky/HANDOVER.md §1 item 3 records a version of this that projected the SUN-space
 // shadow map onto the vertical, and its third fault was that the shadow map's footprint is a 30 km radius
@@ -470,7 +473,7 @@ float CloudSkyLightBottomVisibility( float heightFraction, float occlusion )
 // the two cannot drift; @p heightFraction is the sample's own normalised altitude in the shell, which the
 // march already holds.
 //
-// VERTICALLY CLAMPED TO THE TEXEL CENTRES for the reason CloudProceduralVolumeUvw gives at its own clamp:
+// VERTICALLY CLAMPED TO THE TEXEL CENTRES for the reason CloudProceduralLevelUvw gives at its own clamp:
 // every sampler in this engine is REPEAT, and a height fraction of 1 would otherwise wrap to the bottom
 // slice — so the top of the layer would be told the whole deck is above it.
 vec3 CloudSkyOcclusionUvw( vec2 regionOriginKm, float invRegionSizeKm, float heightFraction, vec3 windPos )

@@ -501,10 +501,11 @@ namespace Desert::Editor
             {
                 char*               end  = nullptr;
                 const unsigned long mode = std::strtoul( value.c_str(), &end, 10 );
-                if ( value.empty() || end != value.c_str() + value.size() || mode > 2ul )
+                if ( value.empty() || end != value.c_str() + value.size() || mode > 3ul )
                 {
                     return Common::MakeFormattedError<CommandLineOptions>(
-                         "--cloud-visualize '{}' is not a mode (0 off, 1 the column cut, 2 the ray's kept share).",
+                         "--cloud-visualize '{}' is not a mode (0 off, 1 the column cut, 2 the ray's kept share, 3 the clip "
+                         "level).",
                          value );
                 }
                 options.CloudVisualize = static_cast<int>( mode );
