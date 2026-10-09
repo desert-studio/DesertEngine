@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#if __has_include( <cxxabi.h> )
+#if !defined( _WIN32 ) // the Itanium C++ ABI header: clang and gcc ship it, MSVC does not
 #include <cxxabi.h>
 #endif
 #include <exception>
@@ -408,7 +408,7 @@ namespace
         // before InitGoogleTest, so --gtest_catch_exceptions=1 still turns gtest's catch back on. Only where
         // the C++ runtime is the Itanium one (clang, gcc): under MSVC the same flag also stops gtest catching
         // SEH faults, which it reports per test today, and a rethrow there prints nothing more.
-#if __has_include( <cxxabi.h> )
+#if !defined( _WIN32 ) // the Itanium C++ ABI header: clang and gcc ship it, MSVC does not
         GTEST_FLAG_SET( catch_exceptions, false );
 #endif
         testing::InitGoogleTest( &argc, argv );
@@ -453,7 +453,7 @@ namespace
     // The thrown type's name, where the C++ runtime can say it (Itanium ABI: clang, gcc).
     std::string CurrentExceptionType()
     {
-#if __has_include( <cxxabi.h> )
+#if !defined( _WIN32 ) // the Itanium C++ ABI header: clang and gcc ship it, MSVC does not
         const std::type_info* type = abi::__cxa_current_exception_type();
         if ( type == nullptr )
         {

@@ -365,13 +365,26 @@ namespace
     constexpr const char* kCanvasRenderer = "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp";
     constexpr const char* kAnimationSystem = "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp";
     constexpr const char* kCanvasLayout   = "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp";
+    constexpr const char* kUIButton = "Desert/Desert/Source/Engine/UI/Widgets/Button.cpp";
+    constexpr const char* kUIDropdown = "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp";
+    constexpr const char* kUIImage = "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp";
+    constexpr const char* kUIInputField = "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp";
+    constexpr const char* kUIPanel = "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp";
+    constexpr const char* kUIPath = "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp";
+    constexpr const char* kUIProgressBar = "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp";
+    constexpr const char* kUIScrollList = "Desert/Desert/Source/Engine/UI/Widgets/ScrollList.cpp";
+    constexpr const char* kUISlider = "Desert/Desert/Source/Engine/UI/Widgets/Slider.cpp";
+    constexpr const char* kUIText = "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp";
+    constexpr const char* kUIToggle = "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp";
+    constexpr const char* kUIRichText = "Desert/Desert/Source/Engine/UI/UIRichText.cpp";
+    constexpr const char* kUIWalkCtx = "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
-         { "ScaleMode", kCanvasRenderer },
+         { "ScaleMode", kUIWalkCtx },
          { "ReferenceWidth", kCanvasRenderer },
          { "ReferenceHeight", kCanvasRenderer },
-         { "MatchWidthHeight", kCanvasRenderer },
+         { "MatchWidthHeight", kUIWalkCtx },
          // Screen-space vs billboarded, and the distance scale the billboard uses.
          { "RenderMode", kCanvasRenderer },
          { "WorldScale", kCanvasRenderer },
@@ -400,8 +413,8 @@ namespace
     // that silently applies to an element that opted out, or an opt-out that silently applies to one that
     // did not, and both look like a correctly drawn UI.
     constexpr Row kStyleRows[] = {
-         { "Source", kCanvasRenderer },
-         { "Style", kCanvasRenderer },
+         { "Source", kUIWalkCtx },
+         { "Style", kUIWalkCtx },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -627,6 +640,8 @@ namespace
          { "Mass", kPhysicsSystem },
          { "Friction", kPhysicsSystem },
          { "Restitution", kPhysicsSystem },
+         // Resolved against the project's Config/CollisionProfiles.json when the body is created.
+         { "CollisionProfile", kPhysicsSystem },
     };
 
     constexpr Row kCharacterControllerRows[] = {
@@ -634,6 +649,7 @@ namespace
          { "Height", kPhysicsSystem },
          { "MaxSlopeDeg", kPhysicsSystem },
          { "Gravity", kPhysicsSystem },
+         { "CollisionProfile", kPhysicsSystem },
     };
 
     constexpr Row kAudioRows[] = {
@@ -673,7 +689,7 @@ namespace
          { "Rotation", kCanvasRenderer },
          { "Scale", kCanvasRenderer },
          { "Pivot", kCanvasRenderer },
-         { "ClipContents", kCanvasRenderer },
+         { "ClipContents", kUIScrollList },
          { "Visibility", kCanvasLayout },
          { "HitTest", kCanvasRenderer },
          { "AspectRatio", kCanvasLayout },
@@ -689,73 +705,73 @@ namespace
     };
 
     constexpr Row kPanelRows[] = {
-         { "Color", kCanvasRenderer },
-         { "Opacity", kCanvasRenderer },
-         { "CornerRadius", kCanvasRenderer },
-         { "BackdropBlur", kCanvasRenderer },
-         { "Sprite", kCanvasRenderer },
-         { "SpriteBorder", kCanvasRenderer },
-         { "Video", kCanvasRenderer },
-         { "VideoVolume", kCanvasRenderer },
-         { "VideoMuted", kCanvasRenderer },
-         { "Circle", kCanvasRenderer },
-         { "RingWidth", kCanvasRenderer },
-         { "RingColorA", kCanvasRenderer },
-         { "RingColorB", kCanvasRenderer },
-         { "Pulse", kCanvasRenderer },
-         { "PulseSpeed", kCanvasRenderer },
-         { "PulseMin", kCanvasRenderer },
-         { "UseGradient", kCanvasRenderer },
-         { "GradientColor", kCanvasRenderer },
-         { "BorderWidth", kCanvasRenderer },
-         { "BorderColor", kCanvasRenderer },
-         { "Shadow", kCanvasRenderer },
-         { "ShadowColor", kCanvasRenderer },
-         { "ShadowOffset", kCanvasRenderer },
-         { "Glow", kCanvasRenderer },
-         { "GlowColor", kCanvasRenderer },
-         { "GlowSize", kCanvasRenderer },
+         { "Color", kUIPanel },
+         { "Opacity", kUIPanel },
+         { "CornerRadius", kUIPanel },
+         { "BackdropBlur", kUIPanel },
+         { "Sprite", kUIPanel },
+         { "SpriteBorder", kUIPanel },
+         { "Video", kUIPanel },
+         { "VideoVolume", kUIPanel },
+         { "VideoMuted", kUIPanel },
+         { "Circle", kUIPanel },
+         { "RingWidth", kUIPanel },
+         { "RingColorA", kUIPanel },
+         { "RingColorB", kUIPanel },
+         { "Pulse", kUIPanel },
+         { "PulseSpeed", kUIPanel },
+         { "PulseMin", kUIPanel },
+         { "UseGradient", kUIPanel },
+         { "GradientColor", kUIPanel },
+         { "BorderWidth", kUIPanel },
+         { "BorderColor", kUIPanel },
+         { "Shadow", kUIPanel },
+         { "ShadowColor", kUIPanel },
+         { "ShadowOffset", kUIPanel },
+         { "Glow", kUIPanel },
+         { "GlowColor", kUIPanel },
+         { "GlowSize", kUIPanel },
          // The UI-material slot is read by the canvas walk like every other fill field; what it
          // resolves to is Render2D's business (Graphic/Render2D/UIMaterialCache.cpp).
-         { "Material", kCanvasRenderer },
+         { "Material", kUIPanel },
     };
 
     constexpr Row kButtonRows[] = {
-         { "NormalColor", kCanvasRenderer },    { "HoverColor", kCanvasRenderer },
-         { "PressedColor", kCanvasRenderer },   { "Action", kCanvasRenderer },
-         { "OnClickMessage", kCanvasRenderer }, { "Sprite", kCanvasRenderer },
-         { "HoverSprite", kCanvasRenderer },    { "PressedSprite", kCanvasRenderer },
-         { "SpriteBorder", kCanvasRenderer },   { "Selected", kCanvasRenderer },
-         { "SelectedColor", kCanvasRenderer },  { "SelectedAccent", kCanvasRenderer },
-         { "Disabled", kCanvasRenderer },       { "DisabledColor", kCanvasRenderer },
+         { "NormalColor", kUIButton },    { "HoverColor", kUIButton },
+         { "PressedColor", kUIButton },   { "Action", kUIButton },
+         { "OnClickMessage", kUIButton }, { "Sprite", kUIButton },
+         { "HoverSprite", kUIButton },    { "PressedSprite", kUIButton },
+         { "SpriteBorder", kUIButton },   { "Selected", kUIButton },
+         { "SelectedColor", kUIButton },  { "SelectedAccent", kUIButton },
+         { "Disabled", kUIButton },       { "DisabledColor", kUIButton },
     };
 
     constexpr Row kTextRows[] = {
-         { "Text", kCanvasRenderer },         { "FontSize", kCanvasRenderer },
-         { "Font", kCanvasRenderer },         { "Color", kCanvasRenderer },
-         { "Align", kCanvasRenderer },        { "VerticalAlign", kCanvasRenderer },
-         { "Wrap", kCanvasRenderer },         { "LineSpacing", kCanvasRenderer },
-         { "AutoSize", kCanvasRenderer },     { "MinFontSize", kCanvasRenderer },
-         { "Overflow", kCanvasRenderer },     { "RichText", kCanvasRenderer },
-         { "Marquee", kCanvasRenderer },      { "MarqueeSpeed", kCanvasRenderer },
-         { "Shadow", kCanvasRenderer },       { "ShadowColor", kCanvasRenderer },
-         { "ShadowOffset", kCanvasRenderer }, { "Outline", kCanvasRenderer },
-         { "OutlineColor", kCanvasRenderer }, { "Glow", kCanvasRenderer },
-         { "GlowColor", kCanvasRenderer },    { "GlowRadius", kCanvasRenderer },
-         { "GlowStrength", kCanvasRenderer },
+         { "Text", kUIText },         { "FontSize", kUIRichText },
+         { "Font", kUIRichText },         { "Color", kUIRichText },
+         { "Align", kUIRichText },        { "VerticalAlign", kUIRichText },
+         { "Wrap", kUIRichText },         { "LineSpacing", kUIRichText },
+         { "AutoSize", kUIRichText },     { "MinFontSize", kUIRichText },
+         { "Overflow", kUIRichText },     { "RichText", kUIRichText },
+         { "Marquee", kUIRichText },      { "MarqueeSpeed", kUIRichText },
+         { "Shadow", kUIRichText },       { "ShadowColor", kUIRichText },
+         { "ShadowOffset", kUIRichText }, { "Outline", kUIRichText },
+         { "OutlineColor", kUIRichText }, { "Glow", kUIRichText },
+         { "GlowColor", kUIRichText },    { "GlowRadius", kUIRichText },
+         { "GlowStrength", kUIRichText },
     };
 
     constexpr Row kImageRows[] = {
-         { "Sprite", kCanvasRenderer },
-         { "Tint", kCanvasRenderer },
-         { "Opacity", kCanvasRenderer },
-         { "SpriteBorder", kCanvasRenderer },
+         { "Sprite", kUIImage },
+         { "Tint", kUIImage },
+         { "Opacity", kUIImage },
+         { "SpriteBorder", kUIImage },
     };
 
     constexpr Row kIconRows[] = {
-         { "Icon", kCanvasRenderer },
-         { "Color", kCanvasRenderer },
-         { "Scale", kCanvasRenderer },
+         { "Icon", kUIWalkCtx },
+         { "Color", kUIText },
+         { "Scale", kUIWalkCtx },
     };
 
     // Ю16. All four are read in the canvas walk: ScenePath and ResolutionScale by ResolveRenderTexture,
@@ -851,92 +867,92 @@ namespace
     };
 
     constexpr Row kRenderTextureRows[] = {
-         { "ScenePath", kCanvasRenderer },
-         { "Tint", kCanvasRenderer },
-         { "Opacity", kCanvasRenderer },
-         { "ResolutionScale", kCanvasRenderer },
+         { "ScenePath", kUIWalkCtx },
+         { "Tint", kUIImage },
+         { "Opacity", kUIImage },
+         { "ResolutionScale", kUIWalkCtx },
     };
 
     constexpr Row kProgressBarRows[] = {
-         { "Value", kCanvasRenderer },
-         { "Background", kCanvasRenderer },
-         { "Fill", kCanvasRenderer },
-         { "CornerRadius", kCanvasRenderer },
+         { "Value", kUIProgressBar },
+         { "Background", kUIProgressBar },
+         { "Fill", kUIProgressBar },
+         { "CornerRadius", kUIProgressBar },
     };
 
     constexpr Row kPathRows[] = {
-         { "Curve", kCanvasRenderer },      { "PointCount", kCanvasRenderer },   { "Reveal", kCanvasRenderer },
-         { "Thickness", kCanvasRenderer },  { "Color", kCanvasRenderer },        { "Opacity", kCanvasRenderer },
-         { "RoundCaps", kCanvasRenderer },  { "Feather", kCanvasRenderer },      { "P0", kCanvasRenderer },
-         { "P1", kCanvasRenderer },         { "P2", kCanvasRenderer },           { "P3", kCanvasRenderer },
-         { "P4", kCanvasRenderer },         { "P5", kCanvasRenderer },           { "P6", kCanvasRenderer },
-         { "P7", kCanvasRenderer },         { "Glow", kCanvasRenderer },         { "GlowColor", kCanvasRenderer },
-         { "GlowRadius", kCanvasRenderer }, { "GlowStrength", kCanvasRenderer },
+         { "Curve", kUIPath },      { "PointCount", kUIPath },   { "Reveal", kUIPath },
+         { "Thickness", kUIPath },  { "Color", kUIPath },        { "Opacity", kUIPath },
+         { "RoundCaps", kUIPath },  { "Feather", kUIPath },      { "P0", kUIPath },
+         { "P1", kUIPath },         { "P2", kUIPath },           { "P3", kUIPath },
+         { "P4", kUIPath },         { "P5", kUIPath },           { "P6", kUIPath },
+         { "P7", kUIPath },         { "Glow", kUIPath },         { "GlowColor", kUIPath },
+         { "GlowRadius", kUIPath }, { "GlowStrength", kUIPath },
     };
 
     constexpr Row kRetainerRows[] = {
-         { "Opacity", kCanvasRenderer },    { "Mask", kCanvasRenderer },      { "MaskElement", kCanvasRenderer },
+         { "Opacity", kCanvasRenderer },    { "Mask", kCanvasRenderer },      { "MaskElement", kUIWalkCtx },
          { "InvertMask", kCanvasRenderer }, { "Haze", kCanvasRenderer },      { "HazeAmplitude", kCanvasRenderer },
          { "HazeScale", kCanvasRenderer },  { "HazeSpeed", kCanvasRenderer },
     };
 
     constexpr Row kToggleRows[] = {
-         { "Value", kCanvasRenderer },
-         { "BoxColor", kCanvasRenderer },
-         { "CheckColor", kCanvasRenderer },
-         { "CornerRadius", kCanvasRenderer },
+         { "Value", kUIToggle },
+         { "BoxColor", kUIToggle },
+         { "CheckColor", kUIToggle },
+         { "CornerRadius", kUIToggle },
     };
 
     constexpr Row kSliderRows[] = {
-         { "Value", kCanvasRenderer },      { "MinValue", kCanvasRenderer },  { "MaxValue", kCanvasRenderer },
-         { "TrackColor", kCanvasRenderer }, { "FillColor", kCanvasRenderer }, { "HandleColor", kCanvasRenderer },
+         { "Value", kUISlider },      { "MinValue", kUISlider },  { "MaxValue", kUISlider },
+         { "TrackColor", kUISlider }, { "FillColor", kUISlider }, { "HandleColor", kUISlider },
     };
 
     constexpr Row kScrollViewRows[] = {
-         { "ScrollY", kCanvasRenderer },        { "ContentHeight", kCanvasRenderer },
-         { "Background", kCanvasRenderer },     { "ShowScrollbar", kCanvasRenderer },
-         { "ScrollbarColor", kCanvasRenderer },
+         { "ScrollY", kUIScrollList },        { "ContentHeight", kUIScrollList },
+         { "Background", kUIScrollList },     { "ShowScrollbar", kUIScrollList },
+         { "ScrollbarColor", kUIScrollList },
     };
 
     constexpr Row kListViewRows[] = {
-         { "ScrollY", kCanvasRenderer },
-         { "ItemHeight", kCanvasRenderer },
-         { "Spacing", kCanvasRenderer },
-         { "Overscan", kCanvasRenderer },
-         { "Background", kCanvasRenderer },
-         { "ShowScrollbar", kCanvasRenderer },
-         { "ScrollbarColor", kCanvasRenderer },
+         { "ScrollY", kUIScrollList },
+         { "ItemHeight", kUIScrollList },
+         { "Spacing", kUIScrollList },
+         { "Overscan", kUIScrollList },
+         { "Background", kUIScrollList },
+         { "ShowScrollbar", kUIScrollList },
+         { "ScrollbarColor", kUIScrollList },
          // UIL1: the collection the rows come from (row count, entry template, record per row) and the
          // chat behaviour that pins the scroll to the end — both read by the canvas walk.
-         { "Collection", kCanvasRenderer },
-         { "FollowEnd", kCanvasRenderer },
+         { "Collection", kUIScrollList },
+         { "FollowEnd", kUIScrollList },
     };
 
     constexpr Row kInputFieldRows[] = {
-         { "Text", kCanvasRenderer },
-         { "Placeholder", kCanvasRenderer },
-         { "FontSize", kCanvasRenderer },
-         { "TextColor", kCanvasRenderer },
-         { "PlaceholderColor", kCanvasRenderer },
-         { "Background", kCanvasRenderer },
-         { "FocusColor", kCanvasRenderer },
-         { "CornerRadius", kCanvasRenderer },
+         { "Text", kUIInputField },
+         { "Placeholder", kUIInputField },
+         { "FontSize", kUIInputField },
+         { "TextColor", kUIInputField },
+         { "PlaceholderColor", kUIInputField },
+         { "Background", kUIInputField },
+         { "FocusColor", kUIInputField },
+         { "CornerRadius", kUIInputField },
     };
 
     constexpr Row kDropdownRows[] = {
-         { "Options", kCanvasRenderer },   { "SelectedIndex", kCanvasRenderer }, { "Open", kCanvasRenderer },
+         { "Options", kCanvasRenderer },   { "SelectedIndex", kUIDropdown }, { "Open", kUIDropdown },
          { "FontSize", kCanvasRenderer },  { "Background", kCanvasRenderer },    { "TextColor", kCanvasRenderer },
          { "Highlight", kCanvasRenderer }, { "CornerRadius", kCanvasRenderer },
     };
 
     constexpr Row kTweenRows[] = {
-         { "Property", kCanvasRenderer }, { "From", kCanvasRenderer },    { "To", kCanvasRenderer },
-         { "Duration", kCanvasRenderer }, { "Delay", kCanvasRenderer },   { "Easing", kCanvasRenderer },
-         { "Loop", kCanvasRenderer },     { "Playing", kCanvasRenderer }, { "RewindOnHide", kCanvasRenderer },
+         { "Property", kUIWalkCtx }, { "From", kUIWalkCtx },    { "To", kUIWalkCtx },
+         { "Duration", kUIWalkCtx }, { "Delay", kUIWalkCtx },   { "Easing", kUIWalkCtx },
+         { "Loop", kUIWalkCtx },     { "Playing", kUIWalkCtx }, { "RewindOnHide", kUIWalkCtx },
     };
 
     constexpr Row kBindingRows[] = {
-         { "Key", kCanvasRenderer }, { "Target", kCanvasRenderer },
+         { "Key", kUIWalkCtx }, { "Target", kUIWalkCtx },
          // `Format` was here and is GONE (Ю15). It held a printf format an author typed in the Details
          // panel and the canvas handed to std::snprintf with a double, and it formatted every bound number
          // in the C locale whatever language the reader was in. Its job is the string table's now.
@@ -965,7 +981,7 @@ namespace
     };
 
     constexpr Row kDropTargetRows[] = {
-         { "Accepts", kCanvasRenderer },
+         { "Accepts", kUIWalkCtx },
          { "OnDropMessage", kCanvasRenderer },
          { "HighlightColor", kCanvasRenderer },
     };

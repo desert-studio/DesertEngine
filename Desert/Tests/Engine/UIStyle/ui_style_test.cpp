@@ -149,8 +149,18 @@ TEST( UIStyleSlots, EverySlotIsReadByTheCanvasWalk )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
 
-    const std::string walk = ReadFile( root + "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp" );
-    ASSERT_FALSE( walk.empty() ) << "UICanvasRenderer2D.cpp could not be read";
+    // UI-FW2: the walk is UICanvasRenderer2D.cpp plus the per-element resolve (UIWalkCtx.cpp) and the
+    // widgets each element draws with (Widgets/), so a slot is read when any of them reads it.
+    std::string walk;
+    for ( const char* file : { "UICanvasRenderer2D.cpp", "UIWalkCtx.cpp", "Widgets/Button.cpp", "Widgets/Dropdown.cpp",
+                               "Widgets/Image.cpp", "Widgets/InputField.cpp", "Widgets/Panel.cpp", "Widgets/Path.cpp",
+                               "Widgets/ProgressBar.cpp", "Widgets/ScrollList.cpp", "Widgets/Slider.cpp",
+                               "Widgets/Text.cpp", "Widgets/Toggle.cpp" } )
+    {
+        const std::string text = ReadFile( root + "Desert/Desert/Source/Engine/UI/" + file );
+        ASSERT_FALSE( text.empty() ) << file << " could not be read";
+        walk += text + "\n";
+    }
 
     std::vector<std::string> unread;
     for ( std::size_t i = 0; i < kStyleSlotCount; ++i )

@@ -1040,7 +1040,7 @@ namespace
 TEST_F( NormalSlotImport, TheShippedTemplateStatesTheNormalSlotsIntent )
 {
     const TestSupport::EngineDirScope engineDir;
-    const char*                       file = "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader";
+    const char*                       file = "Editor/Resources/Shaders/Programs/Surface/StandardSurface.shader";
     const auto text = Common::Utils::FileSystem::ReadFileContent( TestSupport::RepositoryRoot() / file );
     ASSERT_TRUE( text.IsSuccess() );
     const auto read = Editor::ReadImportTemplate( text.GetValue(), file );

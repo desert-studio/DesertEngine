@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "2da2387a87064ed6bd33c61d6d5a7fc7",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 42,
             "UNIT": 1
         },
         "Dependencies": []
@@ -231,7 +231,8 @@
                 "Type": 0,
                 "Mass": 1.0,
                 "Friction": 0.5,
-                "Restitution": 0.10000000149011612
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "BlockAll"
             }
         },
         {

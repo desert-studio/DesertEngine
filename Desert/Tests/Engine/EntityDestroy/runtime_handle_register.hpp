@@ -73,7 +73,7 @@ namespace Desert::Tests::RuntimeHandles
            "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp",
            "on_destroy<SocketAttachmentComponent>().connect", "WP6: was erased by nothing" },
          { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases", Release::Sweep,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "reg.valid( it->first )",
+           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "tree.Valid( it->first )",
            "RetireDeadCanvases, once per frame" },
          { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "HoverT", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
@@ -87,7 +87,7 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "UIL1: per-list collection serial inside a canvas's context; goes when the canvas does" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp", "MaskOf", Release::OwnerRetired,
+         { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp", "MaskOf", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
            "WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };",
            "retainer -> mask element, rebuilt inside the stack-local walk context of one canvas draw; it dies "
