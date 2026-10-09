@@ -72,7 +72,8 @@ namespace Desert::UI::Walk
         // The PLACEHOLDER is authored and therefore localisable; `f.Text` is what the player
         // typed and is drawn exactly as typed — translating a person's own input would be
         // absurd, and it is the one string on a canvas that must never go through the table.
-        td.Text     = showPlaceholder ? ctx.View.Resources().Text().Resolve( f.Placeholder ).Text : f.Text;
+        td.Text =
+             showPlaceholder ? ctx.View.Resources().Text().Resolve( f.Placeholder, std::nullopt ).Text : f.Text;
         td.FontSize = f.FontSize;
         td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
         td.Align    = UITextAlign::Left;
