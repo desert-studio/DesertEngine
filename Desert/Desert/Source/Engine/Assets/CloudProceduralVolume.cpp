@@ -197,15 +197,6 @@ namespace Desert::Assets
         /// multiplier (D-22: the band clamp below still bounds every lump).
         constexpr float kTurretStretch = 0.8f;
 
-        /// A BODY'S HEIGHT OVER ITS WIDTH, AS A LAW OF ITS SIZE (CLOUD-GAUNTLET r07): a fair-weather puff is
-        /// about half as tall as it is wide (Cu humilis), a typical body of its type stands
-        /// `kBodyAspectAtSmall + kBodyAspectGrowth` times its width, and a body larger than typical is
-        /// bounded by the band alone. Without this cap a small body's height came from the type's
-        /// EdgeTopFraction floor of the BAND — 0.54 km on congestus whatever its width — so a 0.6 km body
-        /// stood 1.15 km tall and its six lumps read as balls stacked on one another.
-        constexpr float kBodyAspectAtSmall = 0.5f;
-        constexpr float kBodyAspectGrowth  = 0.7f;
-
         /// HOW FAR THE TURRETS STAND OUT FROM THE BODY'S AXIS at the top of the stack, against the base's
         /// half-cluster-radius disc. The disc used to close to 45 % of it (`1 - 0.55 t`), which piled the
         /// upper lumps onto the axis and made one smooth dome — a ball. At 75 % the crown is several
@@ -1434,13 +1425,7 @@ namespace Desert::Assets
                     // band and nothing else. That is the second half of §RW2's finding — the old stack
                     // stood `band * fullness + 2 * lumpRadius` tall, which is a body that pokes out of the
                     // altitudes its own asset declares.
-                    // THE BODY'S OWN WIDTH CAPS ITS HEIGHT (kBodyAspectAtSmall): the type's fullness says how
-                    // much of the band a body of this size may reach, and its width says how tall a body that
-                    // wide stands — the smaller of the two, so a small cumulus is a flat-based puff rather than
-                    // a column, and a stratus (band far below its width) is untouched.
-                    const float aspectKm =
-                         ( kBodyAspectAtSmall + kBodyAspectGrowth * shortening ) * 2.0f * clusterRadiusKm;
-                    const float bandFullKm = std::min( bandKm * fullness, aspectKm );
+                    const float bandFullKm = bandKm * fullness;
 
                     float lumpT[kBlobsPerCluster];
                     float lumpRadiusKm[kBlobsPerCluster];
@@ -1514,11 +1499,20 @@ namespace Desert::Assets
                     // ends where the turrets' centres stand, so their heads — and nothing else — reach the
                     // band's top. See kTurretsPerCrown.
                     const float crownRadiusKm    = lumpRadiusKm[stackCount - 1];
-                    const float turretRadiusKm   = std::max( kTurretRadiusOfCrown * crownRadiusKm, lumpFloorKm );
-                    const float turretVerticalKm = std::max(
-                         std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) * turretRadiusKm,
-                                   0.5f * kTurretShareOfBand * bandFullKm ),
-                         marchFloorKm );
+                    // A TURRET THE VOLUME CANNOT CARRY IS NOT DRAWN (CLOUD-GAUNTLET r08). Floored up to the lump
+                    // floor (one 188 m voxel on the shipped region) a small body's turrets and billows came out
+                    // as large as its own stack lumps and sat on its crown as a pile of equal balls; a small
+                    // cumulus has no turrets, so the stack then takes the whole band. Same rule one level down
+                    // for the billows.
+                    const float turretRadiusKm = kTurretRadiusOfCrown * crownRadiusKm;
+                    const bool  hasTurrets     = turretRadiusKm >= lumpFloorKm;
+                    const bool  hasBillows     = kBillowOfTurret * turretRadiusKm >= lumpFloorKm;
+                    const float turretVerticalKm =
+                         hasTurrets ? std::max( std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) *
+                                                               turretRadiusKm,
+                                                          0.5f * kTurretShareOfBand * bandFullKm ),
+                                                marchFloorKm )
+                                    : 0.0f;
                     const float stackBandKm = std::max( bandFullKm - turretVerticalKm, 0.0f );
                     lumpVerticalKm[stackCount - 1] =
                          std::min( lumpVerticalKm[stackCount - 1], 0.5f * stackBandKm );
@@ -1639,10 +1633,13 @@ namespace Desert::Assets
                     // Every turret carries kBillowsPerTurret smaller heads on its outer flank.
                     const float    turretPhase = HashUnit( HashCombine( clusterSeed, 0x4u ) ) * 6.2831853f;
                     const uint32_t turretCount =
-                         kTurretsPerCrown - kTurretsSpreadPerCrown +
-                         std::min( static_cast<uint32_t>( HashUnit( HashCombine( clusterSeed, 0x5u ) ) *
-                                                          static_cast<float>( 2u * kTurretsSpreadPerCrown + 1u ) ),
-                                   2u * kTurretsSpreadPerCrown );
+                         !hasTurrets
+                              ? 0u
+                              : kTurretsPerCrown - kTurretsSpreadPerCrown +
+                                     std::min( static_cast<uint32_t>(
+                                                    HashUnit( HashCombine( clusterSeed, 0x5u ) ) *
+                                                    static_cast<float>( 2u * kTurretsSpreadPerCrown + 1u ) ),
+                                               2u * kTurretsSpreadPerCrown );
                     const auto pushLump = [&]( const glm::vec3& centreKm, const glm::vec3& radiiKm )
                     {
                         CloudModellingBlob blob;
@@ -1696,7 +1693,7 @@ namespace Desert::Assets
                         // ITS BILLOWS, on the turret's outer flank: a billow's centre is on the turret's surface
                         // at the height where the billow's own top meets the turret's, so it widens the head
                         // without raising it out of the band.
-                        const float billowRadiusKm = std::max( kBillowOfTurret * turretRadiusKm, lumpFloorKm );
+                        const float billowRadiusKm = kBillowOfTurret * turretRadiusKm;
                         const float billowVerticalKm =
                              std::max( kBillowOfTurret * turretVerticalKm, marchFloorKm );
                         const float rise = std::max( turretVerticalKm - billowVerticalKm, 0.0f );
@@ -1705,7 +1702,7 @@ namespace Desert::Assets
                              std::sqrt( std::max(
                                   1.0f - ( rise * rise ) / std::max( turretVerticalKm * turretVerticalKm, 1e-12f ),
                                   0.0f ) );
-                        for ( uint32_t billow = 0; billow < kBillowsPerTurret; ++billow )
+                        for ( uint32_t billow = 0; hasBillows && billow < kBillowsPerTurret; ++billow )
                         {
                             const uint32_t billowSeed = HashCombine( turretSeed, 0x10u + billow );
                             const float    side       = ( static_cast<float>( billow ) + 0.5f ) /
