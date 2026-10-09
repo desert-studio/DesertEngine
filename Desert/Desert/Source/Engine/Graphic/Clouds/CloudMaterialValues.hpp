@@ -94,7 +94,7 @@ namespace Desert::Graphic
 
         // ---- Detail (march-time) --------------------------------------------------------------------
         float DetailTileSize  = 100000.0f; // cm; 1 km
-        float DetailStrength  = 0.85f;
+        float DetailStrength  = 0.65f;
         float DensityScale    = 1.0f;
         float ExtinctionScale = 75.0f; // per km — a real cumulus, D-32 superseded (CLOUD-SHAPE-e)
 
