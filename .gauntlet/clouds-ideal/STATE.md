@@ -8,3 +8,4 @@ Started 2026-10-09T15:01:09Z. Goal: Clouds_Demo/Showcase read as real cumulus: f
 | 02 | light | micro-shadow stipple from the fine erosion octave | improved | CLOUD_DETAIL_HF_WEIGHT 0.5->0.3 (CloudField.glslh:227) |
 | 03 | scale | undersides as bright as lit flanks — bodies read small | refused | MultiScatterOcclusion 0.25->0.4847 dims the whole body, gradient unchanged, Showcase greys; reverted |
 | 04 | coherence | bases as bright as tops: sky light not occluded toward the cloud bottom | improved | UE SkyLightCloudBottomOcclusion 0.5 as material param in u_CloudAlbedo.w; Showcase base/top 0.49->0.42, tops -5%; Demo neutral (shape, not light) |
+| 05 | grain | congestus undersides round: suspected altitude-density multiply bowls the floor | refused | min(depth,density) instead of product: frames unchanged, base/top within 1-4 %; reverted — round comes from the lumps, not the ramp |
