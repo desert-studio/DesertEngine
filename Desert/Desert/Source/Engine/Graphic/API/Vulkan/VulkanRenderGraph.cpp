@@ -744,8 +744,9 @@ namespace Desert::Graphic::API::Vulkan
 
     // ── Pass descriptors ────────────────────────────────────────────────────────────────────────────
 
-    VulkanRdgPassDescriptors::VulkanRdgPassDescriptors( VkDevice device, uint32_t frameSlots )
-         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) )
+    VulkanRdgPassDescriptors::VulkanRdgPassDescriptors( VkDevice device, VulkanSamplerCache& samplers,
+                                                        uint32_t frameSlots )
+         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) ), m_SamplerCache( samplers )
     {
     }
 
@@ -756,8 +757,6 @@ namespace Desert::Graphic::API::Vulkan
             for ( VkDescriptorPool pool : slot.Pools )
                 vkDestroyDescriptorPool( m_Device, pool, nullptr );
         }
-        for ( const auto& [key, sampler] : m_Samplers )
-            vkDestroySampler( m_Device, sampler, nullptr );
     }
 
     namespace
@@ -784,9 +783,6 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<VkSampler> VulkanRdgPassDescriptors::GetSampler( const RDG::SamplerDesc& desc )
     {
-        const uint32_t key = desc.GetKey();
-        if ( const auto found = m_Samplers.find( key ); found != m_Samplers.end() )
-            return Common::MakeSuccess( found->second );
         VkSamplerCreateInfo info{};
         info.sType             = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         info.magFilter         = RdgVulkanFilter( desc.MagFilter );
@@ -799,13 +795,7 @@ namespace Desert::Graphic::API::Vulkan
         info.minLod            = 0.0f;
         info.maxLod            = VK_LOD_CLAMP_NONE;
         info.borderColor       = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-        VkSampler      sampler = VK_NULL_HANDLE;
-        const VkResult result  = vkCreateSampler( m_Device, &info, nullptr, &sampler );
-        if ( result != VK_SUCCESS )
-            return Common::MakeFormattedError<VkSampler>( "vkCreateSampler failed ({})",
-                                                          static_cast<int>( result ) );
-        m_Samplers.emplace( key, sampler );
-        return Common::MakeSuccess( sampler );
+        return m_SamplerCache.Acquire( info );
     }
 
     Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::AddPool( SlotPools& slot )
