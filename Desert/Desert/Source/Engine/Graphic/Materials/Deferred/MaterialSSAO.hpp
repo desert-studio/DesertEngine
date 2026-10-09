@@ -16,18 +16,26 @@ namespace Desert::Graphic
         {
         }
 
-        // The SSAOUB values only: u_GBufferPos / u_GBufferNormal are graph resources, bound by name through
-        // RDG::PassBindings (SSAORenderer::Record).
-        void BindInputs( const glm::mat4& viewProj, const glm::vec4& cameraPos, float radius, float bias,
-                         float power, int sampleCount )
+        // The SSAOUB (SSAO.shader) block, std140, member for member (census:
+        // Desert/Tests/Engine/UniformBlockLayout).
+        struct SSAOUBData
         {
-            struct SSAOUBData
-            {
-                glm::mat4 ViewProj;
-                glm::vec4 CameraPos;
-                glm::vec4 Params; // x=radius, y=bias, z=power, w=sampleCount
-            } data;
-            data.ViewProj  = viewProj;
+            glm::mat4 ViewProj;
+            glm::mat4 InvJitteredViewProjection; // world position from the G-buffer depth
+            glm::vec4 CameraPos;
+            glm::vec4 Params; // x=radius, y=bias, z=power, w=sampleCount
+        };
+
+        // The SSAOUB values only: u_GBufferDepth / u_GBufferNormal are graph resources, bound by name through
+        // RDG::PassBindings (SSAORenderer::Record).
+        // @p viewProj / @p invJitteredViewProjection: ViewFrame::JitteredViewProjection (the matrix the G-buffer
+        // was rasterised with) and its inverse, ViewFrame::InvJitteredViewProjection - never recomputed here.
+        void BindInputs( const glm::mat4& viewProj, const glm::mat4& invJitteredViewProjection,
+                         const glm::vec4& cameraPos, float radius, float bias, float power, int sampleCount )
+        {
+            SSAOUBData data{};
+            data.ViewProj                  = viewProj;
+            data.InvJitteredViewProjection = invJitteredViewProjection;
             data.CameraPos = cameraPos;
             data.Params    = glm::vec4( radius, bias, power, static_cast<float>( sampleCount ) );
 

@@ -54,8 +54,8 @@ namespace
     MaterialData Authored( const char* shader, std::initializer_list<std::pair<const char*, float>> params )
     {
         MaterialData data;
-        // "StaticMeshPBR" is the standard surface, which MATL 4 states by absence (StateShaderByName).
-        if ( std::string_view( shader ) != "StaticMeshPBR" )
+        // "StaticMeshLit" is the standard surface, which MATL 4 states by absence (StateShaderByName).
+        if ( std::string_view( shader ) != "StaticMeshLit" )
             data.SetShader( Common::Content::AssetGuid{ 0x5ull, std::hash<std::string_view>{}( shader ) },
                             std::string( "engine:Shaders/" ) + shader + ".shader" );
         for ( const auto& [name, value] : params )
@@ -129,7 +129,7 @@ TEST( MaterialEditStates, ThreeStatesWalkedEndToEnd )
 {
     // OPEN. The file was just read into the subject and copied into a working copy, so all three agree and
     // the document is clean in both senses.
-    MaterialData onDisk  = Authored( "StaticMeshPBR", { { "RoughnessFactor", 0.9f } } );
+    MaterialData onDisk  = Authored( "StaticMeshLit", { { "RoughnessFactor", 0.9f } } );
     MaterialData applied = onDisk;
     MaterialData working = onDisk;
 
@@ -178,7 +178,7 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     // Not only a slider: the shader, a texture binding and a parameter that did not exist before the edit
     // are all things this window can change, and a Discard that restored two of the three would be the
     // "middle link drops a property" shape -- both ends looking right with one field silently lost.
-    MaterialData applied = Authored( "StaticMeshPBR", { { "RoughnessFactor", 0.9f } } );
+    MaterialData applied = Authored( "StaticMeshLit", { { "RoughnessFactor", 0.9f } } );
     applied.SetTexture( "u_AlbedoTexture", Common::Content::AssetGuid{ 0, 1234u }, "" );
 
     MaterialData working = applied;
@@ -211,7 +211,7 @@ TEST( MaterialEditStates, TransferMovesValuesAndNeverIdentity )
     const Content::AssetGuid copyGuid{ 0x222ull, 0x2ull };
     const Content::AssetGuid parentGuid{ 0x777ull, 0x7ull };
 
-    MaterialData subject = Authored( "StaticMeshPBR", { { "RoughnessFactor", 0.9f } } );
+    MaterialData subject = Authored( "StaticMeshLit", { { "RoughnessFactor", 0.9f } } );
     subject.Header       = Content::MakeTextHeader( Content::ContentKind::Material, subjectGuid, {} );
     subject.SetParent( parentGuid );
 
@@ -255,10 +255,10 @@ TEST( MaterialEditStates, EqualityIsAboutTheValuesAndNotTheirOrder )
     // GUID or none at all is a difference.
     MaterialData unnamed;
     MaterialData named;
-    named.SetShader( Common::Content::AssetGuid{ 0x7ull, 0x8ull }, "engine:Shaders/SkinnedMeshPBR.shader" );
+    named.SetShader( Common::Content::AssetGuid{ 0x7ull, 0x8ull }, "engine:Shaders/SkinnedMeshLit.shader" );
     EXPECT_FALSE( MaterialEdit::AuthoredValuesEqual( unnamed, named ) );
     MaterialData moved;
-    moved.SetShader( Common::Content::AssetGuid{ 0x7ull, 0x8ull }, "engine:Shaders/Moved/SkinnedMeshPBR.shader" );
+    moved.SetShader( Common::Content::AssetGuid{ 0x7ull, 0x8ull }, "engine:Shaders/Moved/SkinnedMeshLit.shader" );
     EXPECT_TRUE( MaterialEdit::AuthoredValuesEqual( moved, named ) );
 
     // And a difference of one component of one parameter is a difference.
@@ -1005,7 +1005,7 @@ TEST( MaterialEditStates, AssetReferencesAreHoistedIntoOneInputsGroupInFrontOfTh
 TEST( MaterialEditStates, ATextureIsNotAnInputAndStaysInTheGroupItsAuthorChose )
 {
     // The line between the two: an asset reference links to a document with its own window, a texture is a
-    // value bound to this material. StaticMeshPBR's author already grouped its textures under "Textures";
+    // value bound to this material. StaticMeshLit's author already grouped its textures under "Textures";
     // hoisting them would be this code overruling a grouping that was made correctly.
     Formats::ShaderParam albedoMap = Texture( "AlbedoMap" );
     albedoMap.Category             = "Textures";

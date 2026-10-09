@@ -1,0 +1,88 @@
+#pragma once
+
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
+
+#include <memory>
+#include <span>
+#include <string_view>
+#include <vector>
+
+namespace Desert::Graphic::RDG
+{
+    class Builder;
+}
+
+// TAA1 — THE TEMPORAL UPSCALER INTERFACE (UE: ITemporalUpscaler / UE::Renderer::Private::ITemporalUpscaler).
+//
+// One interface for every pass that turns the jittered RenderExtent scene colour (plus depth, velocity and its own
+// history) into the anti-aliased OutputExtent scene colour. The engine's own TAA (same extent) and TAAU (below
+// 100 %) are the first two implementations; a vendor upscaler (FSR, DLSS, XeSS, MetalFX) is a later implementation
+// behind the same interface and needs no change here — which is why nothing below names a vendor, a vendor
+// quality mode, or a vendor resource. What every implementation needs from the engine is exactly what UE hands
+// its upscalers: colour, depth, velocity, the jitter, the extents, the reset flag, the exposure.
+//
+// WHERE IT RUNS IN THE FRAME. After everything that lights the scene at RenderExtent (deferred composite, generic
+// and skinned forward geometry, glass, SSR, fog, clouds, particles — the Transparency phase), and BEFORE the post
+// chain (auto exposure, bloom, light shafts, lens flare, tonemap), which then runs at OutputExtent on the upscaled
+// image. The Debug and UI phases (editor grid, gizmos, collider lines, the UI canvas) move AFTER it, drawn with
+// the unjittered ViewFrame::ViewProjection, so they are neither jittered nor smeared by the history. Under SSAA
+// (Split.Mode == Supersample) the temporal pass, if any, runs at RenderExtent and the fixed downsample pass
+// (SupersampleResolve) follows it at the same point; without a temporal method the downsample runs alone.
+namespace Desert::Graphic
+{
+    struct TemporalUpscalerInputs
+    {
+        RDG::TextureRef SceneColor; // linear HDR, RenderExtent, jittered
+        RDG::TextureRef SceneDepth; // reversed-Z DEPTH32F, RenderExtent, jittered (single-sample: resolved)
+        RDG::TextureRef Velocity;   // kVelocityFormat, RenderExtent
+        // Last frame's exposure (AutoExposure's 1x1 output, read in the shader): the resolve weights samples in a
+        // tonemapped space (UE: HdrWeight), and the exposure must be the one the history was resolved under.
+        RDG::TextureRef Exposure; // AutoExposureRenderer previous adapted luminance, 1x1 (AutoExposure.Previous)
+        std::span<const HistoryRefs> History; // one per HistoryDescs() entry, same order
+    };
+
+    struct TemporalUpscalerOutputs
+    {
+        RDG::TextureRef SceneColor; // linear HDR, OutputExtent (Native/Upscale) or RenderExtent (Supersample)
+    };
+
+    class ITemporalUpscaler
+    {
+    public:
+        virtual ~ITemporalUpscaler() = default;
+
+        [[nodiscard]] virtual std::string_view DebugName() const = 0; // pass names, logs
+        [[nodiscard]] virtual TemporalMethod   Method() const    = 0;
+
+        // Whether this implementation can resolve @p split (TAA: Render == Output or Supersample; TAAU: Upscale).
+        // SceneViewState::BeginFrame refuses a mismatch with both values named.
+        [[nodiscard]] virtual bool Supports( const ResolutionSplit& split ) const = 0;
+
+        // The histories this method carries between frames, at this split. Empty for an implementation whose
+        // history is internal to it (it then reads only ViewFrame::HistoryReset).
+        [[nodiscard]] virtual std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit& split ) const = 0;
+
+        // Adds the method's passes. The written history (HistoryRefs::Current) must be written by these passes
+        // only; the output may alias it (TAA's output IS its new history) — the implementation says so by
+        // returning the same ref. Errors are a malformed call (a missing input, a history count different from
+        // HistoryDescs); a pass that fails while the graph executes is an RDG-FAULT1 pass fault, not an error
+        // here.
+        [[nodiscard]] virtual Common::ResultStr<TemporalUpscalerOutputs>
+        AddPasses( RDG::Builder& graph, const ViewFrame& frame, const TemporalUpscalerInputs& inputs ) const = 0;
+    };
+
+    // The implementations this build has, one per TemporalMethod other than None. Null for None. The objects are
+    // stateless (all state is in SceneViewState), so one instance per SceneRenderer is enough.
+    [[nodiscard]] std::unique_ptr<ITemporalUpscaler> CreateTemporalUpscaler( TemporalMethod method );
+
+    // The fixed SSAA downsample (Split.Mode == Supersample): RenderExtent -> OutputExtent, a separable Catmull-Rom
+    // (bicubic, B=0 C=0.5) reconstruction — not a box: at a non-integer ratio (150 %) a box filter aliases the
+    // very edges SSAA was bought to smooth. Not an ITemporalUpscaler: it has no history, no jitter and no
+    // velocity.
+    [[nodiscard]] Common::ResultStr<RDG::TextureRef>
+    AddSupersampleResolve( RDG::Builder& graph, const ViewFrame& frame, RDG::TextureRef sceneColor );
+} // namespace Desert::Graphic

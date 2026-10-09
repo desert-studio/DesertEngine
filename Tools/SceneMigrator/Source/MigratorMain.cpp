@@ -57,6 +57,7 @@
 #include "SceneMigration.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
+#include "ShaderLocatorFollow.hpp"
 #include "ClipInterpShift.hpp"
 #include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
@@ -80,7 +81,9 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <format>
 #include <map>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -286,6 +289,27 @@ namespace
         if ( !written )
             err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
         return static_cast<bool>( written );
+    }
+
+    // THE ENGINE SHADERS BY GUID: where each engine shader's file lives now, as the `engine:` key a material
+    // states for it. A `.demat` names its shader by the header GUID and its `Path` is only a locator, so when
+    // an engine shader MOVES (Programs/<dir> renamed, NO-PBR) the GUID still resolves and the locator goes
+    // stale. The step below makes the locator follow the GUID, in the file - the redirector fix-up, never a
+    // redirect at load: a locator still naming the old place after migration names no file.
+    std::map<std::string, std::string> EngineShaderLocatorsByGuid()
+    {
+        std::map<std::string, std::string> byGuid;
+        std::error_code                    ec;
+        for ( const auto& entry :
+              std::filesystem::recursive_directory_iterator( Common::Constants::Path::SHADERDIR_PATH, ec ) )
+        {
+            if ( !entry.is_regular_file() || entry.path().extension() != kShaderExtension )
+                continue;
+            const auto header = Common::Content::ReadShaderHeader( ReadAll( entry.path() ) );
+            if ( header && !header.GetValue().Guid.empty() )
+                byGuid.emplace( header.GetValue().Guid, Common::AssetHandle::StableKeyForPath( entry.path() ) );
+        }
+        return byGuid;
     }
 
     // A SCENE goes through the engine's one scene writer (ExternalEntities::WriteSceneFile), partitioned or not,
@@ -1016,6 +1040,7 @@ namespace Desert::Migration
         // legacy steps, their material-number register and the path-derived asset table were retired with
         // LEG1): an older or newer generation FAILS by its number, a current one is only re-laid-out if its text
         // layout is not canonical.
+        const auto engineShaders = EngineShaderLocatorsByGuid();
         for ( const auto& path : materials )
         {
             const std::string source = ReadAll( path );
@@ -1041,6 +1066,30 @@ namespace Desert::Migration
                               : " (written by a later build)" )
                     << "\n";
                 ++failed;
+                continue;
+            }
+            const auto followed = FollowShaderLocator( source, engineShaders );
+            if ( !followed.Error.empty() )
+            {
+                err << "FAIL   " << path.string() << " — " << followed.Error << "\n";
+                ++failed;
+                continue;
+            }
+            if ( followed.Text )
+            {
+                if ( check )
+                {
+                    out << "stale  " << path.string() << " — its shader locator would follow its GUID\n";
+                    ++relaid;
+                    continue;
+                }
+                if ( !WriteText( path, *followed.Text, err ) )
+                {
+                    ++failed;
+                    continue;
+                }
+                out << "moved  " << path.string() << " — its shader locator follows its GUID\n";
+                ++relaid;
                 continue;
             }
             if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );

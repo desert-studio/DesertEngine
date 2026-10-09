@@ -24,7 +24,7 @@ Shader "DeferredLighting"
         // instead shows a raw G-buffer channel full-screen. Non-geometry texels are discarded so the LOADed forward
         // scene (real procedural sky / skybox + grid) shows through.
 
-        #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + PBRFunctions
+        #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + BRDF
         #include <Mesh/Spotlight.glslh>       // binding 16 (SSBO SpotLightsUB)
         #include <Mesh/LightsMetadata.glslh>  // binding 4  (UB LightsMetadata: point/spot/dir counts)
         // THE direct-light BRDF, shared with the forward mesh shaders and with the point/spot headers
@@ -34,11 +34,17 @@ Shader "DeferredLighting"
         // so it is the SAME BRDF, reached through the same text. Must follow DirectLighting.glslh, which it
         // calls.
         #include <Mesh/IndirectBounce.glslh>
+        // World position from the G-buffer depth (u_GBufferDepth below): the one reconstruction every deferred
+        // reader shares.
+        #include <Common/ReconstructPosition.glslh>
 
         In(0) vec2 v_TexCoord;
 
-        // The G-buffer's layout and the shading-model ids it carries (C.w, Emissive.a).
-        Uniform(1) sampler2D u_GBufferC; // rgb = world position, a = ShadingModelID | texture count (packed)
+        // The G-buffer's layout and the shading-model ids it carries (the shading word, Emissive.a).
+        // The shading word (ShadingModels/ShadingModelContract.glslh): an R32_UINT target, read ONLY by texelFetch.
+        Uniform(1) usampler2D u_GBufferShadingWord;
+        // Device depth (nearest sampler: DEPTH32F is not filtered); world position = ReconstructWorldPosition.
+        Uniform(21) sampler2D u_GBufferDepth;
         Uniform(2) sampler2D u_GBufferA; // rgb = albedo, a = metallic
         Uniform(3) sampler2D u_GBufferB; // rgb = world normal, a = roughness
         Uniform(8) sampler2D u_SSAO;     // r = ambient-occlusion factor (1 = lit)
@@ -71,10 +77,10 @@ Shader "DeferredLighting"
 
         Out(0) vec4 oColor;
 
-        const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches PBR.glsl.frag)
+        const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches Lit.glsl.frag)
 
-        // The ambient model itself, shared verbatim with StaticMeshPBR / StaticMeshPBR_Instanced /
-        // SkinnedMeshPBR. Included after the three bindings above because it names them.
+        // The ambient model itself, shared verbatim with StaticMeshLit / StaticMeshLit_Instanced /
+        // SkinnedMeshLit. Included after the three bindings above because it names them.
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -94,6 +100,7 @@ Shader "DeferredLighting"
         	vec4 u_LightColor; // rgb = colour, a = intensity
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
         	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w unused
+        	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         };
 
         float ssgiHash(vec2 p)
@@ -161,7 +168,7 @@ Shader "DeferredLighting"
         		if (dot(nb.rgb, nb.rgb) <= 0.001) continue; // sky texel -> no bounce
 
         		vec4  na   = texture(u_GBufferA, suv);
-        		vec3  nPos = texture(u_GBufferC, suv).rgb;
+        		vec3  nPos = ReconstructWorldPosition(suv, texture(u_GBufferDepth, suv).r, u_InvJitteredViewProjection);
         		vec3  nF0  = mix(Fdielectric, na.rgb, na.a);
 
         		indirect += EvaluateBounceSample(worldPos, N, nPos, normalize(nb.rgb), na.rgb, nF0, na.a,
@@ -216,13 +223,13 @@ Shader "DeferredLighting"
         {
         	vec4 ga = texture(u_GBufferA, v_TexCoord);
         	vec4 gb = texture(u_GBufferB, v_TexCoord);
-        	vec4 gc = texture(u_GBufferC, v_TexCoord);
 
         	vec3  albedo    = ga.rgb;
         	float metallic  = ga.a;
         	vec3  normal    = gb.rgb;
         	float roughness = max(gb.a, 0.04);
-        	vec3  worldPos  = gc.rgb;
+        	vec3  worldPos  = ReconstructWorldPosition(v_TexCoord, texture(u_GBufferDepth, v_TexCoord).r,
+        	                                           u_InvJitteredViewProjection);
 
         	const int dbg = int(u_Params.x + 0.5);
 
@@ -235,7 +242,7 @@ Shader "DeferredLighting"
         	}
 
         	const vec4          ge           = texture(u_GBufferEmissive, v_TexCoord);
-        	const float         word         = DesertShadingWordMagnitude(gc.w);
+        	const uint          word         = texelFetch(u_GBufferShadingWord, ivec2(gl_FragCoord.xy), 0).r;
         	const int           shadingModel = DesertShadingModelIndex(word);
         	const DesertPayload payload      = DesertUnpackPayload(word);
 
@@ -270,15 +277,26 @@ Shader "DeferredLighting"
         		return;
         	}
 
-        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in GBufferC.w's upper bits
+        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in the shading word's TEXTURES field
         	// (0..3). Heat-map it as a proxy for per-pixel shading cost (UE-style shader/material complexity).
         	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); return; }
 
-        	// --- Lit: shadow-mapped directional sun (N·L) + full PBR point/spot lights ---
+        	// Shading Model / Sun Shadow Receive: the word's other two fields, decoded from the same integer fetch (the
+        	// slot is R32_UINT; a float view of it would reinterpret the bits). One flat colour per model index (golden-
+        	// ratio hue walk, so neighbouring indices differ); green = receives the sun's cascades, red = opted out.
+        	if (dbg == 10)
+        	{
+        		const float hue = fract(float(shadingModel) * 0.618034);
+        		oColor          = vec4(clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), 1.0);
+        		return;
+        	}
+        	if (dbg == 11) { oColor = DesertReceivesSunShadows(word) ? vec4(0.1, 0.9, 0.2, 1.0) : vec4(0.9, 0.1, 0.1, 1.0); return; }
+
+        	// --- Lit: shadow-mapped directional sun (N·L) + full lit point/spot lights ---
         	vec3 N    = normalize(normal);
         	vec3 view = normalize(u_CameraPos.xyz - worldPos);
 
-        	// Directional sun (energy-normalized PBR), occluded by the cascaded shadow map.
+        	// Directional sun (energy-normalized lit), occluded by the cascaded shadow map.
         	// TWO OCCLUDERS OF ONE SUN, multiplied: the cascaded maps for opaque geometry and the cloud
         	// layer's own volumetric transmittance. Only the DIRECTIONAL term is attenuated — the ambient
         	// below is the whole sky dome, which a cloud deck occludes with a different geometry
@@ -291,9 +309,9 @@ Shader "DeferredLighting"
         	// debug modes are a different, G-buffer-driven set. Read and dropped rather than given a second
         	// ShadowFactor overload, because a second overload is how the four copies started.
         	int   cascade  = -1;
-        	// The cascades skip a surface whose material does not receive them (the shading word's sign), then the
+        	// The cascades skip a surface whose material does not receive them (the shading word's NO_SUN_SHADOWS bit), then the
         	// cloud layer — the cloud factor AFTER the toggle, exactly as the forward pass assembles it.
-        	float shadow   = DesertReceivesSunShadows(gc.w) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
+        	float shadow   = DesertReceivesSunShadows(word) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
         	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
@@ -302,7 +320,7 @@ Shader "DeferredLighting"
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);
 
-        	// Point lights (the city payoff): every source contributes full Cook-Torrance PBR (not shadowed yet).
+        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit (not shadowed yet).
         	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
         		result += DesertEvaluateShadingModel(shadingModel, DesertPointLightAt(pointLights[i], worldPos), surface,
         		                                     payload);

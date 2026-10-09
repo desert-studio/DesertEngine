@@ -19,7 +19,7 @@ using Desert::Assets::MaterialShaderParam;
 
 // ─── The unified protocol: MaterialData is the ONLY material storage ─────────────────────
 
-TEST( MaterialData, DefaultsAreStandardPBR )
+TEST( MaterialData, DefaultsAreStandardSurface )
 {
     // The data states no shader; what that resolves to is the asset's answer
     // (SurfaceMaterialAsset::GetShaderName, pinned by the AssetMissingFile suite).
@@ -74,12 +74,12 @@ TEST( MaterialData, JsonRoundTrip )
     EXPECT_EQ( r.ParentGuid(), parent );
 }
 
-TEST( MaterialData, PBRJsonRoundTripKeepsShaderAbsent )
+TEST( MaterialData, SurfaceJsonRoundTripKeepsShaderAbsent )
 {
     MaterialData m;
     m.SetParam( "AlbedoColor", glm::vec4( 1, 1, 1, 1 ) );
     const std::string json = Common::Json::Write( m );
-    ASSERT_EQ( json.find( "\"Shader\"" ), std::string::npos ); // nullopt omitted -> stays standard PBR
+    ASSERT_EQ( json.find( "\"Shader\"" ), std::string::npos ); // nullopt omitted -> stays standard lit
     auto back = Common::Json::Read<MaterialData>( json );
     ASSERT_TRUE( back );
     EXPECT_FALSE( back.GetValue().Shader.has_value() );

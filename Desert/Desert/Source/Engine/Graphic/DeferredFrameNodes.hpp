@@ -2,6 +2,8 @@
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
+#include <span>
+
 // The access declarations of the deferred frame's graph nodes (SceneRendererFrameDeferred.cpp), device-free so
 // RenderGraphCompile compiles exactly these declarations and checks the barriers the graph plans from them.
 namespace Desert::Graphic::DeferredFrameNodes
@@ -17,17 +19,26 @@ namespace Desert::Graphic::DeferredFrameNodes
         pass.Write( target, RDG::Access::CopyDst );
     }
 
-    // Every attachment of @p target LOAD/STORE, the depth tested and written: the graph opens the render pass a
-    // pipeline built for that framebuffer draws in, and leaves the depth in the attachment layout. "Deferred:
-    // Composite" declares it, which is what takes the target depth back from DepthResolve's transfer layout.
-    inline void LoadTarget( RDG::PassBuilder& pass, const RDG::ImportedFramebuffer& target )
+    // Every attachment of @p target STOREd, colour slot i with @p colors[i] (FrameTextures::ColorLoads of a LOAD:
+    // a graph colour this node is the first writer of clears to its own value), the depth loaded, tested and
+    // written: the graph opens the render pass a pipeline built for that target layout draws in, and leaves the
+    // depth in the attachment layout. "Deferred: Composite" declares it, which is what takes the target depth back
+    // from DepthResolve's transfer layout.
+    inline void LoadTarget( RDG::PassBuilder& pass, const RDG::ImportedFramebuffer& target,
+                            std::span<const RDG::LoadOp> colors )
     {
+        // An invalid colour / resolve is an unused slot (FramebufferAttachment::UnusedColourSlot): no target, the
+        // backend's render pass references it as VK_ATTACHMENT_UNUSED.
         for ( uint32_t i = 0; i < target.Colors.size(); ++i )
-            pass.ColorTarget( i, target.Colors[i], RDG::LoadOp::Load() );
+            if ( target.Colors[i].IsValid() )
+                pass.ColorTarget( i, target.Colors[i], colors[i] );
         if ( target.Depth.IsValid() )
             pass.DepthTarget( target.Depth, RDG::LoadOp::Load(), /*write*/ true );
+        // A slot with no in-pass resolve (an invalid ref: a SampleZero graph colour, ViewRasterTargets.hpp) is
+        // skipped, as DeclareResolves does.
         for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
-            pass.ResolveTarget( i, target.Resolves[i] );
+            if ( target.Resolves[i].IsValid() )
+                pass.ResolveTarget( i, target.Resolves[i] );
     }
 
     // G-buffer depth -> scene target depth. The same sample count: "Deferred: DepthResolve", a Copy node. A

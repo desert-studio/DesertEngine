@@ -439,8 +439,10 @@ namespace Desert::Core
     }
 
     // ─── GameplayCamera (driven by a CameraComponent) ───────────────────────────
-    void GameplayCamera::SetView( const CameraEntityView& view, uint32_t width, uint32_t height )
+    void GameplayCamera::SetView( const CameraEntityView& view, uint32_t width, uint32_t height,
+                                  uint32_t sourceEntity )
     {
+        m_SourceEntity = sourceEntity;
         m_Position   = view.Position;
         m_FOV        = view.FovYDegrees;
         m_NearPlane  = view.Near;
@@ -455,6 +457,6 @@ namespace Desert::Core
     {
         const glm::mat4 world =
              glm::translate( glm::mat4( 1.0f ), position ) * glm::toMat4( glm::quat( eulerRotation ) );
-        SetView( CameraEntityViewOf( world, fovDegrees, nearPlane, farPlane ), width, height );
+        SetView( CameraEntityViewOf( world, fovDegrees, nearPlane, farPlane ), width, height, kNoSourceEntity );
     }
 } // namespace Desert::Core

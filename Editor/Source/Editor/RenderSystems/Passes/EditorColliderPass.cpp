@@ -1,4 +1,5 @@
 #include "EditorColliderPass.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp> // the view's own debug/show state
@@ -70,7 +71,7 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName         = "EditorColliderPipeline";
         spec.Shader            = shader;
-        spec.Framebuffer       = scene->GetTargetFramebuffer();
+        spec.TargetLayout      = Desert::Graphic::SceneTargetLayout();
         spec.Topology          = Graphic::PrimitiveTopology::Lines;
         spec.LineWidth         = 1.0f; // no wideLines feature — width stays 1.0 in SubmitLines
         spec.DepthTestEnabled  = true; // colliders occlude behind geometry (the old ImGui gizmo didn't)
@@ -100,6 +101,10 @@ namespace Desert::Editor::Render
             const auto scene = m_Scene.lock();
             if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
                 return BOOLSUCCESS;
+            // The lines are drawn over the scene view: its frame's camera block (the pass runs inside OnUpdate).
+            const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
+            if ( view == nullptr )
+                return BOOLSUCCESS;
             if ( !ctx.Renderer->GetDebugView().ShowColliders )
                 return BOOLSUCCESS;
 
@@ -108,7 +113,7 @@ namespace Desert::Editor::Render
             if ( lines.empty() )
                 return BOOLSUCCESS;
 
-            m_Material->Update( ctx.Camera, lines );
+            m_Material->Update( *view, lines );
             Graphic::Renderer::GetInstance().SubmitLines( m_Pipeline.get(),
                                                           static_cast<uint32_t>( lines.size() ), 1.0f,
                                                           m_Material->GetMaterialExecutor() );

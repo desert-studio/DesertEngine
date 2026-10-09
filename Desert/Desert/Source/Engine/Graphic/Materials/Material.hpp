@@ -53,7 +53,7 @@ namespace Desert::Graphic
 
         // Name the row of the shared `Materials[]` storage buffer that the NEXT recorded draw reads.
         //
-        // ON `Material` AND NOT ON ITS SUBCLASSES BECAUSE THERE IS ONE TRANSPORT. A PBR surface, a shader
+        // ON `Material` AND NOT ON ITS SUBCLASSES BECAUSE THERE IS ONE TRANSPORT. A Lit surface, a shader
         // graph, the terrain and the SDF text all deliver their parameters as a row indexed by a push
         // constant — the push field `MaterialIndex`, found BY NAME in the shader's reconciled MaterialLayout
         // (Graphic/Materials/MaterialBinder.hpp) — so this writes that one field for all of them, and there
@@ -78,6 +78,12 @@ namespace Desert::Graphic
         // writes the same slot for the mesh path; Render2D, which submits an executor rather than a mesh,
         // had nowhere else to write it from.
         void SetPushMatrix( const glm::mat4& matrix );
+
+        // A VIEW pass draw's row in the view's ObjectMotions[] (Common/ObjectMotion.glslh, one row per drawn
+        // primitive, MeshRenderer::BuildObjectMotions): the push field `PrimitiveIndex`. In a view pass the push
+        // Transform is then the submesh's transform relative to that row's World (Renderer::RenderMesh is handed
+        // the identity), so current and previous world come from one place and a still object moves by exactly 0.
+        void SetPrimitiveIndex( uint32_t row );
 
         // The instanced vertex stages' wind tail (Graphic/InstanceWind.hpp): the push fields WindA/WindB.
         // Every instanced draw writes it, a still one with zeros (FO-7); a cell without them writes nothing.
@@ -148,7 +154,7 @@ namespace Desert::Graphic
          * the write, and the descriptor went on holding the LAST image assigned. So a material could be
          * given a texture and never have it taken away — clearing the slot in the editor emptied the
          * `.demat` while the surface kept drawing the old map, a file and a picture disagreeing with
-         * nothing in between to notice. This is the same operation for a PBR material and for a
+         * nothing in between to notice. This is the same operation for a lit material and for a
          * data-driven one, so it lives once, on the base both of them are.
          *
          * The default comes from the shader's `Properties … = "white"` (`ShaderParam::DefaultTexture`),

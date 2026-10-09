@@ -1,6 +1,6 @@
-// Scene directional light in the shared PBR payload layout (two vec4s). Engine-filled by
-// reflection name: every material the frame snapshot is applied to receives it, PBR and generic
-// alike (Graphic::PBRSceneFrame::ApplyTo -> SceneLightsBind) — declare the block and receive the light.
+// Scene directional light in the shared lit payload layout (two vec4s). Engine-filled by
+// reflection name: every material the frame snapshot is applied to receives it, lit and generic
+// alike (Graphic::SceneFrameBinding::ApplyTo -> SceneLightsBind) — declare the block and receive the light.
 struct DirectionLight
 {
     vec4 Direction;      // xyz = normalized direction (from the light)

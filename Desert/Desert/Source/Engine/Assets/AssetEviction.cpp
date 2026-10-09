@@ -77,7 +77,7 @@ namespace Desert::Assets
             if ( material->IsReadyForUse() )
             {
                 // EVERY slot of all three lists (textures, cloud types and layouts, the Medium shader), not
-                // the three PBR slots: most references in this repository's materials are cloud assets, and
+                // the three lit slots: most references in this repository's materials are cloud assets, and
                 // marking them all is correct precisely because this loop does not need to know what they are.
                 material->Data().ForEachSlotHandle(
                      [&]( const std::string& name, const auto slot )

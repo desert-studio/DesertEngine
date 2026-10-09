@@ -1,6 +1,7 @@
 // MeshRenderer's overlays: the selection-silhouette mask and the developer instruments (debug lines,
 // overdraw) that only DESERT_DEV_INSTRUMENTS builds carry.
 #include "MeshRendererInternal.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 namespace Desert::Graphic::System
@@ -88,7 +89,7 @@ namespace Desert::Graphic::System
     // WHAT CUTTING THEM IS WORTH, and the number is small on purpose rather than by accident: on a warm
     // machine 1.1 ms of an 82 ms pipeline phase; on a COLD one 127 ms of 9 611 ms, because the cost is not
     // the pipeline object — it is the driver compiling that pipeline's shader for the first time.
-    // StaticMeshWireframe shares StaticMeshPBR's modules and therefore costs 0.2 ms cold; DebugLine,
+    // StaticMeshWireframe shares StaticMeshLit's modules and therefore costs 0.2 ms cold; DebugLine,
     // Overdraw and OverdrawResolve own theirs and cost 43.3, 5.7 and 77.9 ms. Time is not the whole
     // argument: an instrument a player's binary cannot use is surface it should not carry.
     //
@@ -113,7 +114,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "DebugLinePipeline";
         spec.Shader            = m_DebugLineShader;
-        spec.Framebuffer       = targetFb;
+        spec.TargetLayout      = SceneTargetLayout();
         spec.Topology          = PrimitiveTopology::Lines;
         spec.LineWidth         = 1.0f; // dynamic line width is set to 1.0 in SubmitLines (no wideLines feature)
         spec.DepthTestEnabled  = true;
@@ -181,10 +182,9 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification rspec;
         rspec.DebugName            = "OverdrawResolvePipeline";
         rspec.Shader               = m_OverdrawResolveShader;
-        rspec.Framebuffer          = targetFb;
+        rspec.TargetLayout         = SceneTargetLayout();
         rspec.DepthTestEnabled     = false;
         rspec.DepthWriteEnabled    = false;
-        rspec.UseLoadRenderPass    = true;
         const auto overdrawResolve = GraphicsPipeline::Create( rspec );
         if ( !overdrawResolve )
         {
@@ -200,14 +200,16 @@ namespace Desert::Graphic::System
     void MeshRenderer::DeclareOverdrawDraws( RDG::PassBuilder& pass )
     {
         m_OverdrawDraws.Clear();
-        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || camera == nullptr )
+        auto* const      camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        const ViewFrame* view   = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || camera == nullptr ||
+             view == nullptr )
             return;
 
         // 1) Accumulate into m_OverdrawFB (the graph opens it cleared to 0): every opaque mesh additively
         //    (static + generic; both use the static vertex layout). Skinned meshes are skipped — they'd need
         //    the skinned layout + bone SSBO.
-        m_OverdrawMaterial->UpdateCamera( camera );
+        m_OverdrawMaterial->UpdateCamera( *view );
 
         // CULLED LIKE THE PASS IT REPORTS ON. This view exists to answer "how many times was this
         // pixel shaded", and an uncalled re-rasterization would answer it about a frame the engine
@@ -281,8 +283,9 @@ namespace Desert::Graphic::System
              {
                  if ( !m_ShowBoundingBoxes )
                      return;
-                 auto* const camera = m_SceneRenderer->GetMainCamera();
-                 if ( camera == nullptr )
+                 auto* const      camera = m_SceneRenderer->GetMainCamera();
+                 const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
+                 if ( camera == nullptr || view == nullptr )
                      return;
 
                  // 12 box edges as index pairs into the 8 AABB corners (index bits = x|y<<1|z<<2).
@@ -315,7 +318,7 @@ namespace Desert::Graphic::System
                  if ( lines.empty() )
                      return;
 
-                 m_DebugLineMaterial->Update( camera, lines );
+                 m_DebugLineMaterial->Update( *view, lines );
                  Renderer::GetInstance().SubmitLines(
                       m_DebugLinePipeline.get(), static_cast<uint32_t>( lines.size() ), m_BoundingBoxLineWidth,
                       m_DebugLineMaterial->GetMaterialExecutor() );
@@ -346,10 +349,11 @@ namespace Desert::Graphic::System
             // SETUP: every outlined mesh is chosen here, ONCE, into the node's draw list (the mask cameras and the
             // packed poses written before any command is recorded); one block per mask material.
             m_SilhouetteDraws.Clear();
-            auto* const camera = m_SceneRenderer->GetMainCamera();
-            if ( camera == nullptr )
+            auto* const      camera = m_SceneRenderer->GetMainCamera();
+            const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
+            if ( camera == nullptr || view == nullptr )
                 return;
-            m_SilhouetteMaterial->UpdateCamera( camera );
+            m_SilhouetteMaterial->UpdateCamera( *view );
             const MaterialExecutor* mask         = m_SilhouetteMaterial->GetMaterialExecutor();
             const GraphicsPipeline* maskPipeline = m_SilhouettePipeline.get();
 
@@ -394,7 +398,7 @@ namespace Desert::Graphic::System
                 }
                 if ( !outlined.empty() )
                 {
-                    m_SilhouetteSkinnedMaterial->UpdateCamera( camera );
+                    m_SilhouetteSkinnedMaterial->UpdateCamera( *view );
                     m_SilhouetteSkinnedMaterial->UploadBones( outlineBones );
                     auto* const skinnedMask = m_SilhouetteSkinnedMaterial.get();
                     for ( const auto& [sd, boneOffset] : outlined )

@@ -203,7 +203,7 @@ namespace Desert::Graphic
      * composite, so this struct sat inside MaterialDeferredLighting.hpp and the forward mesh shaders, the
      * glass pass and the terrain stood in full sun under a deck that shaded the ground beside them. Now
      * SceneRenderer gathers ONE of these per frame (SceneRenderer::GetCloudShadowInput) and the deferred
-     * material, the PBR materials and the terrain material are all handed the same one.
+     * material, the lit materials and the terrain material are all handed the same one.
      *
      * `HasMap` false, or `Enabled` false, is the ordinary state: no cloud component, clouds off, casting off,
      * strength zero, or a renderer whose scene has no sky at all. Consumers then leave the sampler on its

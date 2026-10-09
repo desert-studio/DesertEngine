@@ -54,7 +54,7 @@ namespace Desert::Editor
 
     private:
         // overriddenByShader: non-empty when the entity's Shader Override component routes the
-        // mesh off the PBR path — the slots are shown collapsed with a notice.
+        // mesh off the lit path — the slots are shown collapsed with a notice.
         void RenderMaterialProperties( ECS::Entity& entity, const MaterialHost& host,
                                        const std::string& overriddenByShader );
 
@@ -64,7 +64,7 @@ namespace Desert::Editor
 
         // Number of material slots the mesh expects (one per submesh; 1 for primitives).
         size_t GetSubmeshCount( const MaterialHost& host ) const;
-        // Creates a fresh PBR material asset on disk, registers its runtime material, returns its handle.
+        // Creates a fresh lit material asset on disk, registers its runtime material, returns its handle.
         // baseName is sanitized into the filename ("M_<Entity>"); identity stays the in-file GUID.
         Assets::AssetHandle CreateAndRegisterMaterial( const std::string& baseName = "Material" );
         // Resolves an asset path to a material, registers it if needed, and assigns it to a slot.
@@ -73,7 +73,7 @@ namespace Desert::Editor
         // element row gains its own slot without changing the rendered look.
         static void MakeSlotExplicit( const MaterialHost& host, size_t slot );
 
-        // A slot's identifying colour, read from the SHADER SCHEMA rather than from hardcoded PBR names:
+        // A slot's identifying colour, read from the SHADER SCHEMA rather than from hardcoded lit names:
         // the first Color parameter of whatever shader the material runs. For the standard shader that is
         // the albedo; a custom DSL shader gets the same treatment from its own Properties block, free.
         //

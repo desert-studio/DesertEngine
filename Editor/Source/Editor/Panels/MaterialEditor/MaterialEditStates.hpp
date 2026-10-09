@@ -675,7 +675,7 @@ namespace Desert::Editor::MaterialEdit
         //
         // TEXTURES ARE NOT HOISTED, AND THAT IS THE LINE. A texture is bound to a slot of THIS material and
         // authored nowhere else — it is a value. An asset reference is a link to a document with a window of
-        // its own. StaticMeshPBR's author already grouped its textures under "Textures"; hoisting them would
+        // its own. StaticMeshLit's author already grouped its textures under "Textures"; hoisting them would
         // be this code re-deciding a grouping that was made correctly, which is the thing it must not do.
         for ( std::size_t index = 0; index < schema.Params.size(); ++index )
         {

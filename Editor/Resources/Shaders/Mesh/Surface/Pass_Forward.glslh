@@ -1,6 +1,6 @@
-// Surface cell pass: forward lighting — the fragment stage of Programs/PBR/StaticMeshPBR.shader with the
+// Surface cell pass: forward lighting — the fragment stage of Programs/Surface/StaticMeshLit.shader with the
 // surface's attributes coming from EvaluateSurface instead of from the shader's own texture reads. Every
-// binding sits where StaticMeshPBR put it (MeshRenderer binds one frame set to every forward mesh cell);
+// binding sits where StaticMeshLit put it (MeshRenderer binds one frame set to every forward mesh cell);
 // SurfaceTemplate holds the two layouts equal by reflection.
 #include <Mesh/PointLight.glslh>
 #include <Mesh/Spotlight.glslh>
@@ -11,6 +11,10 @@
 DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oColor;
+// The view's velocity (slot 1 of the scene target): the forward opaque pass writes the view's depth, so it writes
+// the same surface's motion into the one velocity texture the G-buffer pass cleared (Graphic::kVelocityFormat).
+#include <Common/ObjectMotion.glslh>
+layout( location = 1 ) out vec2 oVelocity;
 
 struct DirectionLight
 {
@@ -72,6 +76,8 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 void main()
 {
+    // First, before any debug view returns early: a debug colour is still the same surface at the same depth.
+    oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor );

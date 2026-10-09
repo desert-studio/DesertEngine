@@ -1,4 +1,4 @@
-// Surface cell pass: the deferred G-buffer write — the fragment stage of Programs/PBR/StaticMeshGBuffer.shader.
+// Surface cell pass: the deferred G-buffer write — the fragment stage of Programs/Surface/StaticMeshGBuffer.shader.
 // It shades nothing and declares nothing of its own: every binding it has is the surface's. Every shading model
 // writes through it: the texel carries the template's model index (DESERT_SHADING_MODEL_INDEX, defined by the
 // parser) and payload in the shading word, and the deferred composite lights it through the generated dispatch.
@@ -8,8 +8,21 @@ DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oGBufferA;        // BaseColor.rgb, Metallic.a
 layout( location = 1 ) out vec4 oGBufferB;        // world Normal.rgb, Roughness.a
-layout( location = 2 ) out vec4 oGBufferC;        // WorldPosition.xyz, shading word.w (ShadingModelContract.glslh)
+// DESERT_GBUFFER_RSM (the reflective shadow map's permutation, ShaderVariant::Defines in MeshRendererDeferred.cpp):
+// the RSM's colour slot 2 is an UNUSED slot — GI reads VPL positions from the RSM depth, never a shading word — so
+// the permutation declares no output there and writes nothing. Locations stay fixed: slot 3 is emissive in both.
+#ifndef DESERT_GBUFFER_RSM
+layout( location = 2 ) out uint oGBufferShadingWord; // R32_UINT shading word (ShadingModelContract.glslh); no
+                                                   // world position: readers reconstruct it from the depth
+#endif
 layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the deferred resolve adds it), AO.a
+// The view's velocity (Graphic::kVelocityFormat, slot 4 of the G-buffer target): this pass writes the view's depth,
+// so it writes the same surface's motion. DESERT_GBUFFER_RSM is the RSM permutation of this pass (a light view with
+// its own attachment set and no previous frame): defined (to 1) only there, it compiles without the output.
+#ifndef DESERT_GBUFFER_RSM
+#include <Common/ObjectMotion.glslh>
+layout( location = 4 ) out vec2 oVelocity;
+#endif
 
 void main()
 {
@@ -18,10 +31,15 @@ void main()
                               v_Surface.VertexColor );
     const SurfaceOutput s = EvaluateSurface( i );
     DESERT_SURFACE_CLIP( s );
-    const float word = DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount,
-                                              DesertPayload( s.CustomData0, s.CustomData1 ) );
     oGBufferA        = vec4( s.BaseColor, s.Metallic );
     oGBufferB        = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
-    oGBufferC        = vec4( i.WorldPosition, DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ) );
+#ifndef DESERT_GBUFFER_RSM
+    const uint word = DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount,
+                                             DesertPayload( s.CustomData0, s.CustomData1 ) );
+    oGBufferShadingWord = DesertMarkSunShadowReceive( word, s.ReceiveSunShadows );
+#endif
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
+#ifndef DESERT_GBUFFER_RSM
+    oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+#endif
 }

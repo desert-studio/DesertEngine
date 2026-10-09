@@ -55,7 +55,7 @@ namespace Desert::ECS
      * @brief Where the host reaches an entity's per-slot material parameter overrides (UE: the dynamic material
      * instance MovieSceneComponentMaterialTrack creates on the component — the ACTOR's instance, never the
      * material asset). The overrides live on the entity's runtime material instance of that slot (the one the
-     * PBR and slot draws bind, and the one Lua's SetMaterialParam writes); `LevelSequenceMaterialSlotOverrides()`
+     * Lit and slot draws bind, and the one Lua's SetMaterialParam writes); `LevelSequenceMaterialSlotOverrides()`
      * (System/LevelSequenceSystem.hpp) is that one implementation, which the ECS system and the
      * editor preview inject. The suite injects its own map: this header stays free of the renderer.
      *

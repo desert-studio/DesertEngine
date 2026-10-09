@@ -128,7 +128,7 @@ TEST( CookedAssetRegistry, EveryColumnSurvivesSerializeAndParse )
     // A key with a SPACE in it. The key is the last column precisely so this round-trips; a file whose
     // name contains a space is ordinary content, and a format that mangled it would lose the asset.
     ASSERT_TRUE( written.Insert( Row( "assets:Materials/M Rock Wet.demat", "Material", 512 ) ) );
-    ASSERT_TRUE( written.Insert( Row( "engine:Shaders/PBR.shader", "Shader", 9000 ) ) );
+    ASSERT_TRUE( written.Insert( Row( "engine:Shaders/Lit.shader", "Shader", 9000 ) ) );
 
     const auto parsed = AssetRegistry::Parse( written.Serialize() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
@@ -632,18 +632,18 @@ TEST( CookedAssetRegistry, TheRigTagCarriesTheFullSignatureOnBothRowsAndRefusesA
 TEST( CookedAssetRegistry, TheRoleTagCarriesAShadersManifestRoleThroughAWriteAndARead )
 {
     AssetRegistry      written;
-    AssetRegistryEntry shader = Row( "engine:Shaders/Programs/PBR/StandardSurface.shader", "Shader", 22 );
-    shader.Role               = "PBRSurface";
+    AssetRegistryEntry shader = Row( "engine:Shaders/Programs/Surface/StandardSurface.shader", "Shader", 22 );
+    shader.Role               = "StandardSurface";
     ASSERT_TRUE( written.Insert( shader ) );
 
     const std::string text = written.Serialize();
-    EXPECT_NE( text.find( " Role=PBRSurface engine:Shaders/Programs/PBR/StandardSurface.shader" ),
+    EXPECT_NE( text.find( " Role=StandardSurface engine:Shaders/Programs/Surface/StandardSurface.shader" ),
                std::string::npos )
          << text;
     const auto parsed = AssetRegistry::Parse( text );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().FindByKey( "engine:Shaders/Programs/PBR/StandardSurface.shader" )->Role,
-               "PBRSurface" );
+    EXPECT_EQ( parsed.GetValue().FindByKey( "engine:Shaders/Programs/Surface/StandardSurface.shader" )->Role,
+               "StandardSurface" );
     EXPECT_EQ( parsed.GetValue().Serialize(), text );
     EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\n9 Shader - - - - Role= engine:S.shader\n" ) )
          << "an empty role is `-`, never `Role=`";

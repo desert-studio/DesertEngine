@@ -381,9 +381,9 @@ namespace Desert::ECS
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
     // parameters edited generically in Details (built from the shader's #pragma param schema). The
     // renderer builds a DataDrivenMaterial from ShaderName and applies these overrides.
-    // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role PBRSurface`, resolved from
+    // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role StandardSurface`, resolved from
     // the template's handle by whoever sets it (scene load, a role lookup); empty = no override, the mesh
-    // draws its PBR material slots and Params are only the slot-0 hand-off buffer. No decision compares it
+    // draws its lit material slots and Params are only the slot-0 hand-off buffer. No decision compares it
     // to a template's name.
     struct MaterialComponent
     {
@@ -756,7 +756,7 @@ namespace Desert::ECS
     };
 
     // ON THE TWO PAIRS OF SUN NUMBERS. Colour x Intensity here is the ILLUMINANCE arriving at scene
-    // surfaces — what every PBR surface integrates. SkyAtmosphereData::SunColor x SunIntensity is the
+    // surfaces — what every lit surface integrates. SkyAtmosphereData::SunColor x SunIntensity is the
     // RADIANCE of the sky and of the solar disk — what the camera sees when it looks up. Two different
     // quantities with different consumers, not one value stored twice: neither is derived from the other,
     // and no code path reads one where it means the other. See SkyAtmosphereComponent.hpp.

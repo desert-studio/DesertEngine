@@ -12,9 +12,9 @@
 // cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
 
 // The source-to-surface arithmetic a surface function is written in (UV transform, base colour, ORM, normal
-// strength, emission, tangent-normal decode) — the same text the PBR shaders compiled.
+// strength, emission, tangent-normal decode) — the same text the lit shaders compiled.
 #include <Common/TangentNormal.glslh>
-#include <Common/PBRSurfaceInputs.glslh>
+#include <Common/SurfaceInputs.glslh>
 
 struct SurfaceInput
 {
@@ -43,7 +43,7 @@ struct SurfaceOutput
     float SampledTextureCount;
     float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
     // The shading model's payload (UE's CustomData0/1 pins), in [0, 1]: the floats a model's `Payload` block names
-    // (ShadingModels/ShadingModelContract.glslh). They reach the model as DesertPayload, through GBufferC.w's
+    // (ShadingModels/ShadingModelContract.glslh). They reach the model as DesertPayload, through the G-buffer shading word's
     // 8-bit fields in the deferred path and quantized the same way in the forward one.
     float CustomData0;
     float CustomData1;
@@ -74,8 +74,16 @@ SurfaceOutput DefaultSurfaceOutput()
 #define DESERT_SURFACE_HAS_VARYINGS 1
 #endif
 
+// A cell of a VIEW pass (G-buffer, forward, translucent — the camera's own frame) reads its object's motion row and
+// hands the fragment stage both unjittered clip positions; a shadow-depth cell draws a light view, which has no
+// previous frame, and keeps its world transform in the push block. So does the RSM permutation of the G-buffer
+// cell (DESERT_GBUFFER_RSM, MeshRendererShadow DeclareRSMDraws pushes the world): a light view as well.
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PASS_ShadowDepth ) && !defined( DESERT_GBUFFER_RSM )
+#define DESERT_SURFACE_VIEW_PASS 1
+#endif
+
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
-// The PBR shaders' five `Vertex` members first, in the same order, then UV1 and VertexColor — so a cell's fragment
+// The lit shaders' five `Vertex` members first, in the same order, then UV1 and VertexColor — so a cell's fragment
 // inputs sit at the locations the shader it replaces read them from.
 #define DESERT_SURFACE_VARYINGS( q ) \
     layout( location = 0 ) q SurfaceVaryings \
@@ -87,6 +95,8 @@ SurfaceOutput DefaultSurfaceOutput()
         vec3 CameraPosition; \
         vec2 UV1; \
         vec4 VertexColor; \
+        vec4 Clip; \
+        vec4 PrevClip; \
     } v_Surface;
 
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor )
@@ -102,7 +112,7 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
 }
 
 // The shading normal: the tangent-space output through the interpolated TBN. For the default (0,0,1) this is
-// the TBN's third column, the interpolated geometric normal — what the PBR shaders used without a normal map.
+// the TBN's third column, the interpolated geometric normal — what the lit shaders used without a normal map.
 vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
 {
     return normalize( i.TBN * s.Normal );

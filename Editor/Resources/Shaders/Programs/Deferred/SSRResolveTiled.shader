@@ -26,19 +26,21 @@ Shader "SSRResolveTiled"
 
         Uniform(1) sampler2D u_Trace;           // this frame's jittered estimate (rgb, a = weight)
         Uniform(2) sampler2D u_History;         // previous frame's resolved result
-        Uniform(3) sampler2D u_GBufferWorldPos; // rgb = world position (for reprojection)
+        Uniform(3) sampler2D u_GBufferDepth; // device depth (nearest): world position for the reprojection
 
         Out(0) vec4 oColor;
 
         Uniform(0) SSRResolveUB
         {
         	mat4 u_PrevViewProj; // LAST frame's world -> clip
+        	mat4 u_InvJitteredViewProjection; // THIS frame's: world position from u_GBufferDepth
         	vec4 u_Params;       // xy = texel size, z = history blend (0 = first frame / resize), w unused
         };
 
         void main()
         {
-        	oColor = SSRDenoise(u_Trace, u_History, u_GBufferWorldPos, v_TexCoord, u_PrevViewProj, u_Params,
+        	oColor = SSRDenoise(u_Trace, u_History, u_GBufferDepth, u_InvJitteredViewProjection, v_TexCoord,
+        	                    u_PrevViewProj, u_Params,
         	                    1, 2.0);
         }
     }

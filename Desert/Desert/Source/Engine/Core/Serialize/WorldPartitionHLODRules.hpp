@@ -40,7 +40,7 @@
 //   PrefabInstance  — the instance's body is in the .deprefab, not in this file (see UnplacedPrefabInstances).
 //   Unreadable      — a mesh block of the wrong shape; the Issue says where, as it does for the loader.
 //   CustomShaderMaterial — every material the batch would bind draws with its own (DSL) shader. The ISM draw
-//                     path is the batched PBR one and skips such a component whole (MeshECSSystem, "Instanced
+//                     path is the batched lit one and skips such a component whole (MeshECSSystem, "Instanced
 //                     Static Mesh doesn't support custom-shader materials"), so an instance written for it
 //                     would be a hole nobody named. Asked of a CustomShaderSource, because which shader a
 //                     material names is in the material's file, not in this one.
@@ -92,7 +92,7 @@ namespace Desert::Core::Rules
 
     // WHAT THE BUILDER MAY KNOW ABOUT A MATERIAL FROM OUTSIDE THE FILE: whether the material a slot names (by the
     // GUID its block states — null when none — and the path beside it) draws with its own shader rather than the
-    // PBR surface. AN EMPTY SOURCE IS A STATED CONDITION, as for AssetBoundsSource: no material is then known to
+    // Lit surface. AN EMPTY SOURCE IS A STATED CONDITION, as for AssetBoundsSource: no material is then known to
     // be custom, which is all a caller with no registry (a suite over one file) can say.
     using CustomShaderSource =
          std::function<bool( const Common::Content::AssetGuid& guid, std::string_view path )>;
@@ -139,8 +139,8 @@ namespace Desert::Core::Rules
         }
 
         // True when the ISM path would skip @p key whole: it names at least one material slot and every slot's
-        // material draws with its own shader. One PBR slot is enough for the ISM path to draw (it binds the
-        // first PBR slot), and a component naming no material draws with the default PBR one.
+        // material draws with its own shader. One lit slot is enough for the ISM path to draw (it binds the
+        // first lit slot), and a component naming no material draws with the default lit one.
         [[nodiscard]] inline bool DrawsOnlyWithCustomShaders( const Assets::InstancedStaticMeshComponentSer& key,
                                                               const CustomShaderSource& customShader )
         {
@@ -161,7 +161,7 @@ namespace Desert::Core::Rules
                 const std::string_view path =
                      slot < paths ? std::string_view( ( *pathList )[slot] ) : std::string_view();
                 if ( guid.IsNull() && path.empty() )
-                    return false; // an empty slot draws with the default PBR material
+                    return false; // an empty slot draws with the default lit material
                 if ( !customShader( guid, path ) )
                     return false;
             }

@@ -59,7 +59,7 @@ namespace Desert::Core::Formats
     // Which groups of SCENE state a template reads — the frame's contribution to a surface, as opposed to
     // the material's own row and textures. Filled by Graphic::ShaderReflection::ReconcileCellLayout from the
     // resource names the compiled stages declare (Graphic::SceneResources is the one name table), and read
-    // by Graphic::PBRSceneFrame::ApplyTo, which writes exactly these groups. A capability of the TEMPLATE,
+    // by Graphic::SceneFrameBinding::ApplyTo, which writes exactly these groups. A capability of the TEMPLATE,
     // so any surface — the shipped lit one or a data-driven one — that samples the shadow map is handed the
     // cascades for that reason alone.
     enum class SceneRead : uint32_t
@@ -71,6 +71,13 @@ namespace Desert::Core::Formats
         Shadow      = 1u << 3,
         Environment = 1u << 4,
         CloudShadow = 1u << 5,
+        // The view's per-primitive motion rows (Common/ObjectMotion.glslh `ObjectMotions`): every view-pass
+        // static / skinned surface vertex stage reads its world from them.
+        ObjectMotion = 1u << 6,
+        // The view's per-(frame x view) palette buffer (Common/ObjectMotion.glslh `ObjectBones`): both frames'
+        // palettes of every skinned primitive the view draws, named by the row's BoneOffset / PrevBoneOffset.
+        // Read by the view-pass skinned surface vertex stage.
+        ObjectBones = 1u << 7,
     };
     constexpr SceneRead operator|( SceneRead a, SceneRead b )
     {

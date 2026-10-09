@@ -24,20 +24,30 @@ namespace Desert::Graphic
              : Material( "MaterialSSRResolve",
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
-            // u_Trace, u_History and u_GBufferWorldPos are textures of the frame graph in both variants (the
+            // u_Trace, u_History and u_GBufferDepth are textures of the frame graph in both variants (the
             // history ping-pong is imported), bound by name through RDG::PassBindings (SSRRenderer::RecordResolve,
             // GIResolveRenderer::RecordTemporal).
         }
 
-        // The SSRResolveUB values: the material carries no texture.
-        void BindValues( const glm::mat4& prevViewProj, const glm::vec2& texelSize, float historyBlend )
+        // The SSRResolveUB (SSRResolve.shader and SSRResolveTiled.shader) block, std140, member for member
+        // (census: Desert/Tests/Engine/UniformBlockLayout).
+        struct SSRResolveUBData
         {
-            struct SSRResolveUBData
-            {
-                glm::mat4 PrevViewProj;
-                glm::vec4 Params; // xy = texel size, z = history blend (0 = no history), w unused
-            } data;
-            data.PrevViewProj = prevViewProj;
+            glm::mat4 PrevViewProj;
+            glm::mat4 InvJitteredViewProjection;
+            glm::vec4 Params; // xy = texel size, z = history blend (0 = no history), w unused
+        };
+
+        // The SSRResolveUB values: the material carries no texture.
+        // @p prevViewProj: ViewFrame::PrevViewProjection (unjittered); @p invJitteredViewProjection:
+        // ViewFrame::InvJitteredViewProjection, which reconstructs the pixel's world position for the
+        // reprojection.
+        void BindValues( const glm::mat4& prevViewProj, const glm::mat4& invJitteredViewProjection,
+                         const glm::vec2& texelSize, float historyBlend )
+        {
+            SSRResolveUBData data{};
+            data.PrevViewProj              = prevViewProj;
+            data.InvJitteredViewProjection = invJitteredViewProjection;
             data.Params       = glm::vec4( texelSize.x, texelSize.y, historyBlend, 0.0f );
 
             if ( auto* ub = Get<UniformBufferProperty>( "SSRResolveUB" ) )

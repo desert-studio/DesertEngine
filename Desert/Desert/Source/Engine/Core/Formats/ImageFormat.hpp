@@ -96,6 +96,15 @@ namespace Desert::Core::Formats
         /// hands it over (Engine/Media/MediaTexture.hpp), converted to RGB on the GPU. APPENDED for the
         /// same renumbering reason as R16_UNORM.
         R8_UNORM,
+        /// `VK_FORMAT_R16G16_SFLOAT`. Two half-float channels: the per-view velocity target (TAA1,
+        /// View/SceneViewState.hpp kVelocityFormat) — an NDC delta, where half's 2^-11 relative step is about
+        /// 1/1000 of a pixel at 4K for any motion under a screen. APPENDED for the renumbering reason above.
+        RG16F,
+        /// `VK_FORMAT_R32_UINT`. One 32-bit unsigned integer channel: the G-buffer's shading word (GBUF1,
+        /// ViewTargetFormats.hpp kGBufferShadingWord; ShadingModels/ShadingModelContract.glslh). An INTEGER
+        /// format: written as `out uint`, read with `usampler2D` + texelFetch, never filtered or blended.
+        /// APPENDED for the renumbering reason above.
+        R32_UINT,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
@@ -190,8 +199,10 @@ namespace Desert::Core::Formats
                 return { 1, 1, 2 }; // one channel, 16 bits
             case ImageFormat::R8_UNORM:
                 return { 1, 1, 1 }; // one channel, 8 bits
-            case ImageFormat::R32F:
-                return { 1, 1, 4 }; // one channel, 32-bit float
+            case ImageFormat::R32F: // one channel, 32-bit float
+            case ImageFormat::RG16F:    // 2 channels, 16 bits each
+            case ImageFormat::R32_UINT: // one channel, 32-bit unsigned integer
+                return { 1, 1, 4 };
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -223,6 +234,40 @@ namespace Desert::Core::Formats
         return block.Width > 1 || block.Height > 1;
     }
 
+    /// Whether texels of @p format are INTEGERS (a *_UINT / *_SINT format): read as usampler/isampler with
+    /// texelFetch, written by a uint/int fragment output, never filtered and never BLENDED (Vulkan forbids
+    /// blending into one; the pipeline's per-attachment blend state asks this, Pipeline.hpp
+    /// ColourAttachmentBlends). Every enumerator has a case, so a new integer format has to say so here.
+    constexpr bool IsIntegerFormat( ImageFormat format )
+    {
+        switch ( format )
+        {
+            case ImageFormat::R32_UINT:
+                return true;
+            case ImageFormat::RGBA8F:
+            case ImageFormat::RGBA16F:
+            case ImageFormat::RGBA32F:
+            case ImageFormat::BGRA8F:
+            case ImageFormat::DEPTH24STENCIL8:
+            case ImageFormat::DEPTH32F:
+            case ImageFormat::BC7_UNORM:
+            case ImageFormat::BC6H_UFLOAT:
+            case ImageFormat::BC4_UNORM:
+            case ImageFormat::BC5_UNORM:
+            case ImageFormat::R16_UNORM:
+            case ImageFormat::R32F:
+            case ImageFormat::R8_UNORM:
+            case ImageFormat::RG16F:
+                return false;
+            case ImageFormat::Count:
+                break; // the sentinel is not a format
+        }
+
+        LOG_ERROR( "IsIntegerFormat: ImageFormat value {} is outside the enumeration",
+                   static_cast<uint32_t>( format ) );
+        DESERT_VERIFY( false, "ImageFormat outside the enumeration" );
+    }
+
     /// HOW MANY CHANNELS SURVIVE THIS FORMAT, counted from red. Four for every uncompressed format in
     /// this table and for BC7; three for BC6H, which has no alpha; two for BC5 and one for BC4.
     ///
@@ -251,11 +296,13 @@ namespace Desert::Core::Formats
             case ImageFormat::R16_UNORM:
             case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
+            case ImageFormat::R32_UINT:
                 return 1;
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
-            case ImageFormat::BC5_UNORM:
-                return 2; // X and Y of a tangent normal; Z is reconstructed by the shader
+            case ImageFormat::BC5_UNORM: // X and Y of a tangent normal; Z is reconstructed by the shader
+            case ImageFormat::RG16F:     // velocity: NDC x and y
+                return 2;
             case ImageFormat::BC4_UNORM:
                 return 1;
             case ImageFormat::Count:
@@ -330,6 +377,8 @@ namespace Desert::Core::Formats
             case ImageFormat::R16_UNORM:
             case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
+            case ImageFormat::RG16F:
+            case ImageFormat::R32_UINT:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:
@@ -376,6 +425,9 @@ namespace Desert::Core::Formats
                 // every encode as perfect. Asked for every enumerator, so a format added without a
                 // case falls off the end of a constexpr function here.
                 if ( PreservedChannelCount( format ) == 0 )
+                    return false;
+                // Asked for every enumerator for the same reason: a format without a case is a compile error.
+                if ( IsIntegerFormat( format ) && IsBlockCompressed( format ) )
                     return false;
 
                 // GetBytesPerPixel IS ASKED ONLY WHERE A PIXEL HAS A SIZE, and where it does, the two
@@ -526,7 +578,7 @@ namespace Desert::Core::Formats
         // MSAA sample count (1/2/4/8) — attachments only; a multisampled image must have Mips == 1
         // and is consumed by the render pass RESOLVE, not by ordinary samplers.
         uint32_t              Samples = 1;
-        ImagePixelData        Data;
+        ImagePixelData        Data{};
         const Image2DUsage    Usage;
         const ImageProperties Properties;
 

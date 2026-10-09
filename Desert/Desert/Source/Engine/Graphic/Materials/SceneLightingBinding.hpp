@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace Desert::Graphic
 {
@@ -31,45 +32,42 @@ namespace Desert::Graphic
     // door — every material in this engine binds by NAME, so one function serves every shader that
     // declares the block, whatever slot number it chose for it.
     //
-    // These bodies used to be static members of the former PBR base class taking a MaterialInstance*, which each
+    // These bodies used to be static members of the former lit base class taking a MaterialInstance*, which each
     // immediately turned into GetParentMaterial(). That signature is what kept them out of reach of the
     // generic (data-driven) mesh path, which draws through a Material with no instance at all — and the
     // consequence was not "generic materials get a bit less". It was that MeshRenderer::DrawGenericMeshes
     // grew its OWN filler for the three blocks it happened to need (CameraUB, TimeUB, DirectionLightsUB),
     // which is a second implementation of the same job, and the blocks it did not think of — the
-    // environment cubes, the light counts, the point and spot buffers, the cloud shadow — reached the PBR
+    // environment cubes, the light counts, the point and spot buffers, the cloud shadow — reached the lit
     // materials and nothing else. A custom-shader mesh therefore could not be lit like the mesh beside it
     // however its shader was written.
     //
     // EVERY LOOKUP IS GUARDED. A material whose shader does not declare a block gets nothing written and
     // no complaint: that is not a silent fallback, it is the whole mechanism by which one frame-state
-    // applier serves the PBR shaders, the terrain, an unlit graph material and the text system's SDF
+    // applier serves the lit shaders, the terrain, an unlit graph material and the text system's SDF
     // quads. `LightsMetadata` in particular used to be dereferenced unguarded, which was a null crash
     // waiting for the first material without it — and the first material without it is every unlit
     // generic shader the moment it is handed the same snapshot.
     //
     // The BLOCK LAYOUT and the block NAMES are not restated here; they are SceneResources', which is
-    // where Desert/Tests/Engine/PBRSceneFrame asserts them against the reflected GLSL. One mirror, so a
+    // where Desert/Tests/Engine/SceneFrameBinding asserts them against the reflected GLSL. One mirror, so a
     // writer and a test cannot end up describing two different ShadowUBs.
     // ------------------------------------------------------------------------------------------------
 
-    /// The camera block (Common/CameraUB.glslh: mat4 Projection, mat4 View, vec3 CameraPos).
-    inline void SceneCameraBind( Material* material, const Core::Camera* camera )
+    /// The camera block (Common/CameraUB.glslh) — THE one write of CameraUB into a material: the block is
+    /// ShaderProtocols::MakeCameraUB of the view being drawn (SceneRenderer::GetViewFrame for a scene view,
+    /// MakeStillViewFrame for a camera that is not a view: a light, an editor tool camera, a thumbnail).
+    /// The C++ struct and the reflected block have one size (camera_ub_layout_test), so the whole struct goes.
+    inline void SceneCameraBind( Material* material, const ViewFrame& frame )
     {
-        if ( !material || !camera )
+        if ( material == nullptr )
             return;
-
-        ShaderProtocols::Camera data;
-        data.Projection = camera->GetProjectionMatrix();
-        data.View       = camera->GetViewMatrix();
-        data.CameraPos  = camera->GetPosition();
 
         if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
         {
-            // The block ends in a vec3, so its reflected size (140) is smaller than the C++ struct's
-            // padded sizeof (144). Clamp, or the last write runs four bytes past the buffer.
-            const size_t size = std::min( sizeof( data ), static_cast<size_t>( ub->GetUniform()->GetSize() ) );
-            ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), size );
+            const auto data  = ShaderProtocols::MakeCameraUB( frame );
+            const auto bytes = std::as_bytes( std::span{ &data, 1 } );
+            ub->SetRawData( bytes.data(), bytes.size() );
         }
     }
 
@@ -140,7 +138,7 @@ namespace Desert::Graphic
         // The block's layout and its cascade count are NOT restated here. They are one mirror
         // (SceneResources::ShadowUBData / ::kMaxCascades), and the reason is the defect shape this whole
         // seam exists to remove: a second declaration of one layout is a disagreement waiting to happen,
-        // and Desert/Tests/Engine/PBRSceneFrame asserts that mirror against the reflected GLSL block —
+        // and Desert/Tests/Engine/SceneFrameBinding asserts that mirror against the reflected GLSL block —
         // an assertion a private copy here would quietly stop covering.
         constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
 

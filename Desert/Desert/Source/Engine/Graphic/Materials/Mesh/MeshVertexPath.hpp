@@ -17,17 +17,17 @@ namespace Desert::Graphic
     // ── THE THREE AXES OF A MESH DRAW ───────────────────────────────────────────────────────────────
     //
     // A mesh draw is a PERMUTATION of three independent things, and the class hierarchy that stood here
-    // was their cartesian product spelled out in C++ — `MaterialGlass` inherited from the static PBR class,
+    // was their cartesian product spelled out in C++ — `MaterialGlass` inherited from the static lit class,
     // so a SHADING MODEL was a subclass of a (shading model x vertex path) pair.
     //
-    //   1. the SHADING MODEL — PBR, glass, a node graph, unlit. What the fragment stage does with the
+    //   1. the SHADING MODEL — Lit, glass, a node graph, unlit. What the fragment stage does with the
     //      surface. It belongs in a SHADER, named by the asset, with no privileged C++ type behind it.
     //   2. the VERTEX PATH — how the vertices are fetched and transformed before that surface is shaded.
     //      Static, skinned, hardware-instanced. A property of the GEOMETRY, chosen by the renderer, and
     //      the artist never names it. THIS ENUM.
     //   3. the SCENE-STATE BINDING — camera, lights, cascades, environment, cloud shadow. Legitimately
-    //      C++, and ALREADY decoupled: `Graphic::PBRSceneFrame::ApplyTo` takes any `Material*` and writes
-    //      by block NAME, so it reaches the PBR path, the skinned path, the graph path and unlit alike.
+    //      C++, and ALREADY decoupled: `Graphic::SceneFrameBinding::ApplyTo` takes any `Material*` and writes
+    //      by block NAME, so it reaches the lit path, the skinned path, the graph path and unlit alike.
     //      It is a finished foundation and nothing here rebuilds it.
     //
     // Where each axis lives AFTER this change — the census, because the answer was smaller than the six
@@ -37,7 +37,7 @@ namespace Desert::Graphic
     //   |----------------|-----------------------------------|--------------------|
     //   | shading model  | the shader NAME, from the `.demat`| 0 (it is data)     |
     //   | vertex path    | MeshVertexPath, a renderer argument| 0 (it is an enum) |
-    //   | scene binding  | PBRSceneFrame + SceneLightingBinding| 1, already shared |
+    //   | scene binding  | SceneFrameBinding + SceneLightingBinding| 1, already shared |
     //
     // `MaterialGlass` and `MaterialRSM` are gone entirely: they were a shader name and nothing else, so
     // they are cells of a template: glass is a translucent template's own cell, (Static, GBuffer) the RSM's.
@@ -48,7 +48,7 @@ namespace Desert::Graphic
     // own glass / RSM / instanced cells — is a DataDrivenMaterial of one cell: the shader of that cell, its
     // descriptor sets, and a row of the shared `Materials[]` storage buffer named by a push constant. What
     // a draw needs beyond that belongs to the vertex path (the skinned bone palette and offset,
-    // Material::UploadSkinnedBones / SetSkinnedBoneOffset) or to the scene (PBRSceneFrame), never to a class.
+    // Material::UploadSkinnedBones / SetSkinnedBoneOffset) or to the scene (SceneFrameBinding), never to a class.
 
     // THE TRANSPORT USED TO BE TWO, AND THE SECOND ONE IS GONE. `Properties Binding(n)` generated a
     // per-material `uniform MaterialUB` block. Measured 2026-09-04 in Debug, reading the mesh pass's own
@@ -82,12 +82,12 @@ namespace Desert::Graphic
     // None of the three lets a material belong to a vertex path, and none of the three has a C++ class
     // per shading model.
     //
-    // This engine had both. A static, a skinned and an instanced PBR class
+    // This engine had both. A static, a skinned and an instanced lit class
     // were three C++ CLASSES for one surface model, one per path, and `MaterialService` resolved a
     // `.demat` into exactly one of them. The consequences were all one defect wearing different clothes:
     //
     //   1. an imported character with its own materials did not draw AT ALL — MeshRenderer looked for a
-    //      slot whose parent was the skinned PBR class, and MaterialService could not build one from an
+    //      slot whose parent was the skinned lit class, and MaterialService could not build one from an
     //      asset under any circumstances (it answered the static class even for a `.demat` naming the
     //      skinned shader);
     //   2. a skinned mesh cast NO SHADOW — the cascade pass walked the static queue by name;
@@ -112,7 +112,7 @@ namespace Desert::Graphic
     // `StaticMeshGBuffer.shader` used to multiply three environment samples, four cascade maps, two light
     // SSBOs, ShadowUB, the lights-metadata and directional-light blocks and the cloud-shadow pair by 1e-20
     // — fourteen descriptors it never read — purely so that its reflected layout stayed identical to
-    // `StaticMeshPBR`'s. It had to: the G-buffer pass had NO MATERIAL, so MeshRenderer bound the
+    // `StaticMeshLit`'s. It had to: the G-buffer pass had NO MATERIAL, so MeshRenderer bound the
     // (Static x Forward) material's sets against the (Static x GBuffer) pipeline layout, and Vulkan
     // demands the two be compatible.
     //

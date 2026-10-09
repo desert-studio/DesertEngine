@@ -48,6 +48,12 @@ namespace Desert::Graphic
         WritePushField( "Transform", &matrix, sizeof( glm::mat4 ) );
     }
 
+    void Material::SetPrimitiveIndex( uint32_t row )
+    {
+        const bool written = WritePushField( "PrimitiveIndex", &row, sizeof( uint32_t ) );
+        DESERT_VERIFY( written, "SetPrimitiveIndex on a cell with no PrimitiveIndex push field" );
+    }
+
     void Material::SetInstancedWind( const InstanceWindPush& wind )
     {
         WritePushField( "WindA", &wind.A, sizeof( glm::vec4 ) );
@@ -55,7 +61,7 @@ namespace Desert::Graphic
     }
 
     // Writes the Bones buffer; tidy sees it as const only because Get<> is const and hands out a mutable
-    // property (PBRSceneFrame pins the non-const signature).
+    // property (SceneFrameBinding pins the non-const signature).
     // NOLINTNEXTLINE(readability-make-member-function-const)
     void Material::UploadSkinnedBones( const glm::mat4* matrices, size_t count )
     {

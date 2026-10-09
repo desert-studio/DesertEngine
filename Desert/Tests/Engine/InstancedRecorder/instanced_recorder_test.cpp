@@ -79,9 +79,9 @@ TEST( InstancedRecorder, AGroupWithNoAssetIsRecordedByTheRendererSpare )
 }
 
 // THE CELLS THAT MAKE THE FIX REACHABLE. `None` is the honest answer to a missing shader, but if it
-// were the answer for the PBR surface in either pass the fix above would silently become "batched
+// were the answer for the lit surface in either pass the fix above would silently become "batched
 // surfaces are no longer batched". Both cells exist; this is what fails if one is removed.
-TEST( InstancedRecorder, BothInstancedCellsOfThePbrSurfaceExist )
+TEST( InstancedRecorder, BothInstancedCellsOfTheStandardSurfaceExist )
 {
     EXPECT_NE( MeshCellFor( MeshVertexPath::Instanced, MeshPass::Forward ), nullptr );
     EXPECT_NE( MeshCellFor( MeshVertexPath::Instanced, MeshPass::GBuffer ), nullptr );

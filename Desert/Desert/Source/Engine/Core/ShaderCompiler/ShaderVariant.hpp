@@ -1,7 +1,14 @@
 #pragma once
 
 // THE COMPILE-TIME AXIS OF A SHADER PROGRAM: a set of `#include` targets whose bytes are supplied by
-// the caller instead of by the file system.
+// the caller instead of by the file system, and a set of preprocessor macros defined for the compile.
+//
+// THE MACROS ARE A PERMUTATION'S ONE SOURCE. A pass that draws the same program into a different target
+// (the reflective shadow map draws the G-buffer program, DESERT_GBUFFER_RSM) names its defines HERE and
+// nowhere else: ShaderCompiler hands each one to the compile (CompileOptions::AddMacroDefinition) and
+// Hash() mixes them into both cache keys, so two permutations are two artifacts. A pipeline built for the
+// permutation references the Shader compiled under it (GraphicsPipelineSpecification::Shader); it does
+// not carry a define list of its own, which would be a second copy that could disagree with the code.
 //
 // WHY A VIRTUAL INCLUDE AND NOT A GENERATED PROGRAM. The cloud medium — what a cloud IS at a point in
 // space — is sampled by FOUR shipped programs: the view march, the cloud shadow map, the sky occlusion
@@ -44,19 +51,22 @@ namespace Desert::Core
     };
 
     /**
-     * The compile-time variant of a program: the virtual sources it is compiled against.
+     * The compile-time variant of a program: the virtual sources it is compiled against and the macros
+     * defined for it.
      *
-     * Empty is the shipped state and means "every include comes from disk" — the DEFAULT substitution
-     * of Generated/CloudMedium.glslh is a real file, so the default variant is not a special case in
-     * the includer, in the cache key, or in the shader text.
+     * Empty is the shipped state and means "every include comes from disk, no macro defined" — the
+     * DEFAULT substitution of Generated/CloudMedium.glslh is a real file, so the default variant is not a
+     * special case in the includer, in the cache key, or in the shader text.
      */
     struct ShaderVariant
     {
-        std::vector<ShaderVirtualSource> VirtualSources;
+        std::vector<ShaderVirtualSource> VirtualSources{};
+        /// Macros defined for the compile, each `NAME` or `NAME=VALUE` (ShaderDefineName / ShaderDefineValue).
+        std::vector<std::string> Defines{};
 
         [[nodiscard]] bool IsDefault() const
         {
-            return VirtualSources.empty();
+            return VirtualSources.empty() && Defines.empty();
         }
 
         /// The bytes for @p name, or nullptr when this variant does not override it.
@@ -83,7 +93,7 @@ namespace Desert::Core
         /// object's own members has no reason to be anywhere else.
         [[nodiscard]] uint64_t Hash() const
         {
-            if ( VirtualSources.empty() )
+            if ( IsDefault() )
                 return 0;
 
             constexpr uint64_t kFnvOffset = 1469598103934665603ull;
@@ -115,6 +125,18 @@ namespace Desert::Core
                 joined.append( source.Source );
                 hash ^= fnv( joined );
             }
+            // A define is hashed behind a leading NUL and a tag: no include path starts with a NUL, so a
+            // macro can never hash like a virtual source of the same spelling.
+            for ( const auto& define : Defines )
+            {
+                std::string joined;
+                joined.reserve( define.size() + 8 );
+                joined.push_back( '\0' );
+                joined.append( "define" );
+                joined.push_back( '\0' );
+                joined.append( define );
+                hash ^= fnv( joined );
+            }
 
             // ZERO IS THE DEFAULT VARIANT'S VALUE AND NOTHING ELSE MAY WEAR IT. An XOR can land on zero
             // — two entries hashing alike is the obvious way — and a substituting variant that reported
@@ -124,4 +146,17 @@ namespace Desert::Core
             return hash == 0 ? kFnvOffset : hash;
         }
     };
+
+    /// The macro name of a ShaderVariant::Defines entry (`NAME` of `NAME=VALUE`).
+    [[nodiscard]] inline std::string_view ShaderDefineName( std::string_view define )
+    {
+        return define.substr( 0, define.find( '=' ) );
+    }
+
+    /// The macro value of a ShaderVariant::Defines entry; empty for a bare `NAME`.
+    [[nodiscard]] inline std::string_view ShaderDefineValue( std::string_view define )
+    {
+        const auto equals = define.find( '=' );
+        return equals == std::string_view::npos ? std::string_view() : define.substr( equals + 1 );
+    }
 } // namespace Desert::Core

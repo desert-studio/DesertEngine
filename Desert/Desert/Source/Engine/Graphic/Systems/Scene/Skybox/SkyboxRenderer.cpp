@@ -1,4 +1,5 @@
 #include "SkyboxRenderer.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <utility>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
@@ -61,7 +62,7 @@ namespace Desert::Graphic::System
 
         Graphic::GraphicsPipelineSpecification pipeSpec;
         pipeSpec.DebugName   = debugName;
-        pipeSpec.Framebuffer = compositeFramebuffer;
+        pipeSpec.TargetLayout = SceneTargetLayout();
         pipeSpec.Shader      = m_Shader;
 
         pipeSpec.CullMode          = CullMode::None;
@@ -81,7 +82,7 @@ namespace Desert::Graphic::System
         {
             Graphic::GraphicsPipelineSpecification skySpec;
             skySpec.DebugName         = "ProceduralSky";
-            skySpec.Framebuffer       = compositeFramebuffer;
+            skySpec.TargetLayout      = SceneTargetLayout();
             skySpec.Shader            = m_ProceduralShader;
             skySpec.CullMode          = CullMode::None;
             skySpec.DepthTestEnabled  = false;
@@ -582,7 +583,7 @@ namespace Desert::Graphic::System
         // It used to return early and change nothing, which made the sentence unsayable: SkyboxECSSystem
         // emitted a command only when a cubemap existed, so deleting the SkyboxComponent — or loading a
         // level that has none onto a renderer that had one — left the previous cubemap drawing behind the
-        // new world AND feeding its IBL into every PBR surface. This is the same explicit-absence rule the
+        // new world AND feeding its IBL into every lit surface. This is the same explicit-absence rule the
         // sky, the fog and the cloud layer already follow, and it is what lets a render system outlive the
         // scene it was built for (IRenderSystem::OnSceneReplaced).
         m_MaterialSkybox = material; // an empty weak_ptr when the scene has none
@@ -911,9 +912,12 @@ namespace Desert::Graphic::System
         // LUTs: last frame's, imported by SceneRenderer::ImportSceneViewTextures when SkyPassSamplesLuts, or
         // System.White until an earlier frame's SkyAtmosphereLuts nodes have written them (the gradient branch
         // never samples them). Both are entries of the pass's block, so each entry is the read's declaration.
-        if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera )
+        // The camera block is the frame's view (declared inside SceneRenderer::OnUpdate, so it is there).
+        const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera != nullptr &&
+             view != nullptr )
         {
-            m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams );
+            m_ProceduralMaterial->Update( view, m_SkyParams );
             const MaterialExecutor* executor = m_ProceduralMaterial->GetMaterialExecutor();
             const RDG::TextureRef   white    = refs.System.White;
             declared
@@ -939,8 +943,8 @@ namespace Desert::Graphic::System
                 m_SkyDraw.Fault = "SkyboxPass: a skybox material without its pipeline";
                 return;
             }
-            if ( m_ActiveCamera )
-                material->BindInputs( { m_ActiveCamera, m_SkyboxLook } );
+            if ( m_ActiveCamera != nullptr )
+                material->BindInputs( { view, m_SkyboxLook } );
             const MaterialExecutor* executor = material->GetMaterialExecutor();
             declared.Bindings( m_SkyLayout.Get( m_Pipeline->GetSpecification().Shader ),
                                executor->GetRouteFill() );

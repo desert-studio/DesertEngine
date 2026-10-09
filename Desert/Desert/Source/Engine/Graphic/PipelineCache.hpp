@@ -383,8 +383,9 @@ namespace Desert::Graphic
                     sig *= 1099511628211ull;
                 };
                 mix( s.TargetLayout->ColorFormats.size() );
-                for ( const auto format : s.TargetLayout->ColorFormats )
-                    mix( static_cast<uint64_t>( format ) );
+                // An unused colour slot is 0, every format one more than its value.
+                for ( const auto& format : s.TargetLayout->ColorFormats )
+                    mix( format ? static_cast<uint64_t>( *format ) + 1 : 0 );
                 // One more than any format, so "no depth" differs from every depth format.
                 mix( s.TargetLayout->DepthFormat ? static_cast<uint64_t>( *s.TargetLayout->DepthFormat ) + 1 : 0 );
                 mix( s.TargetLayout->Samples );

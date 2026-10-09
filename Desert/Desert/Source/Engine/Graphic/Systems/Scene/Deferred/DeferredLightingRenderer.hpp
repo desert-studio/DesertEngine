@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
@@ -26,7 +27,8 @@ namespace Desert::Graphic::System
     {
         RDG::TextureRef GBufferA;        // albedo + metallic
         RDG::TextureRef GBufferB;        // normal + roughness
-        RDG::TextureRef GBufferC;        // world position
+        RDG::TextureRef GBufferShadingWord; // the uint shading word (R32_UINT)
+        RDG::TextureRef GBufferDepth;       // device depth: world position is reconstructed from it
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
         RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
@@ -62,14 +64,13 @@ namespace Desert::Graphic::System
 
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "DeferredLighting";
-            spec.Framebuffer       = target;
+            spec.TargetLayout      = SceneTargetLayout();
             spec.Shader            = m_Shader;
             // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
             // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
             // preserved — the shader discards non-geometry texels so that scene shows through.
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
-            spec.UseLoadRenderPass = true;
             const auto pipeline    = Graphic::GraphicsPipeline::Create( spec );
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );
@@ -111,15 +112,17 @@ namespace Desert::Graphic::System
         // = camera world position; debugMode selects a raw channel (0 = lit); giMode picks the indirect-light
         // source (0 = off, 1 = screen-space, 2 = RSM).
         void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                           int debugMode, uint32_t pointCount, uint32_t spotCount,
-                           const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled, int giMode,
-                           const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
+                           const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
+                           uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
+                           bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
+                           const DeferredEnvironmentInput& environment )
         {
             if ( !m_Material )
                 return;
             ReportEnvironmentGap( environment );
-            m_Material->BindInputs( lightDir, lightColor, cameraPos, debugMode, pointCount, spotCount, shadow,
-                                    giIntensity, ssaoEnabled, giMode, cloudShadow, environment );
+            m_Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode,
+                                    pointCount, spotCount, shadow, giIntensity, ssaoEnabled, giMode, cloudShadow,
+                                    environment );
         }
 
         // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer, AO and
@@ -137,8 +140,11 @@ namespace Desert::Graphic::System
                            RDG::SubresourceRange::All(), kSampler )
                  .Sampled( "u_GBufferB", inputs.GBufferB, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), kSampler )
-                 .Sampled( "u_GBufferC", inputs.GBufferC, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), kSampler )
+                 // The word is an integer (texelFetch only) and depth is never filtered: both point-sampled.
+                 .Sampled( "u_GBufferShadingWord", inputs.GBufferShadingWord, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_GBufferDepth", inputs.GBufferDepth, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_GBufferEmissive", inputs.GBufferEmissive, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), kSampler )
                  .Sampled( "u_SSAO", inputs.SSAO, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),

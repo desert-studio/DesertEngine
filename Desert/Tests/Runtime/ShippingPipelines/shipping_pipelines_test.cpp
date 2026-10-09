@@ -400,8 +400,6 @@ namespace
                "material or instance with TwoSided draws on it (foliage, glass panes); authored content reaches "
                "it" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
-               "\"SkinnedMesh_Load\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"StaticMeshGeometry\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"StaticMeshGeometryInstanced\"", Verdict::Shipped, "" },
@@ -480,6 +478,8 @@ namespace
                "\"DepthExpand\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp",
                "\"SceneDepthResolve\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp",
+               "\"GraphColorResolve\"", Verdict::Shipped, "the sample-0 resolve of the view's velocity at MSAA" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp", "\"GIResolve\"",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp",

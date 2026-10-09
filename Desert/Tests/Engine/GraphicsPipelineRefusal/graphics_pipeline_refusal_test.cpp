@@ -375,7 +375,7 @@ namespace
 
 TEST( GraphicsPipelineRefusal, ARefusedShaderIsRefused )
 {
-    const auto broken = std::make_shared<StubShader>( "StaticMeshPBR", false );
+    const auto broken = std::make_shared<StubShader>( "StaticMeshLit", false );
     const auto target = std::make_shared<StubFramebuffer>();
 
     const auto answer = Desert::Graphic::CheckGraphicsPipelineSpecification(
@@ -388,7 +388,7 @@ TEST( GraphicsPipelineRefusal, ARefusedShaderIsRefused )
 
 TEST( GraphicsPipelineRefusal, ABuildableSpecIsAccepted )
 {
-    const auto good   = std::make_shared<StubShader>( "StaticMeshPBR", true );
+    const auto good   = std::make_shared<StubShader>( "StaticMeshLit", true );
     const auto target = std::make_shared<StubFramebuffer>();
 
     const auto answer = Desert::Graphic::CheckGraphicsPipelineSpecification(

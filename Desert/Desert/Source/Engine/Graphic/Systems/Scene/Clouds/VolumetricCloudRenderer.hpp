@@ -18,6 +18,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/View/PassHistory.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
@@ -102,7 +103,7 @@ namespace Desert::Graphic::System
         // a resize; without this, the first executed cloud frame of the new scene reprojects the old one.
         void OnSceneReplaced() override
         {
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
@@ -111,7 +112,7 @@ namespace Desert::Graphic::System
         void OnTemporalHistoryReset() override
         {
             m_FrameIndex   = 0;
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         /**
@@ -139,9 +140,11 @@ namespace Desert::Graphic::System
          * The march's quarter-resolution pair (scatter + depth guide) lives one frame, so it is created here as
          * two transients of @p graph; only the ping-ponged reconstruction (history) stays this renderer's.
          */
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph );
+        // @p frame: this view's frame (TAA1 step 3) — the march's and the resolve's matrices and camera position,
+        // and whether the history is the view's previous frame (PassHistoryStamp::ReadableIn).
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame );
         // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted advances
-        // the history (resolved slot, frame index, previous view-projection); a refusal records nothing, so it
+        // the history (resolved slot, frame index, the view frame that wrote it); a refusal records nothing, so it
         // drops the history and the sky-occlusion volume rather than claim a resolve that never ran.
         void SettleFrameNodes( bool accepted );
 
@@ -822,17 +825,13 @@ namespace Desert::Graphic::System
         // have a period that divides 2^32.
         uint32_t m_FrameIndex = 0;
 
-        // The view-projection of the frame that WROTE the history — the previous EXECUTED frame, not the
-        // previous frame of the application. The two differ whenever the pass is skipped (no component, no
-        // atmosphere, an allocation failure), and reprojecting through a matrix from a frame that did not
-        // write the history is how a history buffer starts smearing after a scene is reloaded.
-        glm::mat4 m_PrevViewProjection{ 1.0f };
-
-        // False until a reconstruction has been written into the targets currently allocated. Reading the
-        // history before that is reading uninitialised device memory, so the resolve is handed the
-        // engine's fallback texture instead and told to ignore it: an unbound sampler would be an INVALID
-        // descriptor set, which this backend answers by skipping the whole dispatch.
-        bool m_HistoryValid = false;
+        // WHICH VIEW FRAME WROTE the history (TAA1 step 3: the view's ViewFrame::PrevViewProjection is the one
+        // previous matrix; this renderer keeps no copy). Readable only when that frame is the view's previous
+        // one: a skipped pass (no component, no atmosphere, an allocation failure), a resize or a cut restarts
+        // the reconstruction instead of reprojecting a stale history. Unreadable, the resolve is handed the
+        // engine's fallback texture and told to ignore it: an unbound sampler would be an INVALID descriptor
+        // set, which this backend answers by skipping the whole dispatch.
+        PassHistoryStamp m_History;
 
         // True while the last ExecuteInFrame actually produced a reconstruction. The composite draws
         // nothing without it, rather than compositing a target from three frames ago over a scene that
@@ -848,8 +847,8 @@ namespace Desert::Graphic::System
         // SettleFrameNodes, never while the graph is still being built.
         struct PendingResolve
         {
-            uint32_t  WriteIndex = 0;
-            glm::mat4 ViewProjection{ 1.0f };
+            uint32_t WriteIndex     = 0;
+            uint64_t ViewFrameIndex = 0; // ViewFrame::FrameIndex of the frame the resolve writes
         };
         std::optional<PendingResolve> m_PendingResolve;
         bool                          m_ShadowMapPending = false;

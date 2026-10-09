@@ -189,7 +189,7 @@ namespace
             // the engine directory the build baked in.
             const TestSupport::EngineDirScope   engineDir;
             std::vector<Editor::ImportTemplate> shipped;
-            for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
+            for ( const char* file : { "Editor/Resources/Shaders/Programs/Surface/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
             {
                 const auto text =

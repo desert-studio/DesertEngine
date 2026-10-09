@@ -2351,7 +2351,7 @@ namespace
 // SINGLE SOURCE OF TRUTH: materials (shader + params + textures) are authored ONLY in the Material Editor
 // window, on a `.demat`. A mesh entity names one per slot; a landscape root names one, in LandscapeMaterialData.
 // MaterialComponent is no longer authored ANYWHERE in the editor: it remains only (a) the RUNTIME override
-// channel for scripts (Lua setMaterialParam) — surfaced by the PBR Materials banner with one-click clear —
+// channel for scripts (Lua setMaterialParam) — surfaced by the lit Materials banner with one-click clear —
 // and (b) legacy-scene compatibility. The terrain was the last thing authoring it, and the v6 -> v7 scene
 // migration takes it off terrain entities in the files as well.
 // Script component: an entity can run SEVERAL scripts (like UE ActorComponents), shown as a list of slots.

@@ -18,7 +18,7 @@ namespace Desert::Core::Formats
     // the contract between the two halves of that: DShaderParser emits the GLSL struct, and
     // Graphic/Materials/MaterialBinder.hpp places the bytes by the cell's MaterialLayout.
     //
-    // WHY THERE IS ONLY ONE TRANSPORT NOW. There used to be two. the PBR class used the storage buffer;
+    // WHY THERE IS ONLY ONE TRANSPORT NOW. There used to be two. the lit class used the storage buffer;
     // everything born from the DSL's `Properties Binding(n)` — graph materials, the terrain and the SDF
     // text — got a per-material `uniform MaterialUB` block instead. A block IS the parameters, so a
     // material holds exactly ONE set of values, and MeshRenderer keys one material per SHADER: three

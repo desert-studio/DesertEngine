@@ -9,7 +9,7 @@ namespace Desert::Editor
 {
     // How a source material states its cut-out, read ONCE at import (UE Interchange's glTF rule): glTF names
     // it in the material (`alphaMode` + `alphaCutoff`, the mask being the base colour's alpha), FBX by a
-    // separate opacity map. The renderer has one mask source per material (chosen by the PBR passes) and
+    // separate opacity map. The renderer has one mask source per material (chosen by the lit passes) and
     // no translucent blend mode for surface materials, so every stated cut-out becomes a cutoff here.
     enum class SourceAlphaKind
     {

@@ -56,6 +56,13 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t i = 0;
         for ( const auto& attachment : m_FramebufferSpecification.Attachments.Attachments )
         {
+            if ( attachment.Unused )
+            {
+                // An unused colour slot (FramebufferAttachment::UnusedColourSlot): the subpass references it as
+                // VK_ATTACHMENT_UNUSED and it has no description, so `i` (the description index) stays.
+                colorAttachmentReferences.push_back( { VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_UNDEFINED } );
+                continue;
+            }
             const auto format = attachment.Format;
             if ( Graphic::Utils::IsDepthFormat( format ) )
             {
@@ -102,6 +109,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             for ( const auto& attachment : m_FramebufferSpecification.Attachments.Attachments )
             {
+                if ( attachment.Unused )
+                {
+                    resolveAttachmentReferences.push_back( { VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_UNDEFINED } );
+                    continue;
+                }
                 const auto format = attachment.Format;
                 if ( Graphic::Utils::IsDepthFormat( format ) )
                     continue;
@@ -159,6 +171,13 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkImageView> attachments;
         for ( const auto& attachment : m_FramebufferSpecification.Attachments.Attachments )
         {
+            if ( attachment.Unused )
+            {
+                // No image and no view: the slot keeps its index in the colour list (GetColorAttachmentImage
+                // returns null for it), and the VkFramebuffer has no attachment for it.
+                ( samples > 1 ? m_MultisampleColorAttachments : m_ColorAttachments ).push_back( nullptr );
+                continue;
+            }
             const auto format = attachment.Format;
             Core::Formats::Image2DSpecification imageSpec = {
                  // Index the tag: a G-buffer's four attachments otherwise all carry the same name, which
@@ -202,6 +221,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             for ( const auto& attachment : m_FramebufferSpecification.Attachments.Attachments )
             {
+                if ( attachment.Unused )
+                {
+                    m_ColorAttachments.push_back( nullptr );
+                    continue;
+                }
                 const auto format = attachment.Format;
                 if ( Graphic::Utils::IsDepthFormat( format ) )
                     continue;

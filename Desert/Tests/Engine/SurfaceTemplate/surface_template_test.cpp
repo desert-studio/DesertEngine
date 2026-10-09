@@ -257,13 +257,13 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
 
 namespace
 {
-    // THE STANDARD SURFACE, as shipped: the template whose cells replaced StaticMeshPBR(_Instanced),
-    // StaticMeshGBuffer(_Instanced) and SkinnedMeshPBR (SURF1c). SURF1b held each cell to the program it
+    // THE STANDARD SURFACE, as shipped: the template whose cells replaced StaticMeshLit(_Instanced),
+    // StaticMeshGBuffer(_Instanced) and SkinnedMeshLit (SURF1c). SURF1b held each cell to the program it
     // replaced by reflection before those programs were deleted; what remains checkable against a shipped
     // program is the shadow-depth cells, whose Shadow* programs are still drawn with (SURF1d).
     std::string StandardSurfaceText()
     {
-        std::ifstream in( s_EditorDir / "Resources/Shaders/Programs/PBR/StandardSurface.shader",
+        std::ifstream in( s_EditorDir / "Resources/Shaders/Programs/Surface/StandardSurface.shader",
                           std::ios::binary );
         return { std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
     }
@@ -334,7 +334,7 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
     {
         const auto builtCell =
              Desert::Core::BuildShaderMap( { text,
-                                             "Resources/Shaders/Programs/PBR/StandardSurface.shader",
+                                             "Resources/Shaders/Programs/Surface/StandardSurface.shader",
                                              cell,
                                              {},
                                              std::format( "StandardSurface/{}", cell ) } );

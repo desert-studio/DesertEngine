@@ -1,0 +1,59 @@
+// Per-draw object motion (TAA1 step 4): the current and the previous world transform of one draw, and the
+// velocity a geometry pass writes from them.
+//
+// C++ twin: Graphic::GpuObjectMotion (Engine/Graphic/View/SceneViewState.hpp), std430, 144 bytes, PrevWorld at
+// byte 64, BoneOffset at 128, PrevBoneOffset at 132 — Desert/Tests/Engine/VelocityTarget pins the two. PrevWorld is what the view's
+// MotionHistory answered for the draw: World itself when the object was not drawn in the view's previous frame,
+// so a newly visible object carries camera motion only.
+//
+// DesertVelocity is the GLSL twin of Graphic::VelocityNdc (Engine/Graphic/View/Velocity.hpp). Both clip
+// positions are UNJITTERED — the vertex stage computes them with ViewProjection / PrevViewProjection, never with
+// the jittered matrix gl_Position uses (ViewFrame rule: velocity never carries the jitter). They travel to the
+// fragment stage as clip positions, not as NDC: the w-divide must happen per pixel, after interpolation.
+
+#ifndef DESERT_OBJECT_MOTION_GLSLH
+#define DESERT_OBJECT_MOTION_GLSLH
+
+struct GpuObjectMotion
+{
+    mat4 World;          // offset 0
+    mat4 PrevWorld;      // offset 64
+    uint BoneOffset;     // offset 128 — skinned: first bone of the CURRENT palette in objectBones; 0 otherwise
+    uint PrevBoneOffset; // offset 132 — skinned: first bone of the PREVIOUS palette in objectBones; 0 otherwise
+    uint Pad0;
+    uint Pad1;
+};
+
+// ONE ROW PER DRAWN PRIMITIVE (object), per (frame x view) — UE GPUScene primitive data. Built once per frame per
+// view from the view's MotionHistory (MeshRenderer::BuildObjectMotions); the submesh draws of one object index the
+// same row through the push block's PrimitiveIndex. Declared only by the stages of a VIEW pass: a light view
+// (shadow depth) has no previous frame of its own and keeps the world in its push block.
+//
+// ObjectBones: ONE per-(frame x view) palette buffer holding BOTH frames' palettes of every skinned primitive the
+// view draws; the row names both slices, so every pass that draws the primitive (G-buffer, forward, silhouette...)
+// skins it from the same bytes — no per-material-group copy, no push field.
+//
+// Bindings 25 / 26 are the reserved SCENE-READ range (Core::kObjectMotionsBinding / kObjectBonesBinding,
+// ShaderGraphBindings.hpp): DShaderParser refuses a Properties row or texture run inside it by name, and
+// Tests/Engine/VelocityTarget holds the whole tree to nothing else at these numbers.
+#ifdef DESERT_OBJECT_MOTION_ROWS
+layout( std430, binding = 25 ) readonly buffer ObjectMotions
+{
+    GpuObjectMotion Motions[];
+}
+objectMotions;
+#endif
+#ifdef DESERT_OBJECT_BONES
+layout( std430, binding = 26 ) readonly buffer ObjectBones
+{
+    mat4 Palettes[];
+}
+objectBones;
+#endif
+
+vec2 DesertVelocity( vec4 clip, vec4 prevClip )
+{
+    return clip.xy / clip.w - prevClip.xy / prevClip.w;
+}
+
+#endif // DESERT_OBJECT_MOTION_GLSLH

@@ -51,7 +51,7 @@ namespace Desert::Core
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0xb47d2328649de162ULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x01192b46430c90b5ULL;
 
     // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself. The shading-model
     // registry and manifest reader are listed because the parser calls them while producing a surface map (the

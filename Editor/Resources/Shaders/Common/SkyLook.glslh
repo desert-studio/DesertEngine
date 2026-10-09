@@ -11,7 +11,7 @@
 // the GGX lobe is rotation-invariant in the same way), and the gain is linear.
 //
 // WHO MUST CALL THIS, and what keeps them honest. Every program that declares an environment cube —
-// the skybox pass, the deferred composite, the forward PBR variants, the glass, the shader-graph surface
+// the skybox pass, the deferred composite, the forward lit variants, the glass, the shader-graph surface
 // and the editor's cubemap preview — declares `SkyLookUB` and reads through these two functions. The
 // bake used to apply the look precisely so that no consumer could miss it; the census in
 // Desert/Tests/Engine/SkyPanorama now makes missing it a red test instead.

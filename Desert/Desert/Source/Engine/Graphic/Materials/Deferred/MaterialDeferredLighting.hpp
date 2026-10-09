@@ -40,7 +40,7 @@ namespace Desert::Graphic
     // the light they attenuate.
 
     // THE BAKED SKY, as the deferred composite's ambient source — the same three images
-    // Graphic::PBRSceneFrame hands the forward PBR materials (Graphic::SceneEnvironmentBind), and
+    // Graphic::SceneFrameBinding hands the forward lit materials (Graphic::SceneEnvironmentBind), and
     // deliberately the same struct shape as the two above: data gathered by SceneRenderer, consumed here.
     //
     // All three or none. The split-sum ambient is not separable — the diffuse cube without the
@@ -62,7 +62,7 @@ namespace Desert::Graphic
 
     // Fullscreen deferred-lighting material: binds the scene renderer's G-buffer color targets (albedo/metallic,
     // normal/roughness, world-position) + the sun (+ its CSM shadow maps) + ALL point & spot lights (uploaded
-    // into the shared SSBO layout the mesh PBR shader also uses) + a debug-mode selector, driving
+    // into the shared SSBO layout the mesh lit shader also uses) + a debug-mode selector, driving
     // DeferredLighting.shader. Header-only (no new .cpp -> no premake regen).
     class MaterialDeferredLighting final : public Material
     {
@@ -76,8 +76,9 @@ namespace Desert::Graphic
         // the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                         int debugMode, uint32_t pointCount, uint32_t spotCount, const DeferredShadowInput& shadow,
-                         float giIntensity, bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
+                         const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
+                         uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
+                         bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
                          const DeferredEnvironmentInput& environment )
         {
             // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
@@ -90,6 +91,9 @@ namespace Desert::Graphic
             SetLightDir( lightDir );
             SetLightColor( lightColor );
             SetCameraPos( cameraPos );
+            // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh) with
+            // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
+            SetInvJitteredViewProjection( invJitteredViewProjection );
             // u_Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
             // w = GI mode (0 = off, 1 = screen-space gather, 2 = RSM buffer). Mode picks WHERE the indirect
             // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).
@@ -139,7 +143,7 @@ namespace Desert::Graphic
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
 
-        // Uploads the cloud layer's shadow into CloudShadowUB through the SAME packer the forward PBR
+        // Uploads the cloud layer's shadow into CloudShadowUB through the SAME packer the forward lit
         // materials and the terrain material use (Graphic::CloudShadowUpload), so the two render paths cannot
         // be told different things about one map. The map itself (u_CloudShadowMap) is a graph resource the
         // composite exec binds through RDG::PassBindings (FrameTransients::CloudShadowMap, System.White when
@@ -153,6 +157,7 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, LightColor, "u_LightColor", ( glm::vec4( 1.0f, 1.0f, 1.0f, 3.0f ) ) )
         MPROPERTY( glm::vec4, Params,     "u_Params",     ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( glm::mat4, InvJitteredViewProjection, "u_InvJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
 
     private:
     };

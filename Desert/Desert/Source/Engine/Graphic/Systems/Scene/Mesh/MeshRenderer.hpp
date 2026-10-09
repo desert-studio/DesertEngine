@@ -22,7 +22,9 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
+#include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
+#include <Engine/Graphic/View/ObjectMotionRows.hpp>
+#include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
@@ -128,6 +130,8 @@ namespace Desert::Graphic::System
 
     struct MeshRenderData
     {
+        // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+        uint32_t    Entity = 0;
         class Mesh* Mesh;
         glm::mat4   Transform;
 
@@ -154,6 +158,11 @@ namespace Desert::Graphic::System
     public:
         struct StaticMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                  MotionRow = 0;
             class Desert::StaticMesh* Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -170,6 +179,11 @@ namespace Desert::Graphic::System
 
         struct SkinnedMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   MotionRow = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
             // The (surface x Skinned) material. It is SHARED with every other entity using the same
@@ -187,7 +201,7 @@ namespace Desert::Graphic::System
             bool                        CastShadows = true;
         };
 
-        // A UE-style Instanced Static Mesh: ONE mesh + ONE PBR material drawn N times. The material and the
+        // A UE-style Instanced Static Mesh: ONE mesh + ONE Lit material drawn N times. The material and the
         // transforms are CO-OWNED handles on what the component produced, not pointers into it (A8-3).
         // Rendered through the SAME instanced pipeline/SSBO as the auto-batched static meshes.
         struct InstancedMeshRenderData
@@ -195,7 +209,7 @@ namespace Desert::Graphic::System
             // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
             // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
             class Desert::Mesh*                           Mesh = nullptr;
-            MaterialInstancePtr                           Material;   // slot 0 (PBR)
+            MaterialInstancePtr                           Material;   // slot 0 (Lit)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
             // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
@@ -211,13 +225,18 @@ namespace Desert::Graphic::System
         //    params already applied) and VisibleSubmeshMask limits the draw to that slot's submeshes.
         struct GenericMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   MotionRow = 0;
             class Mesh*               Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             std::string               ShaderName;
             Graphic::MaterialOverrides Overrides;
             bool                      Outlined = false; // selected -> JFA outline
 
-            // Whether this record rasterizes into the shadow cascades. DEFAULT OFF, unlike the PBR
+            // Whether this record rasterizes into the shadow cascades. DEFAULT OFF, unlike the lit
             // queue's flag: a generic draw is not necessarily a solid object. The text system submits
             // its SDF glyph quads through this same queue, and the shadow pass has no alpha test — a
             // default of true would hang an opaque rectangle in the cascade behind every 3D label.
@@ -237,11 +256,12 @@ namespace Desert::Graphic::System
 
         using RenderSystem::RenderSystem;
 
-        // Gathers the scene's whole per-frame contribution (Graphic::PBRSceneFrame) from the scene
+        // Gathers the scene's whole per-frame contribution (Graphic::SceneFrameBinding) from the scene
         // renderer + this renderer's own cascade state. One place that knows what "per-frame scene state"
         // IS; the snapshot itself lives beside the materials it is applied to, because it is their
         // payload and not this renderer's private business.
-        PBRSceneFrame CaptureFrameState( const Core::Camera* camera ) const;
+        // `view` is the view the draws are for (SceneFrameBinding::View).
+        SceneFrameBinding CaptureFrameState( const ViewFrame* view ) const;
 
         // The scene's game time this frame (Core::WorldTime), handed over by SceneRenderer::BeginScene and
         // published to materials through CaptureFrameState.
@@ -249,6 +269,25 @@ namespace Desert::Graphic::System
         {
             m_WorldTimeSeconds = seconds;
         }
+        // The scene time of the view's PREVIOUS frame (ViewFrame::PrevTimeSeconds; equal to this frame's on a
+        // history reset), handed over by SceneRenderer::OnUpdate: the instanced view passes evaluate the wind at
+        // it for the instances' velocity (PackViewInstanceWind).
+        void SetPrevWorldTimeSeconds( double seconds )
+        {
+            m_PrevWorldTimeSeconds = seconds;
+        }
+
+        // The view's motion rows for this frame — UE's GPUScene primitive data: ONE GpuObjectMotion per drawn
+        // primitive (key {Entity, slot}; the static, generic and slot-material records of one entity share
+        // slot 0, the skinned records of an entity are slots 0..n-1 in submission order), its World, the world
+        // @p motion says the view drew it with last frame, and for a skinned primitive where this frame's palette
+        // and the previous one start in the view's ObjectBones buffer (both frames' palettes, end to end). Writes
+        // the row index into each queued record (MotionRow) and uploads both per-(frame x view) buffers at their
+        // final size, so CaptureFrameState hands every view pass the buffers its draws will read. Called by
+        // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
+        // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
+        // would read rows that are not this frame's).
+        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
 
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
@@ -514,7 +553,7 @@ namespace Desert::Graphic::System
         const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
 
         // Debug visualizations. TWO KINDS, and the boundary runs between them: `showNormals` and
-        // `lightingDebug` are BRANCHES IN THE PBR SHADER, so they travel with the program and cost no
+        // `lightingDebug` are BRANCHES IN THE Lit SHADER, so they travel with the program and cost no
         // pipeline; the AABB wireframes are drawn by a pipeline of their own, so a player's build has
         // neither the pipeline nor the fields, and the three arguments are accepted and dropped.
         void SetDebugView( bool showNormals, [[maybe_unused]] bool showBoundingBoxes,
@@ -555,9 +594,9 @@ namespace Desert::Graphic::System
         // per-group material state (Materials[] / bones / instance SSBOs, the shared scene state) is written
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
-        void BuildSkinnedDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
         // per-object data-driven materials (v3 slots + overrides)
-        void BuildGenericDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
@@ -580,12 +619,10 @@ namespace Desert::Graphic::System
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
         // which is what a draw uses until its own pipeline is Ready.
         [[nodiscard]] static GraphicsPipelineSpecification
-        GenericPipelineSpec( const std::shared_ptr<Shader>& shader, const std::shared_ptr<Framebuffer>& target,
-                             bool useLoadPass );
-        void PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target, bool useLoadPass );
+             GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
+        void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
-        std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target,
-                                                                  bool useLoadPass );
+        std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
@@ -647,6 +684,7 @@ namespace Desert::Graphic::System
         // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
         std::shared_ptr<DataDrivenMaterial> m_RSMMaterial;
         MaterialInstancePtr                m_RSMInstance;
+        std::shared_ptr<Shader>             m_RSMShader; // the G-buffer cell under DESERT_GBUFFER_RSM
         std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
         glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
         glm::vec3                          m_RSMEye      = glm::vec3( 0.0f );
@@ -752,7 +790,7 @@ namespace Desert::Graphic::System
                                                 glm::mat4( 1.0f ) };
         static_assert( kMaxCascades == 4, "m_CascadeVP's initializer lists one identity per cascade" );
         // World-space size of one shadow-map texel per cascade (2*radius/res) — drives a cascade-correct
-        // normal-offset/bias in the PBR shader instead of the old fixed world-unit constants.
+        // normal-offset/bias in the lit shader instead of the old fixed world-unit constants.
         glm::vec4                         m_CascadeWorldPerTexel    = glm::vec4( 1.0f );
         bool                              m_ShadowsEnabled  = true;
         float                             m_ShadowBias      = 0.005f;
@@ -760,8 +798,8 @@ namespace Desert::Graphic::System
         float                             m_SplitLambda     = 0.6f;  // cascade split uniform<->log blend
 
         // Debug visualization (Scene Settings -> Debug)
-        bool      m_ShowNormals          = false; // per-pixel normal color (PBR shader branch)
-        bool      m_LightingDebug        = false; // per-light colored "where light lands" (PBR shader branch)
+        bool m_ShowNormals   = false; // per-pixel normal color (Lit shader branch)
+        bool m_LightingDebug = false; // per-light colored "where light lands" (Lit shader branch)
 #if DESERT_DEV_INSTRUMENTS
         bool      m_ShowBoundingBoxes    = false; // AABB wireframes via the debug line renderer below
         glm::vec3 m_BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );
@@ -975,5 +1013,13 @@ namespace Desert::Graphic::System
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;
+        double                                                    m_PrevWorldTimeSeconds = 0.0;
+        // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
+        // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per
+        // frame in flight). Created on the first frame, grown by SetData.
+        std::vector<MotionRecord>                       m_ScratchMotionRecords;
+        ObjectMotionRows                                m_ScratchMotionRows;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectMotions;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBones;
     };
 } // namespace Desert::Graphic::System

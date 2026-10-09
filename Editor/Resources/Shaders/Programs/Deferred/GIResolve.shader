@@ -26,19 +26,25 @@ Shader "GIResolve"
         // texture. Variance is also reduced at the source: a distance floor kills the 1/d^2 fireflies that no
         // practical blur can hide.
 
+        // World positions (the shaded pixel's and every VPL's) are reconstructed from depth through the inverse
+        // of the matrix each depth was rasterised with: the camera's for the G-buffer, the sun's for the RSM.
+        #include <Common/ReconstructPosition.glslh>
+
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_GBufferB;    // rgb = world normal
-        Uniform(2) sampler2D u_GBufferC;    // rgb = world position
-        Uniform(3) sampler2D u_RSMAlbedo;   // rgb = surface albedo (flux colour)
-        Uniform(4) sampler2D u_RSMNormal;   // rgb = surface world normal
-        Uniform(5) sampler2D u_RSMWorldPos; // rgb = surface world position
+        Uniform(1) sampler2D u_GBufferB;     // rgb = world normal
+        Uniform(2) sampler2D u_GBufferDepth; // r = device depth (nearest sampler)
+        Uniform(3) sampler2D u_RSMAlbedo;    // rgb = surface albedo (flux colour)
+        Uniform(4) sampler2D u_RSMNormal;    // rgb = surface world normal
+        Uniform(5) sampler2D u_RSMDepth;     // r = the RSM device depth (nearest sampler)
 
         Out(0) vec4 oColor;
 
         Uniform(0) GIResolveUB
         {
         	mat4 u_RSMViewProj;  // world -> RSM clip (project the fragment into the sun's view)
+        	mat4 u_InvRSMViewProj;            // RSM clip -> world (the VPL positions from u_RSMDepth)
+        	mat4 u_InvJitteredViewProjection; // camera clip -> world (the pixel's position from u_GBufferDepth)
         	vec4 u_SunColor;     // rgb = colour, a = intensity
         	vec4 u_Params;       // x = GI intensity, y = enabled (>0.5), z = gather taps (GlobalIllumination.Samples, Scalability), w = per-frame jitter seed
         };
@@ -56,7 +62,8 @@ Shader "GIResolve"
         	if (u_Params.y < 0.5 || dot(N, N) <= 0.001) { oColor = vec4(0.0); return; } // off / sky
         	N = normalize(N);
 
-        	vec3 worldPos = texture(u_GBufferC, v_TexCoord).rgb;
+        	vec3 worldPos = ReconstructWorldPosition(v_TexCoord, texture(u_GBufferDepth, v_TexCoord).r,
+        	                                         u_InvJitteredViewProjection);
         	vec3 sunRadiance = u_SunColor.rgb * u_SunColor.a;
 
         	vec4 clip = u_RSMViewProj * vec4(worldPos, 1.0);
@@ -84,7 +91,7 @@ Shader "GIResolve"
         		if (dot(vplN, vplN) <= 0.001) continue; // empty RSM texel (no caster)
         		vplN = normalize(vplN);
 
-        		vec3 vplPos  = texture(u_RSMWorldPos, suv).rgb;
+        		vec3 vplPos  = ReconstructWorldPosition(suv, texture(u_RSMDepth, suv).r, u_InvRSMViewProj);
         		vec3 vplFlux = texture(u_RSMAlbedo, suv).rgb * sunRadiance;
 
         		vec3  dir = worldPos - vplPos;

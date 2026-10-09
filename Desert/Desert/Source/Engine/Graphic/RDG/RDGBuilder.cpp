@@ -128,6 +128,15 @@ namespace Desert::Graphic::RDG
         return Common::MakeSuccess( resource->Texture );
     }
 
+    Common::ResultStr<std::string_view> Builder::GetTextureName( TextureRef texture ) const
+    {
+        const ResourceRecord* resource = FindResource( texture.Index, ResourceKind::Texture );
+        if ( resource == nullptr )
+            return Common::MakeFormattedError<std::string_view>(
+                 "graph '{}': GetTextureName of invalid texture handle {}", m_Name, texture.Index );
+        return Common::MakeSuccess( std::string_view( resource->Name ) );
+    }
+
     BufferRef Builder::CreateBuffer( const BufferDesc& desc, std::string_view name )
     {
         if ( desc.Bytes == 0 )

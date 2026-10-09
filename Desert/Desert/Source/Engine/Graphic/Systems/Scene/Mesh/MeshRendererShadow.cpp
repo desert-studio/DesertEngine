@@ -6,29 +6,13 @@
 
 namespace Desert::Graphic::System
 {
-    namespace
-    {
-        // A camera whose matrices are set directly — used to render the Reflective Shadow Map from the
-        // sun's point of view. The cascade fitter produces a COMBINED light view-projection, so (exactly
-        // like the shadow pass does with SetLightMatrix) it goes in as the projection against an identity
-        // view: the vertex shader forms Projection * View * Transform, so the product is unchanged.
-        class LightCamera final : public Core::Camera
-        {
-        public:
-            LightCamera( const glm::mat4& viewProj, const glm::vec3& eye )
-            {
-                m_ViewMatrix       = glm::mat4( 1.0f );
-                m_ProjectionMatrix = viewProj;
-                m_Position         = eye;
-            }
-        };
-    } // namespace
-
     void MeshRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
     {
-        // Reuses the G-buffer SHADER and attachment layout — the RSM framebuffer is created to match, so
-        // the two are render-pass compatible and the shader's four outputs line up. The pipeline is its
-        // own (standard-Z, see SetupDeferredPass) and so is the camera.
+        // The G-buffer program under DESERT_GBUFFER_RSM (no shading-word output) into the RSM framebuffer, whose
+        // colour slots are ViewTargetFormats::kRSMColourSlots (slot 2 unused). The pipeline is its own
+        // (standard-Z, see SetupGBufferPass) and so is the camera. Only static meshes are bounce sources: no other
+        // renderer (terrain, foliage, skinned) draws into the RSM — census
+        // ShaderVariantDefines.OnlyTheMeshRendererDrawsTheRSM.
         m_RSMDraws.Clear();
         if ( !m_RSMPipeline || !m_RSMMaterial || !m_RSMInstance || m_StaticQueue.empty() )
             return;
@@ -47,13 +31,13 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const auto [pbrInst, mat] = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
-            if ( pbrInst == nullptr || IsTranslucent( mat ) )
+            const auto [surfaceInst, mat] = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
+            if ( surfaceInst == nullptr || IsTranslucent( mat ) )
             {
                 continue;
             }
             objs.push_back( &data );
-            AppendRow( gpuMats, EffectiveRow( mat, pbrInst ) );
+            AppendRow( gpuMats, EffectiveRow( mat, surfaceInst ) );
         }
         if ( objs.empty() )
             return;
@@ -65,9 +49,14 @@ namespace Desert::Graphic::System
         // Render from the SUN. A DEDICATED material+instance (like the glass pass) keeps this camera write
         // off the opaque passes' per-frame UBs — two writes to the same UB in one frame is the hazard that
         // previously hung the GPU.
-        LightCamera       lightCam( m_RSMViewProj, m_RSMEye );
+        // The sun is not a view (MakeStillViewFrame: no jitter, no previous frame). The cascade fitter produces a
+        // COMBINED light view-projection, so (exactly like the shadow pass does with SetLightMatrix) it goes in as
+        // the projection against an identity view: the vertex shader forms Projection * View * Transform, so the
+        // product is unchanged.
+        const ViewFrame sunView =
+             MakeStillViewFrame( glm::mat4( 1.0f ), m_RSMViewProj, m_RSMEye, m_WorldTimeSeconds );
         MaterialInstance* ri = m_RSMInstance.get();
-        CaptureFrameState( &lightCam ).ApplyTo( ri );
+        CaptureFrameState( &sunView ).ApplyTo( ri );
 
         // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The
         // per-object transform, material row and instance bind are each draw's state, written right before it.
@@ -221,7 +210,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = CompareOp::LessOrEqual;
         // No culling in the shadow pass: store ALL faces so the map can never come out empty (front-face
         // culling under the engine's negative-height viewport could cull the wrong set and black out the
-        // scene). Self-shadow acne is handled by the normal-offset + slope bias in the PBR sampling.
+        // scene). Self-shadow acne is handled by the normal-offset + slope bias in the lit sampling.
         spec.CullMode = CullMode::None;
         spec.Shader   = m_ShadowShader;
         // All cascade framebuffers share the same attachment formats, so one pipeline is render-pass
@@ -544,7 +533,7 @@ namespace Desert::Graphic::System
     void MeshRenderer::BuildShadowCascadeDraws( const uint32_t c, MeshDrawList& list )
     {
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
-        // Projection and identity as View, matching u_LightViewProj[c] on the PBR side.
+        // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c] );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
 
@@ -627,9 +616,9 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const PBRSlot             slot = rd.MaterialSlots != nullptr
-                                                  ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                                  : PBRSlot{};
+            const SurfaceSlot         slot = rd.MaterialSlots != nullptr
+                                                  ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                                  : SurfaceSlot{};
             MaterialInstance*         inst = slot.Instance;
             const DataDrivenMaterial* mat  = slot.Surface;
             if ( !isMasked( mat ) )
@@ -801,7 +790,7 @@ namespace Desert::Graphic::System
         // custom materials) cast through the SAME pipeline as everything else: a caster is
         // depth, and depth does not care which shader would have coloured the surface. They
         // used to be absent from the cascades entirely, because this pass only ever walked
-        // the PBR queues — a shader-graph object was lit like a solid and shadowed like a
+        // the lit queues — a shader-graph object was lit like a solid and shadowed like a
         // hole in the world.
         //
         // Per-object only, no instanced batching: the batching above keys on StaticMesh*,
@@ -811,9 +800,9 @@ namespace Desert::Graphic::System
         //
         // The whole mesh is drawn, VisibleSubmeshMask ignored — deliberately, and the
         // reason exactly one draw per entity may set CastShadows: the mask splits an
-        // entity's submeshes between this queue and the PBR one, but a caster is not
-        // split, so honouring the mask here would carve the PBR half out of the silhouette
-        // while the PBR record was already casting the whole of it.
+        // entity's submeshes between this queue and the lit one, but a caster is not
+        // split, so honouring the mask here would carve the lit half out of the silhouette
+        // while the lit record was already casting the whole of it.
         for ( const auto& g : m_GenericQueue )
         {
             if ( g.Mesh != nullptr && g.CastShadows &&

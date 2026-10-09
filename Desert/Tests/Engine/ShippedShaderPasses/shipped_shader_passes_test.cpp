@@ -365,7 +365,7 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
     static constexpr std::string_view kCarriesAGeneratedRow[] = {
          "MatProbe.shader",
          "MatProbeUnlit.shader",
-         // MAT1a: the mesh PBR programs read the one generated row the renderer writes per object (their
+         // MAT1a: the mesh lit programs read the one generated row the renderer writes per object (their
          // hand-written GpuMaterial block and its ReadBuffer were deleted). SURF1c: StandardSurface is the
          // template whose cells replaced the five forward/G-buffer programs.
          "StandardSurface.shader",
@@ -547,7 +547,7 @@ namespace
 // rendered with and without its normal map differs over 47 % of the frame, and the pre-reconstruction
 // line restored on purpose moves 59 %. The census still earns its place — a frame cannot say "and
 // nowhere else", and TWO of the six readings are still unreachable from any scene: StaticMeshGlass
-// needs a transmissive material and SkinnedMeshPBR a rigged one, neither of which any witness has.
+// needs a transmissive material and SkinnedMeshLit a rigged one, neither of which any witness has.
 TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedReconstruction )
 {
     ASSERT_FALSE( ShippedShaders().empty() );
@@ -779,8 +779,8 @@ TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
             " commit.";
 }
 
-// ── THE PBR ROW IS THE GENERIC ROW (MAT1a-T1) ────────────────────────────────────────────────────────────
-// The six PBR passes read ONE Materials[] row per object, written from the FORWARD material: glass and the
+// ── THE Lit ROW IS THE GENERIC ROW (MAT1a-T1) ────────────────────────────────────────────────────────────
+// The six lit passes read ONE Materials[] row per object, written from the FORWARD material: glass and the
 // RSM/GBuffer pass consume the forward row as it is. So their `Properties Binding(2)` blocks must declare the
 // same numeric params in the same order, or a GBuffer draw reads roughness where the forward wrote metallic.
 namespace
@@ -891,7 +891,7 @@ TEST( ShippedShaderPasses, TheMeshRendererPicksNoPassByAParameterName )
              << "MeshRenderer*.cpp names " << name << ": a pass is chosen by the template's blend mode";
 }
 
-TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestName )
+TEST( ShippedShaderPasses, AnAuthoredSurfaceParamReachesItsBytesInTheRowByManifestName )
 {
     const auto* parsed = ShippedByName( "StandardSurface" );
     ASSERT_NE( parsed, nullptr );
@@ -922,9 +922,9 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
     EXPECT_EQ( floatAt( "ReceiveSunShadows", 0 ), 1.0f );
 }
 
-TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOneTakesTheSchemaDefault )
+TEST( ShippedShaderPasses, EverySurfaceTextureSlotIsBoundByManifestNameAndAnEmptyOneTakesTheSchemaDefault )
 {
-    // MaterialService binds a PBR material's maps through ForEachMaterialTextureSlot: the slot names come
+    // MaterialService binds a lit material's maps through ForEachMaterialTextureSlot: the slot names come
     // from the template's manifest, the handles from the .demat. There used to be three hand-written binds
     // (albedo, normal, opacity), so an ORM or emissive map persisted in the file never reached a sampler.
     constexpr uint64_t                    kORMHandle = 0x0123456789ABCDEFull;

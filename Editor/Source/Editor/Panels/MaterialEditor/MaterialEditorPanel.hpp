@@ -354,7 +354,7 @@ namespace Desert::Editor
         // window watching rebuilds of a shader it no longer uses.
         //
         // An INSTANCE resolves through its parent, because an instance has no shader of its own — that is
-        // why it is shown no picker. Reading the child's own name gave "StaticMeshPBR", the default a
+        // why it is shown no picker. Reading the child's own name gave "StaticMeshLit", the default a
         // material with no name reports, so an instance window watched rebuilds of a shader it does not
         // draw with and kept its pipelines from before the parent shader's recompile.
         [[nodiscard]] std::string DrawnShaderName() const;

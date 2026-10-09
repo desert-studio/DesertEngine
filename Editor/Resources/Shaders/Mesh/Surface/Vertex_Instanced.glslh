@@ -1,5 +1,5 @@
 // Surface cell vertex path: instanced static mesh, one transform per instance in InstanceTransforms (binding 17),
-// bent by the foliage wind the push block carries — the vertex stage of Programs/PBR/StaticMeshPBR_Instanced.shader,
+// bent by the foliage wind the push block carries — the vertex stage of Programs/Surface/StaticMeshLit_Instanced.shader,
 // StaticMeshGBuffer_Instanced.shader and Programs/Shadow/Shadow_Instanced.shader (which share one push block).
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;
@@ -16,6 +16,7 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #endif
 
 #include <Common/CameraUB.glslh>
+#include <Common/ObjectMotion.glslh>
 
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
@@ -46,6 +47,18 @@ void main()
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
     v_Surface.CameraPosition = cameraUB.CameraPos;
+#endif
+#ifdef DESERT_SURFACE_VIEW_PASS
+    // An instanced batch is world-static by construction (moving an instance rebuilds the batch), so its previous
+    // world is its world; only the wind moves it, evaluated again at the view's previous time (WindB.z,
+    // Graphic::InstanceWindPush). No motion row is read.
+    const vec3 prevWorldPosition = InstancedWorldPosition(
+         model, a_Position, m_PushConstants.WindA, vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+    v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
+    v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
 #endif
     gl_Position = cameraUB.Projection * cameraUB.View * vec4( worldPosition, 1.0 );
 }

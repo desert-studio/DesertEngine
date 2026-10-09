@@ -163,6 +163,12 @@ namespace Desert::Graphic::API::Vulkan
             return m_ReflectionData.VertexInputLocations;
         }
 
+        // The colour locations the fragment stage writes (ShaderReflection::ReflectFragmentOutputLocations).
+        [[nodiscard]] const std::vector<uint32_t>& GetFragmentOutputLocations() const
+        {
+            return m_ReflectionData.FragmentOutputLocations;
+        }
+
         auto& GetVulkanDescriptorSetInfo() const
         {
             return m_DescriptorSetInfo;

@@ -70,7 +70,7 @@ namespace FbxSplit
             return s.size() >= suffix.size() && s.compare( s.size() - suffix.size(), suffix.size(), suffix ) == 0;
         }
 
-        // PBR texture slots we recognise from filename suffixes (Poly Haven / industry convention).
+        // Lit texture slots we recognise from filename suffixes (Poly Haven / industry convention).
         enum class MapType
         {
             None,
@@ -163,7 +163,7 @@ namespace FbxSplit
             std::string MetallicExt = {}, AOExt = {};
         };
 
-        // Scan the collection folder (+ a "textures" subdir) for PBR maps, group by material stem, pick the
+        // Scan the collection folder (+ a "textures" subdir) for lit maps, group by material stem, pick the
         // best format per slot. Returns the materials in deterministic (insertion) order.
         std::vector<MaterialDef> ScanMaterials( const std::filesystem::path& collDir,
                                                 const std::filesystem::path& projectDir )
@@ -461,7 +461,7 @@ namespace FbxSplit
         if ( scene->mRootNode )
             walk( scene->mRootNode, aiMatrix4x4() );
 
-        // Detect PBR materials from the collection's texture files (by filename-suffix convention). With an
+        // Detect lit materials from the collection's texture files (by filename-suffix convention). With an
         // atlas (one diffuse for many cards) this yields ONE material that every mesh shares.
         const std::vector<MaterialDef> materials = ScanMaterials( fbxAbs.parent_path(), projectDir );
 

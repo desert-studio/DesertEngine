@@ -8,7 +8,7 @@
 // inline lines inside a helper, where no assertion could reach it, while a suite one directory over
 // proved that every shader FILE reaches the shared BRDF. It did. Its GI gather did not.
 //
-// Mesh/PBRFunctions.glslh and Mesh/DirectLighting.glslh come first because IndirectBounce.glslh says so
+// Mesh/BRDF.glslh and Mesh/DirectLighting.glslh come first because IndirectBounce.glslh says so
 // at the top of itself and because DeferredLighting.shader includes them in that order too.
 //
 // The arrangement is the house one for a shader-maths reference (see DirectLightingReference.hpp,
@@ -73,7 +73,7 @@ namespace Desert::Tests::IndirectBounceRef
             return v * static_cast<float>( scalar );
         }
 
-#include <Mesh/PBRFunctions.glslh>
+#include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
 #include <Mesh/IndirectBounce.glslh>
         DESERT_GLSL_AS_CPP_END

@@ -11,6 +11,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
+#include <Engine/Graphic/ViewRasterTargets.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 
 // `#if DESERT_DEV_INSTRUMENTS` on a macro nobody defined is `#if 0`: without DevInstruments.hpp above, every
@@ -2036,7 +2037,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
-         "compute[clouds->DeclareFrameNodes(graph)]",
+         "compute[clouds->DeclareFrameNodes(graph,frame)]",
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
@@ -2076,20 +2077,24 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node
     // delegates.
     declares( "AddFrameSSAO",
-              { "PassFlags::Raster", "ssao->DeclareBindings(pass,worldPos,normal)", "ColorTarget(0,ao," } );
+              { "PassFlags::Raster", "ssao->DeclareBindings(pass,depth,normal)", "ColorTarget(0,ao," } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
-                                     "LoadTarget(pass,target)" } );
+                                     "LoadTarget(pass,target,loads)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
     // RDG-FAULT1: the trace's storage writes are its block's (SSRRenderer::DeclareTraceBindings); the execs read
-    // their block, not refs captured from the setup.
+    // their block, not refs captured from the setup. GBUF1: the third G-buffer input is the depth the positions
+    // are reconstructed from. TAA1: the trace's inverse view-projection is a CPU-filled graph uniform buffer
+    // (SSRTraceUB) bound by the trace block - the ViewFrame's one copy of the inverse, never recomputed.
     declares( "AddFrameSSR",
-              { "PassFlags::Compute", "ssr->DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy)",
-                "LoadTarget(pass,target)", "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
+              { "PassFlags::Compute", "DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy,traceUniforms)",
+                "System::SSRRenderer::UploadTraceUniforms(graph,frame.InvJitteredViewProjection)",
+                "LoadTarget(pass,target,loads)",
+                "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
                 "ssr->DeclareResolveBindings(pass,trace,tiles,history,inputs)",
-                "ssr->DeclareCompositeBindings(pass,accum,tiles,inputs)", "ssr->RecordResolve(context)",
-                "ssr->RecordComposite(context,viewProj)" } );
+                "ssr->DeclareCompositeBindings(pass,accum,tiles,inputs)",
+                "RecordResolve(context,prevViewProj,invViewProj,readable)", "RecordComposite(context,index)" } );
     // ... and those blocks declare the accesses the node used to declare itself.
     {
         const auto declaration = [&]( const char* header )
@@ -2103,7 +2108,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
              declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
              std::string::npos );
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
-                        .find( ".Sampled(\"u_GBufferPos\",worldPos,RDG::Access::SampledGraphics" ),
+                        .find( ".Sampled(\"u_GBufferDepth\",depth,RDG::Access::SampledGraphics" ),
                    std::string::npos );
         EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
                         .find( ".Sampled(\"u_SSAO\",inputs.SSAO,RDG::Access::SampledGraphics" ),
@@ -2424,12 +2429,13 @@ TEST( RenderGraphCompile, DepthResolveCopyPlansTransferBarriersAndCompositeTakes
     graph.Extract( sourceRef, source, Nodes::kGBufferDepthFinal );
     ExternalTexture* const    colors[] = { &targetColor };
     const ImportedFramebuffer target   = graph.ImportFramebuffer( colors, &targetDepth, "SceneColor" );
+    const std::vector<LoadOp> loads( target.Colors.size(), LoadOp::Load() );
     graph.AddPass(
          "Deferred: DepthResolve", PassFlags::Copy,
          [&]( PassBuilder& pass ) { Nodes::DeclareDepthResolve( pass, sourceRef, target.Depth ); }, Ok );
     graph.AddPass(
-         "Deferred: Composite", PassFlags::Raster, [&]( PassBuilder& pass ) { Nodes::LoadTarget( pass, target ); },
-         Ok );
+         "Deferred: Composite", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { Nodes::LoadTarget( pass, target, loads ); }, Ok );
     const CompileResult result = CompileOrFail( graph );
     ASSERT_EQ( result.Passes.size(), 2u );
     const CompiledPass* copy      = result.FindPass( "Deferred: DepthResolve" );
@@ -2542,6 +2548,83 @@ TEST( RenderGraphCompile, SceneDepthResolveIsARasterNodeOnlyAtMsaa )
                  depthAttachment || ( attachment.IsDepth && attachment.Resource == resolvedRef.Index );
         EXPECT_TRUE( depthAttachment ) << "the resolve does not render into SceneDepthResolved";
     }
+}
+
+// A SampleZero graph colour (the view's velocity) on a multisampled target: the node drawing the target declares
+// NO resolve attachment for its slot (the render pass would average it: VK resolves float colour only by AVERAGE),
+// and AddGraphColorResolves adds one "Velocity: Resolve" Raster node that samples the multisampled twin
+// (SampledGraphics) and writes the single-sample velocity as its colour slot 0. The scene colour keeps its
+// hardware resolve. Mutations: AppendGraphColors pushes color.Color as the resolve for SampleZero (hardware
+// resolve kept) / AddGraphColorResolves skips SampleZero -> red.
+TEST( RenderGraphCompile, SampleZeroGraphColourGetsAResolveNodeAndNoHardwareResolve )
+{
+    using Desert::Graphic::AddGraphColorResolves;
+    using Desert::Graphic::AppendGraphColors;
+    using Desert::Graphic::CreateViewVelocity;
+    using Desert::Graphic::DeclareResolves;
+    using Desert::Graphic::GraphColor;
+    using Desert::Graphic::RasterTargets;
+    using Desert::Graphic::VelocityColor;
+    using Desert::Graphic::ViewVelocity;
+    // CreateViewVelocity gives Velocity a FaultDefault (a lost velocity reads as no motion), and a FaultDefault
+    // needs the graph's system sources: register them as every frame does (SceneRenderer, RDGSystemTextures.hpp).
+    ExternalTexture black{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+    ExternalTexture white{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+    ExternalTexture blackCube{ Tex2D( 1, 1, ImageFormat::RGBA8F, 1, 6 ), Access::SampledGraphics };
+    Builder         graph( "velocity-resolve" );
+    RegisterSystemTextures( graph, black, white, blackCube );
+    TextureDesc msColour        = Tex2D( 64, 64, ImageFormat::RGBA16F );
+    msColour.Samples            = 4;
+    const TextureRef   sceneMs  = graph.CreateTexture( msColour, "SceneColor.MSAA" );
+    const TextureRef   scene    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "SceneColor" );
+    const ViewVelocity velocity = CreateViewVelocity( graph, Extent3D{ 64, 64, 1 }, 4 );
+    ASSERT_TRUE( velocity.Multisample.IsValid() );
+
+    RasterTargets targets;
+    targets.Colors            = { sceneMs };
+    targets.Resolves          = { scene };
+    const GraphColor colors[] = { VelocityColor( velocity, 4 ) };
+    ASSERT_TRUE( AppendGraphColors( targets, colors, true ) );
+    graph.AddPass(
+         "Forward", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             for ( uint32_t slot = 0; slot < targets.Colors.size(); ++slot )
+                 pass.ColorTarget( slot, targets.Colors[slot], LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+             DeclareResolves( pass, targets.Resolves );
+         },
+         Ok );
+    AddGraphColorResolves(
+         graph, colors, []( PassBuilder& pass, const GraphColor& color )
+         { pass.Read( color.Multisample, Access::SampledGraphics ); }, []( const GraphColor& ) { return Ok; } );
+    ExternalTexture sceneOut( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    ExternalTexture velOut( Tex2D( 64, 64, ImageFormat::RG16F ), Access::None );
+    graph.Extract( scene, sceneOut, Access::SampledGraphics );
+    graph.Extract( velocity.Resolved, velOut, Access::SampledGraphics );
+
+    const CompileResult result  = CompileOrFail( graph );
+    const CompiledPass* forward = result.FindPass( "Forward" );
+    const CompiledPass* resolve = result.FindPass( "Velocity: Resolve" );
+    ASSERT_NE( forward, nullptr );
+    ASSERT_NE( resolve, nullptr ) << "a SampleZero colour at MSAA has no resolve node";
+    bool sceneResolved = false;
+    for ( const AttachmentDecision& attachment : forward->Attachments )
+    {
+        EXPECT_FALSE( attachment.IsResolve && attachment.Resource == velocity.Resolved.Index )
+             << "velocity is resolved by the render pass (an average), not by sample 0";
+        sceneResolved = sceneResolved || ( attachment.IsResolve && attachment.Resource == scene.Index );
+    }
+    EXPECT_TRUE( sceneResolved ) << "the scene colour lost its hardware resolve";
+    EXPECT_TRUE( HasFlag( resolve->Flags, PassFlags::Raster ) );
+    bool writesVelocity = false;
+    for ( const AttachmentDecision& attachment : resolve->Attachments )
+        writesVelocity =
+             writesVelocity || ( !attachment.IsDepth && !attachment.IsResolve && attachment.Slot == 0 &&
+                                 attachment.Resource == velocity.Resolved.Index );
+    EXPECT_TRUE( writesVelocity ) << "the resolve node does not write the single-sample velocity";
+    const std::vector<Barrier> intoRead = BarriersOn( resolve, velocity.Multisample.Index );
+    ASSERT_EQ( intoRead.size(), 1u );
+    EXPECT_EQ( intoRead[0].After, GetAccessState( Access::SampledGraphics ) );
 }
 
 // THE MESH AND TERRAIN PASSES ARE RASTER NODES (RDG-LEG1-L1): SceneRendererFrameMesh.cpp adds no legacy pass, each
@@ -2939,8 +3022,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     for ( const char* needle :
           { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
-            "node.ColorTarget(slot,targets->Colors[slot],color)", "node.DepthTarget(targets->Depth,depth)",
-            "node.ResolveTarget(slot,targets->Resolves[slot])",
+            "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "node.DepthTarget(targets->Depth,depth)",
+            "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
@@ -3042,7 +3125,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
             "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
             "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
-            "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph))" } )
+            "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
                std::string::npos );
@@ -3499,7 +3582,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     const std::string exec        = particles.substr( pass, declare - pass );
     const std::string declaration = particles.substr( declare );
     EXPECT_EQ( exec.find( "->Update(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
-    const size_t update   = declaration.find( "fe.Gpu->Material->Update(camera);" );
+    const size_t update   = declaration.find( "fe.Gpu->Material->Update(*view);" );
     const size_t bindings = declaration.find( "fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill()" );
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
@@ -4347,7 +4430,7 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     for ( const DeclaredBindingEntry& entry : glassBlock.Block.Entries )
         EXPECT_EQ( entry.ShaderName.rfind( "u_ShadowMap", 0 ), std::string::npos ) << entry.ShaderName;
 
-    ShaderBindingLayout lit{ "StaticMeshPBR", SceneViewSlotsWithoutCascades(), 0 };
+    ShaderBindingLayout lit{ "StaticMeshLit", SceneViewSlotsWithoutCascades(), 0 };
     for ( const std::string_view name : Desert::Graphic::kSceneViewShadowMapNames )
         lit.Slots.push_back( { std::string( name ), ShaderResourceKind::SampledTexture } );
     CollectedBlock litBlock;

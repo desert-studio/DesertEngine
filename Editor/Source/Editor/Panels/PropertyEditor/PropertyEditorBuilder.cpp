@@ -1327,7 +1327,7 @@ namespace Desert::Editor
                 }
 
                 // PROPERTY(Preview): show the texture INLINE, not just on hover — right for a slot whose
-                // content is the point (a sprite, a decal), wrong for a long list of PBR maps. An empty
+                // content is the point (a sprite, a decal), wrong for a long list of lit maps. An empty
                 // slot still draws its box so the row keeps its shape and reads as "droppable".
                 if ( field.Meta.Preview && uiHelper )
                 {

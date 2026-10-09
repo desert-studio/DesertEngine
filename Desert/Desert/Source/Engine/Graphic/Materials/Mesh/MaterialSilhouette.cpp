@@ -1,6 +1,6 @@
 #include "MaterialSilhouette.hpp"
 
-#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 
 namespace Desert::Graphic
@@ -9,18 +9,9 @@ namespace Desert::Graphic
     {
     }
 
-    void MaterialSilhouette::UpdateCamera( const Core::Camera* camera )
+    void MaterialSilhouette::UpdateCamera( const ViewFrame& view )
     {
-        if ( !camera )
-            return;
-
-        ShaderProtocols::Camera cameraUB;
-        cameraUB.Projection = camera->GetProjectionMatrix();
-        cameraUB.View       = camera->GetViewMatrix();
-        cameraUB.CameraPos  = camera->GetPosition();
-
-        Get<UniformBufferProperty>( ShaderProtocols::Camera::Name )
-             ->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
+        SceneCameraBind( this, view );
     }
 
     MaterialSilhouetteSkinned::MaterialSilhouetteSkinned()
@@ -28,18 +19,9 @@ namespace Desert::Graphic
     {
     }
 
-    void MaterialSilhouetteSkinned::UpdateCamera( const Core::Camera* camera )
+    void MaterialSilhouetteSkinned::UpdateCamera( const ViewFrame& view )
     {
-        if ( !camera )
-            return;
-
-        ShaderProtocols::Camera cameraUB;
-        cameraUB.Projection = camera->GetProjectionMatrix();
-        cameraUB.View       = camera->GetViewMatrix();
-        cameraUB.CameraPos  = camera->GetPosition();
-
-        Get<UniformBufferProperty>( ShaderProtocols::Camera::Name )
-             ->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
+        SceneCameraBind( this, view );
     }
 
     void MaterialSilhouetteSkinned::UploadBones( const std::vector<glm::mat4>& packedBoneMatrices )

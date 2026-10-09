@@ -1,5 +1,6 @@
-// Surface cell vertex path: skinned mesh, this draw's bones from BoneMatrices[BoneOffset...] (binding 1) — the
-// vertex stage of Programs/PBR/SkinnedMeshPBR.shader and, for the depth cell of an opaque template,
+// Surface cell vertex path: skinned mesh. A view pass skins from the view's ObjectBones at its row's BoneOffset /
+// PrevBoneOffset (binding 26); a light view from its pass's BoneMatrices[BoneOffset...] (binding 1) — the
+// vertex stage of Programs/Surface/SkinnedMeshLit.shader and, for the depth cell of an opaque template,
 // Programs/Shadow/Shadow_Skinned.shader.
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;
@@ -18,6 +19,11 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #endif
 
 #include <Common/CameraUB.glslh>
+#ifdef DESERT_SURFACE_VIEW_PASS
+#define DESERT_OBJECT_MOTION_ROWS 1 // this stage reads its object's row
+#define DESERT_OBJECT_BONES 1       // ...and both of its palettes from the view's ObjectBones
+#endif
+#include <Common/ObjectMotion.glslh>
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 #include <Common/MaterialTransport.glslh>
@@ -33,21 +39,42 @@ layout( push_constant ) uniform constants
 m_PushConstants;
 #endif
 
+#ifdef DESERT_SURFACE_VIEW_PASS
+// View pass: both palettes come from the view's ObjectBones at the row's two offsets (Common/ObjectMotion.glslh).
+#define DESERT_SKIN_MATRIX( base, i ) objectBones.Palettes[( base ) + ( i )]
+#else
+// Light view (shadow depth / RSM): the pass's own Bones buffer, this draw's slice named by the push block.
 layout( std430, binding = 1 ) readonly buffer Bones
 {
     mat4 BoneMatrices[];
 }
 bones;
+#define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )]
+#endif
 
 void main()
 {
+#ifdef DESERT_SURFACE_VIEW_PASS
+    // View pass: see Vertex_Static. The previous pose is the palette the view drew this primitive with last
+    // frame, at the row's PrevBoneOffset in the same ObjectBones buffer.
+    const GpuObjectMotion row       = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
+    const mat4            model     = row.World * m_PushConstants.Transform;
+    const mat4            prevModel = row.PrevWorld * m_PushConstants.Transform;
     // int, not uint: a_BoneIndices is ivec4 and GLSL will not mix the two silently.
-    const int  b    = int( m_PushConstants.BoneOffset );
-    const mat4 skin = bones.BoneMatrices[b + a_BoneIndices.x] * a_BoneWeights.x +
-                      bones.BoneMatrices[b + a_BoneIndices.y] * a_BoneWeights.y +
-                      bones.BoneMatrices[b + a_BoneIndices.z] * a_BoneWeights.z +
-                      bones.BoneMatrices[b + a_BoneIndices.w] * a_BoneWeights.w;
-    const mat4 model    = m_PushConstants.Transform;
+    const int  b        = int( row.BoneOffset );
+    const int  pb       = int( row.PrevBoneOffset );
+    const mat4 prevSkin = DESERT_SKIN_MATRIX( pb, a_BoneIndices.x ) * a_BoneWeights.x +
+                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.y ) * a_BoneWeights.y +
+                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.z ) * a_BoneWeights.z +
+                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.w ) * a_BoneWeights.w;
+#else
+    const mat4 model = m_PushConstants.Transform;
+    const int  b     = int( m_PushConstants.BoneOffset );
+#endif
+    const mat4 skin = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
+                      DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
+                      DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
+                      DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
     const vec4 worldPos = model * ( skin * vec4( a_Position, 1.0 ) );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
@@ -62,6 +89,13 @@ void main()
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
     v_Surface.CameraPosition = cameraUB.CameraPos;
+#endif
+#ifdef DESERT_SURFACE_VIEW_PASS
+    v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * ( prevSkin * vec4( a_Position, 1.0 ) ) );
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
+    v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
 #endif
     gl_Position = cameraUB.Projection * cameraUB.View * worldPos;
 }

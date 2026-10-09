@@ -42,13 +42,13 @@ namespace Desert::Editor
         std::optional<std::string> Category;
         std::string                Mesh; // working-dir-relative source path, forward slashes
         std::optional<std::string> Thumbnail;
-        std::optional<int>         Material; // index into CollectionManifest::Materials (the mesh's PBR material)
+        std::optional<int>         Material; // index into CollectionManifest::Materials (the mesh's lit material)
         // The `.defoliage` this item paints with (UE: a collection of FoliageTypes). Recorded by the editor the
         // first time the item reaches the foliage palette, so a type tuned later is the one the next drop reuses.
         std::optional<CollectionManifestAssetRef> FoliageType;
     };
 
-    // A PBR material the splitter detected from the pack's texture files (paths by filename suffix). The editor
+    // A Lit material the splitter detected from the pack's texture files (paths by filename suffix). The editor
     // materializes these into real .demat assets (the engine owns that format; the tool stays engine-free).
     // Cutout/foliage carries AlphaCutoff (TwoSided is reserved for a future shader feature).
     struct CollectionManifestMaterial

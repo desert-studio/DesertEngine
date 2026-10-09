@@ -18,6 +18,7 @@ project "SceneMigrator"
 
     files {
         "Source/**.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
         -- THE ENGINE'S OWN REFLECTION TABLE, not a copy of it. Source/SettingsCanonical.cpp writes the
         -- Settings block the way the engine's saver writes it, which means enumerating the same 51 fields
         -- in the same order through the same serializer. A hand-written field list here would be a second

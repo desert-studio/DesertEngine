@@ -1,6 +1,11 @@
 #include "MeshRenderer.hpp"
 #include "MeshRendererInternal.hpp"
 
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/View/ObjectMotionRows.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
+
 namespace Desert::Graphic::System
 {
     namespace MeshRendererDetail
@@ -49,7 +54,7 @@ namespace Desert::Graphic::System
             return material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent;
         }
 
-        // Appends one row to a buffer of rows laid end to end and returns its index there. Every PBR pass
+        // Appends one row to a buffer of rows laid end to end and returns its index there. Every lit pass
         // declares one layout, so every row in a buffer has the same length.
         uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row )
         {
@@ -58,7 +63,7 @@ namespace Desert::Graphic::System
             return index;
         }
 
-        PBRSlot FirstPBRSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
+        SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
         {
             for ( auto* inst : slots )
             {
@@ -92,6 +97,16 @@ namespace Desert::Graphic::System
         {
             const auto name = DefaultSurfaceShaderName( path, pass );
             return name ? Runtime::ResourceRegistry::GetShaderService()->GetByName( *name ) : nullptr;
+        }
+
+        // The (path x pass) cell of the default surface compiled under @p variant (a permutation's defines). The
+        // caller holds the program (ShaderService::AcquireVariant keeps only a weak reference).
+        std::shared_ptr<Shader> DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,
+                                                              const ShaderVariant& variant )
+        {
+            const auto name = DefaultSurfaceShaderName( path, pass );
+            return name ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( *name, variant )
+                        : nullptr;
         }
 
         // A renderer-owned material of one (path x pass) cell of the default surface template — the same
@@ -370,8 +385,8 @@ namespace Desert::Graphic::System
             if ( deferred || m_SceneRenderer->GetMainCamera() == nullptr )
                 return;
             BuildStaticDraws( m_ForwardDraws );
-            BuildSkinnedDraws( /*useLoadPass*/ false, m_ForwardDraws );
-            BuildGenericDraws( /*useLoadPass*/ false, m_ForwardDraws );
+            BuildSkinnedDraws( m_ForwardDraws );
+            BuildGenericDraws( m_ForwardDraws );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
         };
 
@@ -389,10 +404,10 @@ namespace Desert::Graphic::System
 #endif
     }
 
-    PBRSceneFrame MeshRenderer::CaptureFrameState( const Core::Camera* camera ) const
+    SceneFrameBinding MeshRenderer::CaptureFrameState( const ViewFrame* view ) const
     {
-        PBRSceneFrame frame;
-        frame.Camera      = camera;
+        SceneFrameBinding frame;
+        frame.View        = view;
         frame.TimeSeconds = m_WorldTimeSeconds;
 
         frame.PointLights     = &m_SceneRenderer->GetPointLights();
@@ -420,7 +435,7 @@ namespace Desert::Graphic::System
         frame.LightingDebug     = m_LightingDebug;
 
         // The active IBL environment (diffuse irradiance + prefiltered specular) and the split-sum BRDF
-        // LUT, resolved once so each PBR object samples real ambient/reflections instead of the dummy cube.
+        // LUT, resolved once so each lit object samples real ambient/reflections instead of the dummy cube.
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
         if ( const auto& env = m_SceneRenderer->GetEnvironment(); env.has_value() )
         {
@@ -444,7 +459,69 @@ namespace Desert::Graphic::System
         // records, so it is final by the time any mesh pass runs — in both render paths.
         frame.CloudShadow = m_SceneRenderer->GetCloudShadowInput();
 
+        // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
+        // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),
+        // and ApplyTo binds them by name only into a template that does.
+        frame.ObjectMotions = m_ObjectMotions;
+        frame.ObjectBones   = m_ObjectBones;
+
         return frame;
+    }
+
+    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory& motion )
+    {
+        // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
+        // records of one object share it, slots stable per submission); this function only gathers the queued
+        // records, writes each one's row back and uploads.
+        auto& records = m_ScratchMotionRecords;
+        records.clear();
+        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + m_SkinnedQueue.size() );
+        for ( const auto& data : m_StaticQueue )
+            records.push_back( { .Entity = data.Entity, .World = data.Transform } );
+        for ( const auto& data : m_GenericQueue )
+            records.push_back( { .Entity = data.Entity, .World = data.Transform } );
+        const size_t rigidCount = records.size();
+        for ( const auto& data : m_SkinnedQueue )
+            records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
+
+        auto& built = m_ScratchMotionRows;
+        BuildObjectMotionRows( motion, std::span<const MotionRecord>( records ).first( rigidCount ),
+                               std::span<const MotionRecord>( records ).subspan( rigidCount ), built );
+        size_t record = 0;
+        for ( auto& data : m_StaticQueue )
+            data.MotionRow = built.RecordRows[record++];
+        for ( auto& data : m_GenericQueue )
+            data.MotionRow = built.RecordRows[record++];
+        for ( auto& data : m_SkinnedQueue )
+            data.MotionRow = built.RecordRows[record++];
+        const auto& rows     = built.Rows;
+        const auto& palettes = built.Palettes;
+
+        // Both buffers at FINAL size before any pass is declared: the descriptor a draw records points at the
+        // buffer it reads (a later grow would reallocate it under recorded draws).
+        const auto upload = []( std::shared_ptr<ShaderResources::StorageBuffer>& buffer, const char* name,
+                                const uint32_t binding, const void* data,
+                                const size_t bytes ) -> Common::BoolResultStr
+        {
+            if ( !buffer )
+                buffer = ShaderResources::StorageBuffer::Create(
+                     name, static_cast<uint32_t>( std::max<size_t>( bytes, sizeof( glm::mat4 ) ) ), binding );
+            if ( !buffer )
+                return Common::MakeFormattedError( "the view's {} buffer could not be created", name );
+            if ( bytes == 0 )
+                return BOOLSUCCESS;
+            if ( const auto wrote = buffer->SetData( data, static_cast<uint32_t>( bytes ) ); !wrote )
+                return Common::MakeFormattedError( "the view's {} ({} bytes) could not be uploaded: {}", name,
+                                                   bytes, wrote.GetError() );
+            return BOOLSUCCESS;
+        };
+        if ( const auto uploaded =
+                  upload( m_ObjectMotions, SceneResources::kObjectMotionsName, Core::kObjectMotionsBinding,
+                          rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
+             !uploaded )
+            return uploaded;
+        return upload( m_ObjectBones, SceneResources::kObjectBonesName, Core::kObjectBonesBinding, palettes.data(),
+                       palettes.size() * sizeof( glm::mat4 ) );
     }
 
     void MeshRenderer::SubmitMesh( const MeshRenderData& data )
@@ -459,6 +536,7 @@ namespace Desert::Graphic::System
             case MeshType::Static:
             {
                 StaticMeshRenderData staticData;
+                staticData.Entity                   = data.Entity;
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;
@@ -480,6 +558,7 @@ namespace Desert::Graphic::System
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): MeshType::Skinned is set only
                 // for a SkinnedMesh
                 skinnedData.Mesh          = static_cast<SkinnedMesh*>( data.Mesh );
+                skinnedData.Entity        = data.Entity;
                 skinnedData.Transform     = data.Transform;
                 skinnedData.BoneMatrices  = data.BoneMatrices;
                 skinnedData.Outlined      = data.Outlined;
@@ -491,7 +570,7 @@ namespace Desert::Graphic::System
                     // a second loop hunting a different C++ CLASS, and since the material build could not
                     // produce that class from an asset under any circumstances, an imported character
                     // with its own materials matched nothing and was dropped without drawing.
-                    if ( const auto slot = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
+                    if ( const auto slot = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
                     {
                         skinnedData.Instance = slot.Instance;
                         skinnedData.Material = slot.Surface;
@@ -499,7 +578,7 @@ namespace Desert::Graphic::System
                     else
                     {
                         // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its
-                        // default skinned PBR material for any slot that fails to resolve, so every slot
+                        // default skinned lit material for any slot that fails to resolve, so every slot
                         // reaching here should already carry a skinned-path parent. If one does not, the
                         // producer and this queue disagree about what a skinned slot IS, and drawing it
                         // through the skinned pipeline with a static material's descriptor sets is a
@@ -508,7 +587,7 @@ namespace Desert::Graphic::System
                         if ( !s_WarnedNoSkinnedSlot )
                         {
                             LOG_WARN( "[MeshRenderer] A skinned mesh arrived with slots but none whose parent "
-                                      "is a PBR material on the SKINNED vertex path; the mesh is dropped. "
+                                      "is a lit material on the SKINNED vertex path; the mesh is dropped. "
                                       "MeshECSSystem is expected to have substituted its default skinned "
                                       "material, so this means the two disagree." );
                             s_WarnedNoSkinnedSlot = true;
