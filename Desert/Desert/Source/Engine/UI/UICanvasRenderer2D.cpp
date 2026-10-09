@@ -396,6 +396,11 @@ namespace Desert::UI
                 // GATED BY THE SAME PREDICATE THE POINTER USES. An ungated list is what let Tab walk into a
                 // Blocking panel and hand Enter a target the mouse could never have reached; it is also why
                 // Tab now steps OVER such a control rather than sticking on it.
+                // A navigation rule's boundary is this element's box, focusable or not (a container's rule
+                // bounds the controls inside it).
+                if ( focusables && tree.Has<UINavigationData>( e ) )
+                    ctx.View.NavigationBoxes.push_back(
+                         { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
                 if ( interactive && IsFocusable( tree, e ) )
                 {
                     if ( focusables )
@@ -456,6 +461,9 @@ namespace Desert::UI
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
         view.HotNext = NodeId::Null;
         view.Focusables.clear();
+        view.NavigationBoxes.clear();
+        view.ScrollPorts.clear();
+        view.ConsumedKeys.clear();
 
         // Where this view draws, for the whole frame. Stated once here rather than handed to each canvas,
         // so the walks, the overlay placement and the drag ghost cannot be looking at different rectangles.
@@ -818,7 +826,9 @@ namespace Desert::UI
                 const Rect row{ popup.X, popup.Y + static_cast<float>( i ) * rowH, popup.W, rowH };
                 const bool hover = input && input->MousePx.x >= row.X && input->MousePx.x <= row.X + row.W &&
                                    input->MousePx.y >= row.Y && input->MousePx.y <= row.Y + row.H;
-                if ( hover )
+                const auto keyHl = ctx.View.DropdownHighlight.find( pi.Entity );
+                const bool keyed = keyHl != ctx.View.DropdownHighlight.end() && keyHl->second == static_cast<int>( i );
+                if ( hover || keyed )
                     dl.AddRectFilled(
                          { row.X, row.Y }, { row.X + row.W, row.Y + row.H },
                          glm::vec4( pi.Style.Color( StyleSlot::DropdownHighlight, d.Highlight ), 1.0f ) );
@@ -1090,12 +1100,26 @@ namespace Desert::UI
         // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
         // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.
         // Effective next frame. With nothing focused, any request lands on the FIRST control.
-        if ( input != nullptr && focused != nullptr )
+        // Explicit rules and per-container boundaries come from UINavigationData (ResolveNavigation); keys a
+        // control already used this frame are not navigation, and neither are W/S typed into a text field.
+        // Then the focus scopes (UpdateFocusScopes): an overlay or screen that appeared takes focus, one that
+        // closed gives it back. Whatever focus ends on is scrolled into view.
+        if ( focused != nullptr )
         {
-            const NodeId next =
-                 FindNextFocusable( view.Focusables, *focused, NavigationOf( *input ), view.ViewportPx );
-            if ( next != NodeId::Null )
-                *focused = next;
+            const NodeId before = *focused;
+            if ( input != nullptr )
+            {
+                const bool textEntry =
+                     *focused != NodeId::Null && tree.Valid( *focused ) && tree.Has<UIInputFieldData>( *focused );
+                const NodeId next = ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
+                                                       NavigationOf( *input, textEntry, view.ConsumedKeys ),
+                                                       view.ViewportPx );
+                if ( next != NodeId::Null )
+                    *focused = next;
+            }
+            *focused = UpdateFocusScopes( tree, view.Focusables, *focused, view.Focus );
+            if ( *focused != before )
+                ScrollIntoView( tree, view.Focusables, view.ScrollPorts, *focused );
         }
 
         view.FrameOpen = false;

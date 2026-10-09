@@ -1175,6 +1175,11 @@ namespace Desert::ECS
         COMPONENT( Key( "UIDropTarget" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UI::UIDropTargetData Data;
     };
+    struct UINavigationComponent
+    {
+        COMPONENT( Key( "UINavigation" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UINavigationData Data;
+    };
     struct UIOverlayComponent
     {
         COMPONENT( Key( "UIOverlay" ), Block( Data ), Run( UIAfterRenderTexture ) )

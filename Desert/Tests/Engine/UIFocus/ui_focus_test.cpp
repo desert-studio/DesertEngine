@@ -98,6 +98,39 @@ TEST( UIFocus, ShiftTabIsPreviousAndPlainTabIsNext )
     EXPECT_EQ( UI::NavigationOf( in ), UINavigation::Next );
 }
 
+// A focused text field: W and S are letters, not Up / Down; the arrows still navigate.
+TEST( UIFocus, TextEntryKeepsWAndS )
+{
+    UI::UIInput in;
+    in.Keys.push_back( { Common::KeyCode::W, UI::UIKeyMods::None, false } );
+    EXPECT_EQ( UI::NavigationOf( in ), UINavigation::Up );
+    EXPECT_EQ( UI::NavigationOf( in, /*textEntry=*/true ), UINavigation::None );
+    in.Keys.push_back( { Common::KeyCode::Down, UI::UIKeyMods::None, false } );
+    EXPECT_EQ( UI::NavigationOf( in, /*textEntry=*/true ), UINavigation::Down );
+}
+
+// A key a control consumed (a focused slider's Left) is not a navigation; the rest of the frame's keys are.
+TEST( UIFocus, ConsumedKeysDoNotNavigate )
+{
+    UI::UIInput in;
+    in.Keys.push_back( { Common::KeyCode::Up, UI::UIKeyMods::None, false } );
+    in.Keys.push_back( { Common::KeyCode::Left, UI::UIKeyMods::None, false } );
+    const std::vector<Common::KeyCode> consumed = { Common::KeyCode::Left };
+    EXPECT_EQ( UI::NavigationOf( in, false, consumed ), UINavigation::Up );
+    EXPECT_EQ( UI::NavigationOf( in ), UINavigation::Left );
+}
+
+// Wrap inside a narrower boundary (a container's UINavigationData box) restarts inside THAT box, so a
+// control outside it in the same band is never taken.
+TEST( UIFocus, WrapStaysInsideTheContainerBox )
+{
+    const std::vector<FocusEntry> e = {
+         { N( 1 ), { 0, 0, 50, 50 } }, { N( 2 ), { 100, 0, 50, 50 } }, { N( 3 ), { 300, 0, 50, 50 } } };
+    const UI::Rect box{ 0, 0, 160, 60 };
+    EXPECT_EQ( UI::FindNextFocusable( e, N( 2 ), UINavigation::Right, box, UINavigationRule::Wrap ), N( 1 ) );
+    EXPECT_EQ( UI::FindNextFocusable( e, N( 2 ), UINavigation::Right, kView, UINavigationRule::Escape ), N( 3 ) );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

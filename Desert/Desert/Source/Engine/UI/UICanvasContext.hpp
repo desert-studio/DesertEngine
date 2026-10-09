@@ -362,6 +362,27 @@ namespace Desert::UI
         // this one list, so focus can leave a HUD canvas and enter an overlay. Rebuilt each frame.
         // Each carries its on-screen box: spatial navigation (UIFocus.hpp) picks by geometry.
         std::vector<FocusEntry> Focusables;
+        // The boxes of this frame's elements that carry UINavigationData (the boundary their rule acts in),
+        // and the visible box of every scrolling container drawn (scroll-to-focus). Rebuilt each frame.
+        std::vector<NavigationBox> NavigationBoxes;
+        std::vector<ScrollPort>    ScrollPorts;
+        // Keys a control used this frame (Slate's FReply::Handled): a focused slider's Left/Right, an open
+        // dropdown's Up/Down/Enter/Escape. Navigation and the overlay Escape skip them. Cleared each frame.
+        std::vector<Common::KeyCode> ConsumedKeys;
+        // Which control each screen / overlay / canvas last had focused, and which scopes were up last frame.
+        FocusMemory Focus;
+        // The option an open dropdown's keyboard highlight is on (view state: two views of one dropdown each
+        // keep their own). Erased when the list closes.
+        std::unordered_map<NodeId, int> DropdownHighlight;
+
+        void ConsumeKey( Common::KeyCode key )
+        {
+            ConsumedKeys.push_back( key );
+        }
+        NO_DISCARD bool KeyConsumed( Common::KeyCode key ) const
+        {
+            return std::find( ConsumedKeys.begin(), ConsumedKeys.end(), key ) != ConsumedKeys.end();
+        }
 
         // --- The frame's viewport, stated ONCE --------------------------------------------------------
         // Where this view draws, in pixels. It used to be a parameter of every RenderCanvas2D call, so a
@@ -503,6 +524,11 @@ namespace Desert::UI
             PrevDown    = false;
             Drag        = UIDragState{};
             Focusables.clear();
+            NavigationBoxes.clear();
+            ScrollPorts.clear();
+            ConsumedKeys.clear();
+            Focus = FocusMemory{};
+            DropdownHighlight.clear();
             Tint           = glm::vec4( 1.0f );
             WarnedMaterial = Assets::AssetHandle{};
             ViewportPx     = Rect{};

@@ -378,6 +378,7 @@ namespace
     constexpr const char* kUIToggle        = "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp";
     constexpr const char* kUIRichText      = "Desert/Desert/Source/Engine/UI/UIRichText.cpp";
     constexpr const char* kUIWalkCtx       = "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp";
+    constexpr const char* kUIFocus         = "Desert/Desert/Source/Engine/UI/UIFocus.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -918,6 +919,7 @@ namespace
     constexpr Row kSliderRows[] = {
          { "Value", kUISlider },      { "MinValue", kUISlider },  { "MaxValue", kUISlider },
          { "TrackColor", kUISlider }, { "FillColor", kUISlider }, { "HandleColor", kUISlider },
+         { "StepSize", kUISlider },
     };
 
     constexpr Row kScrollViewRows[] = {
@@ -1015,6 +1017,14 @@ namespace
          { "ToastSlots", kOverlay },
     };
 
+    // Every field read by UIFocus.cpp: the rules and targets by ResolveNavigation, InitialFocus by
+    // UpdateFocusScopes.
+    constexpr Row kNavigationRows[] = {
+         { "Up", kUIFocus },         { "UpTarget", kUIFocus },    { "Down", kUIFocus },
+         { "DownTarget", kUIFocus }, { "Left", kUIFocus },        { "LeftTarget", kUIFocus },
+         { "Right", kUIFocus },      { "RightTarget", kUIFocus }, { "InitialFocus", kUIFocus },
+    };
+
     constexpr Row kOverlayTriggerRows[] = {
          { "Overlay", kOverlay },
          { "On", kOverlay },
@@ -1096,6 +1106,7 @@ namespace
          { "UIDropTargetData", "UIDropTargetComponent", nullptr, CENSUS_ROWS( kDropTargetRows ) },
          { "UIOverlayData", "UIOverlayComponent", nullptr, CENSUS_ROWS( kOverlayRows ) },
          { "UIOverlayTriggerData", "UIOverlayTriggerComponent", nullptr, CENSUS_ROWS( kOverlayTriggerRows ) },
+         { "UINavigationData", "UINavigationComponent", nullptr, CENSUS_ROWS( kNavigationRows ) },
     };
 
 #undef CENSUS_ROWS
@@ -1289,7 +1300,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // every field read by ECS::FireDestructionField in DestructionFields.cpp).
     // -> 58 with WATER-W2's WaterBodyData (kWaterBodyRows: every field read by WaterBodyGather.cpp into the
     // water body state the physics step queries).
-    EXPECT_EQ( all.size(), 58u );
+    // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
+    EXPECT_EQ( all.size(), 59u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

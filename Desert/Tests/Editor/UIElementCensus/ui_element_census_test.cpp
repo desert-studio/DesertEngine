@@ -119,6 +119,8 @@ namespace
                                "resolves through, and whether it consults the theme at all. An element "
                                "without one already uses the theme's Default style, which is the whole "
                                "point: theming must not require an edit of every entity" },
+         { "UINavigationComponent", "modifier — per-direction navigation rules, explicit targets and the "
+                                    "initial-focus mark of an existing control or container; added in Details" },
          { "UIRetainerComponent", "modifier — retains an existing element and its subtree into an offscreen "
                                   "layer composited through one effect (UE Retainer Box); added in Details" },
     };
