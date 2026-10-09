@@ -619,6 +619,35 @@ namespace Desert::Migration
         return report;
     }
 
+    TriggerColliderReport MigrateTriggerColliderV44ToV45( std::vector<Assets::EntityData>& entities )
+    {
+        // ColliderData's declared order and defaults (Engine/ECS/Components.hpp): a solid collider.
+        const std::array<std::pair<const char*, bool>, 5> kDefaults = { {
+             { "IsTrigger", false },
+             { "OverlapStatic", false },
+             { "OverlapKinematic", true },
+             { "OverlapDynamic", true },
+             { "OverlapCharacters", true },
+        } };
+        TriggerColliderReport                             report;
+        for ( auto& entity : entities )
+            EditBlock( entity.Components, "Collider",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           std::size_t added = 0;
+                           for ( const auto& [key, value] : kDefaults )
+                               if ( !block.get( key ).has_value() )
+                               {
+                                   block[key] = rfl::Generic( value );
+                                   ++added;
+                               }
+                           report.KeysAdded += added;
+                           report.Colliders += added != 0 ? 1 : 0;
+                           return added != 0;
+                       } );
+        return report;
+    }
+
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
     {
         namespace TL = Animation::Timeline;
@@ -2092,6 +2121,13 @@ namespace Desert::Migration
             {
                 report.ParticleSpriteMaterialsRaised = true;
                 report.ParticleSpriteMaterials       = MigrateParticleSpriteMaterialsV43ToV44( entities );
+            }
+
+            // A collider can be a trigger (GP4): every Collider block states the trigger keys' defaults.
+            if ( statedSceneVersion < kSceneVersionTriggerCollider )
+            {
+                report.TriggerColliderRaised = true;
+                report.TriggerCollider       = MigrateTriggerColliderV44ToV45( entities );
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

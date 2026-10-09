@@ -43,6 +43,7 @@
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 JPH_SUPPRESS_WARNINGS
@@ -115,7 +116,11 @@ namespace Desert::Physics
         {
             static constexpr JPH::ObjectLayer NON_MOVING = 0;
             static constexpr JPH::ObjectLayer MOVING     = 1;
-            static constexpr JPH::ObjectLayer NUM_LAYERS = 2;
+            // Trigger bodies (sensors): they see what moves, characters, and the ground when asked to.
+            static constexpr JPH::ObjectLayer TRIGGER = 2;
+            // A character's inner body: only triggers see it, so walking collides exactly as before.
+            static constexpr JPH::ObjectLayer CHARACTER  = 3;
+            static constexpr JPH::ObjectLayer NUM_LAYERS = 4;
         } // namespace Layers
 
         namespace BroadPhaseLayers
@@ -132,6 +137,8 @@ namespace Desert::Physics
             {
                 m_ObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
                 m_ObjectToBroadPhase[Layers::MOVING]     = BroadPhaseLayers::MOVING;
+                m_ObjectToBroadPhase[Layers::TRIGGER]    = BroadPhaseLayers::MOVING;
+                m_ObjectToBroadPhase[Layers::CHARACTER]  = BroadPhaseLayers::MOVING;
             }
             JPH::uint GetNumBroadPhaseLayers() const override { return BroadPhaseLayers::NUM_LAYERS; }
             JPH::BroadPhaseLayer GetBroadPhaseLayer( JPH::ObjectLayer inLayer ) const override
@@ -150,9 +157,9 @@ namespace Desert::Physics
         public:
             bool ShouldCollide( JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2 ) const override
             {
-                if ( inLayer1 == Layers::NON_MOVING )
+                if ( inLayer1 == Layers::NON_MOVING || inLayer1 == Layers::CHARACTER )
                     return inLayer2 == BroadPhaseLayers::MOVING;
-                return true; // MOVING collides with everything
+                return true; // MOVING and TRIGGER collide with everything
             }
         };
 
@@ -161,6 +168,10 @@ namespace Desert::Physics
         public:
             bool ShouldCollide( JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2 ) const override
             {
+                if ( inObject1 == Layers::CHARACTER || inObject2 == Layers::CHARACTER )
+                    return inObject1 == Layers::TRIGGER || inObject2 == Layers::TRIGGER;
+                if ( inObject1 == Layers::TRIGGER || inObject2 == Layers::TRIGGER )
+                    return inObject1 != inObject2; // a trigger never pairs with a trigger
                 if ( inObject1 == Layers::NON_MOVING )
                     return inObject2 == Layers::MOVING; // static only collides with moving
                 return true;                            // moving collides with everything
@@ -328,6 +339,58 @@ namespace Desert::Physics
 
         // Body user-data bit: the body's contacts are measured (CompoundBodyDesc::ReportContactImpulses).
         constexpr JPH::uint64 kReportImpulsesBit = 1u;
+        // Body user-data bit: the body is a character's inner body (OverlapFilter::Characters).
+        constexpr JPH::uint64 kCharacterBit = 2u;
+        // A trigger's OverlapFilter, one bit per kind of other body.
+        constexpr JPH::uint64 kOverlapStaticBit     = 4u;
+        constexpr JPH::uint64 kOverlapKinematicBit  = 8u;
+        constexpr JPH::uint64 kOverlapDynamicBit    = 16u;
+        constexpr JPH::uint64 kOverlapCharactersBit = 32u;
+
+        JPH::uint64 OverlapFilterBits( const OverlapFilter& filter )
+        {
+            return ( filter.Static ? kOverlapStaticBit : 0u ) | ( filter.Kinematic ? kOverlapKinematicBit : 0u ) |
+                   ( filter.Dynamic ? kOverlapDynamicBit : 0u ) |
+                   ( filter.Characters ? kOverlapCharactersBit : 0u );
+        }
+
+        // Whether @p trigger's filter admits @p other. Reads only what Jolt lets a contact callback read.
+        bool TriggerAdmits( const JPH::Body& trigger, const JPH::Body& other )
+        {
+            const JPH::uint64 filter = trigger.GetUserData();
+            if ( ( other.GetUserData() & kCharacterBit ) != 0u )
+                return ( filter & kOverlapCharactersBit ) != 0u;
+            switch ( other.GetMotionType() )
+            {
+                case JPH::EMotionType::Static:
+                    return ( filter & kOverlapStaticBit ) != 0u;
+                case JPH::EMotionType::Kinematic:
+                    return ( filter & kOverlapKinematicBit ) != 0u;
+                case JPH::EMotionType::Dynamic:
+                    return ( filter & kOverlapDynamicBit ) != 0u;
+            }
+            return false;
+        }
+
+        // A sensor contact as Jolt reported it on a worker thread; turned into overlap events on the main
+        // thread after the step. A removed contact names only IDs: Jolt forbids touching the bodies then.
+        struct RawOverlap
+        {
+            bool        Added     = true;
+            BodyHandle  Body1     = kInvalidBody; // Added: the trigger
+            BodyHandle  Body2     = kInvalidBody; // Added: the other body
+            JPH::uint64 SubShapes = 0u;           // the sub-shape pair, in Jolt's body1/body2 order
+        };
+
+        JPH::uint64 SubShapeKey( const JPH::SubShapeID& a, const JPH::SubShapeID& b )
+        {
+            return ( static_cast<JPH::uint64>( a.GetValue() ) << 32u ) | b.GetValue();
+        }
+
+        JPH::uint64 PairKey( BodyHandle trigger, BodyHandle other )
+        {
+            return ( static_cast<JPH::uint64>( trigger ) << 32u ) | other;
+        }
 
         // Velocity iterations of the impulse estimate: Jolt's own default for EstimateCollisionResponse.
         constexpr JPH::uint kImpulseEstimateIterations = 10u;
@@ -350,20 +413,56 @@ namespace Desert::Physics
             JPH::PhysicsSystem*         System = nullptr;
             std::mutex                  Mutex;
             std::vector<ContactImpulse> Contacts;
+            std::vector<RawOverlap>     Overlaps; // guarded by Mutex; drained after each fixed step
 
             void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
                                  const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
             {
+                if ( body1.IsSensor() || body2.IsSensor() )
+                {
+                    RecordOverlap( body1, body2, manifold );
+                    return;
+                }
                 Record( body1, body2, manifold, settings );
             }
             void OnContactPersisted( const JPH::Body& body1, const JPH::Body& body2,
                                      const JPH::ContactManifold& manifold,
                                      JPH::ContactSettings&       settings ) override
             {
+                if ( body1.IsSensor() || body2.IsSensor() )
+                    return; // an overlap that goes on is not an event
                 Record( body1, body2, manifold, settings );
+            }
+            void OnContactRemoved( const JPH::SubShapeIDPair& pair ) override
+            {
+                RawOverlap raw;
+                raw.Added     = false;
+                raw.Body1     = pair.GetBody1ID().GetIndexAndSequenceNumber();
+                raw.Body2     = pair.GetBody2ID().GetIndexAndSequenceNumber();
+                raw.SubShapes = SubShapeKey( pair.GetSubShapeID1(), pair.GetSubShapeID2() );
+                const std::lock_guard lock( Mutex );
+                Overlaps.push_back( raw ); // matched against live overlaps on the main thread; others drop
             }
 
         private:
+            void RecordOverlap( const JPH::Body& body1, const JPH::Body& body2,
+                                const JPH::ContactManifold& manifold )
+            {
+                if ( body1.IsSensor() && body2.IsSensor() )
+                    return;
+                const bool       firstIsTrigger = body1.IsSensor();
+                const JPH::Body& trigger        = firstIsTrigger ? body1 : body2;
+                const JPH::Body& other          = firstIsTrigger ? body2 : body1;
+                if ( !TriggerAdmits( trigger, other ) )
+                    return;
+                RawOverlap raw;
+                raw.Body1     = trigger.GetID().GetIndexAndSequenceNumber();
+                raw.Body2     = other.GetID().GetIndexAndSequenceNumber();
+                raw.SubShapes = SubShapeKey( manifold.mSubShapeID1, manifold.mSubShapeID2 );
+                const std::lock_guard lock( Mutex );
+                Overlaps.push_back( raw );
+            }
+
             void Record( const JPH::Body& body1, const JPH::Body& body2, const JPH::ContactManifold& manifold,
                          const JPH::ContactSettings& settings )
             {
@@ -464,7 +563,95 @@ namespace Desert::Physics
                 }
             }
         }
+
+        // SetKinematicTarget: the pose each kinematic body is being moved to. Main thread only.
+        struct KinematicTarget
+        {
+            JPH::RVec3 Position;
+            JPH::Quat  Rotation;
+        };
+        std::unordered_map<BodyHandle, KinematicTarget> KinematicTargets;
+
+        // Live overlaps: PairKey(trigger, other) -> the sub-shape pairs touching. Main thread only.
+        std::unordered_map<JPH::uint64, std::unordered_set<JPH::uint64>> ActiveOverlaps;
+        std::vector<OverlapEvent>                                        PendingOverlaps;
+        std::vector<std::pair<OverlapSubscription, OverlapCallback>>     OverlapSubscribers;
+        OverlapSubscription                                              NextOverlapSubscription = 1u;
+
+        // Turns the step's raw sensor contacts into Begin/End and hands them to the subscribers. Main thread.
+        void FlushOverlaps()
+        {
+            std::vector<RawOverlap> raw;
+            {
+                const std::lock_guard lock( Impulses.Mutex );
+                raw.swap( Impulses.Overlaps );
+            }
+            for ( const RawOverlap& contact : raw )
+            {
+                if ( contact.Added )
+                {
+                    auto&      touching = ActiveOverlaps[PairKey( contact.Body1, contact.Body2 )];
+                    const bool first    = touching.empty();
+                    if ( touching.insert( contact.SubShapes ).second && first )
+                        PendingOverlaps.push_back( { OverlapPhase::Begin, contact.Body1, contact.Body2 } );
+                    continue;
+                }
+                // Removed: Jolt's pair order is not the trigger/other order, so try both.
+                BodyHandle trigger = contact.Body1;
+                BodyHandle other   = contact.Body2;
+                auto       found   = ActiveOverlaps.find( PairKey( trigger, other ) );
+                if ( found == ActiveOverlaps.end() )
+                {
+                    std::swap( trigger, other );
+                    found = ActiveOverlaps.find( PairKey( trigger, other ) );
+                }
+                if ( found == ActiveOverlaps.end() )
+                    continue; // filtered out when added, or already ended by a removal
+                found->second.erase( contact.SubShapes );
+                if ( found->second.empty() )
+                {
+                    ActiveOverlaps.erase( found );
+                    PendingOverlaps.push_back( { OverlapPhase::End, trigger, other } );
+                }
+            }
+            std::vector<OverlapEvent> events;
+            events.swap( PendingOverlaps );
+            const auto subscribers = OverlapSubscribers; // a subscriber may unsubscribe while called
+            for ( const OverlapEvent& event : events )
+                for ( const auto& [id, callback] : subscribers )
+                    callback( event );
+        }
+
+        // A body that leaves the world ends every overlap it is part of (UE: EndOverlap on destroy).
+        void EndOverlapsOf( BodyHandle body )
+        {
+            for ( auto it = ActiveOverlaps.begin(); it != ActiveOverlaps.end(); )
+            {
+                const auto trigger = static_cast<BodyHandle>( it->first >> 32u );
+                const auto other   = static_cast<BodyHandle>( it->first & 0xFFFFFFFFu );
+                if ( trigger != body && other != body )
+                {
+                    ++it;
+                    continue;
+                }
+                PendingOverlaps.push_back( { OverlapPhase::End, trigger, other } );
+                it = ActiveOverlaps.erase( it );
+            }
+        }
     };
+
+    namespace
+    {
+        // Rays are surface queries: a trigger volume or a character's inner body is not a surface.
+        class SolidLayersOnly final : public JPH::ObjectLayerFilter
+        {
+        public:
+            bool ShouldCollide( JPH::ObjectLayer layer ) const override
+            {
+                return layer != Layers::TRIGGER && layer != Layers::CHARACTER;
+            }
+        };
+    } // namespace
 
     PhysicsWorld::PhysicsWorld()  = default;
     PhysicsWorld::~PhysicsWorld() { Shutdown(); }
@@ -531,30 +718,63 @@ namespace Desert::Physics
         }
     }
 
-    void PhysicsWorld::Step( float dt )
+    uint32_t PhysicsWorld::Step( float dt )
     {
         if ( !m_Impl || dt <= 0.0f )
-            return;
+            return 0u;
 
         // Fixed 60 Hz steps; clamp the backlog so a hitch can't spiral into a long catch-up.
         constexpr float kFixed = 1.0f / 60.0f;
         m_Accumulator          = std::min( m_Accumulator + dt, 0.25f );
-        while ( m_Accumulator >= kFixed )
+        uint32_t steps         = 0u; // counted the way they are consumed, so the float rounding agrees
+        for ( float backlog = m_Accumulator; backlog >= kFixed; backlog -= kFixed )
+            ++steps;
+        for ( uint32_t step = 0; step < steps; ++step )
         {
+            // Each kinematic body covers 1/(steps left) of what remains to its target, so it arrives on the
+            // Step's last fixed step whatever the number of them.
+            const float share = 1.0f / static_cast<float>( steps - step );
+            for ( const auto& [handle, target] : m_Impl->KinematicTargets )
+            {
+                const JPH::BodyID id( handle );
+                const JPH::RVec3  from = m_Impl->Bodies->GetPosition( id );
+                const JPH::Quat   turn = m_Impl->Bodies->GetRotation( id );
+                m_Impl->Bodies->MoveKinematic( id, from + ( target.Position - from ) * share,
+                                               turn.SLERP( target.Rotation, share ).Normalized(), kFixed );
+            }
             m_Impl->Impulses.Contacts.clear();
             m_Impl->DriveKinematicRagdolls( kFixed );
             m_Impl->System.Update( kFixed, 1, m_Impl->TempAllocator.get(), m_Impl->JobSystem.get() );
             m_Accumulator -= kFixed;
             m_Impl->StepContacts.swap( m_Impl->Impulses.Contacts );
+            m_Impl->FlushOverlaps();
             if ( m_Impl->StepCallback )
                 m_Impl->StepCallback( kFixed );
         }
+        return steps;
     }
 
     void PhysicsWorld::SetStepCallback( std::function<void( float )> callback )
     {
         if ( m_Impl )
             m_Impl->StepCallback = std::move( callback );
+    }
+
+    OverlapSubscription PhysicsWorld::SubscribeOverlaps( OverlapCallback callback )
+    {
+        if ( !m_Impl || !callback )
+            return 0u;
+        const OverlapSubscription id = m_Impl->NextOverlapSubscription++;
+        m_Impl->OverlapSubscribers.emplace_back( id, std::move( callback ) );
+        return id;
+    }
+
+    void PhysicsWorld::UnsubscribeOverlaps( OverlapSubscription subscription )
+    {
+        if ( !m_Impl )
+            return;
+        std::erase_if( m_Impl->OverlapSubscribers,
+                       [subscription]( const auto& entry ) { return entry.first == subscription; } );
     }
 
     std::span<const ContactImpulse> PhysicsWorld::GetStepContactImpulses() const
@@ -707,11 +927,15 @@ namespace Desert::Physics
             shape = result.Get();
         }
 
-        const bool isStatic    = desc.Type == BodyType::Static;
-        const auto motion       = desc.Type == BodyType::Dynamic     ? JPH::EMotionType::Dynamic
-                                  : desc.Type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
-                                                                     : JPH::EMotionType::Static;
-        const JPH::ObjectLayer layer = isStatic ? Layers::NON_MOVING : Layers::MOVING;
+        // A static trigger is a kinematic sensor: only an active kinematic or dynamic sensor sees sleeping and
+        // static bodies (Jolt Body::SetIsSensor), and an active sensor never goes to sleep.
+        const bool             isStatic = desc.Type == BodyType::Static && !desc.IsTrigger;
+        const auto             motion   = desc.Type == BodyType::Dynamic ? JPH::EMotionType::Dynamic
+                                          : isStatic                     ? JPH::EMotionType::Static
+                                                                         : JPH::EMotionType::Kinematic;
+        const JPH::ObjectLayer layer    = desc.IsTrigger ? Layers::TRIGGER
+                                          : isStatic     ? Layers::NON_MOVING
+                                                         : Layers::MOVING;
 
         JPH::BodyCreationSettings settings( shape, JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
                                             ToJolt( desc.Rotation ), motion, layer );
@@ -722,6 +946,14 @@ namespace Desert::Physics
         // landscape_raycast suite). The run-time check removes that ghost contact; measured smooth to the
         // steady rolling depth. Dynamic bodies only — static and kinematic ones are never pushed by contacts.
         settings.mEnhancedInternalEdgeRemoval = desc.Type == BodyType::Dynamic;
+        if ( desc.IsTrigger )
+        {
+            settings.mIsSensor = true;
+            settings.mUserData = OverlapFilterBits( desc.Overlaps );
+            // Kinematic-vs-kinematic and -vs-static contacts exist only when asked for (Jolt's cost note).
+            settings.mCollideKinematicVsNonDynamic =
+                 desc.Overlaps.Static || desc.Overlaps.Kinematic || desc.Overlaps.Characters;
+        }
         if ( desc.Type == BodyType::Dynamic && desc.Mass > 0.0f )
         {
             settings.mOverrideMassProperties     = JPH::EOverrideMassProperties::CalculateInertia;
@@ -747,6 +979,8 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return;
         const JPH::BodyID id( handle );
+        m_Impl->EndOverlapsOf( handle );
+        m_Impl->KinematicTargets.erase( handle );
         m_Impl->Bodies->RemoveBody( id );
         m_Impl->Bodies->DestroyBody( id );
         m_Impl->HeightFields.erase( handle );
@@ -855,7 +1089,8 @@ namespace Desert::Physics
         const glm::vec3     dir = glm::normalize( direction );
         const JPH::RRayCast ray( JPH::RVec3( origin.x, origin.y, origin.z ), ToJolt( dir * maxDistance ) );
         JPH::RayCastResult  result;
-        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result ) )
+        const SolidLayersOnly solidOnly;
+        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, solidOnly ) )
             return std::nullopt;
 
         RayHit hit;
@@ -940,6 +1175,18 @@ namespace Desert::Physics
                                                 ToJolt( rotation ), JPH::EActivation::Activate );
     }
 
+    void PhysicsWorld::SetKinematicTarget( BodyHandle handle, const glm::vec3& position,
+                                           const glm::quat& rotation )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        const JPH::BodyID id( handle );
+        if ( m_Impl->Bodies->GetMotionType( id ) != JPH::EMotionType::Kinematic )
+            return;
+        m_Impl->KinematicTargets[handle] = { JPH::RVec3( position.x, position.y, position.z ),
+                                             ToJolt( rotation ).Normalized() };
+    }
+
     void PhysicsWorld::SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity )
     {
         if ( !m_Impl || handle == kInvalidBody )
@@ -1010,10 +1257,15 @@ namespace Desert::Physics
         settings.mMaxSlopeAngle = glm::radians( desc.MaxSlopeDeg );
         // Keep the contact point a little inside the capsule so the character doesn't get stuck on edges.
         settings.mSupportingVolume = JPH::Plane( JPH::Vec3::sAxisY(), -desc.Radius );
+        // The inner body is what a trigger sees of the character (UE: the pawn's capsule overlaps).
+        settings.mInnerBodyShape = settings.mShape;
+        settings.mInnerBodyLayer = Layers::CHARACTER;
 
         JPH::Ref<JPH::CharacterVirtual> character =
              new JPH::CharacterVirtual( &settings, ToJolt( desc.Position ), JPH::Quat::sIdentity(),
                                         &m_Impl->System );
+        if ( !character->GetInnerBodyID().IsInvalid() )
+            m_Impl->Bodies->SetUserData( character->GetInnerBodyID(), kCharacterBit );
 
         // Reuse a released slot before growing. Slots used to be append-only, which was harmless while
         // characters lived as long as a Play session, and is a vector that only grows once streaming creates
@@ -1034,7 +1286,17 @@ namespace Desert::Physics
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() )
             return;
+        if ( m_Impl->Characters[handle] )
+            m_Impl->EndOverlapsOf( GetCharacterBody( handle ) );
         m_Impl->Characters[handle] = nullptr; // Ref release; slot kept so other handles stay valid
+    }
+
+    BodyHandle PhysicsWorld::GetCharacterBody( CharacterHandle handle ) const
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return kInvalidBody;
+        const JPH::BodyID id = m_Impl->Characters[handle]->GetInnerBodyID();
+        return id.IsInvalid() ? kInvalidBody : static_cast<BodyHandle>( id.GetIndexAndSequenceNumber() );
     }
 
     void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float dt )

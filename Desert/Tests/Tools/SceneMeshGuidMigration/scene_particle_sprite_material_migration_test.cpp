@@ -54,7 +54,8 @@ namespace
 TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterTimeOfDayComponent )
 {
     EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Migration::kSceneVersionTimeOfDayComponent + 1 );
-    EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
+    // Not the newest any more: GP4 (v45) follows it.
+    EXPECT_LT( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
 }
 
 // Red when an Additive emitter keeps compositing over (no material), an AlphaBlend / unstated one gains a

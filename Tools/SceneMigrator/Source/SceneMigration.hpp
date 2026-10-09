@@ -209,7 +209,16 @@ namespace Desert::Migration
     inline constexpr const char* kParticleAdditiveMaterialPath =
          "engine:Engine/Materials/M_ParticleAdditive.demat";
 
-    static_assert( kSceneVersionParticleSpriteMaterial == kSceneVersion,
+
+    //  45 - A COLLIDER CAN BE A TRIGGER (GP4), UE's Overlap response with bGenerateOverlapEvents. Every Collider
+    //       block states IsTrigger and the four overlap-filter keys (OverlapStatic, OverlapKinematic,
+    //       OverlapDynamic, OverlapCharacters) with their defaults, written by MigrateTriggerColliderV44ToV45;
+    //       a collider that stated none of them is a solid collider, which is what it was, and the corpus stays
+    //       the saver's canonical text. Prefab overrides are left alone: an override states only what differs.
+    //       Scenes and prefabs alike.
+    inline constexpr int kSceneVersionTriggerCollider = 45;
+
+    static_assert( kSceneVersionTriggerCollider == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -347,6 +356,17 @@ namespace Desert::Migration
     // Removes ParticleEmitter.Blend under the rule kSceneVersionParticleSpriteMaterial states. PURE.
     ParticleSpriteMaterialsReport
     MigrateParticleSpriteMaterialsV43ToV44( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateTriggerColliderV44ToV45 did to one file.
+    struct TriggerColliderReport
+    {
+        std::size_t Colliders = 0; // Collider blocks that gained at least one key
+        std::size_t KeysAdded = 0;
+    };
+
+    // Writes the trigger keys' defaults into every record's Collider block that does not state them, under the
+    // rule kSceneVersionTriggerCollider states. Never refuses. PURE.
+    TriggerColliderReport MigrateTriggerColliderV44ToV45( std::vector<Assets::EntityData>& entities );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -544,6 +564,8 @@ namespace Desert::Migration
         WindSourceReport WindSource;
         bool                     TimeOfDayComponentRaised = false; // below kSceneVersionTimeOfDayComponent
         TimeOfDayComponentReport TimeOfDayComponent;
+        bool                     TriggerColliderRaised = false; // below kSceneVersionTriggerCollider
+        TriggerColliderReport    TriggerCollider;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
@@ -558,7 +580,8 @@ namespace Desert::Migration
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
                    UIAnimationsRaised || UIAnimationTimelinesRaised || WindSourceRaised ||
-                   TimeOfDayComponentRaised || ParticleSpriteMaterialsRaised;
+                   TimeOfDayComponentRaised || ParticleSpriteMaterialsRaised ||
+                   TriggerColliderRaised;
         }
     };
 

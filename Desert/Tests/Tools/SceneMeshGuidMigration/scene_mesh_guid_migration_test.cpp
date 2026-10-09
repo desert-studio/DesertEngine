@@ -190,7 +190,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionPlayerViewFlag, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionUIAnimationSequences, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionParticleSpriteMaterial );
+    EXPECT_LT( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionTriggerCollider );
 }
 
 namespace
