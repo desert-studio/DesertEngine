@@ -1641,6 +1641,13 @@ namespace Desert::Editor
                          { ImGuiKey_W, KeyCode::W },
                          { ImGuiKey_DownArrow, KeyCode::Down },
                          { ImGuiKey_S, KeyCode::S },
+                         // The input field's shortcuts (Ctrl|Cmd + A/C/X/V/Z/Y), UITextEditState::Apply.
+                         { ImGuiKey_A, KeyCode::A },
+                         { ImGuiKey_C, KeyCode::C },
+                         { ImGuiKey_X, KeyCode::X },
+                         { ImGuiKey_V, KeyCode::V },
+                         { ImGuiKey_Z, KeyCode::Z },
+                         { ImGuiKey_Y, KeyCode::Y },
                     };
                     for ( const auto& [imguiKey, key] : kUIKeys )
                         if ( ImGui::IsKeyPressed( imguiKey, false ) )

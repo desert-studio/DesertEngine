@@ -1,3 +1,4 @@
+#include <Engine/UI/UIWindowClipboard.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include "RuntimeLayer.hpp"
 
@@ -1070,7 +1071,9 @@ namespace Desert::Player
                     // Fullscreen: window mouse px == framebuffer px. MouseReleased is the down->up edge.
                     const auto [mx, my] = Input::Mouse::Get().GetMousePosition();
                     const bool  down    = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
-                    UI::UIInput input;
+                    UI::WindowClipboard clipboard( *EngineContext::GetInstance().GetWindow() );
+                    UI::UIInput         input;
+                    input.Clipboard     = &clipboard;
                     input.MousePx       = { mx, my };
                     input.MouseDown     = down;
                     input.MouseReleased = m_PrevMouseDown && !down;

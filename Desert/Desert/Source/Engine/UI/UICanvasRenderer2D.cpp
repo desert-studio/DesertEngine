@@ -895,6 +895,8 @@ namespace Desert::UI
                 else if ( outClicked && outClicked->empty() )
                     *outClicked = msg;
             };
+            for ( const std::string& msg : view.WalkMessages )
+                emit( msg );
             auto events = [&]( NodeId e ) -> const UIPointerEventsData*
             {
                 return ( e != NodeId::Null && tree.Valid( e ) && tree.Has<UIPointerEventsData>( e ) )
@@ -1122,6 +1124,7 @@ namespace Desert::UI
             *focused = view.Focusables[idx];
         }
 
+        view.WalkMessages.clear();
         view.FrameOpen = false;
     }
 } // namespace Desert::UI

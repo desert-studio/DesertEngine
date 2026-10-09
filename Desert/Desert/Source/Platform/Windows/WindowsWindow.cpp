@@ -379,4 +379,15 @@ namespace Desert::Platform::Windows
     {
     }
 
+    std::string WindowsWindow::GetClipboardText() const
+    {
+        const char* text = m_GLFWWindow ? glfwGetClipboardString( m_GLFWWindow ) : nullptr;
+        return text ? std::string( text ) : std::string{};
+    }
+
+    void WindowsWindow::SetClipboardText( const std::string& text )
+    {
+        if ( m_GLFWWindow )
+            glfwSetClipboardString( m_GLFWWindow, text.c_str() );
+    }
 } // namespace Desert::Platform::Windows
