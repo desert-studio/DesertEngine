@@ -5,7 +5,6 @@
 #include "ParticleGpuLayout.hpp"
 
 #include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
-#include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -66,8 +65,8 @@ namespace Desert::Graphic::System
         // Additive FX read as "always visible": depth-testing billboards against the scene made them vanish
         // when the camera looked DOWN at particles sitting near a surface (the surface occluded them), while
         // they showed when looking up (nothing behind). Draw them without a depth test (never write depth
-        // either), in the Transparency phase — the common default for glow/fire/sparks. (A per-emitter
-        // "occlude" toggle can bring depth testing back for smoke/dust that should hide behind walls.)
+        // either), in the translucency (AddFrameTranslucency) — the common default for glow/fire/sparks. (A
+        // per-emitter "occlude" toggle can bring depth testing back for smoke/dust that should hide behind walls.)
         base.DepthTestEnabled  = false;
         base.DepthWriteEnabled = false;
         base.CullMode          = CullMode::None;
@@ -395,46 +394,44 @@ namespace Desert::Graphic::System
         return fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
     }
 
-    void ParticleRenderer::RegisterPasses( RenderGraphBuilder& builder )
+    SystemRasterPass ParticleRenderer::DrawPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb || !m_AddPipeline )
-            return;
+            return {};
 
-        builder
-             .AddPass( "ParticlePass", RenderPhase::Transparency,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-                       {
-                           if ( m_FrameEmitters.empty() )
-                               return BOOLSUCCESS;
-                           // The same condition the Declare below filled the blocks under.
-                           if ( m_SceneRenderer->GetMainCamera() == nullptr ||
-                                m_SceneRenderer->GetViewFrame() == nullptr )
-                               return BOOLSUCCESS;
+        SystemRasterPass pass{
+             .Name        = "ParticlePass",
+             .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+             {
+                 if ( m_FrameEmitters.empty() )
+                     return BOOLSUCCESS;
+                 // The same condition the Declare below filled the blocks under.
+                 if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr )
+                     return BOOLSUCCESS;
 
-                           auto&    renderer = Renderer::GetInstance();
-                           uint32_t block    = 0;
-                           for ( auto& fe : m_FrameEmitters )
-                           {
-                               if ( !IsDrawn( fe ) )
-                                   continue;
-                               GraphicsPipeline* pipeline = BillboardPipeline( fe );
-                               if ( pipeline == nullptr )
-                                   return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
-                               // The Declare below filled this emitter's material and declared its block (the
-                               // integrated state, StorageRead): the n-th drawn emitter opens block n.
-                               const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-                               if ( auto drawn = renderer.DrawProcedural(
-                                         bindings, *pipeline, fe.Gpu->Material->GetMaterialExecutor(),
-                                         static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u, 1 );
-                                    !drawn.IsSuccess() )
-                                   return drawn;
-                           }
-                           return BOOLSUCCESS;
-                       },
-                       m_AddPipeline->GetSpecification(), targetFb,
-                       { RenderPassDependency( RenderPhase::Geometry ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+                 auto&    renderer = Renderer::GetInstance();
+                 uint32_t block    = 0;
+                 for ( auto& fe : m_FrameEmitters )
+                 {
+                     if ( !IsDrawn( fe ) )
+                         continue;
+                     GraphicsPipeline* pipeline = BillboardPipeline( fe );
+                     if ( pipeline == nullptr )
+                         return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
+                     // The Declare below filled this emitter's material and declared its block (the
+                     // integrated state, StorageRead): the n-th drawn emitter opens block n.
+                     const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+                     if ( auto drawn = renderer.DrawProcedural(
+                               bindings, *pipeline, fe.Gpu->Material->GetMaterialExecutor(),
+                               static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u, 1 );
+                          !drawn.IsSuccess() )
+                         return drawn;
+                 }
+                 return BOOLSUCCESS;
+             },
+             .TargetFramebuffer = targetFb };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             // The billboards read each emitter's integrated state in the vertex stage: StorageRead, so the graph
             // places the compute -> vertex barrier after "Particles: Simulate" (and the vertex -> compute one
@@ -461,5 +458,6 @@ namespace Desert::Graphic::System
                      .Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageRead );
             }
         };
+        return pass;
     }
 } // namespace Desert::Graphic::System

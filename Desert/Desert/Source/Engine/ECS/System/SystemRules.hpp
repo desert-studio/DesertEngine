@@ -78,7 +78,7 @@ namespace Desert::ECS::Rules
     // One static-mesh entity can produce up to three kinds of draw: a whole-entity generic draw (a
     // MaterialComponent naming a non-lit shader), one generic draw per custom-shader material slot, and
     // the batched lit draw for whatever submeshes are left. The shadow pass, though, draws a mesh WHOLE:
-    // MeshRenderer::RegisterShadowPass takes a Mesh* and a transform and has no submesh mask, because
+    // MeshRenderer::ShadowCascadePasses takes a Mesh* and a transform and has no submesh mask, because
     // depth is material-independent. So the caster is a property of the ENTITY, not of a draw, and
     // exactly one draw may carry it — a mesh with one custom slot and one lit slot would otherwise be
     // rasterized into every cascade twice, self-shadowing along the seam and paying double.

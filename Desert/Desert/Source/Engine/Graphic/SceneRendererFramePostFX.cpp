@@ -4,7 +4,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
-#include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -469,7 +468,7 @@ namespace Desert::Graphic
                  { backdrop->DeclareDownsampleBindings( pass, scene, pyramid, mip ); },
                  [backdrop, pyramidDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return backdrop->RecordDownsample( context, pyramidDesc, mip ); } );
-        // The UI phase samples the pyramid: the caller declares that read on the UI passes.
+        // The UI extension point samples the pyramid: the caller declares that read on the UI passes.
         return pyramid;
     }
 } // namespace Desert::Graphic

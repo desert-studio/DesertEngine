@@ -20,7 +20,7 @@ namespace Desert::Editor::Render
     {
         if ( const auto scene = m_Scene.lock() )
         {
-            scene->UnregisterExternalPass( "EditorUI2D" );
+            scene->UnregisterExtensionPass( "EditorUI2D" );
             // The slot is keyed by the scene's ADDRESS, and a freed scene's address is reused by the next
             // one — the same false-negative UICanvasContext::Registry warns about. Dropping it here is
             // what stops a reopened document from inheriting the closed one's numbers.
@@ -35,11 +35,9 @@ namespace Desert::Editor::Render
         if ( const auto result = m_Render2D.Init( scene->GetTargetFramebuffer() ); !result )
             return Common::MakeError( "EditorUIPass: " + result.GetError() );
 
-        Graphic::ExternalPassSpecification pass;
+        Graphic::ExtensionPass pass;
         pass.Name                  = "EditorUI2D";
-        pass.Phase                 = Graphic::RenderPhase::UI;
-        pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
-        pass.PipelineSpecification = m_Render2D.GetPipeline()->GetSpecification();
+        pass.Point                 = Graphic::RDG::ExtensionPoint::UI;
         // THE FRAME'S UI IS GATHERED IN SETUP (UE: Slate's elements are batched before the render pass that draws
         // them). The canvas walk - input feed, clicks, the draw list - runs while the frame graph is built, so the
         // node can declare one binding block per batch it will draw (Render2D::DeclareBindings) and the graph
@@ -49,7 +47,7 @@ namespace Desert::Editor::Render
         // Render2D samples the backdrop pyramid behind a blurred panel: an engine image the frame graph's blur
         // nodes write as storage, so the pass names it and the graph brings it to a sampled layout before the UI
         // draws.
-        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& ctx )
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& ctx )
         {
             const auto scene = m_Scene.lock();
             if ( !scene || !ctx.Target )
@@ -215,8 +213,8 @@ namespace Desert::Editor::Render
         };
         // Draws the list the setup gathered, over the blocks it declared. The backdrop pyramid is only built when
         // the canvas asked for it LAST frame, so hand the flag back after flushing.
-        pass.Execute = [this]( const Graphic::ExternalPassContext& ctx,
-                               Graphic::RDG::PassContext&          node ) -> Common::BoolResultStr
+        pass.Execute = [this]( const Graphic::ExtensionPassContext& ctx,
+                               Graphic::RDG::PassContext&           node ) -> Common::BoolResultStr
         {
             if ( m_Scene.expired() || ctx.Target == nullptr )
                 return BOOLSUCCESS; // the setup gathered nothing either
@@ -225,7 +223,7 @@ namespace Desert::Editor::Render
                 renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );
             return flushed;
         };
-        scene->RegisterExternalPass( std::move( pass ) );
+        scene->RegisterExtensionPass( std::move( pass ) );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::Render

@@ -46,7 +46,10 @@ namespace Desert::Graphic::System
                                       // unique_ptr<MaterialParticleBillboard> sees the complete type
 
         Common::BoolResultStr Initialize() override;
-        void                  RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The billboard draw over the lit scene target (LOAD), added by SceneRenderer::AddFrameTranslucency after
+        // the fog apply and the cloud composite. Empty (no TargetFramebuffer) without a target or pipeline.
+        [[nodiscard]] SystemRasterPass DrawPass();
 
         // Drops every cached emitter — see IRenderSystem::OnSceneReplaced, kind 2. m_Emitters is keyed by
         // the raw entt entity value, and a fresh registry hands those out from zero again, so the next

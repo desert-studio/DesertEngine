@@ -463,17 +463,17 @@ namespace Desert::Tests::PointerCensus
           "the answer of a resolver the editor's cubemap preview calls EVERY frame and consumes in the same "
           "call (EditorCubemapPreviewPass); the cube is resolved through the image service each time and "
           "never held, so an asset reload between frames cannot leave it dangling" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Camera", Guard::FrameScoped,
-          "per-frame data handed to an editor-registered pass when the render graph executes it; the "
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Camera", Guard::FrameScoped,
+          "per-frame data handed to a scene-registered extension pass when the render graph executes it; the "
           "target and its depth belong to the SceneRenderer running the graph" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Target", Guard::FrameScoped,
-          "per-frame data handed to an editor-registered pass when the render graph executes it; the "
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Target", Guard::FrameScoped,
+          "per-frame data handed to a scene-registered extension pass when the render graph executes it; the "
           "target and its depth belong to the SceneRenderer running the graph" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Depth", Guard::FrameScoped,
-          "per-frame data handed to an editor-registered pass when the render graph executes it; the "
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Depth", Guard::FrameScoped,
+          "per-frame data handed to a scene-registered extension pass when the render graph executes it; the "
           "target and its depth belong to the SceneRenderer running the graph" },
         { "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
           "Rule", "Replacement", Guard::StaticStorage,
@@ -843,9 +843,6 @@ namespace Desert::Tests::PointerCensus
           "recycled address cannot be mistaken for an old command because BeginFrame clears this map in the same "
           "call that Resets m_DrawList, so a key never outlives the list generation it was taken from; a command "
           "vector that reallocated after AddRetainedPasses would only MISS, and Flush refuses that composite with an error" },
-        { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
-          "ExternalPassSystem", "m_Renderer", Guard::ObservedContainsUs,
-          "the SceneRenderer owns its render systems, so it cannot be destroyed while one of them is alive" },
         { "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
           "WalkCtx", "Root", Guard::CallScoped,
           "set by RenderCanvas2D to its own DrawList2D& argument, and the WalkCtx is a local of that call consumed "
@@ -859,6 +856,9 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",
           "SceneRenderer", "m_CurrentViewFrame", Guard::FrameScoped,
           "TAA1: points at the ViewFrame m_ViewState.BeginFrame returned (owned by m_ViewState, a member of this renderer) only while OnUpdate runs: set right after BeginFrame and cleared by OnUpdate's CurrentViewFrameScope destructor on every exit path, so GetViewFrame answers nullptr outside the frame" },
+        { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",
+          "SceneRenderer", "m_FrameExtensions", Guard::FrameScoped,
+          "ARCH1b: points at the ExtensionPassRegistry of the Scene handed to BeginScene (a member of that Scene, which outlives the frame it is rendered in); set by BeginScene, read by AddExtensionPoint while OnUpdate builds the graph, nulled by EndScene, so no frame reads another scene's list" },
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
           "CurrentViewFrameScope", "Slot", Guard::CallScoped,
           "TAA1: a reference to this renderer's own m_CurrentViewFrame, held by a local of OnUpdate that is destroyed before OnUpdate returns; its destructor only writes nullptr through it" },
@@ -879,9 +879,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Systems/RenderSystem.hpp",
           "RenderSystem", "m_SceneRenderer", Guard::ObservedContainsUs,
           "the SceneRenderer owns its render systems" },
-        { "Desert/Desert/Source/Engine/Graphic/Systems/RenderSystem.hpp",
-          "RenderSystem", "m_RenderGraphBuilder", Guard::ObservedContainsUs,
-          "the builder is a member of the SceneRenderer that owns this system; note the sibling m_TargetFramebuffer is a weak_ptr, because THAT one is not owned by the renderer" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "MeshRenderData", "Mesh", Guard::CallScoped,
           "a temporary aggregate consumed synchronously by MeshRenderer::SubmitMesh" },
@@ -1571,9 +1568,9 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/LevelEditor/DockLayout.hpp",
           "EditorPanelHandles", "WorldPartition", Guard::CallScoped,
           "the same return value of RegisterEditorPanels as FileExplorer above, consumed in the same block of EditorLayer::OnAttach into m_WorldPartitionPanel, whose row carries the long-lived argument" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Renderer", Guard::CallScoped,
-          "the context is a local built inside the render graph's pass lambda and consumed by Execute within that call; the pointer is the ExternalPassSystem's own m_Renderer, i.e. the renderer that is recording -- which is what lets a pass ask what THIS view is showing instead of asking the scene, whose answer is view 0's" },
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Renderer", Guard::CallScoped,
+          "the context is a local built inside the render graph's pass lambda and consumed by Execute within that call; the pointer is the SceneRenderer whose AddExtensionPoint built the node, i.e. the renderer that is recording -- which is what lets a pass ask what THIS view is showing instead of asking the scene, whose answer is view 0's" },
         { "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.hpp",
           "ViewportPanel", "m_ViewRenderer", Guard::HostOutlivesUs,
           "null for the primary viewport (which is always view 0); otherwise the renderer owned by the SceneWorkspace::SceneViewport that opened this panel. SceneWorkspace::CloseSceneViewport removes the PANEL from m_Panels first and destroys the renderer last, so the panel cannot outlive it -- the same order CloseSceneView uses for a document, and for the same reason" },

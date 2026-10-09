@@ -270,23 +270,23 @@ namespace Desert::Graphic::System
                                                        m_OverdrawResolveMaterial->GetMaterialExecutor() );
     }
 
-    void MeshRenderer::RegisterDebugPass( RenderGraphBuilder& builder )
+    SystemRasterPass MeshRenderer::DebugLinesPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb || !m_DebugLinePipeline )
-            return;
+            return {};
 
         // Overlay debug lines (AABB wireframes) over the lit scene; runs after Geometry, depth-tested.
-        builder.AddPass(
-             "DebugLinesPass", RenderPhase::Debug,
-             [this]()
+        SystemRasterPass pass{
+             .Name        = "DebugLinesPass",
+             .ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
              {
                  if ( !m_ShowBoundingBoxes )
-                     return;
+                     return BOOLSUCCESS;
                  auto* const      camera = m_SceneRenderer->GetMainCamera();
                  const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
                  if ( camera == nullptr || view == nullptr )
-                     return;
+                     return BOOLSUCCESS;
 
                  // 12 box edges as index pairs into the 8 AABB corners (index bits = x|y<<1|z<<2).
                  static const int kEdges[12][2] = { { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 }, { 4, 5 }, { 5, 7 },
@@ -316,35 +316,35 @@ namespace Desert::Graphic::System
                      }
                  }
                  if ( lines.empty() )
-                     return;
+                     return BOOLSUCCESS;
 
                  m_DebugLineMaterial->Update( *view, lines );
                  Renderer::GetInstance().SubmitLines(
                       m_DebugLinePipeline.get(), static_cast<uint32_t>( lines.size() ), m_BoundingBoxLineWidth,
                       m_DebugLineMaterial->GetMaterialExecutor() );
+                 return BOOLSUCCESS;
              },
-             m_DebugLinePipeline->GetSpecification(), targetFb,
-             { RenderPassDependency( RenderPhase::Geometry ) } );
+             .TargetFramebuffer = targetFb };
+        return pass;
     }
 #endif // DESERT_DEV_INSTRUMENTS
 
-    void MeshRenderer::RegisterSilhouettePass( RenderGraphBuilder& builder )
+    SystemRasterPass MeshRenderer::SilhouettePass()
     {
         // The mask target AND the pipeline that writes it: the second half is new, because
         // SetupSilhouettePass can now refuse and this function reads the pipeline's spec.
         if ( !m_SilhouetteMaskFramebuffer || !m_SilhouettePipeline )
-            return;
+            return {};
 
-        builder
-             .AddPass( "MeshSilhouettePass", RenderPhase::Outline,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-                       {
-                           // The masks this node's Declare chose.
-                           return m_SilhouetteDraws.Record( context );
-                       },
-                       m_SilhouettePipeline->GetSpecification(), m_SilhouetteMaskFramebuffer,
-                       { RenderPassDependency( RenderPhase::Geometry ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+        SystemRasterPass pass{
+             .Name        = "MeshSilhouettePass",
+             .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+             {
+                 // The masks this node's Declare chose.
+                 return m_SilhouetteDraws.Record( context );
+             },
+             .TargetFramebuffer = m_SilhouetteMaskFramebuffer };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             // SETUP: every outlined mesh is chosen here, ONCE, into the node's draw list (the mask cameras and the
             // packed poses written before any command is recorded); one block per mask material.
@@ -416,6 +416,7 @@ namespace Desert::Graphic::System
             // The mask shaders sample no scene/view input.
             m_SilhouetteDraws.Declare( declared, std::nullopt );
         };
+        return pass;
     }
 
 } // namespace Desert::Graphic::System
