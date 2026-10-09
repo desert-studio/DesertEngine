@@ -71,7 +71,8 @@ namespace Desert::Physics
                      "collision profile '{}': ObjectChannel '{}' is no channel (channels: {})", row.Name,
                      row.ObjectChannel, Joined( out.m_Channels ) );
 
-            Profile profile{ row.Name, *row.Enabled, *channel, defaults };
+            Profile profile{ row.Name, *row.Enabled, *channel, defaults, row.GeneratesHitEvents,
+                             row.GeneratesOverlapEvents };
             for ( const CollisionResponseConfig& response : row.Responses )
             {
                 const auto target = ChannelIndex( out.m_Channels, response.Channel );

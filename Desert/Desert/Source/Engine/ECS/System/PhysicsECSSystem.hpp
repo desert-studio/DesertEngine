@@ -7,6 +7,8 @@
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Physics/CollisionProfiles.hpp>
 #include <Common/Core/Constants.hpp>
@@ -33,6 +35,7 @@
 #include <format>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 #include <string>
 #include <vector>
@@ -77,6 +80,9 @@ namespace Desert::ECS
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_RefusedColliders.clear();
+                    m_BodyEntities.clear();
+                    if ( auto* queue = registry.try_ctx<PhysicsEventQueue>() )
+                        queue->Events.clear();
                     m_RefusedCharacters.clear();
                     m_Landscape.reset();
                     m_Destructibles.reset();
@@ -288,6 +294,7 @@ namespace Desert::ECS
                  } );
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
+            PublishEvents( registry );
 
             // Write the pose to DRAW back into the transform for moving bodies: interpolated between the last
             // two fixed steps, so motion is smooth at any frame rate.
@@ -380,6 +387,34 @@ namespace Desert::ECS
         }
 
     private:
+        // This frame's steps' events, named by entity, into the registry's PhysicsEventQueue (see PhysicsEvents.hpp).
+        // The body → entity map keeps an entity whose body went this frame until its EndOverlap is named.
+        void PublishEvents( entt::registry& registry )
+        {
+            auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
+            queue.Events.clear();
+            for ( auto entity : registry.view<RigidBodyComponent>() )
+            {
+                const auto& rb = registry.get<RigidBodyComponent>( entity );
+                if ( rb.RuntimeBody != Physics::kInvalidBody )
+                    m_BodyEntities[rb.RuntimeBody] = entity;
+            }
+            NameContactEvents( m_World->GetContactEvents(), m_BodyEntities, queue.Events );
+
+            std::unordered_map<Destruction::DestructibleHandle, entt::entity> objects;
+            for ( auto entity : registry.view<DestructibleComponent>() )
+                objects[registry.get<DestructibleComponent>( entity ).RuntimeObject] = entity;
+            NameBreakEvents( m_Destruction->GetEvents(), objects, queue.Events );
+
+            std::erase_if( m_BodyEntities,
+                           [&]( const auto& entry )
+                           {
+                               return !registry.valid( entry.second ) ||
+                                      !registry.has<RigidBodyComponent>( entry.second ) ||
+                                      registry.get<RigidBodyComponent>( entry.second ).RuntimeBody != entry.first;
+                           } );
+        }
+
         // One fixed step of every character controller: the script's intent resolved against the camera basis,
         // gravity/jump/swim integrated over @p dt (the fixed step), the capsule moved through Jolt.
         void StepCharacters( entt::registry& registry, const glm::vec3& camFwd, const glm::vec3& camRight,
@@ -473,6 +508,7 @@ namespace Desert::ECS
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.
         std::unordered_set<entt::entity> m_RefusedColliders;
+        std::unordered_map<Physics::BodyHandle, entt::entity> m_BodyEntities; // see PublishEvents
         std::unordered_set<entt::entity> m_RefusedCharacters;
         bool                             m_ProfilesRefused = false;
     };

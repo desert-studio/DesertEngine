@@ -29,6 +29,8 @@
         {
             "Name": "NoCollision",
             "Enabled": "NoCollision",
+            "GeneratesHitEvents": false,
+            "GeneratesOverlapEvents": false,
             "ObjectChannel": "WorldStatic",
             "Responses": [
                 {
@@ -60,18 +62,24 @@
         {
             "Name": "BlockAll",
             "Enabled": "QueryAndPhysics",
+            "GeneratesHitEvents": false,
+            "GeneratesOverlapEvents": false,
             "ObjectChannel": "WorldStatic",
             "Responses": []
         },
         {
             "Name": "BlockAllDynamic",
             "Enabled": "QueryAndPhysics",
+            "GeneratesHitEvents": false,
+            "GeneratesOverlapEvents": true,
             "ObjectChannel": "WorldDynamic",
             "Responses": []
         },
         {
             "Name": "OverlapAllDynamic",
             "Enabled": "QueryOnly",
+            "GeneratesHitEvents": false,
+            "GeneratesOverlapEvents": true,
             "ObjectChannel": "WorldDynamic",
             "Responses": [
                 {
@@ -103,24 +111,32 @@
         {
             "Name": "Pawn",
             "Enabled": "QueryAndPhysics",
+            "GeneratesHitEvents": false,
+            "GeneratesOverlapEvents": true,
             "ObjectChannel": "Pawn",
             "Responses": []
         },
         {
             "Name": "PhysicsActor",
             "Enabled": "QueryAndPhysics",
+            "GeneratesHitEvents": true,
+            "GeneratesOverlapEvents": true,
             "ObjectChannel": "PhysicsBody",
             "Responses": []
         },
         {
             "Name": "Destructible",
             "Enabled": "QueryAndPhysics",
+            "GeneratesHitEvents": true,
+            "GeneratesOverlapEvents": false,
             "ObjectChannel": "Destructible",
             "Responses": []
         },
         {
             "Name": "Trigger",
             "Enabled": "QueryAndPhysics",
+            "GeneratesHitEvents": false,
+            "GeneratesOverlapEvents": true,
             "ObjectChannel": "WorldDynamic",
             "Responses": [
                 {

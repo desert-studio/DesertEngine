@@ -170,6 +170,35 @@ namespace Desert::Physics
         float      Impulse = 0.0f;
     };
 
+    /// What a ContactEvent reports (UE OnComponentHit / OnComponentBeginOverlap / OnComponentEndOverlap).
+    enum class ContactEventKind : uint8_t
+    {
+        Hit,          ///< Two bodies began a blocking (solved) contact
+        BeginOverlap, ///< Two bodies began to overlap (a sensor contact: an Overlap pair, found and not solved)
+        EndOverlap,   ///< The pair stopped overlapping, or one of its bodies left the world
+    };
+
+    /**
+     * @brief One body-pair event of a fixed step, named by body (ChaosEventRelay / FCollisionNotifyInfo's
+     * pattern: collected on the solver's threads, handed to the game thread after the step).
+     *
+     * A Hit is reported when either body's profile GeneratesHitEvents, once per contact begun (a touch kept
+     * across steps is one Hit); Notify1 / Notify2 say whose profile asked. Begin / EndOverlap are reported when
+     * both profiles GeneratesOverlapEvents, once per body pair however many shape pairs touch, and every Begin
+     * is followed by exactly one End — also when a body is removed while overlapping.
+     */
+    struct ContactEvent
+    {
+        ContactEventKind Kind    = ContactEventKind::Hit;
+        BodyHandle       Body1   = kInvalidBody;
+        BodyHandle       Body2   = kInvalidBody;
+        bool             Notify1 = false; ///< Body1's profile asked for this kind of event
+        bool             Notify2 = false;
+        glm::vec3        Point   = { 0.0f, 0.0f, 0.0f }; ///< World, on Body1's surface; zero for EndOverlap
+        glm::vec3        Normal  = { 0.0f, 0.0f, 0.0f }; ///< World, from Body1 towards Body2; zero for EndOverlap
+        float            Impulse = 0.0f;                 ///< Hit only: estimated normal impulse, kg·cm/s
+    };
+
     struct RayHit
     {
         BodyHandle Body     = kInvalidBody;
@@ -242,6 +271,11 @@ namespace Desert::Physics
 
         /// The contacts of the last fixed step on bodies that asked for them (ReportContactImpulses).
         [[nodiscard]] std::span<const ContactImpulse> GetStepContactImpulses() const;
+
+        /// The contact events of every fixed step the last Step call took, step by step; within a step ordered
+        /// by (Body1, Body2, Kind), so the order does not depend on which solver thread found a contact.
+        /// Read on the game thread after Step; the next Step replaces them.
+        [[nodiscard]] std::span<const ContactEvent> GetContactEvents() const;
 
         /// Refused by name: a Mesh on a dynamic body, a Mesh or ConvexHull without points, an index out of
         /// range, a shape Jolt cannot cook. Mesh and ConvexHull shapes are cooked once per content (the points,
