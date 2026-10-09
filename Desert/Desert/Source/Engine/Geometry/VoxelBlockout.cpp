@@ -1319,18 +1319,69 @@ namespace Desert::Geometry::VoxelBlockout
                     return Common::MakeError<Volume>(
                          std::format( "triangle {} names vertex {} of {}", t, v, positions.size() ) );
 
-        // The lattice: origin at the lowest corner, step = the gcd of every coordinate's offset from it.
+        // Positions in 1/100 cm from the lowest corner of the triangles (a vertex no triangle uses bounds
+        // nothing). Integer, so every normal below is exact and "axis-aligned" is an exact test.
         glm::dvec3 low( std::numeric_limits<double>::max() );
-        for ( const glm::dvec3& p : positions )
-            low = glm::min( low, p );
+        for ( const auto& tri : triangles )
+            for ( const int v : tri )
+                low = glm::min( low, positions[static_cast<size_t>( v )] );
         std::vector<std::array<int64_t, 3>> q( positions.size() );
-        int64_t                             step = 0;
         for ( size_t i = 0; i < positions.size(); ++i )
             for ( int a = 0; a < 3; ++a )
-            {
                 q[i][a] = std::llround( ( positions[i][a] - low[a] ) * 100.0 );
-                step    = std::gcd( step, q[i][a] );
+        auto normalOf = [&]( const std::array<int, 3>& tri )
+        {
+            const auto&                  p0 = q[static_cast<size_t>( tri[0] )];
+            const auto&                  p1 = q[static_cast<size_t>( tri[1] )];
+            const auto&                  p2 = q[static_cast<size_t>( tri[2] )];
+            const std::array<int64_t, 3> e1{ p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
+            const std::array<int64_t, 3> e2{ p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
+            return std::array<int64_t, 3>{ e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2],
+                                           e1[0] * e2[1] - e1[1] * e2[0] };
+        };
+
+        // The lattice step is the gcd of the offsets of the vertices that SHAPE the surface - not of every
+        // vertex. Volume::Bake conforms T-junctions by fanning a quad from its centre, and the centre of a
+        // quad an odd number of blocks long sits half a block off the lattice: counted, it halves the step
+        // (a Block Size 50 bake recovered at 25, eight times the cells). A vertex all of whose triangles lie
+        // in one plane, face one way and carry one material is inside a flat face: it fixes no plane, edge
+        // or material border, so it says nothing about the blocks. Every other vertex lies on a crease or a
+        // material border, and those are exactly the lines the blocks must reproduce. Keyed by welded
+        // position, since a render mesh repeats a vertex per face.
+        struct VertexUse
+        {
+            int     Axis   = -1; // -1: not seen yet; -2: a crease, a material border or a slanted triangle
+            int64_t Normal = 0, Plane = 0;
+            int     Material = 0;
+        };
+        std::map<std::array<int64_t, 3>, VertexUse> uses;
+        for ( size_t t = 0; t < triangles.size(); ++t )
+        {
+            const auto n    = normalOf( triangles[t] );
+            int        axis = -2;
+            for ( int a = 0; a < 3; ++a )
+                if ( n[a] != 0 && n[( a + 1 ) % 3] == 0 && n[( a + 2 ) % 3] == 0 )
+                    axis = a;
+            if ( n[0] == 0 && n[1] == 0 && n[2] == 0 )
+                continue; // a zero-area sliver touches nothing
+            for ( const int v : triangles[t] )
+            {
+                const auto& at = q[static_cast<size_t>( v )];
+                VertexUse   mine{ axis, axis >= 0 ? ( n[axis] > 0 ? 1 : -1 ) : 0, axis >= 0 ? at[axis] : 0,
+                                materials[t] };
+                VertexUse&  u = uses[at];
+                if ( u.Axis == -1 )
+                    u = mine;
+                else if ( u.Axis != mine.Axis || u.Normal != mine.Normal || u.Plane != mine.Plane ||
+                          u.Material != mine.Material )
+                    u.Axis = -2;
             }
+        }
+        int64_t step = 0;
+        for ( const auto& [at, u] : uses )
+            if ( u.Axis < 0 )
+                for ( int a = 0; a < 3; ++a )
+                    step = std::gcd( step, at[a] );
         if ( step == 0 )
             return Common::MakeError<Volume>( "every vertex sits at one point: it encloses no block" );
         const double unit = static_cast<double>( step ) / 100.0;
@@ -1346,34 +1397,39 @@ namespace Desert::Geometry::VoxelBlockout
                          std::format( "it spans {} blocks of {:.2f} cm along {}, more than a grid holds ({})",
                                       c[a] / step, unit, AxisName( a ), OFF - 2 ) );
 
-        // Every triangle's signed area onto the lattice squares of its face plane.
+        // Every triangle's signed area onto the lattice squares of its face plane, and six times the signed
+        // volume the triangles enclose (the divergence theorem over the faces).
         std::array<CoverMap, 3> cover;
+        double                  sixVolume = 0.0;
         for ( size_t t = 0; t < triangles.size(); ++t )
         {
             if ( materials[t] < 0 || materials[t] > std::numeric_limits<uint8_t>::max() )
                 return Common::MakeError<Volume>(
                      std::format( "triangle {} has material {}, outside a cell face's 0..{}", t, materials[t],
                                   static_cast<int>( std::numeric_limits<uint8_t>::max() ) ) );
+            // Lattice coordinates; a vertex inside a flat face (a fan centre) may sit between lattice points.
             std::array<glm::dvec3, 3> p;
             for ( int k = 0; k < 3; ++k )
             {
                 const auto& c = q[static_cast<size_t>( triangles[t][k] )];
-                p[k]          = glm::dvec3( static_cast<double>( c[0] / step ), static_cast<double>( c[1] / step ),
-                                            static_cast<double>( c[2] / step ) );
+                p[k]          = glm::dvec3( static_cast<double>( c[0] ), static_cast<double>( c[1] ),
+                                            static_cast<double>( c[2] ) ) /
+                       static_cast<double>( step );
             }
-            // Integer lattice coordinates: the cross product is exact, so "axis-aligned" is an exact test.
-            const glm::dvec3 n = glm::cross( p[1] - p[0], p[2] - p[0] );
-            int              a = 0;
+            const auto ni = normalOf( triangles[t] );
+            int        a  = 0;
             for ( int k = 1; k < 3; ++k )
-                if ( std::abs( n[k] ) > std::abs( n[a] ) )
+                if ( std::abs( ni[k] ) > std::abs( ni[a] ) )
                     a = k;
-            if ( n[a] == 0.0 )
+            if ( ni[a] == 0 )
                 continue; // a zero-area sliver covers no square
             const int u = ( a + 1 ) % 3;
             const int v = ( a + 2 ) % 3;
-            if ( n[u] != 0.0 || n[v] != 0.0 )
+            sixVolume += glm::dot( p[0], glm::cross( p[1], p[2] ) );
+            if ( ni[u] != 0 || ni[v] != 0 )
             {
-                const glm::dvec3 w = glm::normalize( n );
+                const glm::dvec3 w = glm::normalize( glm::dvec3(
+                     static_cast<double>( ni[0] ), static_cast<double>( ni[1] ), static_cast<double>( ni[2] ) ) );
                 return Common::MakeError<Volume>(
                      std::format( "triangle {} is not axis-aligned (normal {:.3f}, {:.3f}, {:.3f}): a Corner "
                                   "Mode slope or a mesh not built of blocks has no voxels to recover",
@@ -1383,15 +1439,25 @@ namespace Desert::Geometry::VoxelBlockout
                  glm::dvec2( p[0][u], p[0][v] ), glm::dvec2( p[1][u], p[1][v] ), glm::dvec2( p[2][u], p[2][v] ) };
             const glm::dvec2 lo2  = glm::min( glm::min( flat[0], flat[1] ), flat[2] );
             const glm::dvec2 hi2  = glm::max( glm::max( flat[0], flat[1] ), flat[2] );
-            const double     sign = n[a] > 0.0 ? 1.0 : -1.0;
-            for ( auto su = static_cast<int64_t>( lo2.x ); su < static_cast<int64_t>( hi2.x ); ++su )
-                for ( auto sv = static_cast<int64_t>( lo2.y ); sv < static_cast<int64_t>( hi2.y ); ++sv )
+            const double     sign = ni[a] > 0 ? 1.0 : -1.0;
+            // A face plane holds crease vertices, so it lies on the lattice; one between lattice planes is
+            // a face no whole block has.
+            const int64_t planeAt = q[static_cast<size_t>( triangles[t][0] )][a];
+            if ( planeAt % step != 0 )
+                return Common::MakeError<Volume>(
+                     std::format( "triangle {} lies between the {:.2f} cm lattice planes along {}: its faces are "
+                                  "not whole blocks",
+                                  t, unit, AxisName( a ) ) );
+            for ( auto su = static_cast<int64_t>( std::floor( lo2.x ) );
+                  su < static_cast<int64_t>( std::ceil( hi2.x ) ); ++su )
+                for ( auto sv = static_cast<int64_t>( std::floor( lo2.y ) );
+                      sv < static_cast<int64_t>( std::ceil( hi2.y ) ); ++sv )
                 {
                     const double area = AreaInSquare( flat, su, sv );
                     if ( area <= 0.0 )
                         continue;
                     glm::ivec3 key;
-                    key[a]         = static_cast<int>( p[0][a] );
+                    key[a]         = static_cast<int>( planeAt / step );
                     key[u]         = static_cast<int>( su );
                     key[v]         = static_cast<int>( sv );
                     SquareCover& c = cover[a][Pack( key )];
@@ -1403,6 +1469,14 @@ namespace Desert::Geometry::VoxelBlockout
                     }
                 }
         }
+
+        // Which way the faces look. The engine bakes counter-clockwise-outward triangles (Volume::Bake), but a
+        // mesh that reaches us through another path - the editor's DynamicMesh, an import - need not keep that
+        // winding, and assuming it turns every face inside out (a column "leaves" at its lowest face). A closed
+        // surface's signed volume is positive exactly when its windings face out, so it decides the sign.
+        if ( sixVolume == 0.0 )
+            return Common::MakeError<Volume>( "its faces enclose no volume: it is not a closed volume of blocks" );
+        const int outward = sixVolume > 0.0 ? 1 : -1;
 
         // Each square is a whole face or none: the triangles over it must sum to -1, 0 or +1.
         std::array<FaceMap, 3> faces;
@@ -1421,7 +1495,7 @@ namespace Desert::Geometry::VoxelBlockout
                          std::format( "{} of its {} faces overlap on the block square at ({}, {}, {})",
                                       static_cast<int>( std::abs( whole ) ), AxisName( a ), at.x, at.y, at.z ) );
                 if ( whole != 0.0 )
-                    faces[a][key] = PlaneFace{ whole > 0.0 ? 1 : -1, c.Material };
+                    faces[a][key] = PlaneFace{ whole > 0.0 ? outward : -outward, c.Material };
             }
 
         // Sweep the X faces column by column: a face looking -X opens a run of solid cells, one looking +X

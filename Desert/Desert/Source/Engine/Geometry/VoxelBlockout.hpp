@@ -311,14 +311,16 @@ namespace Desert::Geometry::VoxelBlockout
     // a mesh made elsewhere of whole blocks), so the tool can be opened on any such mesh as UE's Cube Grid
     // takes any mesh as its target. `positions` are the mesh's vertices in its own space (centimetres),
     // `triangles` index them, `materials` is the material slot of each triangle. The lattice is found, not
-    // asked for: its origin is the mesh's lowest corner and its Block Size the largest step every vertex
-    // coordinate is a whole multiple of (to 1/100 cm, MeshKey's precision). Each lattice square a face plane
-    // holds sums the signed area of the triangles over it (+ = faces the axis's + direction), so a quad's
-    // diagonal or a greedy-merged face counts once; the X faces are swept column by column into solid cells,
-    // and the Y and Z faces must then be exactly the borders of those cells. Every exposed face of a cell
-    // takes the material of the triangle covering most of its square. One committed layer comes back, in the
-    // mesh's own space with no rotation. Refused, by reason and position, when there is nothing to recover
-    // (no triangles, no enclosed block), when a triangle is not axis-aligned (a Corner Mode slope or a
+    // asked for: its origin is the mesh's lowest corner and its Block Size the largest step every coordinate
+    // of a vertex on a crease or a material border is a whole multiple of (to 1/100 cm, MeshKey's precision) -
+    // a vertex inside a flat face, such as the centre Bake fans a T-junction quad from, shapes no block. Each
+    // lattice square a face plane holds sums the signed area of the triangles over it (+ = faces the axis's +
+    // direction), so a quad's diagonal, a fan or a greedy-merged face counts once; which way a face looks is
+    // decided by the sign of the enclosed volume, not by assuming a winding; the X faces are swept column by
+    // column into solid cells, and the Y and Z faces must then be exactly the borders of those cells. Every
+    // exposed face of a cell takes the material of the triangle covering most of its square. One committed layer
+    // comes back, in the mesh's own space with no rotation. Refused, by reason and position, when there is nothing
+    // to recover (no triangles, no enclosed block), when a triangle is not axis-aligned (a Corner Mode slope or a
     // non-blockout mesh), when the lattice is finer than `minUnit` (the smallest Block Size) or wider than a
     // packed cell index, when a face plane covers part of a square or two faces overlap on it, when a column
     // does not close, when a Y or Z face is missing from, or lies inside or outside, the swept volume, or when

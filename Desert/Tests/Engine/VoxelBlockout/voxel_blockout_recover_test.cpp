@@ -4,6 +4,7 @@
 //    every exposed face, whatever the bake merged or split;
 //  - the lattice is found from the mesh (a 3x1x1 box of 12 triangles anywhere recovers to three blocks of
 //    its step, at its corner);
+//  - the winding is not the mesh's word on which way a face looks: wound either way it is the same volume;
 //  - what is not a closed volume of whole axis-aligned blocks is refused, by reason.
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
@@ -14,6 +15,7 @@
 #include <map>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace Desert::Geometry::VoxelBlockout;
@@ -103,6 +105,24 @@ TEST( VoxelBlockoutRecover, TheBakeOfAVolumeRecoversToThatVolume )
     EXPECT_EQ( got, want ) << "a recovered face moved, vanished or changed material";
 }
 
+// The winding is not the mesh's word on which way a face looks: the editor's mesh and an import may wind the
+// other way round. The same surface wound clockwise-outward is the same volume.
+TEST( VoxelBlockoutRecover, TheBakeWoundTheOtherWayRecoversToTheSameVolume )
+{
+    Volume built = PaintedL();
+    ASSERT_TRUE( built.Freeze() );
+    Soup soup = SoupOf( built.Bake() );
+    for ( auto& tri : soup.Triangles )
+        std::swap( tri[1], tri[2] );
+
+    auto recovered = FromBoxMesh( soup.Positions, soup.Triangles, soup.Materials, 1.0f );
+    ASSERT_TRUE( recovered.IsSuccess() ) << recovered.GetError();
+    ASSERT_EQ( recovered.GetValue().m_Frozen.size(), 1u );
+    EXPECT_FLOAT_EQ( recovered.GetValue().m_Frozen[0].Unit, 50.0f );
+    EXPECT_EQ( recovered.GetValue().m_Frozen[0].Cells.size(), 6u + 2u );
+    EXPECT_EQ( ExposedFaces( recovered.GetValue() ), ExposedFaces( built ) );
+}
+
 TEST( VoxelBlockoutRecover, TheLatticeIsFoundFromTheMesh )
 {
     // One 300 x 100 x 100 box at (130, -20, 7): 8 corners, 12 triangles, every face one merged quad.
@@ -123,13 +143,16 @@ TEST( VoxelBlockoutRecover, TheLatticeIsFoundFromTheMesh )
     for ( int x = 0; x < 3; ++x )
         EXPECT_TRUE( l.Cells.contains( Pack( { x, 0, 0 } ) ) ) << "block " << x;
 
-    // Turned inside out (every triangle wound backwards) it encloses nothing: refused, not inverted.
-    std::vector<std::array<int, 3>> inverted = tris;
-    for ( auto& t : inverted )
+    // Wound clockwise-outward - DynamicMesh3's front, UE's convention (DynamicMeshSerialization kCorner) - it
+    // is the same box: the winding convention is the mesh's, the enclosed volume decides which way faces look.
+    std::vector<std::array<int, 3>> clockwise = tris;
+    for ( auto& t : clockwise )
         std::swap( t[1], t[2] );
-    auto inside = FromBoxMesh( p, inverted, std::vector<int>( tris.size(), 0 ), 1.0f );
-    ASSERT_FALSE( inside.IsSuccess() );
-    EXPECT_NE( inside.GetError().find( "not a closed volume" ), std::string::npos ) << inside.GetError();
+    auto same = FromBoxMesh( p, clockwise, std::vector<int>( tris.size(), 0 ), 1.0f );
+    ASSERT_TRUE( same.IsSuccess() ) << same.GetError();
+    EXPECT_EQ( same.GetValue().m_Frozen.at( 0 ).Cells.size(), 3u );
+    for ( int x = 0; x < 3; ++x )
+        EXPECT_TRUE( same.GetValue().m_Frozen.at( 0 ).Cells.contains( Pack( { x, 0, 0 } ) ) ) << "block " << x;
 }
 
 TEST( VoxelBlockoutRecover, WhatIsNotWholeBlocksIsRefusedByReason )
