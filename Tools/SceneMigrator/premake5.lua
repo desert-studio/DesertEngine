@@ -71,6 +71,8 @@ project "SceneMigrator"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        -- MODULE-INFRA: the module list above calls each module's RegisterReflection_<Module>() (plan C11).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection_*.gen.cpp",
 
         -- THE PREFAB GATE AND THE ONE WRITER OF .deprefab TEXT, since И11. The tool converts prefabs
         -- too, and the bytes it writes must be the bytes the engine's saver produces and must pass the

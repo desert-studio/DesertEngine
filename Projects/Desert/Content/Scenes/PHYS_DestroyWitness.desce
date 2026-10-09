@@ -40,15 +40,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "Skybox": {
-                "SkyboxHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "Intensity": 1.0,
-                "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
-            },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
@@ -97,6 +88,15 @@
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             }
         },
         {
@@ -106,11 +106,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 0.20000000298023224, 4.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
-            },
             "Collider": {
                 "Shape": 0,
                 "HalfExtents": [200.0, 10.0, 200.0],
@@ -141,6 +136,11 @@
                         ]
                     }
                 ]
+            },
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
             }
         },
         {
@@ -150,11 +150,6 @@
             "Translation": [0.0, 300.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.5, 0.5, 0.5],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
-            },
             "Collider": {
                 "Shape": 0,
                 "HalfExtents": [25.0, 25.0, 25.0],
@@ -169,6 +164,11 @@
                 "Friction": 0.5,
                 "Restitution": 0.10000000149011612,
                 "CollisionProfile": "PhysicsActor"
+            },
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
+                "Primitive": "Cube"
             }
         },
         {
@@ -178,11 +178,6 @@
             "Translation": [0.0, -800.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [10.0, 0.20000000298023224, 10.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
-            },
             "Collider": {
                 "Shape": 0,
                 "HalfExtents": [500.0, 10.0, 500.0],
@@ -197,6 +192,11 @@
                 "Friction": 0.5,
                 "Restitution": 0.10000000149011612,
                 "CollisionProfile": "BlockAll"
+            },
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
             }
         },
         {
