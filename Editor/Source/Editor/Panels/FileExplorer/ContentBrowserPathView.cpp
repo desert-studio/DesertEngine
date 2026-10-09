@@ -153,8 +153,9 @@ namespace Desert::Editor
                         horizontalTreeLineSize *= 0.5f;
                     DrawFolder( model, current, child );
 
-                    const ImRect childRect =
-                         ImRect( currentPos, currentPos + ImVec2( 0.0f, ImGui::GetFontSize() ) );
+                    // Spelled per component: in a Windows unity blob imgui.h may arrive first without
+                    // IMGUI_DEFINE_MATH_OPERATORS, and ImVec2 then has no operator+.
+                    const ImRect childRect( currentPos, ImVec2( currentPos.x, currentPos.y + ImGui::GetFontSize() ) );
 
                     const float midpoint = ( childRect.Min.y + childRect.Max.y ) * 0.5f;
                     drawList->AddLine( ImVec2( verticalLineStart.x, midpoint ),
