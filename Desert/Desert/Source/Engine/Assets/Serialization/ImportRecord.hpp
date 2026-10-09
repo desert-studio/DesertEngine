@@ -135,6 +135,11 @@ namespace Desert::Assets::Serialization
     Common::ResultStr<std::string> WriteImportRecord( const ImportRecordData&      data,
                                                       Common::Content::ContentKind kind );
 
+    /// How many times this session parsed a record file. Every reader below asks the session's held parse of the
+    /// record (UE: the asset registry serves an asset's import data from memory): a record is parsed once and
+    /// again only when its file changes (write time or size) or is rewritten by a setter here.
+    [[nodiscard]] uint64_t ImportRecordParseCount();
+
     /// The GUID @p source's record states. An error naming the record's path when it is missing, unreadable,
     /// of another generation or written for another source - never a GUID made up from the path.
     Common::ResultStr<Common::Content::AssetGuid> ReadImportRecordGuid( const std::filesystem::path& source );
