@@ -5,19 +5,26 @@
 
 namespace Desert::Scripting
 {
-    // project.name() / project.company() — what a title screen and the credits print. Read from the project's
-    // own settings (the .deproj's Name, Config/Game.json's Company), so renaming the game is one edit there and
-    // no script or string table carries the name.
-    void RegisterProjectBindings( ScriptEngine::Impl& implRef )
+    namespace
     {
-        auto&      lua     = implRef.Lua;
-        sol::table project = lua.create_named_table( "project" );
-        project.set_function( "name",
-                              [] {
-                                  return Project::ProjectContext::HasProject()
-                                              ? Project::ProjectContext::Current().Name
-                                              : std::string{};
-                              } );
-        project.set_function( "company", [] { return Project::CurrentGameSettings().Company; } );
+        int Name( lua_State* L )
+        {
+            lua_pushstring( L, Project::ProjectContext::HasProject() ? Project::ProjectContext::Current().Name.c_str() : "" );
+            return 1;
+        }
+        int Company( lua_State* L )
+        {
+            const std::string company = Project::CurrentGameSettings().Company;
+            lua_pushstring( L, company.c_str() );
+            return 1;
+        }
+    } // namespace
+
+    // project.name() / project.company() — the open project's identity.
+    void RegisterProjectBindings( lua_State* L )
+    {
+        constexpr luaL_Reg kProject[] = { { "name", &Name }, { "company", &Company }, { nullptr, nullptr } };
+        luaL_register( L, "project", kProject );
+        lua_pop( L, 1 );
     }
 } // namespace Desert::Scripting

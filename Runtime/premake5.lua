@@ -90,7 +90,6 @@ project "Runtime"
         links {
             "Common",
             "Jolt",
-            "Lua",
             "LuauCodeGen",
             "LuauCompiler",
             "LuauAst",

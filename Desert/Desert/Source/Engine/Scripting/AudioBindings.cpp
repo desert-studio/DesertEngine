@@ -4,20 +4,29 @@
 
 namespace Desert::Scripting
 {
-    // Audio table: fire-and-forget playback for gameplay scripts.
-    //   Audio.play("Sounds/shot.wav")          -- 2D one-shot, full volume
-    //   Audio.play("Sounds/shot.wav", 0.5)     -- with volume
-    //   Audio.stopAll()                        -- silence everything (managed sources restart via AutoPlay)
-    // Paths resolve like AudioSourceComponent clips: absolute or Assets-relative, VFS-aware.
-    void RegisterAudioBindings( ScriptEngine::Impl& implRef )
+    namespace
     {
-        sol::table audio = implRef.Lua.create_named_table( "Audio" );
+        // Audio.play(clip [, volume]) — a one-shot.
+        int Play( lua_State* L )
+        {
+            const std::string clip = luaL_checkstring( L, 1 );
+            if ( lua_isnoneornil( L, 2 ) )
+                Audio::AudioEngine::Get().PlayOneShot( clip );
+            else
+                Audio::AudioEngine::Get().PlayOneShot( clip, static_cast<float>( luaL_checknumber( L, 2 ) ) );
+            return 0;
+        }
+        int StopAll( lua_State* )
+        {
+            Audio::AudioEngine::Get().StopAll();
+            return 0;
+        }
+    } // namespace
 
-        audio["play"] = sol::overload(
-             []( const std::string& clip ) { Audio::AudioEngine::Get().PlayOneShot( clip ); },
-             []( const std::string& clip, float volume )
-             { Audio::AudioEngine::Get().PlayOneShot( clip, volume ); } );
-
-        audio["stopAll"] = []() { Audio::AudioEngine::Get().StopAll(); };
+    void RegisterAudioBindings( lua_State* L )
+    {
+        constexpr luaL_Reg kAudio[] = { { "play", &Play }, { "stopAll", &StopAll }, { nullptr, nullptr } };
+        luaL_register( L, "Audio", kAudio );
+        lua_pop( L, 1 );
     }
 } // namespace Desert::Scripting

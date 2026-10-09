@@ -300,7 +300,6 @@ REQUIRED_PATHS=(
     "ThirdParty/JoltPhysics/Jolt/Jolt.h"
     "ThirdParty/lua/lapi.c"
     "ThirdParty/spdlog/include/spdlog/spdlog.h"
-    "ThirdParty/sol2/include/sol/sol.hpp"
     "Editor/ThirdParty/ImGuizmo/ImGuizmo.cpp"
     "ThirdParty/reflect-cpp/include"
     "ThirdParty/google-test/include/gtest/gtest.h"

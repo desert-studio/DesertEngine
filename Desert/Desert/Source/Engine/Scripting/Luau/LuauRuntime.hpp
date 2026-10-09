@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+struct lua_State; // Luau's state, opaque here; only the runtime and the engine's native modules see lua.h
+
 namespace Desert::Reflection
 {
     struct TypeInfo;
@@ -78,6 +80,17 @@ namespace Desert::Scripting
 
     using LuauSlot = std::uint32_t;
 
+    /// Installs the engine's NATIVE modules (Log, Input, Timer, World, the entity's methods) on the main state,
+    /// before luaL_sandbox freezes it — so what it adds is read-only to every script, like the libraries.
+    using LuauInstall = std::function<void( lua_State* )>;
+
+    /// One entry of a slot's global table (ReadTable): a boolean, a number (Double) or a string.
+    struct LuauTableEntry
+    {
+        std::string       Key;
+        Reflection::Value Value;
+    };
+
     /// THE LUAU RUNTIME — one VM, every script in its own sandbox, every call under the watchdog.
     ///
     /// The shape is Roblox's and Luau's own recommended embedding:
@@ -96,7 +109,7 @@ namespace Desert::Scripting
     class LuauRuntime
     {
     public:
-        explicit LuauRuntime( LuauLimits limits = {} );
+        explicit LuauRuntime( LuauLimits limits = {}, const LuauInstall& install = {} );
         ~LuauRuntime();
 
         LuauRuntime( const LuauRuntime& )            = delete;
@@ -121,6 +134,24 @@ namespace Desert::Scripting
         /// the function does not exist; a script error comes back with the script's own message.
         [[nodiscard]] Common::BoolResultStr Call( LuauSlot slot, const char* function,
                                                   std::span<const Reflection::Value> args = {} );
+
+        /// Calls the slot's global `function` with the `count` values at `first..` of `from`'s stack (a native
+        /// forwarding a script's own arguments — entity:call(fn, ...)), under the watchdog.
+        [[nodiscard]] Common::BoolResultStr CallFrom( LuauSlot slot, const char* function, lua_State* from,
+                                                      int first, int count );
+
+        /// Calls the function a native pinned with lua_ref (Timer.after's callback) on the slot's thread, under
+        /// the watchdog and the slot's memory category. The reference stays; Unref drops it.
+        [[nodiscard]] Common::BoolResultStr CallRef( LuauSlot slot, int function );
+        void                                Unref( int reference );
+
+        /// Sets `table[key] = value` in the slot's globals, creating the table when the slot has none
+        /// (the editor's property overrides land in `Properties` this way).
+        void SetTableField( LuauSlot slot, const char* table, const std::string& key,
+                            const Reflection::Value& value );
+
+        /// The string-keyed boolean / number / string entries of the slot's global `table`; empty when absent.
+        [[nodiscard]] std::vector<LuauTableEntry> ReadTable( LuauSlot slot, const char* table ) const;
 
         /// THE CONSOLE (REPL): runs `code` as an expression first, then as a statement, in one sandbox that
         /// keeps its globals between lines. Everything printed and the expression's values land in `output`.

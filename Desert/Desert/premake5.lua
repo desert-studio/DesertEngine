@@ -68,7 +68,7 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/opus/include",
         -- Luau, by module path (<VM/include/lua.h>, <Compiler/include/luacode.h>): its lua.h shares a name with
-        -- PUC Lua's, which sol2 includes as <lua.h>, so the two VMs' headers can never resolve to each other.
+        -- PUC Lua's (DesertHeaderTool's), so the two VMs' headers can never resolve to each other.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
     
@@ -87,7 +87,6 @@ project "Desert"
     links {
         "Common",
         "Jolt",
-        "Lua",
         -- Luau (BuildScripts/ThirdParty/Luau.lua): Engine/Scripting/Luau. Dependants before what they use.
         "LuauCodeGen",
         "LuauCompiler",

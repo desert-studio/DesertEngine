@@ -75,8 +75,10 @@ local function DesertRunnerSettings(deps)
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
+        -- Luau by module path (<VM/include/lua.h>): Engine/Scripting/Internal headers the script suites include.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
-    -- Every engine third-party include (Jolt, Lua/sol2, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
+    -- Every engine third-party include (Jolt, Luau, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
     -- from the engine's own list so the two stay in sync. pairs() skips the Vulkan keys when no SDK is set.
     for _, p in pairs(deps.DesertSpecific.IncludeDir) do
         externalincludedirs { p }
@@ -92,6 +94,7 @@ local function DesertRunnerSettings(deps)
         links {
             "Common",
             "Jolt",
+            -- PUC Lua: only the header tool's ModuleTable.cpp (ModuleBoundary) uses it; scripts run on Luau.
             "Lua",
             "LuauCodeGen",
             "LuauCompiler",
@@ -184,8 +187,8 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/HeaderScan.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/AnnotationText.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/ComponentBlocks.cpp",
-            -- ModuleBoundary: the module table's reader (it executes BuildScripts/DesertModules.lua with Lua,
-            -- which this runner links through Desert).
+            -- ModuleBoundary: the module table's reader (it executes BuildScripts/DesertModules.lua with PUC Lua,
+            -- which this runner links itself — the engine no longer does).
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/ModuleTable.cpp",
             -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",

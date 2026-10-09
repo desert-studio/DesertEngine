@@ -206,7 +206,6 @@ Dependencies = {
             opensubdiv = baseDir .. "/OpenSubdiv",
             jolt = baseDir .. "/JoltPhysics",
             lua = baseDir .. "/lua",
-            sol2 = baseDir .. "/sol2/include",
             Vulkan = vulkan and vulkan.include or nil,
             shaderc = vulkan and (vulkan.include .. "/shaderc") or nil,
             spirv_cross = vulkan and (vulkan.include .. "/spirv_cross") or nil,

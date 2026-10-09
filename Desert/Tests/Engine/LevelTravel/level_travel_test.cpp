@@ -1,7 +1,7 @@
 // ENG-LEVEL: Core::OpenLevel is the one way a game changes level, and it changes it AT THE FRAME BOUNDARY.
 //
 // What is pinned, against the real resolver (a temp .deproj opened through ProjectContext) and the real Lua
-// binding (Scripting::RegisterLevelBindings in a real sol2 state):
+// binding (Scripting::RegisterLevelBindings on the Luau runtime):
 //   * a request from C++ or from Lua only QUEUES -- nothing is loaded until the host's TickTravel;
 //   * the boundary applies exactly once, and a travel asked for DURING the load waits for the next one;
 //   * the last request of a frame wins (UEngine::SetClientTravel overwrites TravelURL);
@@ -12,7 +12,7 @@
 #include <Engine/Core/LevelTravel.hpp>
 #include <Editor/Core/PlayWorldTravel.hpp>
 #include <Engine/Project/ProjectContext.hpp>
-#include <Engine/Scripting/Internal/ScriptRuntime.hpp>
+#include <Engine/Scripting/ScriptEngine.hpp>
 
 #include <gtest/gtest.h>
 
@@ -73,25 +73,27 @@ namespace
         }
     };
 
+    // The real script engine (Luau): its console keeps globals between lines, so a statement's result is read
+    // back as an expression.
     struct Lua
     {
-        Desert::Scripting::ScriptEngine::Impl Impl;
+        Desert::Scripting::ScriptEngine Engine{ nullptr };
 
-        Lua()
+        void Run( const std::string& code )
         {
-            Impl.Lua.open_libraries( sol::lib::base, sol::lib::string );
-            Desert::Scripting::RegisterLevelBindings( Impl );
+            const auto r = Engine.RunString( code );
+            if ( !r.IsSuccess() )
+                ADD_FAILURE() << r.GetError();
         }
 
-        sol::protected_function_result Run( const std::string& code )
+        std::string Get( const std::string& name )
         {
-            auto r = Impl.Lua.safe_script( code, sol::script_pass_on_error );
-            if ( !r.valid() )
-            {
-                const sol::error err = r;
-                ADD_FAILURE() << err.what();
-            }
-            return r;
+            std::string out;
+            const auto  r = Engine.EvalToString( name, out );
+            EXPECT_TRUE( r.IsSuccess() ) << r.GetError();
+            while ( !out.empty() && out.back() == '\n' )
+                out.pop_back();
+            return out;
         }
     };
 } // namespace
@@ -200,7 +202,7 @@ TEST( LevelTravel, LuaLevelOpenQueuesTheSameTravel )
     Lua            lua;
     Host           host;
     lua.Run( R"(ok = level.open( "Content/Scenes/Arena.desce" ))" );
-    EXPECT_TRUE( lua.Impl.Lua.get<bool>( "ok" ) );
+    EXPECT_EQ( lua.Get( "ok" ), "true" );
     EXPECT_TRUE( host.Loaded.empty() ) << "level.open loaded inside the script call";
 
     EXPECT_TRUE( host.Tick() );
@@ -218,8 +220,8 @@ TEST( LevelTravel, LuaHearsTheRefusalWithThePath )
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
     Lua            lua;
     lua.Run( R"(ok, why = level.open( "Content/Scenes/Nowhere.desce" ))" );
-    EXPECT_FALSE( lua.Impl.Lua.get<bool>( "ok" ) );
-    const std::string why = lua.Impl.Lua.get<std::string>( "why" );
+    EXPECT_EQ( lua.Get( "ok" ), "false" );
+    const std::string why = lua.Get( "why" );
     EXPECT_NE( why.find( Abs( dir, "Content/Scenes/Nowhere.desce" ) ), std::string::npos ) << why;
     EXPECT_FALSE( Travel::Get().HasPending() );
 }

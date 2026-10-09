@@ -4,7 +4,7 @@
 --   self:component("PointLight")   -> proxy over the reflected fields (nil if absent)
 --   proxy.FieldName                -> read (numbers, bools, strings; vecs as {x,y,z})
 --   proxy.FieldName = value        -> write
---   self:hasComponent("RigidBody") -> boolean
+--   self:has("RigidBody") -> boolean
 --
 -- Attach to an entity that has a Point Light and press Play.
 
@@ -17,7 +17,7 @@ Properties = {
 local t = 0.0
 
 function OnStart()
-    if not self:hasComponent("PointLight") then
+    if not self:has("PointLight") then
         Log.warn(self:name() .. ": FlickerLight needs a Point Light component")
     end
 end

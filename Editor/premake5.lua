@@ -176,7 +176,6 @@ project "Editor"
         links {
             "Common",
             "Jolt",
-            "Lua",
             "LuauCodeGen",
             "LuauCompiler",
             "LuauAst",
