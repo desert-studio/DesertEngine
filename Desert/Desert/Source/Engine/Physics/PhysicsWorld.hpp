@@ -3,6 +3,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <Engine/Physics/CollisionProfiles.hpp>
+
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
@@ -63,6 +65,9 @@ namespace Desert::Physics
 
         glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+
+        /// The body's profile in the world's register (PhysicsWorld::GetCollisionProfiles). kNoProfile is refused.
+        CollisionProfileId Profile = kNoProfile;
     };
 
     // Opaque handle wrapping a JPH::BodyID (its index+sequence uint32). kInvalidBody == not created.
@@ -80,6 +85,8 @@ namespace Desert::Physics
         float     HalfHeight  = 0.6f; // capsule cylinder half-height (excl. the two hemisphere caps)
         glm::vec3 Position    = { 0.0f, 0.0f, 0.0f }; // capsule CENTER
         float     MaxSlopeDeg = 50.0f;                // steeper than this = wall (can't walk up)
+        /// The capsule is blocked only by profiles its own answers Block (an Overlap pair passes through).
+        CollisionProfileId Profile = kNoProfile;
     };
 
     // Thin engine-side wrapper over a Jolt PhysicsSystem. All Jolt headers stay inside the .cpp (PIMPL),
@@ -100,6 +107,7 @@ namespace Desert::Physics
         std::span<const float>
              HeightsCm; ///< SampleCount², row-major, X fastest; kHeightFieldNoCollision = a hole.
         float                  Friction = 0.5f;
+        CollisionProfileId     Profile  = kNoProfile; ///< Refused when kNoProfile.
     };
 
     /// A height that is no height: every triangle touching such a sample has no collision (Jolt's
@@ -142,6 +150,8 @@ namespace Desert::Physics
         /// The body's contacts are measured every step (GetStepContactImpulses). Off for everything that
         /// does not read them: the estimate is a small solve per contact.
         bool ReportContactImpulses = false;
+
+        CollisionProfileId Profile = kNoProfile; ///< Refused when kNoProfile.
     };
 
     /**
@@ -179,8 +189,14 @@ namespace Desert::Physics
 
         // @p gravityCmPerS2 is the DOWNWARD magnitude in centimetres per second squared (Earth = 981), and
         // it has no default on purpose: the caller owns the value, and a default here is how the scene's
-        // own setting came to be ignored in the first place.
-        bool Init( float gravityCmPerS2 );
+        // own setting came to be ignored in the first place. @p profiles decides which bodies collide (UE
+        // collision channels and profiles): each profile is a pair of Jolt object layers (static, moving),
+        // and a pair of bodies meets in the narrow phase unless their profiles' response is Ignore. An
+        // Overlap pair's contacts are sensor contacts — found, never solved.
+        bool Init( float gravityCmPerS2, CollisionProfiles profiles );
+
+        /// The register the world was initialised with; a body's Profile is an id in it.
+        [[nodiscard]] const CollisionProfiles& GetCollisionProfiles() const;
         void Shutdown();
 
         // Applies a new gravity to a running world. Called when the scene's setting changes so the knob is
@@ -228,6 +244,7 @@ namespace Desert::Physics
                                                                 uint32_t z1 );
 
         /// The nearest body the ray meets within @p maxDistance, or nullopt. @p direction is normalised here.
+        /// Bodies whose profile takes no part in queries (NoCollision, PhysicsOnly) are not found.
         [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance ) const;
 
@@ -253,7 +270,8 @@ namespace Desert::Physics
         [[nodiscard]] uint32_t GetCharacterCount() const;
 
         // ---- Character controller ----
-        CharacterHandle CreateCharacter( const CharacterDesc& desc );
+        /// Refused by name when the desc carries no profile.
+        Common::ResultStr<CharacterHandle> CreateCharacter( const CharacterDesc& desc );
         void            RemoveCharacter( CharacterHandle handle );
         // Set the character's velocity (incl. caller-integrated gravity/jump) and advance it by dt — Jolt
         // resolves collisions/slopes/steps. Call once per frame, AFTER Step().

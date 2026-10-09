@@ -1365,6 +1365,11 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Restitution" ), Category( "Rigid Body" ), Range( 0.0f, 1.0f ), Advanced )
         float Restitution = 0.1f;
+
+        // UE's Collision Presets: a profile NAME of the project's Config/CollisionProfiles.json, resolved when
+        // the body is created; a name the register lacks refuses the body by name (no fallback profile).
+        PROPERTY( DisplayName( "Collision Profile" ), Category( "Collision" ) )
+        std::string CollisionProfile = "PhysicsActor";
     };
 
     // Marks an entity as a physics body. Static = immovable, Dynamic = simulated, Kinematic = code-driven.
@@ -1398,6 +1403,10 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Gravity" ), Category( "Character" ), Range( 0.0f, 6000.0f ), Units( "cm/s2" ),
                   Advanced )
         float Gravity = 2000.0f;
+
+        // The capsule's profile in Config/CollisionProfiles.json (UE: the capsule's Collision Presets, "Pawn").
+        PROPERTY( DisplayName( "Collision Profile" ), Category( "Collision" ) )
+        std::string CollisionProfile = "Pawn";
     };
 
     // A WASD-driven player. The follow camera is NOT here — parent a child entity with a CameraComponent

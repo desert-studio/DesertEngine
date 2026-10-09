@@ -12,6 +12,8 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <glm/geometric.hpp>
 #include <gtest/gtest.h>
 
@@ -77,7 +79,16 @@ namespace
         Physics::PhysicsWorld Physics;
         SimWorld()
         {
-            EXPECT_TRUE( Physics.Init( kGravity ) );
+            EXPECT_TRUE( Physics.Init( kGravity, TestSupport::PhysicsTestProfiles() ) );
+        }
+
+        // CreateBody with the profile the scene migration gives a body of that type: BlockAll for a static
+        // one, PhysicsActor for anything that moves.
+        Common::ResultStr<Physics::BodyHandle> Create( Physics::BodyDesc desc )
+        {
+            desc.Profile = TestSupport::ProfileId(
+                 Physics, desc.Type == Physics::BodyType::Static ? "BlockAll" : "PhysicsActor" );
+            return Physics.CreateBody( desc );
         }
         ~SimWorld()
         {
@@ -101,14 +112,14 @@ TEST( MeshCollision, BallComesToRestOnAMeshFloor )
 {
     SimWorld           world;
     const TriangleData floor = Floor( 4 );
-    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+    ASSERT_TRUE( world.Create( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
     Physics::BodyDesc ball;
     ball.Shape       = Physics::ShapeType::Sphere;
     ball.Radius      = 25.0f;
     ball.Restitution = 0.0f;
     ball.Position    = { 130.0f, 200.0f, -70.0f };
-    const auto body  = world.Physics.CreateBody( ball );
+    const auto body  = world.Create( ball );
     ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
 
     world.Run( 3.0f );
@@ -125,7 +136,7 @@ TEST( MeshCollision, ConvexHullCubeFallsAndRestsOnItsFace )
 {
     SimWorld           world;
     const TriangleData floor = Floor( 4 );
-    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+    ASSERT_TRUE( world.Create( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
     const std::vector<glm::vec3> corners = CubeCorners( 50.0f );
     Physics::BodyDesc            cube;
@@ -134,7 +145,7 @@ TEST( MeshCollision, ConvexHullCubeFallsAndRestsOnItsFace )
     cube.Mass        = 10.0f;
     cube.Restitution = 0.0f;
     cube.Position    = { -200.0f, 300.0f, 100.0f };
-    const auto body  = world.Physics.CreateBody( cube );
+    const auto body  = world.Create( cube );
     ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
 
     world.Run( 4.0f );
@@ -159,7 +170,7 @@ TEST( MeshCollision, ConvexHullOfADenseCloudIsSimplifiedNotRefused )
     Physics::BodyDesc desc;
     desc.Shape      = Physics::ShapeType::ConvexHull;
     desc.MeshPoints = cloud;
-    const auto body = world.Physics.CreateBody( desc );
+    const auto body = world.Create( desc );
     EXPECT_TRUE( body.IsSuccess() ) << body.GetError();
 }
 
@@ -170,7 +181,7 @@ TEST( MeshCollision, RayMeetsTheTriangleItIsAimedAt )
     TriangleData slope;
     slope.Points    = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1000.0f }, { 1000.0f, 500.0f, 0.0f } };
     slope.Indices   = { 0u, 1u, 2u };
-    const auto body = world.Physics.CreateBody( MeshBody( slope, Physics::BodyType::Static ) );
+    const auto body = world.Create( MeshBody( slope, Physics::BodyType::Static ) );
     ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
 
     const auto hit = world.Physics.CastRay( { 400.0f, 1000.0f, 200.0f }, { 0.0f, -1.0f, 0.0f }, 5000.0f );
@@ -194,29 +205,29 @@ TEST( MeshCollision, RefusalsNameTheReason )
     SimWorld           world;
     const TriangleData floor = Floor( 1 );
 
-    const auto dynamicMesh = world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Dynamic ) );
+    const auto dynamicMesh = world.Create( MeshBody( floor, Physics::BodyType::Dynamic ) );
     ASSERT_FALSE( dynamicMesh.IsSuccess() );
     EXPECT_TRUE( Mentions( dynamicMesh.GetError(), "Dynamic" ) ) << dynamicMesh.GetError();
 
-    const auto noPoints = world.Physics.CreateBody( MeshBody( TriangleData{}, Physics::BodyType::Static ) );
+    const auto noPoints = world.Create( MeshBody( TriangleData{}, Physics::BodyType::Static ) );
     ASSERT_FALSE( noPoints.IsSuccess() );
     EXPECT_TRUE( Mentions( noPoints.GetError(), "no points" ) ) << noPoints.GetError();
 
     Physics::BodyDesc emptyHull;
     emptyHull.Shape      = Physics::ShapeType::ConvexHull;
-    const auto noHullPts = world.Physics.CreateBody( emptyHull );
+    const auto noHullPts = world.Create( emptyHull );
     ASSERT_FALSE( noHullPts.IsSuccess() );
     EXPECT_TRUE( Mentions( noHullPts.GetError(), "ConvexHull" ) ) << noHullPts.GetError();
 
     TriangleData ragged = floor;
     ragged.Indices.pop_back();
-    const auto notTriangles = world.Physics.CreateBody( MeshBody( ragged, Physics::BodyType::Static ) );
+    const auto notTriangles = world.Create( MeshBody( ragged, Physics::BodyType::Static ) );
     ASSERT_FALSE( notTriangles.IsSuccess() );
     EXPECT_TRUE( Mentions( notTriangles.GetError(), "multiple of three" ) ) << notTriangles.GetError();
 
     TriangleData outOfRange   = floor;
     outOfRange.Indices.back() = static_cast<uint32_t>( floor.Points.size() ); // one past the last point
-    const auto badIndex       = world.Physics.CreateBody( MeshBody( outOfRange, Physics::BodyType::Static ) );
+    const auto badIndex       = world.Create( MeshBody( outOfRange, Physics::BodyType::Static ) );
     ASSERT_FALSE( badIndex.IsSuccess() );
     EXPECT_TRUE( Mentions( badIndex.GetError(), "out of range" ) ) << badIndex.GetError();
 
@@ -227,14 +238,14 @@ TEST( MeshCollision, ShapesAreCookedOncePerContent )
 {
     SimWorld           world;
     const TriangleData floor = Floor( 2 );
-    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
-    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+    ASSERT_TRUE( world.Create( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+    ASSERT_TRUE( world.Create( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
     EXPECT_EQ( world.Physics.GetCookedShapeCount(), 1u );
 
     TriangleData raised = floor;
     for ( glm::vec3& p : raised.Points )
         p.y += 10.0f;
-    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( raised, Physics::BodyType::Static ) ).IsSuccess() );
+    ASSERT_TRUE( world.Create( MeshBody( raised, Physics::BodyType::Static ) ).IsSuccess() );
     EXPECT_EQ( world.Physics.GetCookedShapeCount(), 2u );
 
     // The same points as a hull are a different shape, not the mesh's.
@@ -243,7 +254,7 @@ TEST( MeshCollision, ShapesAreCookedOncePerContent )
     hull.Type                            = Physics::BodyType::Static;
     const std::vector<glm::vec3> corners = CubeCorners( 50.0f );
     hull.MeshPoints                      = corners;
-    ASSERT_TRUE( world.Physics.CreateBody( hull ).IsSuccess() );
+    ASSERT_TRUE( world.Create( hull ).IsSuccess() );
     EXPECT_EQ( world.Physics.GetCookedShapeCount(), 3u );
     EXPECT_EQ( world.Physics.GetBodyCount(), 4u );
 }
@@ -308,7 +319,7 @@ TEST( MeshCollision, ScaledUnitCubeHullRestsAtItsScaledHalfHeight )
 {
     SimWorld           world;
     const TriangleData floor = Floor( 4 );
-    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+    ASSERT_TRUE( world.Create( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
     // An entity scaled ×100: a 1 cm unit cube on screen is 100 cm, so the hull must be too.
     const ECS::ColliderMesh built =
@@ -319,7 +330,7 @@ TEST( MeshCollision, ScaledUnitCubeHullRestsAtItsScaledHalfHeight )
     cube.Mass        = 10.0f;
     cube.Restitution = 0.0f;
     cube.Position    = { 0.0f, 300.0f, 0.0f };
-    const auto body  = world.Physics.CreateBody( cube );
+    const auto body  = world.Create( cube );
     ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
 
     world.Run( 4.0f );
@@ -389,7 +400,7 @@ TEST( MeshCollision, FittedCapsuleLiesOnTheFloorAlongItsAxis )
 {
     SimWorld           world;
     const TriangleData floor = Floor( 4 );
-    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+    ASSERT_TRUE( world.Create( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
     const auto fit = ECS::FitCollider( Physics::ShapeType::Capsule, CylinderAlongX( 200.0f, 30.0f, 32 ) );
     ASSERT_TRUE( fit.IsSuccess() ) << fit.GetError();
@@ -402,7 +413,7 @@ TEST( MeshCollision, FittedCapsuleLiesOnTheFloorAlongItsAxis )
     log.Mass        = 10.0f;
     log.Restitution = 0.0f;
     log.Position    = { 0.0f, 150.0f, 0.0f };
-    const auto body = world.Physics.CreateBody( log );
+    const auto body = world.Create( log );
     ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
 
     // Lying along X it rests at its radius; a capsule left standing on Y would sit (or topple) far higher.

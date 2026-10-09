@@ -3,7 +3,7 @@
         "Kind": "Prefab",
         "Guid": "1a86d3093e55483bbdd7804f23589465",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 42,
             "UNIT": 1
         },
         "Dependencies": []
@@ -16,7 +16,9 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "CharacterController": {}
+            "CharacterController": {
+                "CollisionProfile": "Pawn"
+            }
         },
         {
             "id": 7302,

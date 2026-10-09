@@ -475,6 +475,90 @@ namespace Desert::Migration
         return report;
     }
 
+    CollisionProfilesReport MigrateCollisionProfilesV41ToV42( std::vector<Assets::EntityData>& entities )
+    {
+        static_assert( static_cast<int>( Physics::BodyType::Static ) == 0 &&
+                            static_cast<int>( Physics::BodyType::Dynamic ) == 1 &&
+                            static_cast<int>( Physics::BodyType::Kinematic ) == 2,
+                       "BodyType moved: the v41 numbers this step reads are 0 Static, 1 Dynamic, 2 Kinematic" );
+        constexpr const char*   kKey = "CollisionProfile";
+        CollisionProfilesReport report;
+
+        // The profile a v41 body of @p block's Type had in effect: UE's presets for a static, a code-moved and a
+        // simulated body. False (with a refusal) when Type is stated but is not a BodyType number.
+        const auto profileOf = [&]( const rfl::Generic::Object& block, const std::string& who,
+                                    const char*& profile ) -> bool
+        {
+            const auto type = block.get( "Type" );
+            if ( !type.has_value() )
+            {
+                profile = "PhysicsActor"; // the v41 default Type, Dynamic
+                return true;
+            }
+            const auto number = type.value().to_int64();
+            if ( number.has_value() && number.value() == static_cast<int64_t>( Physics::BodyType::Static ) )
+                profile = "BlockAll";
+            else if ( number.has_value() &&
+                      number.value() == static_cast<int64_t>( Physics::BodyType::Kinematic ) )
+                profile = "BlockAllDynamic";
+            else if ( number.has_value() && number.value() == static_cast<int64_t>( Physics::BodyType::Dynamic ) )
+                profile = "PhysicsActor";
+            else
+            {
+                report.Refused.push_back(
+                     std::format( "{}: RigidBody.Type {} is not a body type (0 Static, 1 Dynamic, 2 Kinematic)",
+                                  who, rfl::json::write( type.value() ) ) );
+                return false;
+            }
+            return true;
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who =
+                 entity.id ? "entity " + entity.id->ToString() : std::string( "<record without id>" );
+            EditBlock( entity.Components, "RigidBody",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           if ( block.get( kKey ).has_value() )
+                               return false;
+                           const char* profile = nullptr;
+                           if ( !profileOf( block, who, profile ) )
+                               return false;
+                           block[kKey] = rfl::Generic( std::string( profile ) );
+                           ++report.Bodies;
+                           return true;
+                       } );
+            EditBlock( entity.Components, "CharacterController",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           if ( block.get( kKey ).has_value() )
+                               return false;
+                           block[kKey] = rfl::Generic( std::string( "Pawn" ) );
+                           ++report.Characters;
+                           return true;
+                       } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            // An override restating Type changes the body's kind; the profile follows it. One that does not
+            // restate Type inherits the prefab record's profile, which the prefab's own migration states.
+            for ( auto& override_ : *entity.PrefabOverrides )
+                EditBlock( override_.Components, "RigidBody",
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               if ( !block.get( "Type" ).has_value() || block.get( kKey ).has_value() )
+                                   return false;
+                               const char* profile = nullptr;
+                               if ( !profileOf( block, who + " (prefab override)", profile ) )
+                                   return false;
+                               block[kKey] = rfl::Generic( std::string( profile ) );
+                               ++report.Bodies;
+                               return true;
+                           } );
+        }
+        return report;
+    }
+
     UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities )
     {
         UIAnimationTimelinesReport report;
@@ -1783,6 +1867,18 @@ namespace Desert::Migration
                 if ( !report.UIAnimations.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.UIAnimations.Refused );
+                    return;
+                }
+            }
+
+            // Collision is a profile (PHYS-A1): every body and character states the profile its v41 kind had.
+            if ( statedSceneVersion < kSceneVersionCollisionProfiles )
+            {
+                report.CollisionProfilesRaised = true;
+                report.CollisionProfiles       = MigrateCollisionProfilesV41ToV42( entities );
+                if ( !report.CollisionProfiles.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.CollisionProfiles.Refused );
                     return;
                 }
             }

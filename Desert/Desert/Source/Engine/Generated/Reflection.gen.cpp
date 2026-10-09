@@ -805,6 +805,7 @@ namespace
                     .Field( FieldInfo{ .Name = "Mass", .Type = FieldType::Float, .Offset = offsetof( T, Mass ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Mass )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Mass", .Category = "Rigid Body", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000.0f, .Units = "kg", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Friction", .Type = FieldType::Float, .Offset = offsetof( T, Friction ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Friction )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Friction", .Category = "Rigid Body", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 2.0f, .Advanced = true, } } )
                     .Field( FieldInfo{ .Name = "Restitution", .Type = FieldType::Float, .Offset = offsetof( T, Restitution ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Restitution )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Restitution", .Category = "Rigid Body", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, .Advanced = true, } } )
+                    .Field( FieldInfo{ .Name = "CollisionProfile", .Type = FieldType::String, .Offset = offsetof( T, CollisionProfile ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::CollisionProfile )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Collision Profile", .Category = "Collision", } } )
                     .WithDefault<T>()
                     .Register();
             }
@@ -815,6 +816,7 @@ namespace
                     .Field( FieldInfo{ .Name = "Height", .Type = FieldType::Float, .Offset = offsetof( T, Height ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Height )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Height", .Category = "Character", .HasRange = true, .RangeMin = 20.0f, .RangeMax = 1000.0f, .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "MaxSlopeDeg", .Type = FieldType::Float, .Offset = offsetof( T, MaxSlopeDeg ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxSlopeDeg )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Max Slope", .Category = "Character", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 89.0f, .Units = "deg", } } )
                     .Field( FieldInfo{ .Name = "Gravity", .Type = FieldType::Float, .Offset = offsetof( T, Gravity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Gravity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Gravity", .Category = "Character", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 6000.0f, .Units = "cm/s2", .Advanced = true, } } )
+                    .Field( FieldInfo{ .Name = "CollisionProfile", .Type = FieldType::String, .Offset = offsetof( T, CollisionProfile ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::CollisionProfile )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Collision Profile", .Category = "Collision", } } )
                     .WithDefault<T>()
                     .Register();
             }
