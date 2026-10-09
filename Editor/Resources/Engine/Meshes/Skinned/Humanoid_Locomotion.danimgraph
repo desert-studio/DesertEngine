@@ -31,11 +31,11 @@
             "PoseInputs": [],
             "ParameterInputs": [],
             "Machine": {
-                "Entry": "Idle",
+                "Entry": "Locomotion",
                 "States": [
                     {
-                        "Name": "Idle",
-                        "Clip": "Idle",
+                        "Name": "Locomotion",
+                        "Clip": "",
                         "Loop": true,
                         "Speed": 1.0,
                         "X": 0.0,
@@ -55,130 +55,41 @@
                                 ],
                                 "BlendCurve": 0,
                                 "CanInterrupt": true
-                            },
-                            {
-                                "To": "Walk",
-                                "Blend": 0.2,
-                                "HasExitTime": false,
-                                "ExitTime": 1.0,
-                                "Conditions": [
-                                    {
-                                        "Parameter": "Speed",
-                                        "Op": 0,
-                                        "Value": 10.0
-                                    }
-                                ],
-                                "BlendCurve": 0,
-                                "CanInterrupt": true
                             }
-                        ]
-                    },
-                    {
-                        "Name": "Walk",
-                        "Clip": "Walk",
-                        "Loop": true,
-                        "Speed": 1.0,
-                        "X": 260.0,
-                        "Y": 0.0,
-                        "Transitions": [
-                            {
-                                "To": "Jump",
-                                "Blend": 0.1,
-                                "HasExitTime": false,
-                                "ExitTime": 1.0,
-                                "Conditions": [
+                        ],
+                        "BlendSpace": {
+                            "Axis": "Speed",
+                            "Space": {
+                                "Samples": [
                                     {
-                                        "Parameter": "IsFalling",
-                                        "Op": 6,
+                                        "Clip": "Idle",
                                         "Value": 0.0
-                                    }
-                                ],
-                                "BlendCurve": 0,
-                                "CanInterrupt": true
-                            },
-                            {
-                                "To": "Idle",
-                                "Blend": 0.25,
-                                "HasExitTime": false,
-                                "ExitTime": 1.0,
-                                "Conditions": [
+                                    },
                                     {
-                                        "Parameter": "Speed",
-                                        "Op": 3,
-                                        "Value": 10.0
-                                    }
-                                ],
-                                "BlendCurve": 0,
-                                "CanInterrupt": true
-                            },
-                            {
-                                "To": "Run",
-                                "Blend": 0.25,
-                                "HasExitTime": false,
-                                "ExitTime": 1.0,
-                                "Conditions": [
+                                        "Clip": "Walk",
+                                        "Value": 300.0
+                                    },
                                     {
-                                        "Parameter": "Speed",
-                                        "Op": 0,
-                                        "Value": 450.0
+                                        "Clip": "Run",
+                                        "Value": 600.0
                                     }
                                 ],
-                                "BlendCurve": 0,
-                                "CanInterrupt": true
+                                "WeightSpeed": 4.0,
+                                "Loop": true
                             }
-                        ]
-                    },
-                    {
-                        "Name": "Run",
-                        "Clip": "Run",
-                        "Loop": true,
-                        "Speed": 1.0,
-                        "X": 520.0,
-                        "Y": 0.0,
-                        "Transitions": [
-                            {
-                                "To": "Jump",
-                                "Blend": 0.1,
-                                "HasExitTime": false,
-                                "ExitTime": 1.0,
-                                "Conditions": [
-                                    {
-                                        "Parameter": "IsFalling",
-                                        "Op": 6,
-                                        "Value": 0.0
-                                    }
-                                ],
-                                "BlendCurve": 0,
-                                "CanInterrupt": true
-                            },
-                            {
-                                "To": "Walk",
-                                "Blend": 0.25,
-                                "HasExitTime": false,
-                                "ExitTime": 1.0,
-                                "Conditions": [
-                                    {
-                                        "Parameter": "Speed",
-                                        "Op": 3,
-                                        "Value": 450.0
-                                    }
-                                ],
-                                "BlendCurve": 0,
-                                "CanInterrupt": true
-                            }
-                        ]
+                        }
                     },
                     {
                         "Name": "Jump",
                         "Clip": "Jump",
                         "Loop": false,
                         "Speed": 1.0,
-                        "X": 260.0,
+                        "X": 0.0,
                         "Y": 200.0,
                         "Transitions": [
                             {
-                                "To": "Idle",
-                                "Blend": 0.15,
+                                "To": "Locomotion",
+                                "Blend": 0.2,
                                 "HasExitTime": false,
                                 "ExitTime": 1.0,
                                 "Conditions": [
@@ -186,31 +97,6 @@
                                         "Parameter": "IsFalling",
                                         "Op": 7,
                                         "Value": 0.0
-                                    },
-                                    {
-                                        "Parameter": "Speed",
-                                        "Op": 3,
-                                        "Value": 10.0
-                                    }
-                                ],
-                                "BlendCurve": 0,
-                                "CanInterrupt": true
-                            },
-                            {
-                                "To": "Walk",
-                                "Blend": 0.15,
-                                "HasExitTime": false,
-                                "ExitTime": 1.0,
-                                "Conditions": [
-                                    {
-                                        "Parameter": "IsFalling",
-                                        "Op": 7,
-                                        "Value": 0.0
-                                    },
-                                    {
-                                        "Parameter": "Speed",
-                                        "Op": 0,
-                                        "Value": 10.0
                                     }
                                 ],
                                 "BlendCurve": 0,
