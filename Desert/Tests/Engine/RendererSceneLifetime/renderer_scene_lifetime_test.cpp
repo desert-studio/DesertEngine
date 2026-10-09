@@ -726,12 +726,13 @@ TEST( RendererSceneLifetime, TheBuildReadsTheViewExtentAndNeverTheWindow )
 {
     const std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
 
-    const std::size_t ensure = source.find( "SceneRenderer::EnsureRendererResources()" );
+    // The build is staged (SceneRenderer::AdvanceRendererBuild); the stages are BuildRendererStage's.
+    const std::size_t ensure = source.find( "SceneRenderer::BuildRendererStage(" );
     ASSERT_NE( ensure, std::string::npos );
     const std::size_t ensureEnd = source.find( "\n    }\n", ensure );
     ASSERT_NE( ensureEnd, std::string::npos );
     const std::string build = source.substr( ensure, ensureEnd - ensure );
-    EXPECT_EQ( build.find( "GetWindow" ), std::string::npos ) << "EnsureRendererResources reads the window size.";
+    EXPECT_EQ( build.find( "GetWindow" ), std::string::npos ) << "the renderer build reads the window size.";
     EXPECT_NE( build.find( "m_ViewExtent.Width" ), std::string::npos );
     EXPECT_NE( build.find( "m_ViewExtent.Height" ), std::string::npos );
 

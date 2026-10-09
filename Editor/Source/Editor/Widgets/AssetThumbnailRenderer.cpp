@@ -75,7 +75,7 @@ namespace Desert::Editor
             writing.Encode.wait();
         m_Writing.clear();
         m_Readback.reset();
-        if ( !m_Inited )
+        if ( !m_Renderer )
             return;
 
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
@@ -94,8 +94,19 @@ namespace Desert::Editor
         // the budget the renderer was BUILT with, so `settings.EnableShadows = false` a few lines further
         // down arrives after the money is spent. It was: 320 MiB of shadow maps for a renderer that has
         // never drawn a shadow and never will. See Graphic::ShadowQuality.
-        m_Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ kRenderSize, kRenderSize },
-                                                               Graphic::kThumbnailViewProfile );
+        if ( !m_Renderer )
+        {
+            m_Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ kRenderSize, kRenderSize },
+                                                                   Graphic::kThumbnailViewProfile );
+        }
+
+        // THE VIEW IS BUILT ONE STAGE PER TICK, not in the tick that first wants a picture. Built whole it was
+        // 172.1 ms on the main thread in ONE frame (21 render systems and their ~40 pipelines, measured cold
+        // on the first capture of a Content Browser folder); staged, the editor keeps drawing between the
+        // stages and the frame pays only the stage it runs. The capture waits meanwhile (TickCapture).
+        if ( !m_Renderer->AdvanceRendererBuild() )
+            return;
+
         m_Scene           = std::make_shared<::Desert::Core::Scene>( "ThumbnailPreview", m_Renderer.get() );
         const auto inited = m_Scene->Init();
         if ( !inited.IsSuccess() )
@@ -884,6 +895,8 @@ namespace Desert::Editor
         if ( m_Phase == 0 )
             return;
         EnsureInit();
+        if ( !m_Inited && m_Renderer )
+            return; // the view is still being built, one stage per tick (EnsureInit)
         if ( !m_Inited )
         {
             // The scene refused to initialise and EnsureInit has already said why. ABANDON the capture
