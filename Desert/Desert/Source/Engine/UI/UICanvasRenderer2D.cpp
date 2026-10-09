@@ -61,9 +61,9 @@ namespace Desert::UI
         // NOLINTNEXTLINE(misc-no-recursion)
         void DrawElement( WalkCtx& ctx, IUITree& tree, NodeId e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
-                          NodeId* focused, std::vector<PopupInfo>* popups,
-                          std::vector<FocusEntry>* focusables, const Graphic::Render2D::ClipRegion2D& clipRegion,
-                          HitScope scope, const Rect* forcedRect )
+                          NodeId* focused, std::vector<PopupInfo>* popups, std::vector<FocusEntry>* focusables,
+                          const Graphic::Render2D::ClipRegion2D& clipRegion, HitScope scope,
+                          const Rect* forcedRect )
         {
             // The visibility axis, before anything else is computed. Hidden and Collapsed both stop here
             // and take the whole sub-tree with them — nothing drawn, nothing hit-tested, no tween clock
@@ -85,7 +85,7 @@ namespace Desert::UI
                     if ( dl.HasTransform() )
                         mask.PushTransform( dl.GetTransform() );
                     std::vector<PopupInfo>    noPopups;
-                    std::vector<FocusEntry> noFocus;
+                    std::vector<FocusEntry>   noFocus;
                     std::string               noClick;
                     NodeId              noFocused = NodeId::Null;
                     const NodeId        outer     = ctx.MaskCapture;
@@ -404,7 +404,8 @@ namespace Desert::UI
                 if ( interactive && IsFocusable( tree, e ) )
                 {
                     if ( focusables )
-                        focusables->push_back( { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
+                        focusables->push_back(
+                             { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
                     if ( focused && *focused == e && !tree.Has<UIInputFieldData>( e ) )
                         dl.AddRect(
                              mn, mx,
@@ -827,7 +828,8 @@ namespace Desert::UI
                 const bool hover = input && input->MousePx.x >= row.X && input->MousePx.x <= row.X + row.W &&
                                    input->MousePx.y >= row.Y && input->MousePx.y <= row.Y + row.H;
                 const auto keyHl = ctx.View.DropdownHighlight.find( pi.Entity );
-                const bool keyed = keyHl != ctx.View.DropdownHighlight.end() && keyHl->second == static_cast<int>( i );
+                const bool keyed =
+                     keyHl != ctx.View.DropdownHighlight.end() && keyHl->second == static_cast<int>( i );
                 if ( hover || keyed )
                     dl.AddRectFilled(
                          { row.X, row.Y }, { row.X + row.W, row.Y + row.H },
@@ -1111,9 +1113,9 @@ namespace Desert::UI
             {
                 const bool textEntry =
                      *focused != NodeId::Null && tree.Valid( *focused ) && tree.Has<UIInputFieldData>( *focused );
-                const NodeId next = ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
-                                                       NavigationOf( *input, textEntry, view.ConsumedKeys ),
-                                                       view.ViewportPx );
+                const NodeId next =
+                     ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
+                                        NavigationOf( *input, textEntry, view.ConsumedKeys ), view.ViewportPx );
                 if ( next != NodeId::Null )
                     *focused = next;
             }

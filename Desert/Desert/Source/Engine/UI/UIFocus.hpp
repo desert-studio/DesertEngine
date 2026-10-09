@@ -89,8 +89,8 @@ namespace Desert::UI
     // SScrollBox::ScrollDescendantIntoView (ScrollBox.h:321, EDescendantScrollDestination::IntoView): every
     // scrolling ancestor of @p node scrolls by the least that brings its box inside the visible one, the top
     // edge winning when the box is taller than the port. Effective next frame (the walk clamps ScrollY).
-    void ScrollIntoView( IUITree& tree, const std::vector<FocusEntry>& entries, const std::vector<ScrollPort>& ports,
-                         NodeId node );
+    void ScrollIntoView( IUITree& tree, const std::vector<FocusEntry>& entries,
+                         const std::vector<ScrollPort>& ports, NodeId node );
 
     // Per-scope focus memory (UCommonActivatableWidget's bAutoRestoreFocus, CommonActivatableWidget.h:224).
     // A scope is the nearest screen or overlay above a control, else its canvas.

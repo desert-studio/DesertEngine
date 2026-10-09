@@ -212,7 +212,7 @@ namespace Desert::UI
 
         struct DirectionRule
         {
-            UINavigationRule   Rule = UINavigationRule::Escape;
+            UINavigationRule   Rule   = UINavigationRule::Escape;
             const std::string* Target = nullptr;
         };
 
@@ -268,8 +268,8 @@ namespace Desert::UI
         return FindNextFocusable( entries, from, dir, viewport, UINavigationRule::Escape );
     }
 
-    void ScrollIntoView( IUITree& tree, const std::vector<FocusEntry>& entries, const std::vector<ScrollPort>& ports,
-                         NodeId node )
+    void ScrollIntoView( IUITree& tree, const std::vector<FocusEntry>& entries,
+                         const std::vector<ScrollPort>& ports, NodeId node )
     {
         const FocusEntry* entry = EntryOf( entries, node );
         if ( entry == nullptr )
@@ -278,7 +278,8 @@ namespace Desert::UI
         float bottom = entry->Bounds.Y + entry->Bounds.H;
         for ( NodeId a = tree.Parent( node ); a != NodeId::Null; a = tree.Parent( a ) )
         {
-            const auto port = std::find_if( ports.begin(), ports.end(), [a]( const ScrollPort& p ) { return p.Node == a; } );
+            const auto port =
+                 std::find_if( ports.begin(), ports.end(), [a]( const ScrollPort& p ) { return p.Node == a; } );
             if ( port == ports.end() || port->PxPerDesign <= 0.0f )
                 continue;
             const float portTop    = port->Screen.Y;

@@ -119,7 +119,7 @@ namespace Desert::UI::Walk
         std::string*                           OutClicked;
         NodeId*                          Focused;
         std::vector<PopupInfo>*                Popups;
-        std::vector<FocusEntry>*         Focusables;
+        std::vector<FocusEntry>*               Focusables;
         const Graphic::Render2D::ClipRegion2D& ClipRegion;
         const HitScope                         ChildScope;
         const ElementStyle&                    St;
