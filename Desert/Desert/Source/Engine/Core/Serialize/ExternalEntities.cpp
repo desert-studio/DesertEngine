@@ -1,5 +1,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
+
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -7,8 +9,11 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <system_error>
 #include <unordered_set>
+#include <vector>
 
 namespace Desert::Core::ExternalEntities
 {
@@ -225,6 +230,10 @@ namespace Desert::Core::ExternalEntities
                      fmt::format( "could not lay out {} as text: {}", scenePath.string(), text.GetError() ) );
             if ( const auto written = WriteIfChanged( scenePath, text.GetValue(), outcome ); !written )
                 return Common::MakeError<WriteOutcome>( written.GetError() );
+            // A scene that is no longer partitioned has no descriptor index: removed before the folder it sits in
+            // is cleared, so a stale index never outlives the entities it described.
+            std::error_code ec;
+            std::filesystem::remove( DescriptorIndex::PathOf( scenePath ), ec );
             if ( const auto removed = RemoveUnclaimed( scenePath, claimed, outcome ); !removed )
                 return Common::MakeError<WriteOutcome>( removed.GetError() );
             return Common::MakeSuccess( outcome );
@@ -233,6 +242,8 @@ namespace Desert::Core::ExternalEntities
         auto split = Split( scene, scenePath.string() );
         if ( !split )
             return Common::MakeError<WriteOutcome>( split.GetError() );
+        std::vector<Common::UUID>                      listed;
+        std::unordered_map<std::uint64_t, std::string> texts;
         for ( const auto& [id, record] : split.GetValue().Records )
         {
             const std::filesystem::path file = FileOf( scenePath, id );
@@ -244,6 +255,8 @@ namespace Desert::Core::ExternalEntities
             if ( const auto written = WriteIfChanged( file, text.GetValue(), outcome ); !written )
                 return Common::MakeError<WriteOutcome>( written.GetError() );
             claimed.insert( file.lexically_normal().generic_string() );
+            listed.push_back( id );
+            texts.emplace( Bits( id ), text.GetValue() );
         }
 
         // The header after its records: a write that stops half way leaves the old list naming files that
@@ -259,6 +272,14 @@ namespace Desert::Core::ExternalEntities
         // list does not name), so the save that dropped the entity drops its file.
         if ( const auto removed = RemoveUnclaimed( scenePath, claimed, outcome ); !removed )
             return Common::MakeError<WriteOutcome>( removed.GetError() );
+
+        // The descriptor index follows every save (WP18): the texts just written are its input, so only the
+        // entities whose file changed are re-described and an unchanged world leaves the index untouched.
+        const auto indexed = DescriptorIndex::Refresh( scenePath, listed,
+                                                       [&]( Common::UUID id ) -> Common::ResultStr<std::string>
+                                                       { return Common::MakeSuccess( texts.at( Bits( id ) ) ); } );
+        if ( !indexed )
+            return Common::MakeError<WriteOutcome>( indexed.GetError() );
         return Common::MakeSuccess( outcome );
     }
 

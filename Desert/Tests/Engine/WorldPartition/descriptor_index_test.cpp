@@ -56,6 +56,13 @@ namespace
         EXPECT_TRUE( written ) << ( written ? std::string() : written.GetError() );
         return static_cast<bool>( written );
     }
+
+    // Removes the index a save just built, so a test can watch Refresh build one from nothing.
+    void DropIndex( const TempWorld& world )
+    {
+        std::error_code ec;
+        ASSERT_TRUE( std::filesystem::remove( DI::PathOf( world.Scene ), ec ) ) << ec.message();
+    }
 } // namespace
 
 // The index is the world's entities, described: row for row what DescribeEntity says of each file's record.
@@ -63,6 +70,7 @@ TEST( DescriptorIndex, TheIndexIsTheEntitiesDescribed )
 {
     TempWorld world;
     ASSERT_TRUE( Write( world, World() ) );
+    DropIndex( world );
     const auto built = DI::Refresh( world.Scene );
     ASSERT_TRUE( built ) << built.GetError();
     EXPECT_EQ( built.GetValue().Described, 3u );
@@ -122,8 +130,14 @@ TEST( DescriptorIndex, ADeletedEntityLeavesTheIndex )
 {
     TempWorld world;
     ASSERT_TRUE( Write( world, World() ) );
-    ASSERT_TRUE( DI::Refresh( world.Scene ) );
+    const auto withB = Common::Utils::FileSystem::ReadFileContent( DI::PathOf( world.Scene ) );
+    ASSERT_TRUE( withB );
     ASSERT_TRUE( Write( world, World( "A", false ) ) );
+    // The index of the world before the delete, put back behind the save's back: the gate refuses it.
+    {
+        std::ofstream out( DI::PathOf( world.Scene ), std::ios::binary | std::ios::trunc );
+        out << withB.GetValue();
+    }
     EXPECT_FALSE( DI::ReadFresh( world.Scene ) );
 
     const auto refreshed = DI::Refresh( world.Scene );
@@ -135,11 +149,43 @@ TEST( DescriptorIndex, ADeletedEntityLeavesTheIndex )
     EXPECT_TRUE( DI::ReadFresh( world.Scene ) );
 }
 
+// Every save keeps the index current: the edited entity is re-described, a deleted one dropped, and a save that
+// changes nothing leaves the index as it was.
+TEST( DescriptorIndex, ASaveKeepsTheIndexFresh )
+{
+    TempWorld world;
+    ASSERT_TRUE( Write( world, World() ) );
+    const auto first = DI::ReadFresh( world.Scene );
+    ASSERT_TRUE( first ) << first.GetError();
+    EXPECT_EQ( first.GetValue().Entities.size(), 3u );
+
+    ASSERT_TRUE( Write( world, World( "Edited", false ) ) );
+    const auto second = DI::ReadFresh( world.Scene );
+    ASSERT_TRUE( second ) << second.GetError();
+    ASSERT_EQ( second.GetValue().Entities.size(), 2u );
+    EXPECT_EQ( second.GetValue().Entities.front().Descriptor.Tag, "Edited" );
+
+    const auto again = DI::Refresh( world.Scene );
+    ASSERT_TRUE( again ) << again.GetError();
+    EXPECT_FALSE( again.GetValue().Written );
+}
+
+// A scene saved without partition has no index: the one its partitioned past left is removed with its entities.
+TEST( DescriptorIndex, AnUnpartitionedSaveRemovesTheIndex )
+{
+    TempWorld world;
+    ASSERT_TRUE( Write( world, World() ) );
+    ASSERT_TRUE( std::filesystem::exists( DI::PathOf( world.Scene ) ) );
+    ASSERT_TRUE( Write( world, R"({"SceneName":"World","Entities":[{"id":1001,"Tag":"A"}]})" ) );
+    EXPECT_FALSE( std::filesystem::exists( DI::PathOf( world.Scene ) ) );
+}
+
 // No index is a refusal of the gate, never an empty world.
 TEST( DescriptorIndex, NoIndexIsRefused )
 {
     TempWorld world;
     ASSERT_TRUE( Write( world, World() ) );
+    DropIndex( world );
     const auto none = DI::ReadFresh( world.Scene );
     ASSERT_FALSE( none );
     EXPECT_NE( none.GetError().find( std::string( DI::kFileName ) ), std::string::npos ) << none.GetError();

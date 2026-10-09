@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
+#include <Common/Content/CanonicalText.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -90,16 +91,25 @@ namespace Desert::Core::DescriptorIndex
             }
             outcome.Index.Entities.push_back( std::move( row ) );
         }
-        outcome.Dropped = previous.Entities.size() > outcome.Reused ? previous.Entities.size() - outcome.Reused : 0;
+        // Dropped: previous rows whose entity the scene no longer lists (an edited row is re-described, not dropped).
+        std::size_t kept = 0;
+        for ( const Common::UUID id : listed )
+            kept += before.contains( static_cast<std::uint64_t>( id ) ) ? 1 : 0;
+        outcome.Dropped = before.size() - kept;
 
-        const std::string text = Common::Json::Write( outcome.Index );
-        const auto        old  = fs::is_regular_file( indexPath, ec )
-                                      ? Common::Utils::FileSystem::ReadFileContent( indexPath )
-                                      : Common::ResultStr<std::string>( Common::MakeError<std::string>( "none" ) );
-        if ( !old || old.GetValue() != text )
+        // Compared as the file holds it: the canonical layout of the writer's output, the same text written below.
+        const auto text = Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( outcome.Index ) );
+        if ( !text )
+            return Common::MakeError<RefreshOutcome>(
+                 fmt::format( "could not lay out {}: {}", indexPath.string(), text.GetError() ) );
+        const auto old = fs::is_regular_file( indexPath, ec )
+                              ? Common::Utils::FileSystem::ReadFileContent( indexPath )
+                              : Common::ResultStr<std::string>( Common::MakeError<std::string>( "none" ) );
+        if ( !old || old.GetValue() != text.GetValue() )
         {
             fs::create_directories( indexPath.parent_path(), ec );
-            if ( const auto written = Common::Json::WriteFileAtomic( indexPath, outcome.Index ); !written )
+            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( indexPath, text.GetValue() );
+                 !written )
                 return Common::MakeError<RefreshOutcome>(
                      fmt::format( "could not write {}: {}", indexPath.string(), written.GetError() ) );
             outcome.Written = true;
