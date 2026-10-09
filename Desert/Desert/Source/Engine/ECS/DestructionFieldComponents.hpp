@@ -37,6 +37,7 @@ namespace Desert::ECS
 
     struct RadialImpulseFieldComponent
     {
+        COMPONENT( Key( "RadialImpulseField" ), Block( Data ), Run( SkyAndAtmosphere ) )
         RadialImpulseFieldData Data;
     };
 
@@ -60,6 +61,7 @@ namespace Desert::ECS
 
     struct StrainFieldComponent
     {
+        COMPONENT( Key( "StrainField" ), Block( Data ), Run( SkyAndAtmosphere ) )
         StrainFieldData Data;
     };
 
@@ -74,6 +76,7 @@ namespace Desert::ECS
 
     struct KillFieldComponent
     {
+        COMPONENT( Key( "KillField" ), Block( Data ), Run( SkyAndAtmosphere ) )
         KillFieldData Data;
     };
 
@@ -90,6 +93,7 @@ namespace Desert::ECS
 
     struct AnchorFieldComponent
     {
+        COMPONENT( Key( "AnchorField" ), Block( Data ), Run( SkyAndAtmosphere ) )
         AnchorFieldData Data;
     };
 } // namespace Desert::ECS

@@ -123,6 +123,7 @@ namespace Desert::ECS
 
     struct CameraComponent
     {
+        COMPONENT( Key( "Camera" ), Block( Data ), Run( ActorsAndUI ) )
         std::shared_ptr<Core::Camera> Camera;
         CameraData                    Data;
     };
@@ -307,6 +308,7 @@ namespace Desert::ECS
 
     struct LandscapeMaterialComponent
     {
+        COMPONENT( Key( "LandscapeMaterial" ), Block( Data ), Run( Landscape ) )
         LandscapeMaterialData Data;
     };
 
@@ -628,6 +630,7 @@ namespace Desert::ECS
 
     struct TwoBoneIKComponent
     {
+        COMPONENT( Key( "TwoBoneIK" ), Block( Data ), Run( ActorsAndUI ) )
         TwoBoneIKData Data;
     };
 
@@ -666,6 +669,7 @@ namespace Desert::ECS
 
     struct ControlRigComponent
     {
+        COMPONENT( Key( "ControlRig" ), Block( Data ), Run( ActorsAndUI ) )
         ControlRigData Data;
     };
 
@@ -710,6 +714,7 @@ namespace Desert::ECS
 
     struct RetargetComponent
     {
+        COMPONENT( Key( "Retarget" ), Block( Data ), Run( ActorsAndUI ) )
         RetargetData Data;
     };
 
@@ -856,6 +861,7 @@ namespace Desert::ECS
 
     struct DirectionLightComponent
     {
+        COMPONENT( Key( "DirectionLight" ), Block( Data ), Run( ActorsAndUI ) )
         DirectionalLightData Data;
     };
 
@@ -897,6 +903,7 @@ namespace Desert::ECS
 
     struct PointLightComponent
     {
+        COMPONENT( Key( "PointLight" ), Block( Data ), Run( ActorsAndUI ) )
         PointLightData Data;
     };
 
@@ -932,6 +939,7 @@ namespace Desert::ECS
 
     struct SpotLightComponent
     {
+        COMPONENT( Key( "SpotLight" ), Block( Data ), Run( ActorsAndUI ) )
         SpotLightData Data;
     };
 
@@ -1022,6 +1030,7 @@ namespace Desert::ECS
 
     struct ParticleEmitterComponent
     {
+        COMPONENT( Key( "ParticleEmitter" ), Block( Data ), Run( ActorsAndUI ) )
         ParticleEmitterData Data;
 
         // One-shot "restart" from the editor's transport, consumed by ParticleRenderer::PrepareFrame:
@@ -1119,6 +1128,7 @@ namespace Desert::ECS
     };
     struct UILayoutGroupComponent
     {
+        COMPONENT( Key( "UILayoutGroup" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UILayoutGroupData Data;
     };
 
@@ -1142,6 +1152,7 @@ namespace Desert::ECS
     };
     struct UIProgressBarComponent
     {
+        COMPONENT( Key( "UIProgressBar" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIProgressBarData Data;
     };
 
@@ -1225,6 +1236,7 @@ namespace Desert::ECS
     };
     struct UIPathComponent
     {
+        COMPONENT( Key( "UIPath" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIPathData Data;
     };
 
@@ -1272,6 +1284,7 @@ namespace Desert::ECS
     };
     struct UIRetainerComponent
     {
+        COMPONENT( Key( "UIRetainer" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIRetainerData Data;
     };
 
@@ -1294,6 +1307,7 @@ namespace Desert::ECS
     };
     struct UIToggleComponent
     {
+        COMPONENT( Key( "UIToggle" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIToggleData Data;
     };
 
@@ -1323,6 +1337,7 @@ namespace Desert::ECS
     };
     struct UISliderComponent
     {
+        COMPONENT( Key( "UISlider" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UISliderData Data;
     };
 
@@ -1350,6 +1365,7 @@ namespace Desert::ECS
     };
     struct UIScrollViewComponent
     {
+        COMPONENT( Key( "UIScrollView" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIScrollViewData Data;
     };
 
@@ -1428,6 +1444,7 @@ namespace Desert::ECS
     };
     struct UIListViewComponent
     {
+        COMPONENT( Key( "UIListView" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIListViewData Data;
     };
 
@@ -1466,6 +1483,7 @@ namespace Desert::ECS
     };
     struct UIInputFieldComponent
     {
+        COMPONENT( Key( "UIInputField" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIInputFieldData Data;
     };
 
@@ -1507,6 +1525,7 @@ namespace Desert::ECS
     };
     struct UIDropdownComponent
     {
+        COMPONENT( Key( "UIDropdown" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIDropdownData Data;
     };
 
@@ -1552,6 +1571,7 @@ namespace Desert::ECS
     };
     struct UIStyleComponent
     {
+        COMPONENT( Key( "UIStyle" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIStyleData Data;
     };
 
@@ -1649,6 +1669,7 @@ namespace Desert::ECS
     };
     struct UICanvasComponent
     {
+        COMPONENT( Key( "UICanvas" ), Block( Data ), Run( ActorsAndUI ) )
         UICanvasData Data;
     };
 
@@ -1812,6 +1833,7 @@ namespace Desert::ECS
     };
     struct UILayoutComponent
     {
+        COMPONENT( Key( "UILayout" ), Block( Data ), Run( ActorsAndUI ) )
         UILayoutData Data;
     };
 
@@ -1926,6 +1948,7 @@ namespace Desert::ECS
     };
     struct UIPanelComponent
     {
+        COMPONENT( Key( "UIPanel" ), Block( Data ), Run( ActorsAndUI ) )
         UIPanelData Data;
     };
 
@@ -1983,6 +2006,7 @@ namespace Desert::ECS
     };
     struct UITweenComponent
     {
+        COMPONENT( Key( "UITween" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UITweenData Data;
     };
 
@@ -2020,6 +2044,7 @@ namespace Desert::ECS
     };
     struct UIBindingComponent
     {
+        COMPONENT( Key( "UIBinding" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIBindingData Data;
     };
 
@@ -2060,6 +2085,7 @@ namespace Desert::ECS
     };
     struct UIScreenComponent
     {
+        COMPONENT( Key( "UIScreen" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIScreenData Data;
     };
 
@@ -2083,6 +2109,7 @@ namespace Desert::ECS
     };
     struct UIScreenStackComponent
     {
+        COMPONENT( Key( "UIScreenStack" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIScreenStackData Data;
     };
 
@@ -2148,6 +2175,7 @@ namespace Desert::ECS
     };
     struct UIPointerEventsComponent
     {
+        COMPONENT( Key( "UIPointerEvents" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIPointerEventsData Data;
     };
 
@@ -2165,6 +2193,7 @@ namespace Desert::ECS
     };
     struct UIDraggableComponent
     {
+        COMPONENT( Key( "UIDraggable" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIDraggableData Data;
     };
 
@@ -2185,6 +2214,7 @@ namespace Desert::ECS
     };
     struct UIDropTargetComponent
     {
+        COMPONENT( Key( "UIDropTarget" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIDropTargetData Data;
     };
 
@@ -2295,6 +2325,7 @@ namespace Desert::ECS
     };
     struct UIOverlayComponent
     {
+        COMPONENT( Key( "UIOverlay" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIOverlayData Data;
     };
 
@@ -2323,6 +2354,7 @@ namespace Desert::ECS
     };
     struct UIOverlayTriggerComponent
     {
+        COMPONENT( Key( "UIOverlayTrigger" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIOverlayTriggerData Data;
     };
 
@@ -2345,6 +2377,7 @@ namespace Desert::ECS
     };
     struct UIIconComponent
     {
+        COMPONENT( Key( "UIIcon" ), Block( Data ), Run( ActorsAndUI ) )
         UIIconData Data;
     };
 
@@ -2369,6 +2402,7 @@ namespace Desert::ECS
     };
     struct UIImageComponent
     {
+        COMPONENT( Key( "UIImage" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UIImageData Data;
     };
 
@@ -2501,6 +2535,7 @@ namespace Desert::ECS
     };
     struct UITextComponent2D
     {
+        COMPONENT( Key( "UIText" ), Block( Data ), Run( ActorsAndUI ) )
         UITextData Data;
     };
 
@@ -2577,6 +2612,7 @@ namespace Desert::ECS
     };
     struct UIButtonComponent
     {
+        COMPONENT( Key( "UIButton" ), Block( Data ), Run( ActorsAndUI ) )
         UIButtonData Data;
     };
 
@@ -2589,6 +2625,7 @@ namespace Desert::ECS
     // accessors are unchanged.
     struct SkyboxComponent
     {
+        COMPONENT( Key( "Skybox" ), Whole, Run( SkyAndAtmosphere ) )
         REFLECT()
 
         // Hidden from the auto-generated Details (the widget draws a proper SkyboxAsset picker + DnD instead
@@ -2724,6 +2761,7 @@ namespace Desert::ECS
 
     struct ColliderComponent
     {
+        COMPONENT( Key( "Collider" ), Block( Data ), Run( ActorsAndUI ) )
         ColliderData Data;
     };
 
@@ -2753,6 +2791,7 @@ namespace Desert::ECS
 
     struct AudioSourceComponent
     {
+        COMPONENT( Key( "AudioSource" ), Block( Data ), Run( ActorsAndUI ) )
         AudioSourceData Data;
     };
 
@@ -2777,6 +2816,7 @@ namespace Desert::ECS
     // Marks an entity as a physics body. Static = immovable, Dynamic = simulated, Kinematic = code-driven.
     struct RigidBodyComponent
     {
+        COMPONENT( Key( "RigidBody" ), Block( Data ), Run( ActorsAndUI ) )
         RigidBodyData Data;
 
         // Transient: the live Jolt body (created on Play, cleared on Stop). Not reflected/serialized.
@@ -2811,6 +2851,7 @@ namespace Desert::ECS
     // (offset behind = 3rd person, at the head = 1st person); it tracks the player via the hierarchy.
     struct CharacterControllerComponent
     {
+        COMPONENT( Key( "CharacterController" ), Block( Data ), Run( ActorsAndUI ) )
         CharacterControllerData Data;
 
         // Transient (Play only): the live Jolt character + the integrated vertical velocity (gravity/jump).
@@ -2850,6 +2891,7 @@ namespace Desert::ECS
 
     struct PlayerStartComponent
     {
+        COMPONENT( Key( "PlayerStart" ), Block( Data ), Run( ActorsAndUI ) )
         PlayerStartData Data;
     };
 
@@ -2883,6 +2925,7 @@ namespace Desert::ECS
 
     struct StreamingSourceComponent
     {
+        COMPONENT( Key( "StreamingSource" ), Block( Data ), Run( ActorsAndUI ) )
         StreamingSourceData Data;
     };
 

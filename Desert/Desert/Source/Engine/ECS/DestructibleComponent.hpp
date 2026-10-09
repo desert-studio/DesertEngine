@@ -68,6 +68,7 @@ namespace Desert::ECS
 
     struct DestructibleComponent
     {
+        COMPONENT( Key( "Destructible" ), Block( Data ), Run( SkyAndAtmosphere ) )
         DestructibleData Data;
 
         // Transient: the object in the scene's DestructionWorld (Destruction::DestructibleHandle; created on

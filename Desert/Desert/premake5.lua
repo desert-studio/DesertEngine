@@ -18,6 +18,7 @@ project "Desert"
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
             .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
+            .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
             .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
