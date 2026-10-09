@@ -39,12 +39,14 @@ namespace Desert::Editor
         // The level's name; a double click renames it.
         void DrawSceneRenameSection();
 
-    private:
-        // One toolbar button. `active` is the armed/on state: tinted fill plus a 2px underline.
+        // One toolbar button. `active` is the armed/on state: tinted fill plus a 2px underline. Public because it
+        // is the ONE face of a toolbar button: the asset-editor frame (AssetEditorFrame) draws its strip with it.
         static bool ToolbarButton( const char* icon, const char* label, bool active = false,
                                    const char* tooltip = nullptr, bool enabled = true );
         // The 1 px line between two left groups, at the x ToolbarLayout::SeparatorLineX placed it.
         static void ToolbarSeparatorAt( float x, float y );
+
+    private:
         // A snap step's list, with the shared snapping toggle at the top; the button that opens it (and
         // reports the current step) is an entry of Draw's left table. `rotation` picks the angle step.
         static void DrawSnapPopup( bool rotation );

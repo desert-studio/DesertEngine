@@ -25,6 +25,7 @@ namespace Desert::Editor
         std::size_t Vertices  = 0;
         std::size_t Triangles = 0; // LOD 0
         std::size_t Sections  = 0; // submeshes: one draw and one material slot each
+        std::size_t UVChannels = 0; // TexCoord, plus UV1 when the optional second stream is present
         // Triangles of each LOD, summed over the sections; [0] == Triangles. A section whose chain is shorter
         // than another's draws its coarsest baked level at the deeper LODs, so it is counted at that level.
         std::vector<std::size_t>          TrianglesPerLOD;
@@ -42,6 +43,8 @@ namespace Desert::Editor
         stats.Vertices  = data.IsSkinned ? data.SkinnedVertices.size() : data.StaticVertices.size();
         stats.Triangles = data.Indices.size();
         stats.Sections  = data.Submeshes.size();
+        // UV 0 is part of every vertex; UV 1 is the optional stream (MeshBinary v4), present or empty as a whole.
+        stats.UVChannels = stats.Vertices == 0u ? 0u : ( data.UV1.empty() ? 1u : 2u );
         stats.Bounds    = Assets::Serialization::MeshDataBounds( data );
 
         std::size_t chain = 0;

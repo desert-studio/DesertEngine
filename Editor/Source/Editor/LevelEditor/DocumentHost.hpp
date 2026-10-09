@@ -41,6 +41,12 @@ namespace Desert::Editor
     {
     public:
         using ShowFolderFn = std::function<Common::BoolResultStr( const std::string& folder )>;
+        // "Sync the Assets browser to this file" (open its folder, select it): the asset-editor toolbar's Browse.
+        using ShowAssetFn = std::function<Common::BoolResultStr( const std::string& file )>;
+        void SetShowAsset( ShowAssetFn showAsset )
+        {
+            m_ShowAsset = std::move( showAsset );
+        }
 
         DocumentHost( SceneWorkspace& workspace, std::shared_ptr<Assets::AssetManager>& assetManager,
                       std::string& focusWindow, ShowFolderFn showFolder );
@@ -249,6 +255,7 @@ namespace Desert::Editor
         SceneWorkspace&                        m_Workspace;
         std::shared_ptr<Assets::AssetManager>& m_AssetManager;
         ShowFolderFn                           m_ShowFolder;
+        ShowAssetFn                            m_ShowAsset;
 
         // AssetTypeID -> the editor that opens it. Holds factories only; the documents it builds are owned by
         // m_OpenDocuments below.
