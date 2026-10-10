@@ -2808,8 +2808,8 @@ TEST( CloudFieldFar, TheFarSkyDoesNotRepeatWithTheCoarsestLevelsSide )
                 {
                     ++pairs;
                     const vec4 here  = CloudSampleProceduralVolume( params, fraction, vec3( at.x, 0.0f, at.y ) );
-                    const vec4 there = CloudSampleProceduralVolume(
-                         params, fraction, vec3( at.x + shift.x, 0.0f, at.y + shift.y ) );
+                    const vec4 there = CloudSampleProceduralVolume( params, fraction,
+                                                                    vec3( at.x + shift.x, 0.0f, at.y + shift.y ) );
                     if ( here == vec4( 0.0f ) && there == vec4( 0.0f ) )
                         continue;
                     ++clouded;
@@ -2854,14 +2854,15 @@ TEST( CloudFieldFar, TheFarSkyHasTheCoarsestLevelsCoverageInEveryHeightBand )
     for ( const Fixture& fixture : fixtures )
     {
         // Bound one after the other: each binding bakes its own level 2, which the test then reads.
-        const CloudFieldParams params = fixture.Species == 1 ? CloudClipFixture() : TwoSpeciesParams( fixture.Coverage );
+        const CloudFieldParams params =
+             fixture.Species == 1 ? CloudClipFixture() : TwoSpeciesParams( fixture.Coverage );
 
         // The bound sky's level 2, through the same function the clipmap stores (one source of truth: the
         // test recomputes it from the bytes and does not trust the binding to have copied it).
         const auto& levelBytes = ModellingVolume().Levels[Desert::Assets::kCloudProceduralClipLevels - 1u];
         ASSERT_TRUE( levelBytes ) << fixture.Name;
-        const Desert::Assets::CloudProceduralFarStatistics level2 =
-             Desert::Assets::CloudProceduralFarStatisticsOf( *levelBytes, Desert::Assets::kCloudProceduralVolumeSide );
+        const Desert::Assets::CloudProceduralFarStatistics level2 = Desert::Assets::CloudProceduralFarStatisticsOf(
+             *levelBytes, Desert::Assets::kCloudProceduralVolumeSide );
 
         const float x0      = CloudFarStartKm( params, 10.0f );
         const float z0      = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].y;
@@ -2876,7 +2877,8 @@ TEST( CloudFieldFar, TheFarSkyHasTheCoarsestLevelsCoverageInEveryHeightBand )
             for ( int iz = 0; iz < kGrid; ++iz )
                 for ( int ix = 0; ix < kGrid; ++ix )
                 {
-                    const vec3 at( x0 + kSpanKm * ( ix + 0.5f ) / kGrid, 0.0f, z0 + kSpanKm * ( iz + 0.5f ) / kGrid );
+                    const vec3 at( x0 + kSpanKm * ( ix + 0.5f ) / kGrid, 0.0f,
+                                   z0 + kSpanKm * ( iz + 0.5f ) / kGrid );
                     const vec4 sample = CloudSampleProceduralVolume( params, fraction, at );
                     for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
                         if ( sample[slot] > 0.0f )
@@ -2893,10 +2895,11 @@ TEST( CloudFieldFar, TheFarSkyHasTheCoarsestLevelsCoverageInEveryHeightBand )
                      << fixture.Name << ": the binding does not carry level 2's statistics, band " << band;
 
                 const float far = static_cast<float>( filled[slot] ) / static_cast<float>( kGrid * kGrid );
-                std::printf( "[CloudFieldFar] %s band %d slot %d: level 2 presence %.4f profile %.4f, far coverage "
-                             "%.4f mean %.4f\n",
-                             fixture.Name, band, slot, share, level2.Profile[static_cast<size_t>( band )][slot], far,
-                             filled[slot] ? profileSum[slot] / filled[slot] : 0.0 );
+                std::printf(
+                     "[CloudFieldFar] %s band %d slot %d: level 2 presence %.4f profile %.4f, far coverage "
+                     "%.4f mean %.4f\n",
+                     fixture.Name, band, slot, share, level2.Profile[static_cast<size_t>( band )][slot], far,
+                     filled[slot] ? profileSum[slot] / filled[slot] : 0.0 );
 
                 if ( slot >= fixture.Species || share <= 0.0f )
                 {
@@ -2904,9 +2907,8 @@ TEST( CloudFieldFar, TheFarSkyHasTheCoarsestLevelsCoverageInEveryHeightBand )
                                                  << " is empty in level 2 and still has far cloud";
                     continue;
                 }
-                EXPECT_NEAR( far, share, kTolerance )
-                     << fixture.Name << ": band " << band << " slot " << slot
-                     << " — the far sky's coverage is not level 2's";
+                EXPECT_NEAR( far, share, kTolerance ) << fixture.Name << ": band " << band << " slot " << slot
+                                                      << " — the far sky's coverage is not level 2's";
                 if ( share > 0.05f )
                     ++checked;
             }
@@ -2935,10 +2937,11 @@ TEST( CloudFieldFar, TheStatisticsAreCountedPerBandAndPerChannelFromTheBytes )
             const uint32_t band = y * Desert::Assets::kCloudFarBands / rows;
             for ( uint32_t x = 0; x < kSide; ++x )
             {
-                unsigned char* voxel = bytes.data() + ( ( static_cast<size_t>( z ) * rows + y ) * kSide + x ) * bpv;
-                voxel[0]             = x <= band ? 51u : 0u;
-                voxel[2]             = band == top ? 255u : 0u;
-                voxel[3]             = 255u;
+                unsigned char* voxel =
+                     bytes.data() + ( ( static_cast<size_t>( z ) * rows + y ) * kSide + x ) * bpv;
+                voxel[0] = x <= band ? 51u : 0u;
+                voxel[2] = band == top ? 255u : 0u;
+                voxel[3] = 255u;
             }
         }
 
