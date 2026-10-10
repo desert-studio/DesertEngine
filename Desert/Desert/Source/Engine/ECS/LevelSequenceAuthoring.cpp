@@ -216,6 +216,110 @@ namespace Desert::ECS
         return Common::MakeSuccess( true );
     }
 
+    namespace
+    {
+        /// The lanes of @p part of @p pose (Rotation: the quaternion's four).
+        std::vector<T::FloatChannel*> PartLanes( T::TransformChannel& pose, const Animation::TrackChannel part )
+        {
+            if ( part == Animation::TrackChannel::Position )
+                return { &pose.Translation.X, &pose.Translation.Y, &pose.Translation.Z };
+            if ( part == Animation::TrackChannel::Scale )
+                return { &pose.Scale.X, &pose.Scale.Y, &pose.Scale.Z };
+            return { &pose.Rotation.X, &pose.Rotation.Y, &pose.Rotation.Z, &pose.Rotation.W };
+        }
+
+        T::TransformChannel* PoseOf( T::Section& section )
+        {
+            auto* channel = std::get_if<T::Channel>( &section.Content );
+            return channel != nullptr ? std::get_if<T::TransformChannel>( channel ) : nullptr;
+        }
+    } // namespace
+
+    Common::BoolResultStr SetEntityTransformKeyShape( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                      const std::vector<Animation::FrameNumber>& ticks,
+                                                      const Animation::KeyInterp                 interp,
+                                                      const Animation::TangentMode               mode )
+    {
+        if ( ticks.empty() )
+            return Common::MakeError( "Key shape: no key is selected" );
+        T::Sequence edited = sequence;
+        T::Track*   track  = EntityTransformTrack( edited, binding );
+        if ( track == nullptr )
+            return Common::MakeError( "Key shape: the binding has no Transform track" );
+        for ( const Animation::FrameNumber tick : ticks )
+        {
+            bool found = false;
+            for ( T::Section& section : track->Sections )
+            {
+                T::TransformChannel* pose = PoseOf( section );
+                if ( pose == nullptr )
+                    continue;
+                for ( const Animation::TrackChannel part : kPoseParts )
+                {
+                    // A quaternion is slerped or held: Cubic on a Rotation lane would break the channel invariant.
+                    const Animation::KeyInterp laneInterp =
+                         part == Animation::TrackChannel::Rotation && interp == Animation::KeyInterp::Cubic
+                              ? Animation::KeyInterp::Linear
+                              : interp;
+                    for ( T::FloatChannel* lane : PartLanes( *pose, part ) )
+                        for ( Animation::ScalarKey& key : lane->Keys )
+                            if ( key.Tick == tick )
+                            {
+                                key.Interp = laneInterp;
+                                key.Mode   = mode;
+                                found      = true;
+                            }
+                }
+                Animation::RefreshTangents( *pose, edited.TickRate );
+            }
+            if ( !found )
+                return Common::MakeFormattedError<bool>( "Key shape: no pose key on tick {}", tick.Value );
+        }
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr ApplyEntityTransformEasing( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                      const Animation::TrackChannel part,
+                                                      const Animation::FrameNumber  endTick,
+                                                      const T::EasingPreset         preset )
+    {
+        if ( part == Animation::TrackChannel::Rotation )
+            return Common::MakeError( "Easing: a Rotation key has no per-lane tangents; ease Location or Scale" );
+        T::Sequence edited = sequence;
+        T::Track*   track  = EntityTransformTrack( edited, binding );
+        if ( track == nullptr )
+            return Common::MakeError( "Easing: the binding has no Transform track" );
+        bool eased = false;
+        for ( T::Section& section : track->Sections )
+        {
+            T::TransformChannel* pose = PoseOf( section );
+            if ( pose == nullptr )
+                continue;
+            for ( T::FloatChannel* lane : PartLanes( *pose, part ) )
+            {
+                const auto at = std::ranges::find( lane->Keys, endTick, &Animation::ScalarKey::Tick );
+                if ( at == lane->Keys.end() )
+                    continue;
+                const auto index = static_cast<size_t>( at - lane->Keys.begin() );
+                if ( index == 0 )
+                    return Common::MakeFormattedError<bool>(
+                         "Easing: the key on tick {} starts the curve; no segment ends there", endTick.Value );
+                if ( const auto applied =
+                          T::ApplyEasingPreset( lane->Keys, index, preset, edited.TickRate, edited.DisplayRate );
+                     !applied.IsSuccess() )
+                    return Common::MakeFormattedError<bool>( "Easing: {}", applied.GetError() );
+                eased = true;
+            }
+        }
+        if ( !eased )
+            return Common::MakeFormattedError<bool>( "Easing: no key on tick {}", endTick.Value );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
     Common::ResultStr<uint32_t> LevelSequenceAutoKey::Observe( entt::registry& registry, T::Sequence& sequence,
                                                                const Animation::FrameNumber tick, const bool held )
     {
@@ -821,7 +925,7 @@ namespace Desert::ECS
             if ( events == nullptr )
                 continue;
             for ( const T::EventKey& key : events->Keys )
-                keys.push_back( LevelEventKey{ key.Tick, key.Name } );
+                keys.push_back( LevelEventKey{ key.Tick, key.Name, key.Action } );
         }
         return keys;
     }
@@ -913,66 +1017,247 @@ namespace Desert::ECS
         return Commit( sequence, edited, "Delete event" );
     }
 
+    Common::BoolResultStr SetEventKeyAction( T::Sequence& sequence, const T::BindingGuid& binding,
+                                             const size_t index, std::optional<T::EventAction> action )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = EventTrack( edited, binding );
+        const auto  at     = track != nullptr ? EventAt( *track, index ) : std::nullopt;
+        if ( !at )
+            return Common::MakeFormattedError<bool>( "Event action: no event {} on this binding", index );
+        at->first->Keys[at->second].Action = std::move( action );
+        return Commit( sequence, edited, "Event action" );
+    }
+
+    namespace
+    {
+        template <typename SequenceT>
+        auto* SubsequenceTrack( SequenceT& sequence )
+        {
+            const T::BindingGuid master = LevelSequenceMasterBinding();
+            for ( auto& candidate : sequence.Tracks )
+                if ( candidate.Binding == master && candidate.Kind == T::TrackKind::Subsequence )
+                    return &candidate;
+            return static_cast<decltype( &sequence.Tracks.front() )>( nullptr );
+        }
+
+        /// The first row on which no section of @p track but @p skip overlaps [@p start, @p end].
+        int32_t FreeRow( const T::Track& track, const Animation::FrameNumber start,
+                         const Animation::FrameNumber end, const std::optional<size_t> skip )
+        {
+            int32_t row = 0;
+            for ( bool clash = true; clash; )
+            {
+                clash = false;
+                for ( size_t i = 0; i < track.Sections.size(); ++i )
+                {
+                    const T::Section& other = track.Sections[i];
+                    if ( skip != i && other.Row == row && !( other.End < start ) && !( end < other.Start ) )
+                        clash = true;
+                }
+                if ( clash )
+                    ++row;
+            }
+            return row;
+        }
+
+        /// Commit for a Subsequence edit: @p edited is also refused when @p self reaches itself through it.
+        /// The cycle check reads @p edited for @p self and @p reachable for every other sequence.
+        Common::BoolResultStr CommitSubsequence( T::Sequence& sequence, T::Sequence& edited,
+                                                 const Common::Content::AssetGuid&     self,
+                                                 const LevelSequenceSubsequenceSource& reachable )
+        {
+            LevelSequenceSubsequenceSource overlay = reachable;
+            overlay.Find                           = [&edited, &self,
+                            &reachable]( const Common::Content::AssetGuid& guid ) -> const T::Sequence*
+            {
+                if ( guid == self )
+                    return &edited;
+                return reachable.Find ? reachable.Find( guid ) : nullptr;
+            };
+            if ( const auto acyclic = CheckSubsequenceCycles( self, overlay ); !acyclic )
+                return Common::MakeFormattedError<bool>( "Subsequence: {}", acyclic.GetError() );
+            return Commit( sequence, edited, "Subsequence" );
+        }
+    } // namespace
+
+    std::vector<LevelSubsequenceSection> SubsequenceSections( const T::Sequence& sequence )
+    {
+        std::vector<LevelSubsequenceSection> sections;
+        const T::Track*                      track = SubsequenceTrack( sequence );
+        if ( track == nullptr )
+            return sections;
+        for ( size_t i = 0; i < track->Sections.size(); ++i )
+        {
+            const T::Section& section = track->Sections[i];
+            if ( const auto* content = std::get_if<T::SubsequenceSectionContent>( &section.Content ) )
+                sections.push_back(
+                     LevelSubsequenceSection{ i, section.Start, section.End, section.Row, *content } );
+        }
+        return sections;
+    }
+
+    Common::ResultStr<size_t> AddSubsequenceSection( T::Sequence& sequence, const Common::Content::AssetGuid& self,
+                                                     const Common::Content::AssetGuid&     sub,
+                                                     const Animation::FrameNumber          start,
+                                                     const Animation::FrameNumber          end,
+                                                     const LevelSequenceSubsequenceSource& reachable )
+    {
+        if ( sub == self )
+            return Common::MakeError<size_t>( "Subsequence: a sequence cannot play itself" );
+        T::Sequence          edited = sequence;
+        const T::BindingGuid master = LevelSequenceMasterBinding();
+        if ( T::FindBinding( edited, master ) == nullptr )
+            edited.Bindings.push_back( T::Binding{ master, T::BindingKind::Sequence, {}, "Sequence", {} } );
+        T::Track* track = SubsequenceTrack( edited );
+        if ( track == nullptr )
+        {
+            T::Track created;
+            created.Binding  = master;
+            created.Property = kLevelSequenceSubsequenceProperty;
+            created.Kind     = T::TrackKind::Subsequence;
+            edited.Tracks.push_back( std::move( created ) );
+            track = &edited.Tracks.back();
+        }
+        T::Section section;
+        section.Start   = start;
+        section.End     = end;
+        section.Row     = FreeRow( *track, start, end, std::nullopt );
+        section.Content = T::SubsequenceSectionContent{ sub, Animation::FrameNumber{ 0 }, 1.0 };
+        track->Sections.push_back( std::move( section ) );
+        const size_t index = track->Sections.size() - 1;
+        if ( const auto committed = CommitSubsequence( sequence, edited, self, reachable ); !committed )
+            return Common::MakeError<size_t>( committed.GetError() );
+        return Common::MakeSuccess( index );
+    }
+
+    Common::BoolResultStr SetSubsequenceSection( T::Sequence& sequence, const Common::Content::AssetGuid& self,
+                                                 const size_t index, const Animation::FrameNumber start,
+                                                 const Animation::FrameNumber          end,
+                                                 const T::SubsequenceSectionContent&   content,
+                                                 const LevelSequenceSubsequenceSource& reachable )
+    {
+        if ( content.Sequence == self )
+            return Common::MakeError( "Subsequence: a sequence cannot play itself" );
+        T::Sequence edited = sequence;
+        T::Track*   track  = SubsequenceTrack( edited );
+        if ( track == nullptr || index >= track->Sections.size() )
+            return Common::MakeFormattedError<bool>( "Subsequence: no section {}", index );
+        T::Section& section = track->Sections[index];
+        section.Start       = start;
+        section.End         = end;
+        section.Row         = FreeRow( *track, start, end, index );
+        section.Content     = content;
+        return CommitSubsequence( sequence, edited, self, reachable );
+    }
+
+    Common::BoolResultStr RemoveSubsequenceSection( T::Sequence& sequence, const size_t index )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = SubsequenceTrack( edited );
+        if ( track == nullptr || index >= track->Sections.size() )
+            return Common::MakeFormattedError<bool>( "Delete subsequence: no section {}", index );
+        track->Sections.erase( track->Sections.begin() + static_cast<std::ptrdiff_t>( index ) );
+        return Commit( sequence, edited, "Delete subsequence" );
+    }
+
+    Common::BoolResultStr SetPlaybackRange( T::Sequence& sequence, const Animation::FrameNumber start,
+                                            const Animation::FrameNumber end )
+    {
+        T::Sequence edited = sequence;
+        edited.Start       = start;
+        edited.End         = end;
+        return Commit( sequence, edited, "Playback range" );
+    }
+
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,
-                                                   const Animation::FrameNumber      tick,
-                                                   const LevelSequenceClipSource&    clips,
-                                                   const LevelSequenceMaterialSlots& materials )
+                                                   const Animation::FrameNumber          tick,
+                                                   const LevelSequenceClipSource&        clips,
+                                                   const LevelSequenceMaterialSlots&     materials,
+                                                   const LevelSequenceSubsequenceSource& subsequences,
+                                                   const Common::Content::AssetGuid&     asset )
     {
         LevelSequenceEntityHost host( registry, m_NoOverrides );
         m_Materials = materials;
 
+        // THE SEQUENCES THIS SCRUB CAN WRITE THROUGH: the document and every sequence its Subsequence sections
+        // reach (breadth first, each once — a cycle is the step's refusal, not a loop here). Their actors are
+        // recorded like the document's, so Restore gives back what a subsequence posed too.
+        std::vector<const T::Sequence*> posed{ &sequence };
+        if ( subsequences.Find )
+        {
+            std::vector<Common::Content::AssetGuid> seen;
+            if ( !( asset == Common::Content::AssetGuid{} ) )
+                seen.push_back( asset );
+            for ( size_t i = 0; i < posed.size(); ++i )
+                for ( const T::Track& track : posed[i]->Tracks )
+                    for ( const T::Section& section : track.Sections )
+                    {
+                        const auto* sub = std::get_if<T::SubsequenceSectionContent>( &section.Content );
+                        if ( sub == nullptr || std::ranges::find( seen, sub->Sequence ) != seen.end() )
+                            continue;
+                        seen.push_back( sub->Sequence );
+                        if ( const T::Sequence* found = subsequences.Find( sub->Sequence ) )
+                            posed.push_back( found );
+                    }
+        }
+
         // Every slot override a Material Parameter track is about to write, before its first write.
         if ( materials )
-            for ( const T::Track& track : sequence.Tracks )
-            {
-                const auto        parameter = ParseLevelSequenceMaterialProperty( track.Property );
-                const T::Binding* bound     = parameter ? T::FindBinding( sequence, track.Binding ) : nullptr;
-                const auto        resolved  = bound != nullptr ? host.Resolve( *bound ) : std::nullopt;
-                if ( !resolved || !parameter )
-                    continue;
-                const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );
-                if ( std::any_of( m_SavedMaterials.begin(), m_SavedMaterials.end(),
-                                  [&]( const SavedMaterialParameter& saved )
-                                  { return saved.Entity == entity && saved.Parameter == *parameter; } ) )
-                    continue;
-                m_SavedMaterials.push_back(
-                     SavedMaterialParameter{ entity, *parameter, materials.Get( registry, entity, *parameter ) } );
-            }
+            for ( const T::Sequence* owner : posed )
+                for ( const T::Track& track : owner->Tracks )
+                {
+                    const auto        parameter = ParseLevelSequenceMaterialProperty( track.Property );
+                    const T::Binding* bound     = parameter ? T::FindBinding( *owner, track.Binding ) : nullptr;
+                    const auto        resolved  = bound != nullptr ? host.Resolve( *bound ) : std::nullopt;
+                    if ( !resolved || !parameter )
+                        continue;
+                    const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );
+                    if ( std::any_of( m_SavedMaterials.begin(), m_SavedMaterials.end(),
+                                      [&]( const SavedMaterialParameter& saved )
+                                      { return saved.Entity == entity && saved.Parameter == *parameter; } ) )
+                        continue;
+                    m_SavedMaterials.push_back( SavedMaterialParameter{
+                         entity, *parameter, materials.Get( registry, entity, *parameter ) } );
+                }
 
         // RECORD BEFORE THE FIRST WRITE, per entity: what the preview gives back is the scene as it was when
         // the sequence first touched it, not as the previous scrub left it.
-        for ( const T::Binding& binding : sequence.Bindings )
-        {
-            const auto resolved = host.Resolve( binding );
-            if ( !resolved )
-                continue;
-            const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );
-            if ( std::any_of( m_Saved.begin(), m_Saved.end(),
-                              [&]( const Saved& saved ) { return saved.Entity == entity; } ) )
-                continue;
-            Saved saved;
-            saved.Entity       = entity;
-            saved.HadTransform = registry.has<TransformComponent>( entity );
-            if ( saved.HadTransform )
-                saved.Transform = registry.get<TransformComponent>( entity );
-            saved.HadVisibility = registry.has<VisibilityComponent>( entity );
-            if ( saved.HadVisibility )
-                saved.Visible = registry.get<VisibilityComponent>( entity ).Visible;
-            if ( const auto* animation = registry.try_get<AnimationComponent>( entity );
-                 animation != nullptr && animation->Animator )
+        for ( const T::Sequence* owner : posed )
+            for ( const T::Binding& binding : owner->Bindings )
             {
-                saved.HadAnimator = true;
-                saved.Clip        = animation->Animator->GetCurrentClip();
-                saved.Tick        = animation->Animator->GetCurrentTick();
-                saved.Loop        = animation->Loop;
-                saved.Playing     = animation->Playing;
+                const auto resolved = host.Resolve( binding );
+                if ( !resolved )
+                    continue;
+                const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );
+                if ( std::any_of( m_Saved.begin(), m_Saved.end(),
+                                  [&]( const Saved& saved ) { return saved.Entity == entity; } ) )
+                    continue;
+                Saved saved;
+                saved.Entity       = entity;
+                saved.HadTransform = registry.has<TransformComponent>( entity );
+                if ( saved.HadTransform )
+                    saved.Transform = registry.get<TransformComponent>( entity );
+                saved.HadVisibility = registry.has<VisibilityComponent>( entity );
+                if ( saved.HadVisibility )
+                    saved.Visible = registry.get<VisibilityComponent>( entity ).Visible;
+                if ( const auto* animation = registry.try_get<AnimationComponent>( entity );
+                     animation != nullptr && animation->Animator )
+                {
+                    saved.HadAnimator = true;
+                    saved.Clip        = animation->Animator->GetCurrentClip();
+                    saved.Tick        = animation->Animator->GetCurrentTick();
+                    saved.Loop        = animation->Loop;
+                    saved.Playing     = animation->Playing;
+                }
+                m_Saved.push_back( saved );
             }
-            m_Saved.push_back( saved );
-        }
 
-        LevelSequencePlayback      playback( sequence );
+        LevelSequencePlayback playback( sequence );
+        playback.Asset = asset;
         const Animation::FrameTime at{ tick, 0.0F };
-        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips, materials );
+        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips, materials,
+                                  subsequences );
     }
 
     void LevelSequencePreview::Restore( entt::registry& registry )

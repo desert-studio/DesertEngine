@@ -1955,6 +1955,7 @@ namespace Desert::Editor
                 ImGui::EndCombo();
             }
             ImGui::Checkbox( "Auto Play", &actor.AutoPlay );
+            ImGui::DragScalar( "Play Rate", ImGuiDataType_Double, &actor.PlayRate, 0.01F );
 
             // Binding Overrides.
             if ( !U::ImGuiUtilities::SectionHeader( ICON_MDI_LINK_VARIANT "  Binding Overrides", true ) )

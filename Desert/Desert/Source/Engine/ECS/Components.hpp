@@ -275,13 +275,17 @@ namespace Desert::ECS
 
     // A LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor + FMovieSceneSequencePlaybackSettings). Plays the
     // `.dseq` named by `Sequence` in Play (ECS/System/LevelSequenceSystem.hpp); its Entity bindings name
-    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides}
-    // (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
+    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, PlayRate,
+    // BindingOverrides} (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
     struct LevelSequenceComponent
     {
         Assets::AssetHandle                       Sequence;
         Animation::Timeline::LoopMode             Loop     = Animation::Timeline::LoopMode::Once;
         bool                                      AutoPlay = true;
+        // Sequence seconds per game second (UE: FMovieSceneSequencePlaybackSettings::PlayRate). Read every
+        // frame by ApplyLevelSequencePlaySettings, so a change while playing takes effect on the next step; a
+        // negative rate plays backwards, 0 holds the current frame.
+        double                                    PlayRate = 1.0;
         std::vector<LevelSequenceBindingOverride> BindingOverrides;
     };
 
@@ -1718,9 +1722,21 @@ namespace Desert::ECS
     // behaviors live as a LIST of slots inside this one component — the same composition UE gets from
     // multiple ActorComponents). Each slot is an independent sandbox (its own env + properties + lifecycle);
     // all slots share the same `self` entity. ScriptSystem ticks every slot; entity:call() broadcasts to all.
+    /// A level sequence Event key's CallScript action (UE: an event endpoint on the bound actor): Lua function
+    /// `Function` is called on every started slot with the key's name, by ScriptSystem in its next update.
+    struct SequenceScriptCall
+    {
+        std::string Function;
+        std::string EventName;
+    };
+
     struct ScriptComponent
     {
         std::vector<ScriptSlot> Scripts;
+
+        // Transient, like AnimationComponent::PendingNotifies: queued by LevelSequenceEntityHost::Fire, drained
+        // (each call once) by ScriptSystem. Not serialized.
+        std::vector<SequenceScriptCall> PendingSequenceCalls;
     };
 
     // UE-style SOCKET attachment: makes this entity follow a BONE of another (skinned) entity, not just its

@@ -46,6 +46,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -104,6 +105,27 @@ namespace Desert::Animation::Timeline
         FloatChannel Bits;
     };
 
+    /// What a LevelSequence event key DOES when it fires (UE: the event track's endpoint and its payload).
+    /// STORED AS AN INTEGER: append only.
+    enum class EventActionKind : uint8_t
+    {
+        /// Plays `Target` (an audio file, absolute or Assets-relative — the form AudioSourceData::Clip stores)
+        /// once, 2D, at full volume.
+        PlaySound = 0,
+        /// (Re)starts the bound entity's particle emitter from zero: Enabled, every particle respawned.
+        ActivateParticles = 1,
+        /// Calls the Lua function named `Target` on every started script slot of the bound entity, with the
+        /// key's Name as its one argument.
+        CallScript = 2,
+    };
+
+    struct EventAction
+    {
+        EventActionKind Kind = EventActionKind::PlaySound;
+        /// PlaySound: the audio file; CallScript: the Lua function; ActivateParticles: empty.
+        std::string Target;
+    };
+
     /// A marker. Duration > 0 is a STATE active on [Tick, Tick + Duration) — UE's AnimNotifyState, one
     /// field and not a second list, as AnimationNotify already decided.
     struct EventKey
@@ -113,6 +135,9 @@ namespace Desert::Animation::Timeline
         std::string Name;
         /// The authoring row (UE notify track). Playback fires by tick, whatever the row.
         int32_t Row = 0;
+        /// LevelSequence only (`Validate` refuses it on another host): what the key does when it fires.
+        /// nullopt = a named marker only (a clip notify, a sequence event the game listens for by name).
+        std::optional<EventAction> Action;
     };
 
     /// INVARIANT: sorted by tick; several events on one tick are legal and fire in list order.

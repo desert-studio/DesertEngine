@@ -167,12 +167,12 @@ namespace Desert::Scripting
             LOG_ERROR( "[Lua] OnStart error: {}", r.GetError() );
     }
 
-    void ScriptEngine::CallAnimationNotify( uint32_t entity, uint32_t slot, const char* callback,
-                                            const std::string& name )
+    void ScriptEngine::CallSlotFunction( uint32_t entity, uint32_t slot, const char* function,
+                                         const std::string& argument )
     {
-        const Reflection::Value arg = Reflection::Value::String( name );
-        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, callback, { &arg, 1 } ); !r.IsSuccess() )
-            LOG_ERROR( "[Lua] {} error: {}", callback, r.GetError() );
+        const Reflection::Value arg = Reflection::Value::String( argument );
+        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, function, { &arg, 1 } ); !r.IsSuccess() )
+            LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
     }
 
     void ScriptEngine::BroadcastUIMessage( const std::string& message )

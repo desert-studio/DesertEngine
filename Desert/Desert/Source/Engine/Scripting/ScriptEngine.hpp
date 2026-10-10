@@ -62,11 +62,11 @@ namespace Desert::Scripting
         void CallStart( uint32_t entity, uint32_t slot );
         void CallUpdate( uint32_t entity, uint32_t slot, float dt );
 
-        // Calls a slot's OnAnimationNotify(name) if defined (no-op if not loaded / not defined). Dispatched
-        // when the entity's Animator crosses a named clip notify (footstep, hit-frame, ...).
-        // @p callback is the Lua function called with the notify's name: OnAnimationNotify (instant),
-        // OnAnimationNotifyBegin / OnAnimationNotifyEnd (a notify state).
-        void CallAnimationNotify( uint32_t entity, uint32_t slot, const char* callback, const std::string& name );
+        // Calls a slot's Lua function @p function( @p argument ) if defined (no-op if not loaded / not defined).
+        // Dispatched when the entity's Animator crosses a named clip notify (OnAnimationNotify (instant),
+        // OnAnimationNotifyBegin / OnAnimationNotifyEnd (a notify state), with the notify's name) and when a
+        // level sequence Event key's CallScript action fires (its function, with the key's name).
+        void CallSlotFunction( uint32_t entity, uint32_t slot, const char* function, const std::string& argument );
 
         // Writes the slot's editor-set property values into its env's `Properties` table, so the running
         // script reads the overridden values. Call after LoadEntityScript, before OnStart.
