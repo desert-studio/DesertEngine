@@ -1444,6 +1444,20 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
     }
 
+    namespace
+    {
+        // THE ONE PLACE A MESH'S GPU SIDE IS MADE FROM ITS CPU DATA: the renderer's intake. Geometry set on the
+        // game side (ECS::SetEditableMesh, DynamicMesh::Update before a first draw) carries no device buffers
+        // until here (Mesh::EnsureGpuResources). A failed upload is reported once and the draw is dropped.
+        [[nodiscard]] bool ReadyForDraw( Mesh& mesh )
+        {
+            if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
+                LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}",
+                           uploaded.GetError() );
+            return mesh.GetVertexBuffer() != nullptr;
+        }
+    } // namespace
+
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
                                     const glm::mat4& transform, const RenderSubmissionExtra& extra )
     {
@@ -1455,6 +1469,8 @@ namespace Desert::Graphic
         // still carry a mutable Mesh* and never write through it.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         auto* drawnMesh = const_cast<Mesh*>( mesh );
+        if ( !ReadyForDraw( *drawnMesh ) )
+            return;
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitMesh( { .Entity                   = extra.Entity,
                              .Mesh                     = drawnMesh,
@@ -1484,6 +1500,8 @@ namespace Desert::Graphic
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows )
     {
+        if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
+            return;
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity               = entity,
                                     .Mesh                 = mesh,
@@ -1500,6 +1518,8 @@ namespace Desert::Graphic
                                                 Material* material, uint64_t visibleSubmeshMask, bool outlined,
                                                 bool castShadows )
     {
+        if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
+            return;
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity             = entity,
                                     .Mesh               = mesh,
@@ -1523,6 +1543,8 @@ namespace Desert::Graphic
                                              bool castShadows, const InstanceCullDistance& cullDistance,
                                              const InstanceWind& wind )
     {
+        if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
+            return;
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
         // the type told: an ISM's mesh is very often a DynamicMesh — every primitive one is, and the
