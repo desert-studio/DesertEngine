@@ -19,6 +19,8 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Libraries/AnimatorLibrary.hpp>
 #include <Engine/Libraries/EntityLibrary.hpp>
+#include <Engine/Libraries/LocalizationLibrary.hpp>
+#include <Engine/Libraries/UILibrary.hpp>
 #include <Engine/Libraries/GameLibrary.hpp>
 #include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
@@ -29,6 +31,28 @@
 #include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
+
+namespace Desert::Reflection
+{
+template <>
+struct ReflectedStruct<::Desert::Libraries::HitResult>
+{
+    static constexpr const char* Name = "HitResult";
+    static constexpr auto Members = std::tuple{ StructMember{ "bBlockingHit", &::Desert::Libraries::HitResult::bBlockingHit }, StructMember{ "Distance", &::Desert::Libraries::HitResult::Distance }, StructMember{ "Location", &::Desert::Libraries::HitResult::Location }, StructMember{ "Normal", &::Desert::Libraries::HitResult::Normal }, StructMember{ "Entity", &::Desert::Libraries::HitResult::Entity }, };
+};
+template <>
+struct ReflectedStruct<::Desert::Libraries::WorldRay>
+{
+    static constexpr const char* Name = "WorldRay";
+    static constexpr auto Members = std::tuple{ StructMember{ "Origin", &::Desert::Libraries::WorldRay::Origin }, StructMember{ "Direction", &::Desert::Libraries::WorldRay::Direction }, };
+};
+template <>
+struct ReflectedStruct<::Desert::Libraries::LanguageInfo>
+{
+    static constexpr const char* Name = "LanguageInfo";
+    static constexpr auto Members = std::tuple{ StructMember{ "Tag", &::Desert::Libraries::LanguageInfo::Tag }, StructMember{ "Name", &::Desert::Libraries::LanguageInfo::Name }, };
+};
+} // namespace Desert::Reflection
 
 namespace Desert::Reflection::Generated
 {
@@ -152,12 +176,79 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
+        using T = ::Desert::Libraries::HitResult;
+        TypeBuilder( "HitResult", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "bBlockingHit", .Type = FieldType::Bool, .Offset = offsetof( T, bBlockingHit ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::bBlockingHit )>(), .TypeName = "bool", .Meta = PropertyMetadata{ } } )
+                    .Field( FieldInfo{ .Name = "Distance", .Type = FieldType::Float, .Offset = offsetof( T, Distance ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Distance )>(), .TypeName = "float", .Meta = PropertyMetadata{ } } )
+                    .Field( FieldInfo{ .Name = "Location", .Type = FieldType::Vec3, .Offset = offsetof( T, Location ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Location )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ } } )
+                    .Field( FieldInfo{ .Name = "Normal", .Type = FieldType::Vec3, .Offset = offsetof( T, Normal ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Normal )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ } } )
+                    .Field( FieldInfo{ .Name = "Entity", .Type = FieldType::Entity, .Offset = offsetof( T, Entity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Entity )>(), .TypeName = "ECS::Entity", .Meta = PropertyMetadata{ } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::WorldRay;
+        TypeBuilder( "WorldRay", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Origin", .Type = FieldType::Vec3, .Offset = offsetof( T, Origin ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Origin )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ } } )
+                    .Field( FieldInfo{ .Name = "Direction", .Type = FieldType::Vec3, .Offset = offsetof( T, Direction ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Direction )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::Libraries::WorldLibrary;
         TypeBuilder( "WorldLibrary", sizeof( T ) )
             .ScriptName( "World" )
                     .Function( ::Desert::Reflection::MakeFunction<&T::Find>( "Find", "WorldLibrary", "ECS::Entity", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The first entity tagged `name`, or nil.", .ScriptName = "find", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::Spawn>( "Spawn", "WorldLibrary", "ECS::Entity", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "prefab", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "position", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Places a prefab; nil (logged) on failure.", .ScriptName = "spawn", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::SpawnMarker>( "SpawnMarker", "WorldLibrary", "ECS::Entity", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "position", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "scale", "float" }, ::Desert::Reflection::ParamSpelling{ "color", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "A debug sphere drawn with the DebugColor template.", .ScriptName = "spawnMarker", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Raycast>( "Raycast", "WorldLibrary", "HitResult", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "origin", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "direction", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "maxDistance", "float", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::Raycast, 2>; return ::Desert::Reflection::ValueTraits<P>::To( P{ std::numeric_limits<float>::max() } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The nearest static-mesh or landscape hit along a ray, within maxDistance (unbounded by default).", .ScriptName = "raycast", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::CameraRay>( "CameraRay", "WorldLibrary", "WorldRay", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The active camera's eye ray (looking down -Z from the origin when there is no camera).", .ScriptName = "cameraRay", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::LanguageInfo;
+        TypeBuilder( "LanguageInfo", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Tag", .Type = FieldType::String, .Offset = offsetof( T, Tag ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Tag )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ } } )
+                    .Field( FieldInfo{ .Name = "Name", .Type = FieldType::String, .Offset = offsetof( T, Name ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Name )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::LocalizationLibrary;
+        TypeBuilder( "LocalizationLibrary", sizeof( T ) )
+            .ScriptName( "loc" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Text>( "Text", "LocalizationLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "args", "const Reflection::Value::Map&", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::Text, 1>; return ::Desert::Reflection::ValueTraits<P>::To( P{  } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The translation of a key, in the current language.", .ScriptName = "text", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Plural>( "Plural", "LocalizationLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "count", "double" }, ::Desert::Reflection::ParamSpelling{ "args", "const Reflection::Value::Map&", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::Plural, 2>; return ::Desert::Reflection::ValueTraits<P>::To( P{  } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The translation of a key for a count.", .ScriptName = "plural", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Number>( "Number", "LocalizationLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "value", "double" }, ::Desert::Reflection::ParamSpelling{ "digits", "int", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::Number, 1>; return ::Desert::Reflection::ValueTraits<P>::To( P{ 0 } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "A number in the current locale's form.", .ScriptName = "number", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Money>( "Money", "LocalizationLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "amount", "double" }, ::Desert::Reflection::ParamSpelling{ "code", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "An amount in a currency (ISO 4217 code); an unknown code is logged and shown raw.", .ScriptName = "money", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Date>( "Date", "LocalizationLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "year", "int" }, ::Desert::Reflection::ParamSpelling{ "month", "int" }, ::Desert::Reflection::ParamSpelling{ "day", "int" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "A calendar date in the current locale's form.", .ScriptName = "date", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Language>( "Language", "LocalizationLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The current language's tag.", .ScriptName = "language", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetLanguage>( "SetLanguage", "LocalizationLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "tag", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Switches the language; false (logged) when the project has no strings in it.", .ScriptName = "set_language", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Languages>( "Languages", "LocalizationLibrary", "std::vector<LanguageInfo>", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The languages the project has strings in (what a settings screen offers).", .ScriptName = "languages", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::UILibrary;
+        TypeBuilder( "UILibrary", sizeof( T ) )
+            .ScriptName( "ui" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Set>( "Set", "UILibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "value", "const Reflection::Value&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Writes a number, boolean, string or colour (vector r, g, b) under a key; another kind is refused and logged.", .ScriptName = "set", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Get>( "Get", "UILibrary", "Reflection::Value", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The value under a key, or nil when unset.", .ScriptName = "get", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Has>( "Has", "UILibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "has", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Erase>( "Erase", "UILibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Removes one key.", .ScriptName = "erase", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Clear>( "Clear", "UILibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Removes every key and collection.", .ScriptName = "clear", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Send>( "Send", "UILibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "message", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Raises a UI message on the canvas's own channel (every OnUIMessage hears it).", .ScriptName = "send", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Toast>( "Toast", "UILibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "overlay", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "text", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Queues a notification on the named Toast overlay (an event: twice queues twice).", .ScriptName = "toast", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ListAdd>( "ListAdd", "UILibrary", "Common::BoolResultStr", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "record", "const Reflection::Value::Map&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Appends a record { field = value, ... }.", .ScriptName = "list_add", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ListInsert>( "ListInsert", "UILibrary", "Common::BoolResultStr", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "index", "int" }, ::Desert::Reflection::ParamSpelling{ "record", "const Reflection::Value::Map&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Inserts a record so that it becomes the index-th (1-based).", .ScriptName = "list_insert", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ListRemove>( "ListRemove", "UILibrary", "Common::BoolResultStr", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "index", "int" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Removes the index-th record (1-based).", .ScriptName = "list_remove", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ListSet>( "ListSet", "UILibrary", "Common::BoolResultStr", std::array<::Desert::Reflection::ParamSpelling, 4>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "index", "int" }, ::Desert::Reflection::ParamSpelling{ "field", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "value", "const Reflection::Value&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Writes one field of the index-th record (1-based).", .ScriptName = "list_set", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ListClear>( "ListClear", "UILibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "list_clear", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ListCount>( "ListCount", "UILibrary", "int", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "How many records; 0 for no collection.", .ScriptName = "list_count", .ScriptMethod = false } ) )
             .WithDefault<T>()
             .Register();
     }
@@ -175,7 +266,7 @@ void RegisterReflection_Engine()
         using T = ::Desert::Libraries::AudioLibrary;
         TypeBuilder( "AudioLibrary", sizeof( T ) )
             .ScriptName( "Audio" )
-                    .Function( ::Desert::Reflection::MakeFunction<&T::Play>( "Play", "AudioLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "clip", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "volume", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Plays a clip once at a volume (1 = as authored).", .ScriptName = "play", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Play>( "Play", "AudioLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "clip", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "volume", "float", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::Play, 1>; return ::Desert::Reflection::ValueTraits<P>::To( P{ 1.0f } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Plays a clip once at a volume (1 = as authored, the default).", .ScriptName = "play", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::StopAll>( "StopAll", "AudioLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "stopAll", .ScriptMethod = false } ) )
             .WithDefault<T>()
             .Register();
@@ -198,6 +289,14 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
+        using T = ::Desert::Libraries::TimerLibrary;
+        TypeBuilder( "TimerLibrary", sizeof( T ) )
+            .ScriptName( "Timer" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::After>( "After", "TimerLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "seconds", "float" }, ::Desert::Reflection::ParamSpelling{ "callback", "const Reflection::Callable&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Calls the function once after `seconds` of game time (Play only); it may re-arm itself.", .ScriptName = "after", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::Libraries::InputLibrary;
         TypeBuilder( "InputLibrary", sizeof( T ) )
             .ScriptName( "Input" )
@@ -206,7 +305,7 @@ void RegisterReflection_Engine()
                     .Function( ::Desert::Reflection::MakeFunction<&T::MouseDelta>( "MouseDelta", "InputLibrary", "glm::vec2", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "This frame's mouse movement (x, y).", .ScriptName = "mouseDelta", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::LockCursor>( "LockCursor", "InputLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Captures the cursor (gameplay look).", .ScriptName = "lockCursor", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::ShowCursor>( "ShowCursor", "InputLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Frees the cursor (click UI).", .ScriptName = "showCursor", .ScriptMethod = false } ) )
-                    .Function( ::Desert::Reflection::MakeFunction<&T::IsMouseDown>( "IsMouseDown", "InputLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "button", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Whether \"left\", \"right\" or \"middle\" is held.", .ScriptName = "isMouseDown", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::IsMouseDown>( "IsMouseDown", "InputLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "button", "const std::string&", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::IsMouseDown, 0>; return ::Desert::Reflection::ValueTraits<P>::To( P{ "left" } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Whether \"left\", \"right\" or \"middle\" is held.", .ScriptName = "isMouseDown", .ScriptMethod = false } ) )
             .WithDefault<T>()
             .Register();
     }

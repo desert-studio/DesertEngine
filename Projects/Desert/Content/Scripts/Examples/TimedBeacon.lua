@@ -53,7 +53,7 @@ function OnUpdate(dt)
 
     -- Report how far the player is, once a beacon phase (cheap demo of distanceTo/forward).
     local player = World.find("Player")
-    if player:valid() and Input.wasPressed("N") then
+    if player and player:valid() and Input.wasPressed("N") then
         Log.info(string.format("player is %.1fm away", self:distanceTo(player)))
     end
 end
