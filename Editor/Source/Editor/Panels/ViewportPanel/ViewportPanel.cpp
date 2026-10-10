@@ -205,6 +205,29 @@ namespace Desert::Editor
         return viewport->StrokeFoliageAtCentre();
     }
 
+    Common::BoolResultStr ViewportPanel::PlaceShapeInActiveViewport()
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport )
+            return Common::MakeError( "create shape: no viewport is open" );
+        return viewport->PlaceShapeAtCentre();
+    }
+
+    Common::BoolResultStr ViewportPanel::PlaceShapeAtCentre()
+    {
+        const auto camera = ViewCamera();
+        if ( !m_Scene || !camera || m_ViewportData.Size.x < 1.0f || m_ViewportData.Size.y < 1.0f )
+            return Common::MakeError( "create shape: the viewport has no scene, camera or size yet" );
+        const auto ray = Common::Math::Ray::FromScreenPosition(
+             { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
+             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+        auto placed = Tools::CreateShapeTool::PlaceAlong( *m_Scene, ray );
+        if ( !placed.IsSuccess() )
+            return Common::MakeError( placed.GetError() );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ViewportPanel::PreviewFoliageInActiveViewport()
     {
         auto* viewport = ActiveViewport();
@@ -1862,8 +1885,8 @@ namespace Desert::Editor
                                        m_ViewportData.IsHovered );
                 m_ElementSelectTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos,
                                             m_ViewportData.Size, m_ViewportData.IsHovered );
-                m_CreateShapeTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
-                                          m_ViewportData.IsHovered );
+                m_CreateShapeTool.Update( *m_Scene, ray, centreRay, viewProj, m_ViewportData.ViewportPos,
+                                          m_ViewportData.Size, m_ViewportData.IsHovered );
                 Tools::DrawActiveToolBar( m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }

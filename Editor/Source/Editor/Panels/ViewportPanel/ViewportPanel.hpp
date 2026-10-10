@@ -87,6 +87,10 @@ namespace Desert::Editor
         Common::BoolResultStr StrokeFoliageAtCentre();
         // The same on the viewport the user is working in (ActiveViewport); an error when there is none.
         static Common::BoolResultStr StrokeFoliageInActiveViewport();
+        // Create Shape's click at the viewport centre (the palette's placement): the active tool's shape where
+        // the centre ray meets the scene or the ground, or the refusal saying why nothing was placed.
+        static Common::BoolResultStr PlaceShapeInActiveViewport();
+        Common::BoolResultStr        PlaceShapeAtCentre();
         // FO-UI1: the brush footprint preview aimed at the viewport centre (where a hand would hover), so the
         // preview is reachable without a cursor. An error when the centre ray meets no surface.
         static Common::BoolResultStr PreviewFoliageInActiveViewport();

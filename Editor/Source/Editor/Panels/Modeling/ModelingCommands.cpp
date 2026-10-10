@@ -70,13 +70,7 @@ namespace Desert::Editor
                                   } } );
         }
         commands.push_back( { "Modeling", "Create shape: place at the viewport centre", []
-                              {
-                                  auto& ms = Core::ModelingState::Get();
-                                  if ( ms.ActiveTool != Core::ModelingState::Tool::CreateShape )
-                                      return PaletteCommandOutcome( false, "the Create Shape tool is not active" );
-                                  ms.ReqPlaceCentre = true;
-                                  return PaletteCommandDone();
-                              } } );
+                              { return Editor::ViewportPanel::PlaceShapeInActiveViewport(); } } );
     }
 
     void AppendModelingCommands( std::vector<PaletteCommand>&                  commands,

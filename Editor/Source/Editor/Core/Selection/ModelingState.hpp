@@ -281,11 +281,10 @@ namespace Desert::Editor::Core
         Geometry::PatternSettings XformPattern;
         bool                      XformPatternSeparate = false;
 
-        // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
-        // looks (the palette's way to place without a mouse).
+        // Create tool: the shape a click places (the palette places it at the viewport centre directly,
+        // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).
         ShapeSettings CreateShape;
         OutputSettings Output; // shared by Create Shape and Cube Grid, as UE's modeling mode shares it
-        bool          ReqPlaceCentre = false;
         // Tool -> panel (read-only stats for the properties panel)
         int  Cubes      = 0;
         bool CornerMode = false; // the tool is currently in Corner Mode

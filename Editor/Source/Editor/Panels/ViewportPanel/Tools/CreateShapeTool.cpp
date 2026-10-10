@@ -13,8 +13,13 @@
 
 #include <ImGui/imgui.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
+#include <map>
 #include <memory>
+#include <utility>
+#include <vector>
 
 namespace Desert::Editor::Tools
 {
@@ -32,14 +37,6 @@ namespace Desert::Editor::Tools
             out.x               = pos.x + ( ndc.x * 0.5f + 0.5f ) * size.x;
             out.y               = pos.y + ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * size.y;
             return true;
-        }
-
-        // The ray through the middle of the viewport, from the camera the cursor ray starts at.
-        Common::Math::Ray CentreRay( const Common::Math::Ray& cursorRay, const glm::mat4& viewProj )
-        {
-            glm::vec4 p = glm::inverse( viewProj ) * glm::vec4( 0.0f, 0.0f, 0.5f, 1.0f );
-            p /= p.w;
-            return Common::Math::Ray( cursorRay.Origin, glm::vec3( p ) - cursorRay.Origin );
         }
     } // namespace
 
@@ -133,83 +130,155 @@ namespace Desert::Editor::Tools
         return Common::MakeSuccess( id );
     }
 
-    void CreateShapeTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
-                                  const glm::mat4& viewProj, const glm::vec2& viewportPos,
-                                  const glm::vec2& viewportSize, bool interactive )
+    Common::ResultStr<Common::UUID> CreateShapeTool::PlaceAlong( ::Desert::Core::Scene&   scene,
+                                                                 const Common::Math::Ray& ray )
     {
-        auto& ms = MS::Get();
+        const auto& ms = MS::Get();
         if ( ms.ActiveTool != MS::Tool::CreateShape )
-        {
-            ms.ReqPlaceCentre = false;
-            return;
-        }
-        const MS::ShapeSettings& settings = ms.CreateShape;
+            return Common::MakeError<Common::UUID>( "the Create Shape tool is not active" );
+        const auto point = PlacementPoint( scene, ray, ms.CreateShape.Place );
+        if ( !point )
+            return Common::MakeFormattedError<Common::UUID>(
+                 "the {} was not placed: the viewport centre meets neither the scene nor the ground",
+                 MS::ShapeName( ms.CreateShape.Kind ) );
+        return Place( scene, ms.CreateShape, ms.Output, *point );
+    }
 
-        if ( ms.ReqPlaceCentre )
+    void CreateShapeTool::Rebuild( const MS::ShapeSettings& settings )
+    {
+        m_Preview  = Build( settings );
+        m_Built    = settings;
+        m_HasBuilt = true;
+        m_Edges.clear();
+
+        // Edges are keyed by POSITION, not vertex index: the generators split vertices along hard edges
+        // (a box face owns its four corners), so two faces meet at an edge whose index pairs differ.
+        using Key = std::array<int64_t, 3>;
+        const auto key = []( const glm::vec3& p ) -> Key
         {
-            ms.ReqPlaceCentre = false;
-            if ( const auto point = PlacementPoint( scene, CentreRay( ray, viewProj ), settings.Place ) )
+            return { std::llround( p.x * 1000.0f ), std::llround( p.y * 1000.0f ), std::llround( p.z * 1000.0f ) };
+        };
+        std::map<std::pair<Key, Key>, std::vector<uint32_t>> shared;
+        for ( uint32_t t = 0; t < m_Preview.Indices.size(); ++t )
+        {
+            const auto&                    tri = m_Preview.Indices[t];
+            const std::array<uint32_t, 3> v   = { tri.V1, tri.V2, tri.V3 };
+            for ( int e = 0; e < 3; ++e )
             {
-                if ( auto placed = Place( scene, settings, ms.Output, *point ); !placed.IsSuccess() )
-                    LOG_ERROR( "[CreateShape] {0}", placed.GetError() );
-            }
-            else
-            {
-                LOG_WARN( "[CreateShape] the viewport centre meets neither the scene nor the ground" );
+                Key a = key( m_Preview.Vertices[v[e]].Position );
+                Key b = key( m_Preview.Vertices[v[( e + 1 ) % 3]].Position );
+                if ( b < a )
+                    std::swap( a, b );
+                shared[{ a, b }].push_back( t );
             }
         }
+        for ( const auto& [edge, tris] : shared )
+        {
+            const auto&     tri  = m_Preview.Indices[tris.front()];
+            const glm::vec3 p0   = m_Preview.Vertices[tri.V1].Position;
+            const glm::vec3 p1   = m_Preview.Vertices[tri.V2].Position;
+            const glm::vec3 p2   = m_Preview.Vertices[tri.V3].Position;
+            const auto      find = [&]( const Key& k ) { return key( p0 ) == k ? p0 : key( p1 ) == k ? p1 : p2; };
+            const bool      border  = tris.size() != 2;
+            const bool      grouped = !border && !m_Preview.Groups.empty() &&
+                                 m_Preview.Groups[tris[0]] != m_Preview.Groups[tris[1]];
+            m_Edges.push_back( { find( edge.first ), find( edge.second ), tris.front(),
+                                 border ? tris.front() : tris[1], border || grouped } );
+        }
+    }
+
+    void CreateShapeTool::DrawPreview( const glm::vec3& at, const glm::vec3& eye, const glm::mat4& viewProj,
+                                       const glm::vec2& viewportPos, const glm::vec2& viewportSize ) const
+    {
+        // An open shape (Disc, Rectangle) is seen from both sides; a closed one shows its near side only.
+        const bool closed = std::none_of( m_Edges.begin(), m_Edges.end(),
+                                          []( const FeatureEdge& e ) { return e.TriA == e.TriB; } );
+        struct Face
+        {
+            std::array<ImVec2, 3> Screen;
+            float                 Depth;
+            float                 Light;
+        };
+        std::vector<Face> faces;
+        std::vector<char> front( m_Preview.Indices.size(), 0 );
+        faces.reserve( m_Preview.Indices.size() );
+        for ( size_t t = 0; t < m_Preview.Indices.size(); ++t )
+        {
+            const auto&                    tri = m_Preview.Indices[t];
+            const std::array<uint32_t, 3> v   = { tri.V1, tri.V2, tri.V3 };
+            glm::vec3                     centre( 0.0f );
+            glm::vec3                     normal( 0.0f );
+            Face                          face{};
+            bool                          onScreen = true;
+            for ( int k = 0; k < 3; ++k )
+            {
+                const glm::vec3 p = m_Preview.Vertices[v[k]].Position + at;
+                centre += p / 3.0f;
+                normal += m_Preview.Vertices[v[k]].Normal;
+                onScreen = onScreen && WorldToScreen( p, viewProj, viewportPos, viewportSize, face.Screen[k] );
+            }
+            const glm::vec3 toEye  = eye - centre;
+            const float     facing = glm::dot( normal, toEye );
+            front[t]               = facing > 0.0f ? 1 : 0;
+            if ( !onScreen || ( closed && facing <= 0.0f ) )
+                continue;
+            const float len = glm::length( normal ) * glm::length( toEye );
+            face.Light      = len > 0.0f ? std::abs( facing ) / len : 1.0f;
+            face.Depth      = glm::length( toEye );
+            faces.push_back( face );
+        }
+        // Far to near: the translucent faces blend in the order a depth test would have kept.
+        std::sort( faces.begin(), faces.end(), []( const Face& a, const Face& b ) { return a.Depth > b.Depth; } );
+        ImDrawList* draw = ::ImGui::GetWindowDrawList();
+        for ( const Face& face : faces )
+        {
+            const float l = 0.35f + 0.65f * face.Light;
+            draw->AddTriangleFilled( face.Screen[0], face.Screen[1], face.Screen[2],
+                                     IM_COL32( static_cast<int>( 255 * l ), static_cast<int>( 200 * l ),
+                                               static_cast<int>( 60 * l ), 140 ) );
+        }
+        // The form's edges: polygroup and open borders on the near side, and the silhouette.
+        for ( const FeatureEdge& edge : m_Edges )
+        {
+            const bool a = front[edge.TriA] != 0;
+            const bool b = front[edge.TriB] != 0;
+            if ( closed ? !( a || b ) || !( edge.Feature || a != b ) : !edge.Feature )
+                continue;
+            ImVec2 sa;
+            ImVec2 sb;
+            if ( WorldToScreen( edge.A + at, viewProj, viewportPos, viewportSize, sa ) &&
+                 WorldToScreen( edge.B + at, viewProj, viewportPos, viewportSize, sb ) )
+                draw->AddLine( sa, sb, IM_COL32( 255, 220, 120, 255 ), 1.5f );
+        }
+        ImVec2 pivot;
+        if ( WorldToScreen( at, viewProj, viewportPos, viewportSize, pivot ) )
+            draw->AddCircleFilled( pivot, 4.0f, IM_COL32( 255, 200, 60, 255 ) );
+    }
+
+    void CreateShapeTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
+                                  const Common::Math::Ray& centreRay, const glm::mat4& viewProj,
+                                  const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool interactive )
+    {
+        const auto& ms = MS::Get();
+        if ( ms.ActiveTool != MS::Tool::CreateShape )
+            return;
+        const MS::ShapeSettings& settings = ms.CreateShape;
 
         const ImVec2 mouse   = ::ImGui::GetMousePos();
         const bool   hovered = interactive && mouse.x >= viewportPos.x && mouse.y >= viewportPos.y &&
                              mouse.x < viewportPos.x + viewportSize.x && mouse.y < viewportPos.y + viewportSize.y;
-        if ( !hovered )
-            return;
-        const auto point = PlacementPoint( scene, ray, settings.Place );
+        // Under the cursor while it is over the viewport; else where the viewport centre looks.
+        const auto point = PlacementPoint( scene, hovered ? ray : centreRay, settings.Place );
         if ( !point )
             return;
 
         if ( !m_HasBuilt || !( m_Built == settings ) )
-        {
-            m_Bounds   = Build( settings ).Bounds();
-            m_Built    = settings;
-            m_HasBuilt = true;
-        }
-
-        // Preview: the box the shape will fill, where a click puts it.
-        const glm::vec3                lo      = m_Bounds.Min + *point;
-        const glm::vec3                hi      = m_Bounds.Max + *point;
-        const std::array<glm::vec3, 8> corners = { glm::vec3( lo.x, lo.y, lo.z ), glm::vec3( hi.x, lo.y, lo.z ),
-                                                   glm::vec3( hi.x, lo.y, hi.z ), glm::vec3( lo.x, lo.y, hi.z ),
-                                                   glm::vec3( lo.x, hi.y, lo.z ), glm::vec3( hi.x, hi.y, lo.z ),
-                                                   glm::vec3( hi.x, hi.y, hi.z ), glm::vec3( lo.x, hi.y, hi.z ) };
-        constexpr std::array<std::array<int, 2>, 12> kEdges = { { { 0, 1 },
-                                                                  { 1, 2 },
-                                                                  { 2, 3 },
-                                                                  { 3, 0 },
-                                                                  { 4, 5 },
-                                                                  { 5, 6 },
-                                                                  { 6, 7 },
-                                                                  { 7, 4 },
-                                                                  { 0, 4 },
-                                                                  { 1, 5 },
-                                                                  { 2, 6 },
-                                                                  { 3, 7 } } };
-        ImDrawList*                                  draw   = ::ImGui::GetWindowDrawList();
-        for ( const auto& edge : kEdges )
-        {
-            ImVec2 a;
-            ImVec2 b;
-            if ( WorldToScreen( corners[edge[0]], viewProj, viewportPos, viewportSize, a ) &&
-                 WorldToScreen( corners[edge[1]], viewProj, viewportPos, viewportSize, b ) )
-                draw->AddLine( a, b, IM_COL32( 255, 200, 60, 255 ), 1.5f );
-        }
-        ImVec2 pivot;
-        if ( WorldToScreen( *point, viewProj, viewportPos, viewportSize, pivot ) )
-            draw->AddCircleFilled( pivot, 4.0f, IM_COL32( 255, 200, 60, 255 ) );
+            Rebuild( settings );
+        DrawPreview( *point, ray.Origin, viewProj, viewportPos, viewportSize );
 
         // Alt + LMB is the camera's orbit, not a placement.
         const ImGuiIO& io = ::ImGui::GetIO();
-        if ( !::ImGui::IsAnyItemActive() && !io.KeyAlt && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+        if ( hovered && !::ImGui::IsAnyItemActive() && !io.KeyAlt && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
         {
             if ( auto placed = Place( scene, settings, ms.Output, *point ); !placed.IsSuccess() )
                 LOG_ERROR( "[CreateShape] {0}", placed.GetError() );
