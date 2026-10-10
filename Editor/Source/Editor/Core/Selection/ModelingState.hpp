@@ -135,7 +135,7 @@ namespace Desert::Editor::Core
             Placement                    Place  = Placement::OnScene;
             // UE's bAlignToNormal (UAddPrimitiveTool's shape settings, on by default): the shape's up axis
             // turns to the normal of the surface it is placed on; off, it stands upright wherever it lands.
-            bool                         AlignToNormal = true;
+            bool AlignToNormal = true;
 
             bool operator==( const ShapeSettings& ) const = default;
         };

@@ -360,7 +360,7 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     void VulkanRendererAPI::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                         const MaterialExecutor* materialExecutor )
+                                          const MaterialExecutor* materialExecutor )
     {
         if ( !IsRecording() || vertexCount == 0 )
             return;

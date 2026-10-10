@@ -56,9 +56,9 @@ namespace Desert::Editor::Tools
         // Where the settings put a shape along `ray`: the scene surface under it (bounding-box level,
         // Scene::Raycast - its face normal, turned with the entity) for On Scene, else the ground plane
         // Y = 0 (upright). Nothing when the ray meets neither, e.g. looking at the sky.
-        [[nodiscard]] static std::optional<Spot> PlacementSpot( const ::Desert::Core::Scene&              scene,
-                                                                const Common::Math::Ray&                  ray,
-                                                                const Core::ModelingState::ShapeSettings& settings );
+        [[nodiscard]] static std::optional<Spot>
+        PlacementSpot( const ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
+                       const Core::ModelingState::ShapeSettings& settings );
 
         // Creates the entity at `spot` with the shape as its EditMesh, selects it and records ONE undo step.
         // Refused, with nothing left in the scene, when the shape does not become a mesh.

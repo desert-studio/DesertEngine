@@ -145,7 +145,7 @@ namespace Desert::Graphic
     }
 
     void Renderer::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                const MaterialExecutor* materialExecutor )
+                                 const MaterialExecutor* materialExecutor )
     {
         s_RendererAPI->SubmitPulled( pipeline, vertexCount, lineWidth, materialExecutor );
     }

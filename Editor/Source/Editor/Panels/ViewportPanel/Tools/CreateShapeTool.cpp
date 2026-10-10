@@ -42,7 +42,8 @@ namespace Desert::Editor::Tools
                 return glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
             if ( d < -0.99999f )
                 return glm::angleAxis( glm::pi<float>(), glm::vec3( 1.0f, 0.0f, 0.0f ) );
-            return glm::angleAxis( std::acos( std::clamp( d, -1.0f, 1.0f ) ), glm::normalize( glm::cross( up, n ) ) );
+            return glm::angleAxis( std::acos( std::clamp( d, -1.0f, 1.0f ) ),
+                                   glm::normalize( glm::cross( up, n ) ) );
         }
     } // namespace
 
@@ -87,7 +88,8 @@ namespace Desert::Editor::Tools
         {
             ::Desert::Core::RaycastHit hit;
             if ( scene.Raycast( ray, hit ) && hit.Distance > 0.0f )
-                return Spot{ hit.Point, settings.AlignToNormal ? UpOnto( hit.Normal ) : glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) };
+                return Spot{ hit.Point,
+                             settings.AlignToNormal ? UpOnto( hit.Normal ) : glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) };
         }
         // The ground plane: only in front of the camera, and never along a ray parallel to it.
         if ( std::abs( ray.Direction.y ) < 1e-6f )
@@ -100,8 +102,7 @@ namespace Desert::Editor::Tools
 
     Common::ResultStr<Common::UUID> CreateShapeTool::Place( ::Desert::Core::Scene&    scene,
                                                             const MS::ShapeSettings&  settings,
-                                                            const MS::OutputSettings& output,
-                                                            const Spot&               spot )
+                                                            const MS::OutputSettings& output, const Spot& spot )
     {
         auto mesh = Geometry::ShapeToEditMesh( Build( settings ) );
         if ( !mesh.IsSuccess() )
@@ -109,9 +110,9 @@ namespace Desert::Editor::Tools
                                                              MS::ShapeName( settings.Kind ), mesh.GetError() );
 
         const ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
-        auto& transform       = entity.GetComponent<ECS::TransformComponent>();
-        transform.Translation = spot.Point;
-        transform.Rotation    = glm::eulerAngles( spot.Rotation );
+        auto&             transform = entity.GetComponent<ECS::TransformComponent>();
+        transform.Translation       = spot.Point;
+        transform.Rotation          = glm::eulerAngles( spot.Rotation );
         auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
         if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( smc, mesh.ExtractValue() );
              !set.IsSuccess() )
@@ -198,7 +199,7 @@ namespace Desert::Editor::Tools
     void CreateShapeTool::ShowPreview( const ::Desert::Core::Scene& scene, const Spot& spot,
                                        const glm::vec3& eye ) const
     {
-        using Vertex = Graphic::MaterialDebugLine::LineVertex;
+        using Vertex         = Graphic::MaterialDebugLine::LineVertex;
         const glm::mat3 turn = glm::mat3_cast( spot.Rotation );
         const auto      at   = [&]( const glm::vec3& local ) { return spot.Point + turn * local; };
 
