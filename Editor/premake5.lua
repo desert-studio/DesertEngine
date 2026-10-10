@@ -55,7 +55,7 @@ project "Editor"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
     }
 
-    for name, path in pairs(deps.EditorSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.EditorSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 
@@ -70,7 +70,7 @@ project "Editor"
     -- Taken from DesertSpecific rather than copied into EditorSpecific so the SDK is discovered ONCE
     -- (Desert/Dependencies.lua findVulkanSDK) and both consumers name the same directory; a second
     -- copy is a second thing to keep in step. The keys are absent, not empty, when no SDK is found,
-    -- so pairs() simply yields nothing and the failure stays where it already is — in the engine.
+    -- so the loop simply yields nothing and the failure stays where it already is — in the engine.
     for _, key in ipairs({ "Vulkan", "shaderc", "spirv_cross" }) do
         local path = engineDeps.DesertSpecific.IncludeDir[key]
         if path then
@@ -115,7 +115,7 @@ project "Editor"
     end
 
     filter "configurations:Debug"
-    for name, path in pairs(deps.EditorSpecific.Libraries.Debug) do
+    for name, path in DesertSortedPairs(deps.EditorSpecific.Libraries.Debug) do
         links { path }
     end
 
@@ -126,7 +126,7 @@ project "Editor"
     -- not be the fourth place the shipping configuration is forgotten. The arm that was actually load
     -- bearing is the macOS one further down, and its note is where this defect is written up.
     filter "configurations:Release or Shipping"
-    for name, path in pairs(deps.EditorSpecific.Libraries.Release) do
+    for name, path in DesertSortedPairs(deps.EditorSpecific.Libraries.Release) do
         links { path }
     end
 
@@ -190,7 +190,7 @@ project "Editor"
     -- Vulkan/shaderc/spirv-cross and reflect-cpp come from the engine's
     -- dependency list so the two stay in sync.
     filter { "system:macosx", "configurations:Debug" }
-        for name, path in pairs(engineDeps.DesertSpecific.Libraries.Debug) do
+        for name, path in DesertSortedPairs(engineDeps.DesertSpecific.Libraries.Debug) do
             links { path }
         end
 
@@ -211,7 +211,7 @@ project "Editor"
     -- Desert/Tests/Runtime/ShippingBoundary asserts this relation over EVERY such arm in EVERY project
     -- script, so the next configuration-shaped library selection is covered the day it is written.
     filter { "system:macosx", "configurations:Release or Shipping" }
-        for name, path in pairs(engineDeps.DesertSpecific.Libraries.Release) do
+        for name, path in DesertSortedPairs(engineDeps.DesertSpecific.Libraries.Release) do
             links { path }
         end
 

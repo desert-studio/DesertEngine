@@ -63,11 +63,11 @@ endif
         "Source/Common",
     }
     
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
     
-    for name, path in pairs(deps.CommonSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
         externalincludedirs { path }
     end
     
@@ -87,7 +87,7 @@ endif
     -- carrying no rfl reference. The Windows unity build merges those members with ones that do, and
     -- the margin went with it: run 36260237438, 63 LNK2019/LNK2001 on rfl::Generic and yyjson_* out of
     -- PakTool. Declared here, where the reference actually is.
-    for name, lib in pairs(deps.CommonSpecific.Libraries) do
+    for name, lib in DesertSortedPairs(deps.CommonSpecific.Libraries) do
         links { lib }
     end
     
