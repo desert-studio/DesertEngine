@@ -86,8 +86,10 @@ namespace Desert::Editor::Tools
     {
         if ( settings.Place == MS::Placement::OnScene )
         {
+            // UE ToolSceneQueriesUtil::FindNearestVisibleObjectHit traces COMPLEX: the shape lands on the
+            // triangle under the cursor and Align to Normal takes that triangle's normal.
             ::Desert::Core::RaycastHit hit;
-            if ( scene.Raycast( ray, hit ) && hit.Distance > 0.0f )
+            if ( scene.RaycastComplex( ray, hit ) && hit.Distance > 0.0f )
                 return Spot{ hit.Point,
                              settings.AlignToNormal ? UpOnto( hit.Normal ) : glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) };
         }

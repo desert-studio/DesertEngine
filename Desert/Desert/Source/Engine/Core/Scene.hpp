@@ -66,7 +66,7 @@ namespace Desert::Core
         bool         Hit      = false;
         Common::UUID Entity;                       // hit entity's UUID (valid only when Hit)
         glm::vec3    Point    = glm::vec3( 0.0f );  // world hit point
-        glm::vec3    Normal   = glm::vec3( 0.0f, 1.0f, 0.0f ); // box-face / surface normal
+        glm::vec3    Normal   = glm::vec3( 0.0f, 1.0f, 0.0f ); // box-face / surface normal; triangle normal (RaycastComplex)
         float        Distance = 0.0f;
     };
 
@@ -299,6 +299,13 @@ namespace Desert::Core
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                                     const std::function<bool( const Common::UUID& )>& accept,
                                     const RaycastLandscapeSet&                        landscape ) const;
+        // The COMPLEX trace (UE FCollisionQueryParams::bTraceComplex, as ToolSceneQueriesUtil traces for the
+        // Modeling tools): a static mesh is met on its own triangles, not its submesh boxes, so the hit point
+        // lies on the surface and Normal is the face normal of the triangle the ray crossed (turned toward the
+        // ray). A box is still the broad phase. A skinned mesh is met on its posed bounds, as UE meets one on its
+        // physics bodies.
+        [[nodiscard]] bool RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                           const std::function<bool( const Common::UUID& )>& accept = {} ) const;
 
         // Play-mode state. Edit = authoring (gameplay systems frozen); Play = running (gameplay ticks);
         // Paused = running but time frozen (ts forced to 0). The editor snapshots the scene on Play and
@@ -535,6 +542,11 @@ namespace Desert::Core
 
     private:
         void OnEntityCreated_Camera();
+
+        // Both traces: @p complex meets a static mesh on its triangles (RaycastComplex), else on its boxes.
+        [[nodiscard]] bool Trace( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                  const std::function<bool( const Common::UUID& )>& accept,
+                                  const RaycastLandscapeSet& landscape, bool complex ) const;
 
         // Picks the active camera from the play state (Edit -> EditorCamera, Play -> the main
         // CameraComponent). Skipped entirely while a camera is pinned.

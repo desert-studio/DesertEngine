@@ -17,6 +17,8 @@
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
+#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 #include <Engine/World/Foliage/FoliagePrefabs.hpp>
 
@@ -24,6 +26,8 @@
 #include <cfloat>
 #include <functional>
 #include <limits>
+#include <optional>
+#include <span>
 #include <typeinfo>
 
 #include <Engine/Core/Projection.hpp>
@@ -46,6 +50,56 @@ namespace Desert::Core
             if ( c.Primitive.has_value() )
                 return Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() );
             return nullptr;
+        }
+
+        // A static mesh's CPU triangles, from the same source ResolveMesh draws (handle / runtime-edited /
+        // primitive): the parsed asset keeps its arrays while it is resident. nullopt when none is readable.
+        struct MeshTriangles
+        {
+            std::span<const Vertex>  Vertices;
+            std::span<const Index>   Indices;
+            std::span<const Submesh> Submeshes;
+        };
+        std::optional<MeshTriangles> StaticTriangles( const ECS::StaticMeshComponent& c )
+        {
+            if ( c.MeshHandle )
+            {
+                const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( c.MeshHandle );
+                const auto* data  = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
+                if ( !data )
+                    return std::nullopt;
+                return MeshTriangles{ data->GetVertices(), data->GetIndices(), data->GetSubmeshes() };
+            }
+            const DynamicMesh* mesh = c.RuntimeMesh ? c.RuntimeMesh.get()
+                                      : c.Primitive.has_value()
+                                           ? Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() )
+                                           : nullptr;
+            if ( !mesh )
+                return std::nullopt;
+            return MeshTriangles{ mesh->GetVertices(), mesh->GetIndices(), mesh->GetSubmeshes() };
+        }
+
+        // Moller-Trumbore, both sides: the ray parameter of a hit in front of the origin.
+        bool RayTriangle( const glm::vec3& o, const glm::vec3& d, const glm::vec3& a, const glm::vec3& b,
+                          const glm::vec3& c, float& outT )
+        {
+            const glm::vec3 e1  = b - a;
+            const glm::vec3 e2  = c - a;
+            const glm::vec3 p   = glm::cross( d, e2 );
+            const float     det = glm::dot( e1, p );
+            if ( std::abs( det ) < 1e-12f )
+                return false;
+            const float     inv = 1.0f / det;
+            const glm::vec3 tv  = o - a;
+            const float     u   = glm::dot( tv, p ) * inv;
+            if ( u < 0.0f || u > 1.0f )
+                return false;
+            const glm::vec3 q = glm::cross( tv, e1 );
+            const float     v = glm::dot( d, q ) * inv;
+            if ( v < 0.0f || u + v > 1.0f )
+                return false;
+            outT = glm::dot( e2, q ) * inv;
+            return outT > 0.0f;
         }
 
         // Editor-built runtime rig takes priority over the cooked asset (mirrors the render path).
@@ -114,12 +168,26 @@ namespace Desert::Core
                          const std::function<bool( const Common::UUID& )>& accept,
                          const RaycastLandscapeSet&                        landscape ) const
     {
+        return Trace( ray, outHit, accept, landscape, false );
+    }
+
+    bool Scene::RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                const std::function<bool( const Common::UUID& )>& accept ) const
+    {
+        return Trace( ray, outHit, accept, GatherRaycastLandscape(), true );
+    }
+
+    bool Scene::Trace( const Common::Math::Ray& ray, RaycastHit& outHit,
+                       const std::function<bool( const Common::UUID& )>& accept,
+                       const RaycastLandscapeSet& landscape, bool complex ) const
+    {
         float              closest = std::numeric_limits<float>::max();
         glm::mat4          bestXf( 1.0f );
         Common::Math::AABB bestAABB;
         Common::Math::Ray  bestLocal  = ray;
         float              bestLocalT = 0.0f;
         Common::UUID       bestUUID;
+        std::optional<glm::vec3> bestFace; // the crossed triangle's normal (complex trace), world space
         bool               hit = false;
 
         for ( const auto& entity : GetAllEntities() )
@@ -143,7 +211,52 @@ namespace Desert::Core
             const glm::mat4 xf       = entity.GetWorldTransform();
             const auto      localRay = ray.ToLocalSpace( xf );
 
-            if ( !skinned )
+            const auto triangles = complex && !skinned
+                                        ? StaticTriangles( entity.GetComponent<ECS::StaticMeshComponent>() )
+                                        : std::nullopt;
+            if ( triangles )
+            {
+                // The complex trace: every submesh the ray's line crosses (from inside too: a camera within a
+                // room's box still meets its walls), then its triangles, in the entity's own space.
+                for ( const auto& sm : triangles->Submeshes )
+                {
+                    float t = 0.0f;
+                    if ( !localRay.IntersectsAABB( sm.BoundingBox, t ) )
+                        continue;
+                    const uint32_t first = sm.IndexOffset / 3;
+                    const uint32_t count = sm.IndexCount / 3;
+                    if ( static_cast<uint64_t>( first ) + count > triangles->Indices.size() )
+                        continue;
+                    for ( uint32_t k = first; k < first + count; ++k )
+                    {
+                        const auto&    tri = triangles->Indices[k];
+                        const uint64_t a   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V1;
+                        const uint64_t b   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V2;
+                        const uint64_t c   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V3;
+                        if ( std::max( { a, b, c } ) >= triangles->Vertices.size() )
+                            continue;
+                        const glm::vec3& pa = triangles->Vertices[a].Position;
+                        const glm::vec3& pb = triangles->Vertices[b].Position;
+                        const glm::vec3& pc = triangles->Vertices[c].Position;
+                        float            tt = 0.0f;
+                        if ( !RayTriangle( localRay.Origin, localRay.Direction, pa, pb, pc, tt ) )
+                            continue;
+                        if ( const float d = ray.WorldDistanceOf( localRay, tt, xf ); d > 0.0f && d < closest )
+                        {
+                            // A normal is carried by the inverse transpose (a non-uniform scale tilts it).
+                            glm::vec3 n = glm::transpose( glm::inverse( glm::mat3( xf ) ) ) *
+                                          glm::cross( pb - pa, pc - pa );
+                            if ( glm::dot( n, ray.Direction ) > 0.0f )
+                                n = -n;
+                            closest     = d;
+                            bestUUID    = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                            bestFace    = glm::normalize( n );
+                            hit         = true;
+                        }
+                    }
+                }
+            }
+            else if ( !skinned )
             {
                 for ( const auto& sm : mesh->GetSubmeshes() )
                 {
@@ -159,6 +272,7 @@ namespace Desert::Core
                         bestLocal  = localRay;
                         bestLocalT = t;
                         bestUUID   = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                        bestFace.reset();
                         hit        = true;
                     }
                 }
@@ -190,6 +304,7 @@ namespace Desert::Core
                     bestLocal  = localRay;
                     bestLocalT = t;
                     bestUUID   = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                    bestFace.reset();
                     hit        = true;
                 }
             }
@@ -221,6 +336,11 @@ namespace Desert::Core
         outHit.Entity   = bestUUID;
         outHit.Distance = closest;
         outHit.Point    = ray.GetPoint( closest );
+        if ( bestFace )
+        {
+            outHit.Normal = *bestFace;
+            return true;
+        }
 
         // Box-face normal from the local hit (dominant axis of the offset from the AABB centre).
         const glm::vec3 lp = bestLocal.GetPoint( bestLocalT );
