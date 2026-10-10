@@ -15,6 +15,8 @@
 #include <Engine/Geometry/VoxelBlockout.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../../Engine/PhysicsFixture.hpp"
+
 #include <entt/entt.hpp>
 #include <gtest/gtest.h>
 
@@ -63,7 +65,7 @@ namespace
 
         PlayedBody( entt::registry& registry, entt::entity entity )
         {
-            EXPECT_TRUE( World.Init( 981.0f ) );
+            EXPECT_TRUE( World.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
             const auto&       collider = registry.get<ECS::ColliderComponent>( entity ).Data;
             Physics::BodyDesc desc;
             desc.Shape       = collider.Shape;
@@ -72,7 +74,15 @@ namespace
             desc.HalfHeight  = collider.HalfHeight;
             desc.Axis        = collider.Axis;
             desc.Center      = collider.Center;
-            desc.Type        = registry.get<ECS::RigidBodyComponent>( entity ).Data.Type;
+            const auto& body = registry.get<ECS::RigidBodyComponent>( entity ).Data;
+            desc.Type        = body.Type;
+            auto profile     = World.GetCollisionProfiles().Resolve( body.CollisionProfile );
+            if ( !profile )
+            {
+                Body = Common::MakeError<Physics::BodyHandle>( profile.GetError() );
+                return;
+            }
+            desc.Profile = profile.GetValue();
             if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
             {
                 auto gathered = ECS::PhysicsECSSystem::GatherColliderMesh( registry, entity, glm::vec3( 1.0f ) );
