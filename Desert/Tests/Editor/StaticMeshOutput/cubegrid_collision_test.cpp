@@ -16,6 +16,8 @@
 #include <Engine/Physics/PhysicsWorld.hpp>
 
 #include <entt/entt.hpp>
+
+#include "../../Engine/PhysicsFixture.hpp"
 #include <gtest/gtest.h>
 
 #include <optional>
@@ -63,7 +65,7 @@ namespace
 
         PlayedBody( entt::registry& registry, entt::entity entity )
         {
-            EXPECT_TRUE( World.Init( 981.0f ) );
+            EXPECT_TRUE( World.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
             const auto&       collider = registry.get<ECS::ColliderComponent>( entity ).Data;
             Physics::BodyDesc desc;
             desc.Shape       = collider.Shape;
