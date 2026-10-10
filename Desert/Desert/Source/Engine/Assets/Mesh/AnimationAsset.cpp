@@ -20,6 +20,40 @@ namespace Desert::Assets
             AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
+    AnimationAsset::AnimationAsset( const AssetMetadata& identity, ReloadTwinTag )
+         : AssetBase( identity.Filepath, GetTypeID() )
+    {
+        m_Metadata = identity;
+        // A HANDLE OF ITS OWN: AsyncAssetLoader joins requests by handle (one asset object per handle), and
+        // the twin is a second object for this file - under the live asset's handle a request for the live
+        // one would wait on the twin's read and be told its own, unread, object had loaded. The load reads
+        // the file by path, so the handle names only this request.
+        m_Metadata.Handle = Common::UUID::Generate();
+    }
+
+    std::shared_ptr<AssetBase> AnimationAsset::MakeReloadTarget() const
+    {
+        // A clip generated in memory has no file to read again (IsReloadableFromFile).
+        if ( !IsReloadableFromFile() )
+            return nullptr;
+        return std::make_shared<AnimationAsset>( m_Metadata, ReloadTwinTag{} );
+    }
+
+    Common::BoolResultStr AnimationAsset::AdoptReloaded( AssetBase& twin )
+    {
+        auto* read = dynamic_cast<AnimationAsset*>( &twin );
+        if ( read == nullptr || !read->m_HasClip )
+            return Common::MakeFormattedError<bool>( "'{}': the reloaded twin holds no clip",
+                                                     m_Metadata.Filepath.string() );
+        // LoadFromFile's commit, moved here from the worker: the clip whole, then a new generation of the
+        // track list, so an Animator's per-track cache notices the replacement.
+        m_Clip                   = std::move( read->m_Clip );
+        m_Clip.Sequence.Revision = ++m_TrackRevision;
+        m_HasClip                = true;
+        read->m_HasClip          = false;
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr AnimationAsset::LoadFromFile()
     {
         // The old path of a moved asset reads the file where it now lives, through the registry - the same

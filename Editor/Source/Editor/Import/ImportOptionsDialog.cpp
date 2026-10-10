@@ -12,6 +12,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
@@ -27,6 +28,8 @@
 #include <cmath>
 #include <deque>
 #include <format>
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -175,36 +178,93 @@ namespace Desert::Editor::ImportOptions
             }
         }
 
-        // THE SKELETON AND THE CLIPS A REIMPORT REWROTE ARE RE-READ IN PLACE (UE: Reimport updates the skeleton
-        // and the animation sequences with the mesh). In place because their consumers hold the asset itself: a
-        // skinned mesh caches its rig asset (SkinnedMeshAsset's skeleton dependency, the MeshService entry's
-        // Rig), an Animator binds the clip's AnimationClip, which Load rebuilds at the same address and stamps
-        // with a new track revision; SkeletonAsset::LoadFromFile rewrites its Skeleton at the same address and
-        // a changed signature makes AnimationECSSystem rebuild the Animator. So it is `Load()` on the loaded
-        // asset and NEVER `Unload()` first: that frees the Skeleton the meshes and Animators still point at.
-        // Every live manager that loaded one refreshes it; one nobody loaded has nothing to refresh.
-        template <typename AssetType>
-        void ReloadLoaded( const std::vector<std::filesystem::path>& written )
+        // THE REIMPORT'S RELOADS IN FLIGHT. A LoadRequest IS the keep-alive of its read (AsyncAssetLoader.hpp):
+        // dropped, its delegate never fires, so every one lives here until its delegate has run. Spent handles
+        // are cleared at the next reimport.
+        std::vector<Assets::LoadRequest>& ReloadsInFlight()
         {
+            static std::vector<Assets::LoadRequest> s_Reloads;
+            return s_Reloads;
+        }
+
+        // THE SKELETON AND THE CLIPS A REIMPORT REWROTE ARE RE-READ OFF THE FRAME, AND SWAPPED IN WHOLE (UE:
+        // Reimport updates the skeleton and the animation sequences with the mesh; FAssetCompilingManager
+        // rebuilds them off the game thread and the old asset serves until FinishCompilation). Their consumers
+        // hold the asset itself - a skinned mesh caches its rig (SkinnedMeshAsset's skeleton dependency, the
+        // MeshService entry's Rig), an Animator binds the clip's AnimationClip - so the new content must land
+        // at the same address, which `Load()` on the loaded asset does but on the MAIN thread: Fox_Survey.anim
+        // stopped a frame for 1657 ms (ANIM-FIX13b, [SyncLoad] IN A FRAME). So the file is read on a worker into
+        // the asset's detached twin (AssetBase::MakeReloadTarget) and the twin's payload is moved in on the
+        // main thread by the loader's completion (AdoptReloaded), with the revision bumps an in-place Load
+        // makes - the old clip and rig play until then. NEVER `Unload()` first: that frees the Skeleton the
+        // meshes and Animators still point at. Every live manager that loaded one refreshes it; one nobody
+        // loaded has nothing to refresh. @p onSettled runs once per requested reload, whatever its end.
+        // Returns how many reloads were requested.
+        template <typename AssetType>
+        std::size_t ReloadLoaded( const std::vector<std::filesystem::path>& written,
+                                  const std::function<void()>&              onSettled )
+        {
+            std::vector<Assets::LoadRequest>& inFlight = ReloadsInFlight();
+            std::erase_if( inFlight, []( const Assets::LoadRequest& request ) { return !request.IsValid(); } );
+            std::size_t requested = 0;
             for ( const std::filesystem::path& path : written )
                 for ( Assets::AssetManager* manager : Assets::AssetManager::LiveManagers() )
                 {
-                    const auto asset = manager->FindByPath<AssetType>( path );
+                    const Assets::Asset<AssetType> asset = manager->FindByPath<AssetType>( path );
                     if ( !asset || !asset->IsReadyForUse() )
                         continue;
-                    if ( const auto loaded = asset->Load(); !loaded )
-                        LOG_ERROR( "[Import] '{}' was reimported but not read again: {}", path.generic_string(),
-                                   loaded.GetError() );
+                    const std::shared_ptr<Assets::AssetBase> twin = asset->MakeReloadTarget();
+                    if ( !twin )
+                    {
+                        LOG_ERROR( "[Import] '{}' was reimported but has no file to read again",
+                                   path.generic_string() );
+                        continue;
+                    }
+                    Assets::LoadRequest request = Assets::AsyncAssetLoader::Get().Request(
+                         twin,
+                         [asset, path, onSettled]( const Assets::Asset<Assets::AssetBase>& read,
+                                                   const Assets::LoadOutcome outcome, const std::string& error )
+                         {
+                             if ( outcome != Assets::LoadOutcome::Loaded )
+                                 LOG_ERROR( "[Import] '{}' was reimported but not read again: {}",
+                                            path.generic_string(), error );
+                             else if ( const auto adopted = asset->AdoptReloaded( *read ); !adopted )
+                                 LOG_ERROR( "[Import] '{}' was read again but not swapped in: {}",
+                                            path.generic_string(), adopted.GetError() );
+                             onSettled();
+                         },
+                         [path, onSettled]
+                         {
+                             LOG_ERROR( "[Import] the reload of reimported '{}' was cancelled; the previous "
+                                        "content stays",
+                                        path.generic_string() );
+                             onSettled();
+                         } );
+                    // An invalid handle is the loader's refusal, logged there with the path.
+                    if ( !request.IsValid() )
+                        continue;
+                    inFlight.push_back( std::move( request ) );
+                    ++requested;
                 }
+            return requested;
         }
 
         bool ImportOne( const std::filesystem::path& source, const Assets::SourceImportSettings& settings )
         {
             const ImportOutcome outcome = SharedImporter().ImportWithSettings( source, settings );
-            // The rig first: the skinned meshes rebuilt below read it.
-            ReloadLoaded<Assets::SkeletonAsset>( outcome.WrittenSkeletons );
-            ReloadLoaded<Assets::AnimationAsset>( outcome.WrittenClips );
-            RefreshLoadedMeshes( outcome.WrittenMeshes );
+            // The rig first: the skinned meshes rebuilt after it read it, so they are reset when the last rig
+            // reload has settled (at once when no loaded rig was rewritten). The clips need nothing after them.
+            auto rigsLeft = std::make_shared<std::size_t>( 0 );
+            auto meshes   = std::make_shared<const std::vector<std::filesystem::path>>( outcome.WrittenMeshes );
+            *rigsLeft     = ReloadLoaded<Assets::SkeletonAsset>( outcome.WrittenSkeletons,
+                                                                 [rigsLeft, meshes]
+                                                                 {
+                                                                 if ( --*rigsLeft == 0 )
+                                                                     RefreshLoadedMeshes( *meshes );
+                                                             } );
+            if ( *rigsLeft == 0 )
+                RefreshLoadedMeshes( *meshes );
+            (void)ReloadLoaded<Assets::AnimationAsset>( outcome.WrittenClips, [] {} );
             if ( outcome.Verdict == CookVerdict::Failed || outcome.Verdict == CookVerdict::NotCookable )
             {
                 LOG_ERROR( "[Import] '{}' was not imported with the chosen options (see the error above)",
