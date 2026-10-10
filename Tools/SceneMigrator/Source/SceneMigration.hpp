@@ -202,7 +202,13 @@ namespace Desert::Migration
     //       key. Scenes and prefabs alike.
     inline constexpr int kSceneVersionTimeOfDayComponent = 44;
 
-    static_assert( kSceneVersionTimeOfDayComponent == kSceneVersion,
+    //  45 - THE GAME MODE HAS ITS RULES (GP3, UE AGameModeBase PlayerControllerClass + the respawn). SceneSettings
+    //       gains PlayerController (a prefab handle, unset) and RespawnDelay (seconds, the struct's default)
+    //       right after DefaultPawn, where the saver writes them (MigrateGameModeSettingsV44ToV45); a key the
+    //       file already states is kept. Scene-only: a prefab has no settings block and gains only the stamp.
+    inline constexpr int kSceneVersionGameModeSettings = 45;
+
+    static_assert( kSceneVersionGameModeSettings == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -245,6 +251,9 @@ namespace Desert::Migration
     // with no DirectionLight are dropped - no light, no cascades to configure. The new entity's id is
     // derived from the scene's GUID, so two runs on two branches mint one entity. PURE.
     SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene );
+
+    // MigrateGameModeSettingsV44ToV45: the number of keys it added to the scene's settings block (0..2).
+    int MigrateGameModeSettingsV44ToV45( SceneSerialized& scene );
 
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
@@ -539,6 +548,8 @@ namespace Desert::Migration
         WindSourceReport WindSource;
         bool                     TimeOfDayComponentRaised = false; // below kSceneVersionTimeOfDayComponent
         TimeOfDayComponentReport TimeOfDayComponent;
+        bool                     GameModeSettingsRaised = false; // below kSceneVersionGameModeSettings
+        int                      GameModeKeysAdded      = 0;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -550,7 +561,8 @@ namespace Desert::Migration
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
-                   WindSourceRaised || TimeOfDayComponentRaised;
+                   WindSourceRaised || TimeOfDayComponentRaised ||
+                   GameModeSettingsRaised;
         }
     };
 

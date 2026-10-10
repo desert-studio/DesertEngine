@@ -200,4 +200,5 @@ namespace Desert::Scripting
     void RegisterAnimationBindings( lua_State* L );    // entity:setAnimParam/getAnimCurve/linkAnimLayers/...
     void RegisterUIBindings( lua_State* L );           // ui table (data store, collections, toasts)
     void RegisterLocalizationBindings( lua_State* L ); // loc table (text/plural/number/money/date/language)
+    void RegisterGameModeBindings( lua_State* L );     // gameMode.kill/pawn/controller/respawnIn
 } // namespace Desert::Scripting

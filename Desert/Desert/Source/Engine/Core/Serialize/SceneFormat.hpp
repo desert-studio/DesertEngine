@@ -68,7 +68,9 @@ namespace Desert::Core
     // (Tools/SceneMigrator, MigrateWindSourceV42ToV43).
     // v44 (TOD-SPLIT): the sky's five clock keys are a TimeOfDay block on the same record (Tools/SceneMigrator,
     // MigrateTimeOfDayComponentV43ToV44).
-    inline constexpr int kSceneVersion = 44;
+    // v45 (GP3): SceneSettings states PlayerController and RespawnDelay (Tools/SceneMigrator,
+    // MigrateGameModeSettingsV44ToV45).
+    inline constexpr int kSceneVersion = 45;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

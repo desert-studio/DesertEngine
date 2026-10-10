@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Core/GameMode.hpp>
 #include <Engine/Core/PawnBodyRules.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -55,39 +56,27 @@ namespace Desert::Core
         }
     } // namespace
 
-    Common::ResultStr<ECS::Entity> SpawnDefaultPawn( Scene& scene, const Assets::AssetManager& assets,
-                                                     const PlayRequest& request )
+    Common::ResultStr<glm::mat4> PlayerStartTransform( const Scene& scene, std::string_view tag )
     {
-        scene.SetPlayerPawn( entt::null );
-        const Assets::AssetHandle pawnHandle = scene.GetSettings().DefaultPawn;
-        if ( pawnHandle == 0 )
-            return Common::MakeSuccess( ECS::Entity{} );
-
-        const std::string level = "level '" + scene.GetSceneName() + "'";
-        auto&             reg   = scene.GetRegistry();
-
-        glm::mat4 spawnAt( 1.0f );
-        if ( request.SpawnAt )
+        const auto&                       reg = scene.GetRegistry();
+        std::vector<entt::entity>         entities;
+        std::vector<PlayerStartCandidate> starts;
+        for ( const auto entity : reg.view<ECS::PlayerStartComponent, ECS::TransformComponent>() )
         {
-            spawnAt = *request.SpawnAt;
+            entities.push_back( entity );
+            starts.push_back(
+                 { EntityName( reg, entity ), reg.get<ECS::PlayerStartComponent>( entity ).Data.Tag } );
         }
-        else
-        {
-            std::vector<entt::entity>         entities;
-            std::vector<PlayerStartCandidate> starts;
-            for ( const auto entity : reg.view<ECS::PlayerStartComponent, ECS::TransformComponent>() )
-            {
-                entities.push_back( entity );
-                starts.push_back(
-                     { EntityName( reg, entity ), reg.get<ECS::PlayerStartComponent>( entity ).Data.Tag } );
-            }
-            const auto chosen = ChoosePlayerStart( starts, request.PlayerStartTag );
-            if ( !chosen )
-                return Common::MakeError<ECS::Entity>( level + " names a Default Pawn but " + chosen.GetError() );
-            spawnAt = WorldTransformOf( reg, entities[chosen.GetValue()] );
-        }
+        const auto chosen = ChoosePlayerStart( starts, tag );
+        if ( !chosen )
+            return Common::MakeError<glm::mat4>( chosen.GetError() );
+        return Common::MakeSuccess( WorldTransformOf( reg, entities[chosen.GetValue()] ) );
+    }
 
-        const auto found = DefaultPawnPrefab( scene, assets, pawnHandle );
+    Common::ResultStr<ECS::Entity> SpawnPawnPrefabAt( Scene& scene, const Assets::AssetManager& assets,
+                                                      const glm::mat4& spawnAt )
+    {
+        const auto found = DefaultPawnPrefab( scene, assets, scene.GetSettings().DefaultPawn );
         if ( !found )
             return Common::MakeError<ECS::Entity>( found.GetError() );
         const Assets::Asset<Assets::PrefabAsset>& prefab = found.GetValue();
@@ -102,7 +91,8 @@ namespace Desert::Core
         auto placed = prefab->Instantiate( &scene, assets, {}, &translation );
         if ( !placed )
             return Common::MakeError<ECS::Entity>(
-                 level + ": the Default Pawn could not be spawned: " + placed.GetError() );
+                 "level '" + scene.GetSceneName() +
+                 "': the Default Pawn could not be spawned: " + placed.GetError() );
         ECS::Entity pawn = placed.GetValue();
         // The start's facing is the pawn's facing (UE spawns at the PlayerStart's rotation); only yaw and
         // pitch of a camera matter for Play from Here, and the prefab's own scale is kept.
@@ -112,8 +102,56 @@ namespace Desert::Core
         // keeps it.
         if ( !pawn.HasComponent<ECS::StreamingSourceComponent>() )
             pawn.AddComponent<ECS::StreamingSourceComponent>();
+        return Common::MakeSuccess( pawn );
+    }
+
+    Common::ResultStr<ECS::Entity> SpawnDefaultPawn( Scene& scene, const Assets::AssetManager& assets,
+                                                     const PlayRequest& request )
+    {
+        scene.SetPlayerPawn( entt::null );
+        if ( scene.GetSettings().DefaultPawn == 0 )
+            return Common::MakeSuccess( ECS::Entity{} );
+
+        glm::mat4 spawnAt( 1.0f );
+        if ( request.SpawnAt )
+        {
+            spawnAt = *request.SpawnAt;
+        }
+        else
+        {
+            const auto start = PlayerStartTransform( scene, request.PlayerStartTag );
+            if ( !start )
+                return Common::MakeError<ECS::Entity>( "level '" + scene.GetSceneName() +
+                                                       "' names a Default Pawn but " + start.GetError() );
+            spawnAt = start.GetValue();
+        }
+
+        auto spawned = SpawnPawnPrefabAt( scene, assets, spawnAt );
+        if ( !spawned )
+            return spawned;
+        ECS::Entity pawn = spawned.GetValue();
         scene.SetPlayerPawn( pawn.GetHandle() );
         return Common::MakeSuccess( pawn );
+    }
+
+    Common::ResultStr<ECS::Entity> SpawnPlayerController( Scene& scene, const Assets::AssetManager& assets )
+    {
+        scene.SetPlayerController( entt::null );
+        const Assets::AssetHandle handle = scene.GetSettings().PlayerController;
+        if ( handle == 0 )
+            return Common::MakeSuccess( ECS::Entity{} );
+        auto prefab = assets.FindByHandle<Assets::PrefabAsset>( handle );
+        if ( !prefab || !prefab->IsReadyForUse() )
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "level '{}': its Player Controller (asset handle {}) is not a loaded prefab",
+                 scene.GetSceneName(), static_cast<uint64_t>( handle ) );
+        auto placed = prefab->Instantiate( &scene, assets );
+        if ( !placed )
+            return Common::MakeError<ECS::Entity>(
+                 "level '" + scene.GetSceneName() +
+                 "': the Player Controller could not be spawned: " + placed.GetError() );
+        scene.SetPlayerController( placed.GetValue().GetHandle() );
+        return placed;
     }
 
     Common::ResultStr<std::optional<PawnCapsule>> DefaultPawnCapsule( const Scene&                scene,
@@ -164,15 +202,29 @@ namespace Desert::Core
         if ( !pawn )
             return Common::MakeError( pawn.GetError() );
 
+        const auto controller = SpawnPlayerController( scene, assets );
+        if ( !controller )
+        {
+            if ( pawn.GetValue() )
+                scene.DestroyEntity( pawn.GetValue() );
+            scene.SetPlayerPawn( entt::null );
+            return Common::MakeError( controller.GetError() );
+        }
+
         scene.SetPlayFromHere( request.SpawnAt.has_value() );
         if ( const auto view = scene.ResolveViewTarget(); !view )
         {
             if ( pawn.GetValue() )
                 scene.DestroyEntity( pawn.GetValue() );
+            if ( controller.GetValue() )
+                scene.DestroyEntity( controller.GetValue() );
             scene.SetPlayerPawn( entt::null );
+            scene.SetPlayerController( entt::null );
             scene.SetPlayFromHere( false );
             return Common::MakeError( view.GetError() );
         }
+        // The game rules start with the pawn (UE: the GameMode's RestartPlayer has just run for the player).
+        scene.GetGameMode().Begin( request.PlayerStartTag );
         // THE GAME'S UI CLIPS START FROM THEIR FIRST FRAME. A clip's player is runtime state on the component
         // (UIAnimData::Playback) and an authored level may hold one — scrubbed by the Sequencer, or left
         // wherever editing put it. UE constructs fresh widgets for a PIE world; here the players are dropped,

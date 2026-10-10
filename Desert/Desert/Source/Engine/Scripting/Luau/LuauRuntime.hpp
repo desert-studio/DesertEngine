@@ -135,6 +135,11 @@ namespace Desert::Scripting
         [[nodiscard]] Common::BoolResultStr Call( LuauSlot slot, const char* function,
                                                   std::span<const Reflection::Value> args = {} );
 
+        /// Calls the slot's global `function` with ONE entity of `registry` (an engine event about an actor:
+        /// the GameMode's OnPawnDied / OnPlayerRestarted), under the watchdog.
+        [[nodiscard]] Common::BoolResultStr CallWithEntity( LuauSlot slot, const char* function,
+                                                            entt::registry& registry, entt::entity entity );
+
         /// Calls the slot's global `function` with the `count` values at `first..` of `from`'s stack (a native
         /// forwarding a script's own arguments — entity:call(fn, ...)), under the watchdog.
         [[nodiscard]] Common::BoolResultStr CallFrom( LuauSlot slot, const char* function, lua_State* from,

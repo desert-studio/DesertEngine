@@ -73,6 +73,7 @@ namespace Desert::Scripting
                  RegisterAnimationBindings( L );
                  RegisterUIBindings( L );
                  RegisterLocalizationBindings( L );
+                 RegisterGameModeBindings( L );
              } );
     }
 
@@ -329,12 +330,45 @@ namespace Desert::Scripting
         {
             m_Impl->PlayerInputBegun = true;
             if ( m_Impl->Assets != nullptr )
-                m_Impl->PlayerInput.BeginPlay( registry, *m_Impl->Assets );
+                m_Impl->PlayerInput.BeginPlay( registry, *m_Impl->Assets,
+                                               m_Impl->Scene != nullptr ? m_Impl->Scene->GetPlayerPawn()
+                                                                        : entt::entity( entt::null ) );
             else if ( !registry.view<ECS::EnhancedInputPlayerComponent>().empty() )
                 LOG_ERROR( "[Input] this world plays without an asset manager: the player's mapping contexts "
                            "cannot be read" );
         }
         m_Impl->PlayerInput.Tick( { m_Impl->MouseDx, m_Impl->MouseDy }, deltaSeconds );
+    }
+
+    void ScriptEngine::DeliverGameModeEvents( entt::registry& registry )
+    {
+        if ( m_Impl->Scene == nullptr )
+            return;
+        for ( const Core::GameModeEvent& event : m_Impl->Scene->GetGameMode().TakeEvents() )
+        {
+            const bool died = event.Kind == Core::GameModeEventKind::PawnDied;
+            if ( died )
+                m_Impl->PlayerInput.UnpossessPawn();
+            else if ( m_Impl->Assets != nullptr )
+                m_Impl->PlayerInput.PossessPawn( registry, *m_Impl->Assets, event.Pawn );
+            const char* hook = died ? "OnPawnDied" : "OnPlayerRestarted";
+            // A copy: an answering script may destroy entities (their slots are released after it returns).
+            std::vector<std::pair<uint32_t, uint32_t>> targets;
+            for ( const auto& [entity, slots] : m_Impl->Slots )
+                for ( uint32_t slot = 0; slot < static_cast<uint32_t>( slots.size() ); ++slot )
+                    targets.emplace_back( entity, slot );
+            for ( const auto& [entity, slot] : targets )
+            {
+                const LuauSlot target = m_Impl->SlotOf( entity, slot );
+                if ( target == 0 || !m_Impl->Runtime->Defines( target, hook ) )
+                    continue;
+                m_Impl->CurrentOwner = Impl::SlotKey( entity, slot );
+                if ( Common::BoolResultStr r = m_Impl->Runtime->CallWithEntity( target, hook, registry, event.Pawn );
+                     !r.IsSuccess() )
+                    LOG_ERROR( "[Lua] {} error: {}", hook, r.GetError() );
+                m_Impl->Settle();
+            }
+        }
     }
 
     void ScriptEngine::EndPlayerInput()

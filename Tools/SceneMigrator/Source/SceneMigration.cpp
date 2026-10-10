@@ -2266,6 +2266,57 @@ namespace Desert::Migration
         }
     } // namespace
 
+    int MigrateGameModeSettingsV44ToV45( SceneSerialized& scene )
+    {
+        if ( !scene.Settings.has_value() )
+            return 0;
+        const auto stated = scene.Settings.value().to_object();
+        if ( !stated.has_value() )
+            return 0;
+        bool hasController = false;
+        bool hasDelay      = false;
+        for ( const auto& [key, field] : stated.value() )
+        {
+            hasController = hasController || key == "PlayerController";
+            hasDelay      = hasDelay || key == "RespawnDelay";
+        }
+        if ( hasController && hasDelay )
+            return 0;
+
+        rfl::Generic::Object unsetPrefab;
+        unsetPrefab["Guid"] = rfl::Generic( std::string() );
+        unsetPrefab["Path"] = rfl::Generic( std::string() );
+        const rfl::Generic delay( static_cast<double>( Core::SceneSettings{}.RespawnDelay ) );
+
+        int                  added  = 0;
+        bool                 placed = false;
+        rfl::Generic::Object out;
+        auto                 addMissing = [&]()
+        {
+            if ( !hasController )
+            {
+                out["PlayerController"] = rfl::Generic( unsetPrefab );
+                ++added;
+            }
+            if ( !hasDelay )
+            {
+                out["RespawnDelay"] = delay;
+                ++added;
+            }
+            placed = true;
+        };
+        for ( const auto& [key, field] : stated.value() )
+        {
+            out[key] = field;
+            if ( key == "DefaultPawn" )
+                addMissing();
+        }
+        if ( !placed )
+            addMissing();
+        scene.Settings = rfl::Generic( std::move( out ) );
+        return added;
+    }
+
     SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene )
     {
         SceneSettingsHomesReport report;
@@ -2443,6 +2494,11 @@ namespace Desert::Migration
             report.SceneSettingsHomesRaised = true;
             report.SceneSettingsHomes       = MigrateSceneSettingsHomesV35ToV36( scene );
         }
+        if ( statedSceneVersion < kSceneVersionGameModeSettings )
+        {
+            report.GameModeSettingsRaised = true;
+            report.GameModeKeysAdded      = MigrateGameModeSettingsV44ToV45( scene );
+        }
 
         // Scene-only as well: a `.deprefab`'s nested instance keeps its root transform in its override, which
         // its own file resolves; only a scene is read by a planner that sees one file.
@@ -2505,6 +2561,8 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, prefab.Name, outcome.FoundSceneVersion, assetsRoot, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionGameModeSettings )
+            outcome.Steps.GameModeSettingsRaised = true; // the stamp only: a prefab has no settings block
         if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionWindSource )
         {
             outcome.Steps.WindSourceRaised = true;

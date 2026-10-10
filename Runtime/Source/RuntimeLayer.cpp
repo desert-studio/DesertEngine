@@ -49,6 +49,7 @@
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/ECS/System/GameModeSystem.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
@@ -545,6 +546,7 @@ namespace Desert::Player
         m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
+        m_Scene->AddSystem<ECS::GameModeSystem>( m_Scene.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
         m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );

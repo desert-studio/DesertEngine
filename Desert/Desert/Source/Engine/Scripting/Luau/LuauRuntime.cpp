@@ -344,6 +344,28 @@ namespace Desert::Scripting
                          std::format( "{} {}", target.Script, function ) );
     }
 
+    Common::BoolResultStr LuauRuntime::CallWithEntity( LuauSlot slot, const char* function,
+                                                       entt::registry& registry, entt::entity entity )
+    {
+        Impl& impl  = *m_Impl;
+        auto  found = impl.Slots.find( slot );
+        if ( found == impl.Slots.end() )
+            return Common::MakeError<bool>( std::format( "slot {} does not exist", slot ) );
+        const Impl::Slot& target = found->second;
+        lua_State*        thread = target.Thread;
+
+        lua_getglobal( thread, function );
+        if ( !lua_isfunction( thread, -1 ) )
+        {
+            lua_pop( thread, 1 );
+            return Common::MakeError<bool>(
+                 std::format( "{}: defines no function '{}'", target.Script, function ) );
+        }
+        LuauBinder::PushEntity( thread, registry, entity );
+        return impl.Run( thread, 1, 0, impl.Scripts.at( target.Script ).Category,
+                         std::format( "{} {}", target.Script, function ) );
+    }
+
     Common::BoolResultStr LuauRuntime::CallFrom( LuauSlot slot, const char* function, lua_State* from, int first,
                                                  int count )
     {
