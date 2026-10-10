@@ -32,7 +32,7 @@ TURN_WARN = 135
 TURN_LIMIT = 150  # owner 10-10 evening: one agent carries a feature to the end, no a/b/c/d passes
 TURN_HARD_CAP = 150  # owner 2026-10-10 (was 60, 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
 MAX_SLEEP = 270
-MAX_EDITOR_BUILDS = 2
+MAX_EDITOR_BUILDS = 4  # owner 10-10: one agent carries a feature to a live frame; 2 forced lead-side rebuilds
 
 TREE_SEARCH = [
     re.compile(r"(^|[;&|(]\s*|\s)(grep|egrep|fgrep)\s+(-[A-Za-z]*[rR][A-Za-z]*|--recursive)\b"),
@@ -687,8 +687,8 @@ def main():
         if EDITOR_BUILD.search(cmd) and not SINGLE_TU.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
                 save_state(state, path)
-                deny(f"[agent_guard] Editor уже собирался {MAX_EDITOR_BUILDS} раза в этой задаче. Итерации — на "
-                     f"сюитах; если без третьей сборки нельзя — SendMessage тимлиду с причиной.", data, agent)
+                deny(f"[agent_guard] Editor уже собирался {MAX_EDITOR_BUILDS} раз(а) в этой задаче. Итерации — на "
+                     f"сюитах; если без ещё одной сборки нельзя — SendMessage тимлиду с причиной.", data, agent)
             state["editor_builds"] = state.get("editor_builds", 0) + 1
 
     save_state(state, path)
