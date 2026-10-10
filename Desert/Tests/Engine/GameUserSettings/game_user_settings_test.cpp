@@ -216,9 +216,3 @@ TEST( GameUserSettingsApply, AnInvalidValueTouchesNothing )
     EXPECT_EQ( window.VSyncCalls, 0 );
     EXPECT_EQ( pacer.Limit(), 0u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
