@@ -184,7 +184,16 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionCollisionProfiles = 42;
 
-    static_assert( kSceneVersionCollisionProfiles == kSceneVersion,
+    //  43 - SSR IS ON BY DEFAULT (SSR1b). PostProcessSettings.EnableSSR defaults to true. The generic writer
+    //       stated every field of a volume's Settings, so a v42 "EnableSSR": false is the old default, not a
+    //       choice anyone can be told apart from it: every PostProcessVolume record states true
+    //       (MigrateSSRDefaultOnV42ToV43); a volume without Settings gets {"EnableSSR": true}; a stated true is
+    //       kept. A prefab override's EnableSSR is a delta against its prefab record and is kept as stated. A
+    //       scene that must keep SSR off sets it on its volume AFTER this step, as an authored value. Scenes
+    //       and prefabs alike.
+    inline constexpr int kSceneVersionSSRDefaultOn = 43;
+
+    static_assert( kSceneVersionSSRDefaultOn == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -294,6 +303,17 @@ namespace Desert::Migration
     // States CollisionProfile on every RigidBody / CharacterController block under the rule
     // kSceneVersionCollisionProfiles states. PURE.
     CollisionProfilesReport MigrateCollisionProfilesV41ToV42( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSSRDefaultOnV42ToV43 did to one file.
+    struct SSRDefaultOnReport
+    {
+        std::size_t              Volumes = 0; // PostProcessVolume records that now state EnableSSR true
+        std::vector<std::string> Refused;     // a volume whose Settings or EnableSSR is not the declared type
+    };
+
+    // States EnableSSR true on every PostProcessVolume record under the rule kSceneVersionSSRDefaultOn
+    // states. PURE.
+    SSRDefaultOnReport MigrateSSRDefaultOnV42ToV43( std::vector<Assets::EntityData>& entities );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -484,6 +504,9 @@ namespace Desert::Migration
         bool                    CollisionProfilesRaised = false; // below kSceneVersionCollisionProfiles
         CollisionProfilesReport CollisionProfiles;
 
+        bool               SSRDefaultOnRaised = false; // below kSceneVersionSSRDefaultOn
+        SSRDefaultOnReport SSRDefaultOn;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -493,7 +516,8 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised;
+                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
+                   SSRDefaultOnRaised;
         }
     };
 

@@ -559,6 +559,56 @@ namespace Desert::Migration
         return report;
     }
 
+    SSRDefaultOnReport MigrateSSRDefaultOnV42ToV43( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr const char* kKey = "EnableSSR";
+        SSRDefaultOnReport    report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            // Only the record's own volume: an override's EnableSSR is a delta against its prefab record,
+            // which the prefab's own migration raises.
+            EditBlock( entity.Components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           rfl::Generic::Object settings;
+                           if ( const auto stated = block.get( "Settings" ); stated.has_value() )
+                           {
+                               auto fields = stated.value().to_object();
+                               if ( !fields.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                     rfl::json::write( stated.value() ) ) );
+                                   return false;
+                               }
+                               settings = std::move( fields.value() );
+                           }
+                           if ( const auto enabled = settings.get( kKey ); enabled.has_value() )
+                           {
+                               const auto flag = enabled.value().to_bool();
+                               if ( !flag.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.EnableSSR {} is not a bool",
+                                                     who, rfl::json::write( enabled.value() ) ) );
+                                   return false;
+                               }
+                               if ( flag.value() )
+                                   return false;
+                               DropKey( settings, kKey );
+                           }
+                           settings[kKey] = rfl::Generic( true );
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Volumes;
+                           return true;
+                       } );
+        }
+        return report;
+    }
+
     UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities )
     {
         UIAnimationTimelinesReport report;
@@ -1879,6 +1929,18 @@ namespace Desert::Migration
                 if ( !report.CollisionProfiles.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.CollisionProfiles.Refused );
+                    return;
+                }
+            }
+
+            // SSR is on by default (SSR1b): every volume states true where v42 stated the old default false.
+            if ( statedSceneVersion < kSceneVersionSSRDefaultOn )
+            {
+                report.SSRDefaultOnRaised = true;
+                report.SSRDefaultOn       = MigrateSSRDefaultOnV42ToV43( entities );
+                if ( !report.SSRDefaultOn.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SSRDefaultOn.Refused );
                     return;
                 }
             }
