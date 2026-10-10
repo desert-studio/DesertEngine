@@ -118,7 +118,7 @@ TEST( CubeGridCollision, AcceptedRoomIsWalkedIntoThroughItsDoorway )
     EXPECT_EQ( piece.GetComponent<ECS::ColliderComponent>().Data.Shape, Physics::ShapeType::Mesh );
     EXPECT_EQ( piece.GetComponent<ECS::RigidBodyComponent>().Data.Type, Physics::BodyType::Static );
 
-    PlayedBody played( registry, piece.GetHandle() );
+    PlayedBody const played( registry, piece.GetHandle() );
     ASSERT_TRUE( played.Body.IsSuccess() ) << played.Body.GetError();
 
     // Through the doorway (x = 150 cm, half a block up): nothing until the far wall's inner face at z = 200 cm.

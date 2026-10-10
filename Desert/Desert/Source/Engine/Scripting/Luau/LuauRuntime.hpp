@@ -72,7 +72,7 @@ namespace Desert::Scripting
     /// The script object of the component `row` on the entity `entity` resolves to: null once the entity, its
     /// world or the component is gone (resolved again on every access, never held); a write fires the
     /// component's on_update.
-    [[nodiscard]] LuauBinding ComponentBinding( std::string name, std::function<LuauEntityRef()> entity,
+    [[nodiscard]] LuauBinding ComponentBinding( std::string name, const std::function<LuauEntityRef()>& entity,
                                                 const ECS::ReflectedComponent& row );
 
     /// The script object of `entity` (no fields of its own; `entity:component(key)`).

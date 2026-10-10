@@ -228,7 +228,7 @@ TEST( ComponentEvents, ABreakCarriesItsPiece )
 TEST( ComponentEvents, AWrongPayloadIsRefused )
 {
     ECS::ComponentEvents events;
-    const entt::entity   self = static_cast<entt::entity>( 3u );
+    const auto           self = static_cast<entt::entity>( 3u );
     EXPECT_FALSE( events.Subscribe( self, "NoSuchType", "OnHit", []( std::span<const Value> ) {} ).IsSuccess() );
     EXPECT_FALSE(
          events.Subscribe( self, "RigidBodyData", "OnNoSuchEvent", []( std::span<const Value> ) {} ).IsSuccess() );

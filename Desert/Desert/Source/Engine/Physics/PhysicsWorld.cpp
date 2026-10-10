@@ -394,8 +394,8 @@ namespace Desert::Physics
             {
                 size_t operator()( const ShapePair& k ) const
                 {
-                    const uint64_t a = ( uint64_t( k.Body1 ) << 32u ) | k.Sub1;
-                    const uint64_t b = ( uint64_t( k.Body2 ) << 32u ) | k.Sub2;
+                    const uint64_t a = ( static_cast<uint64_t>( k.Body1 ) << 32u ) | k.Sub1;
+                    const uint64_t b = ( static_cast<uint64_t>( k.Body2 ) << 32u ) | k.Sub2;
                     return std::hash<uint64_t>{}( a ) ^ ( std::hash<uint64_t>{}( b ) * 0x9E3779B97F4A7C15ull );
                 }
             };
@@ -406,7 +406,7 @@ namespace Desert::Physics
             }
             static uint64_t BodyPairKey( BodyHandle a, BodyHandle b )
             {
-                return ( uint64_t( a ) << 32u ) | b;
+                return ( static_cast<uint64_t>( a ) << 32u ) | b;
             }
 
             // The overlapping shape pairs, each with its body pair; how many shape pairs each body pair has.
@@ -613,13 +613,13 @@ namespace Desert::Physics
             for ( const JPH::BodyID id : active )
             {
                 JPH::RVec3 position;
-                JPH::Quat  rotation;
+                JPH::Quat  rotation{};
                 Bodies->GetPositionAndRotation( id, position, rotation );
                 PreviousPoses[id.GetIndexAndSequenceNumber()] = { ToGlm( position ), ToGlm( rotation ) };
             }
             PreviousCharacterPositions.resize( Characters.size() );
             for ( size_t i = 0; i < Characters.size(); ++i )
-                if ( Characters[i] )
+                if ( Characters[i] != nullptr )
                     PreviousCharacterPositions[i] = ToGlm( Characters[i]->GetPosition() );
         }
     };

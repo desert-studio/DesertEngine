@@ -9,6 +9,12 @@ namespace Desert::UI
 {
     namespace
     {
+        // A horizontal arrow's move without Cmd: by word when the word modifier is held, else by one character.
+        UITextMove WordOr( bool word, UITextMove byWord, UITextMove byCharacter )
+        {
+            return word ? byWord : byCharacter;
+        }
+
         bool IsContinuation( char c )
         {
             return ( static_cast<unsigned char>( c ) & 0xC0u ) == 0x80u;
@@ -451,16 +457,12 @@ namespace Desert::UI
             {
                 case KeyCode::Left:
                     Move( text,
-                          super  ? UITextMove::LineStart
-                          : word ? UITextMove::WordLeft
-                                 : UITextMove::Left,
+                          super ? UITextMove::LineStart : WordOr( word, UITextMove::WordLeft, UITextMove::Left ),
                           shift );
                     break;
                 case KeyCode::Right:
                     Move( text,
-                          super  ? UITextMove::LineEnd
-                          : word ? UITextMove::WordRight
-                                 : UITextMove::Right,
+                          super ? UITextMove::LineEnd : WordOr( word, UITextMove::WordRight, UITextMove::Right ),
                           shift );
                     break;
                 case KeyCode::Up:
@@ -488,15 +490,15 @@ namespace Desert::UI
                         SelectAll( text );
                     break;
                 case KeyCode::C:
-                    if ( command && clipboard )
+                    if ( command && ( clipboard != nullptr ) )
                         Copy( text, rules, *clipboard );
                     break;
                 case KeyCode::X:
-                    if ( command && clipboard )
+                    if ( command && ( clipboard != nullptr ) )
                         Cut( text, rules, *clipboard );
                     break;
                 case KeyCode::V:
-                    if ( command && clipboard )
+                    if ( command && ( clipboard != nullptr ) )
                         Paste( text, rules, *clipboard );
                     break;
                 case KeyCode::Z:

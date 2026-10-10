@@ -115,7 +115,7 @@ namespace Desert::Editor::Tools
                               "reopening would overwrite that edit",
                               name, saved->MeshKey, meshKey.GetValue() ) );
         if ( auto scaled = ScaleRefusal( name, world ) )
-            return Common::MakeError<ReopenedBlockout>( std::move( *scaled ) );
+            return Common::MakeError<ReopenedBlockout>( *scaled );
         auto loaded = VB::Load( *saved );
         if ( !loaded.IsSuccess() )
             return Common::MakeError<ReopenedBlockout>( std::format( "'{}': {}", name, loaded.GetError() ) );
@@ -140,7 +140,7 @@ namespace Desert::Editor::Tools
                                                                               float minUnit )
     {
         if ( auto scaled = ScaleRefusal( name, world ) )
-            return Common::MakeError<ReopenedBlockout>( std::move( *scaled ) );
+            return Common::MakeError<ReopenedBlockout>( *scaled );
         std::vector<int>        slotOf( static_cast<size_t>( std::max( mesh.MaxVertexID(), 0 ) ), -1 );
         std::vector<glm::dvec3> positions;
         positions.reserve( static_cast<size_t>( mesh.VertexCount() ) );

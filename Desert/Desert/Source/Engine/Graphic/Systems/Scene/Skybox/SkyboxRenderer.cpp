@@ -867,11 +867,12 @@ namespace Desert::Graphic::System
         m_PendingCloudFingerprint = clouds.Fingerprint;
         m_PendingSkyFingerprint   = skyFingerprint;
         m_PendingSize             = size;
-        m_PendingWhat = clouds.Marched ? ( cloudBinding.SkyOcclusion ? "clouds marched into the panorama, "
-                                                                       "sky-occlusion volume read"
-                                                                     : "clouds marched into the panorama, "
-                                                                       "profile-driven ambient occlusion" )
-                                       : "sky only (this view has no cloud layer)";
+        if ( !clouds.Marched )
+            m_PendingWhat = "sky only (this view has no cloud layer)";
+        else if ( cloudBinding.SkyOcclusion )
+            m_PendingWhat = "clouds marched into the panorama, sky-occlusion volume read";
+        else
+            m_PendingWhat = "clouds marched into the panorama, profile-driven ambient occlusion";
 
         // A sky that has no environment yet lands this one in the same call when the GPU is already done —
         // never by waiting for it.

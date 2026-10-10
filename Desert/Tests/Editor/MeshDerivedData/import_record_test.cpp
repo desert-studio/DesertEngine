@@ -396,10 +396,12 @@ TEST( ImportRecord, ASplitRecordIsParsedOnceAndAgainOnlyWhenItsFileChanges )
     const uint64_t before = Ser::ImportRecordParseCount();
     const auto     read   = Ser::ReadImportRecord( project.Source );
     ASSERT_TRUE( read ) << read.GetError();
-    ASSERT_TRUE( read.GetValue().has_value() && read.GetValue()->Nodes.has_value() );
+    const std::optional<Ser::ImportRecordData>& record = read.GetValue();
+    if ( !record || !record->Nodes )
+        GTEST_FAIL() << "the record or its Nodes were not read";
     const std::vector<Ser::ImportRecordNode> stated = { { "StringLight_Wind_20", { -205.5f, 708.25f, -2093.0f } },
                                                         { "Doors_2", { 1.0f, 2.0f, 3.0f } } };
-    EXPECT_EQ( *read.GetValue()->Nodes, stated ) << "the record's Nodes are not read as Name and Placement";
+    EXPECT_EQ( *record->Nodes, stated ) << "the record's Nodes are not read as Name and Placement";
 
     // Every ask a node mesh's thumbnail makes, many times over: no parse beyond the first.
     for ( int ask = 0; ask < 50; ++ask )
@@ -416,8 +418,11 @@ TEST( ImportRecord, ASplitRecordIsParsedOnceAndAgainOnlyWhenItsFileChanges )
     writeRecord( "StringLight_Wind_19_renamed" );
     settle();
     const auto edited = Ser::ReadImportRecord( project.Source );
-    ASSERT_TRUE( edited && edited.GetValue().has_value() && edited.GetValue()->Nodes.has_value() );
-    EXPECT_EQ( edited.GetValue()->Nodes->front().Name, "StringLight_Wind_19_renamed" )
+    ASSERT_TRUE( edited ) << edited.GetError();
+    const std::optional<Ser::ImportRecordData>& editedRecord = edited.GetValue();
+    if ( !editedRecord || !editedRecord->Nodes || editedRecord->Nodes->empty() )
+        GTEST_FAIL() << "the edited record or its Nodes were not read";
+    EXPECT_EQ( editedRecord->Nodes->front().Name, "StringLight_Wind_19_renamed" )
          << "the held parse outlived the file it was read from";
     EXPECT_TRUE( Ser::ReadImportRecordGuid( project.Source ) );
     EXPECT_EQ( Ser::ImportRecordParseCount(), before + 2 );

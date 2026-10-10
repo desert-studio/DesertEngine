@@ -46,8 +46,8 @@ namespace Desert::Editor
         // @p streamer answers the editor's live streamer, or nullptr outside Play.
         using StreamerGetter = std::function<const ::Desert::Core::WorldStreamer*()>;
 
-        WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
-                             const ::Desert::Assets::AssetManager* assets, StreamerGetter streamer );
+        WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene, ::Desert::Assets::AssetManager* assets,
+                             StreamerGetter streamer );
 
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<::Desert::Core::Scene>& scene ) override;
@@ -87,7 +87,7 @@ namespace Desert::Editor
                       const ::Desert::Core::WorldStreamer*             streamer );
 
         std::shared_ptr<::Desert::Core::Scene> m_Scene;
-        const ::Desert::Assets::AssetManager*  m_Assets;
+        ::Desert::Assets::AssetManager*        m_Assets;
         StreamerGetter                         m_Streamer;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).

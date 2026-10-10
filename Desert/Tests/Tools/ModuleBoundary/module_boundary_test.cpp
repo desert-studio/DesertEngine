@@ -164,7 +164,7 @@ TEST( ModuleBoundary, EveryFileHasAModuleAndEveryRowPlacesOne )
     const std::set<std::string> files = EngineFiles();
     ASSERT_GT( files.size(), 1000u ) << "the walk found no engine: " << RepoRoot();
     std::vector<int>  placed( Table().Placement().size(), 0 );
-    const std::string legacyPrefix = Table().LegacyRoot() + "/";
+    const std::string legacyPrefix = std::format( "{}/", Table().LegacyRoot() );
     for ( const std::string& file : files )
     {
         EXPECT_FALSE( Table().ModuleOf( file ).empty() ) << file << " belongs to no module";
@@ -242,7 +242,7 @@ TEST( ModuleBoundary, CrossingsReport )
     // Named crossings the plan cuts; a pin goes in the commit whose cut deletes its line.
     constexpr const char* kPinnedCrossings[] = {
          // C1: EngineContext is GDynamicRHI
-         "Desert/Desert/Source/Engine/Graphic/MemoryReadoutSource.cpp -> "
+         "Desert/Desert/Source/Engine/Graphic/MemoryReadoutSource.cpp -> ",
          "Desert/Desert/Source/Engine/Core/EngineContext.hpp",
          // C4: ISceneRenderer = FSceneInterface
          "Desert/Desert/Source/Engine/Desert.hpp -> Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",

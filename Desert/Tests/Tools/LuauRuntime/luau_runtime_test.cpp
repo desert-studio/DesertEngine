@@ -42,13 +42,14 @@ namespace
 
     std::vector<LuauBinding> Self( Beacon& beacon )
     {
-        return { LuauBinding{ .Name = "self", .Type = BeaconType(), .Resolve = [&beacon] { return &beacon; } } };
+        return { LuauBinding{
+             .Name = "self", .Type = BeaconType(), .Resolve = [&beacon] { return &beacon; }, .Changed = {} } };
     }
 
     LuauSlot MustLoad( LuauRuntime& runtime, const std::string& script, const std::string& source,
                        std::vector<LuauBinding> bindings = {} )
     {
-        Common::ResultStr<LuauSlot> slot = runtime.Load( script, source, std::move( bindings ) );
+        Common::ResultStr<LuauSlot> const slot = runtime.Load( script, source, std::move( bindings ) );
         EXPECT_TRUE( slot.IsSuccess() ) << slot.GetError();
         return slot.IsSuccess() ? slot.GetValue() : LuauSlot{ 0 };
     }
@@ -88,7 +89,7 @@ namespace
         Beacon      beacon;
         auto        refused = [&]( const char* source, const char* reason )
         {
-            Common::ResultStr<LuauSlot> slot = runtime.Load( "refuse.luau", source, Self( beacon ) );
+            Common::ResultStr<LuauSlot> const slot = runtime.Load( "refuse.luau", source, Self( beacon ) );
             ASSERT_FALSE( slot.IsSuccess() ) << source;
             EXPECT_NE( slot.GetError().find( reason ), std::string::npos ) << slot.GetError();
         };
@@ -103,15 +104,17 @@ namespace
 
     TEST( LuauRuntime, AnObjectThatIsGoneIsAnErrorNotADanglingRead )
     {
-        LuauRuntime runtime;
-        Beacon      beacon;
-        bool        alive             = true;
-        LuauSlot    slot              = MustLoad( runtime, "gone.luau", "function Touch() self.Intensity = 3 end",
-                                                  { LuauBinding{ .Name = "self", .Type = BeaconType(), .Resolve = [&]() -> void* {
-                                                    return alive ? &beacon : nullptr;
-                                                } } } );
-        alive                         = false;
-        Common::BoolResultStr touched = runtime.Call( slot, "Touch" );
+        LuauRuntime    runtime;
+        Beacon         beacon;
+        bool           alive = true;
+        LuauSlot const slot =
+             MustLoad( runtime, "gone.luau", "function Touch() self.Intensity = 3 end",
+                       { LuauBinding{ .Name    = "self",
+                                      .Type    = BeaconType(),
+                                      .Resolve = [&]() -> void* { return alive ? &beacon : nullptr; },
+                                      .Changed = {} } } );
+        alive                               = false;
+        Common::BoolResultStr const touched = runtime.Call( slot, "Touch" );
         ASSERT_FALSE( touched.IsSuccess() );
         EXPECT_NE( touched.GetError().find( "is gone" ), std::string::npos ) << touched.GetError();
         EXPECT_FLOAT_EQ( beacon.Intensity, 1.0f );
@@ -119,52 +122,52 @@ namespace
 
     TEST( LuauRuntime, TheSandboxFreezesLibrariesAndSeparatesSlots )
     {
-        LuauRuntime runtime;
-        LuauSlot    a = MustLoad( runtime, "a.luau", R"(
+        LuauRuntime    runtime;
+        LuauSlot const a = MustLoad( runtime, "a.luau", R"(
             Shared = 1
             assert(os.execute == nil and io == nil and loadstring == nil and dofile == nil and loadfile == nil)
             function Break() string.upper = nil end
         )" );
-        LuauSlot    b = MustLoad( runtime, "b.luau", R"(
+        LuauSlot const b = MustLoad( runtime, "b.luau", R"(
             function Check() assert(Shared == nil, "a global of slot a leaked into slot b"); assert(string.upper("x") == "X") end
         )" );
 
-        Common::BoolResultStr broke = runtime.Call( a, "Break" );
+        Common::BoolResultStr const broke = runtime.Call( a, "Break" );
         ASSERT_FALSE( broke.IsSuccess() ) << "a script wrote into the shared string library";
         EXPECT_NE( broke.GetError().find( "readonly" ), std::string::npos ) << broke.GetError();
-        Common::BoolResultStr checked = runtime.Call( b, "Check" );
+        Common::BoolResultStr const checked = runtime.Call( b, "Check" );
         EXPECT_TRUE( checked.IsSuccess() ) << checked.GetError();
     }
 
     TEST( LuauRuntime, TheWatchdogStopsAnEndlessLoopAndTheRuntimeLivesOn )
     {
-        LuauRuntime runtime( LuauLimits{ .CallBudget = std::chrono::milliseconds( 50 ) } );
-        LuauSlot    slot = MustLoad( runtime, "loop.luau", R"(
+        LuauRuntime    runtime( LuauLimits{ .CallBudget = std::chrono::milliseconds( 50 ) } );
+        LuauSlot const slot = MustLoad( runtime, "loop.luau", R"(
             Ticks = 0
             function OnUpdate() while true do end end
             function Tick() Ticks += 1; assert(Ticks == 1) end
         )" );
 
-        const auto            start  = std::chrono::steady_clock::now();
-        Common::BoolResultStr looped = runtime.Call( slot, "OnUpdate" );
+        const auto                  start  = std::chrono::steady_clock::now();
+        Common::BoolResultStr const looped = runtime.Call( slot, "OnUpdate" );
         ASSERT_FALSE( looped.IsSuccess() );
         EXPECT_NE( looped.GetError().find( "watchdog" ), std::string::npos ) << looped.GetError();
         EXPECT_LT( std::chrono::steady_clock::now() - start, std::chrono::seconds( 5 ) );
 
-        Common::BoolResultStr ticked = runtime.Call( slot, "Tick" );
+        Common::BoolResultStr const ticked = runtime.Call( slot, "Tick" );
         EXPECT_TRUE( ticked.IsSuccess() ) << ticked.GetError();
     }
 
     TEST( LuauRuntime, AScriptPastItsMemoryIsStoppedAndAccountedToItself )
     {
-        LuauRuntime runtime( LuauLimits{ .ScriptMemoryBytes = std::size_t{ 1 } << 20U } );
-        LuauSlot    modest = MustLoad( runtime, "small.luau", "Kept = {}" );
-        LuauSlot    hog    = MustLoad( runtime, "hog.luau", R"(
+        LuauRuntime    runtime( LuauLimits{ .ScriptMemoryBytes = std::size_t{ 1 } << 20U } );
+        LuauSlot const modest = MustLoad( runtime, "small.luau", "Kept = {}" );
+        LuauSlot const hog    = MustLoad( runtime, "hog.luau", R"(
             function Grow() Hoard = {}; for i = 1, 1e7 do Hoard[i] = tostring(i) end end
         )" );
         (void)modest;
 
-        Common::BoolResultStr grown = runtime.Call( hog, "Grow" );
+        Common::BoolResultStr const grown = runtime.Call( hog, "Grow" );
         ASSERT_FALSE( grown.IsSuccess() );
         EXPECT_NE( grown.GetError().find( "holds more than" ), std::string::npos ) << grown.GetError();
         EXPECT_GT( runtime.ScriptMemory( "hog.luau" ), runtime.ScriptMemory( "small.luau" ) );
@@ -183,18 +186,19 @@ namespace
 
     TEST( LuauRuntime, HotReloadRerunsRunningSlotsAndABrokenReloadKeepsTheOldCode )
     {
-        LuauRuntime runtime;
-        Beacon      beacon;
-        LuauSlot    slot =
+        LuauRuntime    runtime;
+        Beacon         beacon;
+        LuauSlot const slot =
              MustLoad( runtime, "reload.luau", "function Apply() self.Intensity = 1.5 end", Self( beacon ) );
 
-        Common::BoolResultStr reloaded =
+        Common::BoolResultStr const reloaded =
              runtime.Reload( "reload.luau", "function Apply() self.Intensity = 4 end" );
         ASSERT_TRUE( reloaded.IsSuccess() ) << reloaded.GetError();
         ASSERT_TRUE( runtime.Call( slot, "Apply" ).IsSuccess() );
         EXPECT_FLOAT_EQ( beacon.Intensity, 4.0f ) << "the running slot still ran the old code";
 
-        Common::BoolResultStr broken = runtime.Reload( "reload.luau", "function Apply( self.Intensity = 9 end" );
+        Common::BoolResultStr const broken =
+             runtime.Reload( "reload.luau", "function Apply( self.Intensity = 9 end" );
         EXPECT_FALSE( broken.IsSuccess() );
         beacon.Intensity = 0.0f;
         ASSERT_TRUE( runtime.Call( slot, "Apply" ).IsSuccess() );
@@ -223,22 +227,22 @@ namespace
 
     TEST( LuauRuntime, EventsTakeValuesAndAbsentFunctionsAreNamed )
     {
-        LuauRuntime runtime;
-        Beacon      beacon;
-        LuauSlot    slot =
+        LuauRuntime    runtime;
+        Beacon         beacon;
+        LuauSlot const slot =
              MustLoad( runtime, "event.luau",
                        "function OnUpdate(dt, tag) self.Intensity = dt; self.Label = tag end", Self( beacon ) );
         EXPECT_TRUE( runtime.Defines( slot, "OnUpdate" ) );
         EXPECT_FALSE( runtime.Defines( slot, "OnStart" ) );
 
-        const std::array      args   = { Desert::Reflection::Value::Float( 0.25f ),
-                                         Desert::Reflection::Value::String( "tick" ) };
-        Common::BoolResultStr called = runtime.Call( slot, "OnUpdate", args );
+        const std::array            args   = { Desert::Reflection::Value::Float( 0.25f ),
+                                               Desert::Reflection::Value::String( "tick" ) };
+        Common::BoolResultStr const called = runtime.Call( slot, "OnUpdate", args );
         ASSERT_TRUE( called.IsSuccess() ) << called.GetError();
         EXPECT_FLOAT_EQ( beacon.Intensity, 0.25f );
         EXPECT_EQ( beacon.Label, "tick" );
 
-        Common::BoolResultStr absent = runtime.Call( slot, "OnStart" );
+        Common::BoolResultStr const absent = runtime.Call( slot, "OnStart" );
         ASSERT_FALSE( absent.IsSuccess() );
         EXPECT_NE( absent.GetError().find( "OnStart" ), std::string::npos );
     }

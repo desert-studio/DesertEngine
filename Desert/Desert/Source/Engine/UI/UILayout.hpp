@@ -338,7 +338,7 @@ namespace Desert::UI
     inline glm::vec2 MeasureLayoutGroup( const LayoutGroupParams& p, const std::vector<glm::vec2>& childSizes )
     {
         const int       n       = static_cast<int>( childSizes.size() );
-        const float     spacing = n > 1 ? p.Spacing * ( n - 1 ) : 0.0f;
+        const float     spacing = n > 1 ? p.Spacing * static_cast<float>( n - 1 ) : 0.0f;
         const glm::vec2 pad( p.PaddingL + p.PaddingR, p.PaddingT + p.PaddingB );
         switch ( p.Type )
         {
@@ -361,17 +361,21 @@ namespace Desert::UI
             {
                 const float cw   = std::max( 1.0f, p.CellSize.x );
                 const float ch   = std::max( 1.0f, p.CellSize.y );
-                const int   cols = n > 0 ? ( p.Columns > 0 ? p.Columns : n ) : 0;
+                const int   wide = p.Columns > 0 ? p.Columns : n;
+                const int   cols = n > 0 ? wide : 0;
                 const int   rows = n > 0 ? ( n + cols - 1 ) / cols : 0;
-                return { cols * cw + std::max( 0, cols - 1 ) * p.Spacing + pad.x,
-                         rows * ch + std::max( 0, rows - 1 ) * p.Spacing + pad.y };
+                return { static_cast<float>( cols ) * cw +
+                              static_cast<float>( std::max( 0, cols - 1 ) ) * p.Spacing + pad.x,
+                         static_cast<float>( rows ) * ch +
+                              static_cast<float>( std::max( 0, rows - 1 ) ) * p.Spacing + pad.y };
             }
             case LayoutGroupType::Wrap:
             {
                 // Without an explicit WrapSize there is no line length to wrap at before the container exists,
                 // so the desired size is the single unwrapped line (UE SWrapBox with bExplicitWrapSize=false).
-                const float line = p.WrapSize > 0.0f ? p.WrapSize : std::numeric_limits<float>::max();
-                float       main = 0.0f, cross = 0.0f;
+                const float line  = p.WrapSize > 0.0f ? p.WrapSize : std::numeric_limits<float>::max();
+                float       main  = 0.0f;
+                float       cross = 0.0f;
                 const auto  lines = LayoutDetail::WrapLines( childSizes, line, p.Spacing, p.WrapVertical );
                 for ( const auto& l : lines )
                 {
@@ -390,8 +394,9 @@ namespace Desert::UI
                 const glm::vec2 cell = glm::max( LayoutDetail::MaxOf( childSizes ), p.MinSlotSize );
                 const int       cols = LayoutDetail::UniformColumns( p, n );
                 const int       rows = ( n + cols - 1 ) / cols;
-                return { cols * cell.x + ( cols - 1 ) * p.Spacing + pad.x,
-                         rows * cell.y + ( rows - 1 ) * p.Spacing + pad.y };
+                return { static_cast<float>( cols ) * cell.x + static_cast<float>( cols - 1 ) * p.Spacing + pad.x,
+                         static_cast<float>( rows ) * cell.y + static_cast<float>( rows - 1 ) * p.Spacing +
+                              pad.y };
             }
             case LayoutGroupType::SizeBox:
             {
@@ -439,7 +444,7 @@ namespace Desert::UI
                 const bool         horiz = p.Type == LayoutGroupType::Horizontal;
                 const float        avail = horiz ? innerW : innerH;
                 std::vector<float> main( slots.size() );
-                float              used      = n > 1 ? p.Spacing * ( n - 1 ) : 0.0f;
+                float              used      = n > 1 ? p.Spacing * static_cast<float>( n - 1 ) : 0.0f;
                 float              growTotal = 0.0f;
                 for ( std::size_t i = 0; i < slots.size(); ++i )
                 {
@@ -526,8 +531,8 @@ namespace Desert::UI
                             ? p.Columns
                             : std::max( 1, static_cast<int>( ( innerW + p.Spacing ) / ( cw + p.Spacing ) ) );
                 for ( int i = 0; i < n; ++i )
-                    out.push_back( { { x0 + ( i % cols ) * ( cw + p.Spacing ),
-                                       y0 + ( i / cols ) * ( ch + p.Spacing ), cw, ch } } );
+                    out.push_back( { { x0 + static_cast<float>( i % cols ) * ( cw + p.Spacing ),
+                                       y0 + static_cast<float>( i / cols ) * ( ch + p.Spacing ), cw, ch } } );
                 break;
             }
             case LayoutGroupType::Wrap:
@@ -536,7 +541,8 @@ namespace Desert::UI
                 sizes.reserve( slots.size() );
                 for ( const LayoutSlot& s : slots )
                     sizes.push_back( s.Pref );
-                const float line  = p.WrapSize > 0.0f ? p.WrapSize : ( p.WrapVertical ? innerH : innerW );
+                const float along = p.WrapVertical ? innerH : innerW;
+                const float line  = p.WrapSize > 0.0f ? p.WrapSize : along;
                 float       cross = p.WrapVertical ? x0 : y0;
                 for ( const auto& l : LayoutDetail::WrapLines( sizes, line, p.Spacing, p.WrapVertical ) )
                 {
@@ -577,12 +583,14 @@ namespace Desert::UI
                     break;
                 const int   cols  = LayoutDetail::UniformColumns( p, n );
                 const int   rows  = ( n + cols - 1 ) / cols;
-                const float cellW = std::max( 0.0f, ( innerW - p.Spacing * ( cols - 1 ) ) / cols );
-                const float cellH = std::max( 0.0f, ( innerH - p.Spacing * ( rows - 1 ) ) / rows );
+                const float cellW = std::max( 0.0f, ( innerW - p.Spacing * static_cast<float>( cols - 1 ) ) /
+                                                         static_cast<float>( cols ) );
+                const float cellH = std::max( 0.0f, ( innerH - p.Spacing * static_cast<float>( rows - 1 ) ) /
+                                                         static_cast<float>( rows ) );
                 for ( int i = 0; i < n; ++i )
                 {
-                    const Rect cell{ x0 + ( i % cols ) * ( cellW + p.Spacing ),
-                                     y0 + ( i / cols ) * ( cellH + p.Spacing ), cellW, cellH };
+                    const Rect cell{ x0 + static_cast<float>( i % cols ) * ( cellW + p.Spacing ),
+                                     y0 + static_cast<float>( i / cols ) * ( cellH + p.Spacing ), cellW, cellH };
                     out.push_back( { placeIn( cell, slots[i].Pref ) } );
                 }
                 break;

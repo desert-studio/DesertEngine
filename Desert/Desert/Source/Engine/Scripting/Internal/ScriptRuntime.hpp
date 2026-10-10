@@ -93,8 +93,8 @@ namespace Desert::Scripting
             for ( int c = '0'; c <= '9'; ++c )
                 v.push_back( static_cast<Common::KeyCode>( c ) );
             using K = Common::KeyCode;
-            for ( K k : { K::Space, K::LeftShift, K::LeftControl, K::LeftAlt, K::Tab, K::Enter, K::Escape, K::Left,
-                          K::Right, K::Up, K::Down } )
+            for ( K const k : { K::Space, K::LeftShift, K::LeftControl, K::LeftAlt, K::Tab, K::Enter, K::Escape,
+                                K::Left, K::Right, K::Up, K::Down } )
                 v.push_back( k );
             return v;
         }();
@@ -158,7 +158,7 @@ namespace Desert::Scripting
         }
 
         /// The runtime slot of (entity, slot), or 0.
-        LuauSlot SlotOf( uint32_t entity, uint32_t slot ) const
+        [[nodiscard]] LuauSlot SlotOf( uint32_t entity, uint32_t slot ) const
         {
             auto it = Slots.find( entity );
             return ( it == Slots.end() || slot >= it->second.size() ) ? 0 : it->second[slot];
@@ -182,11 +182,11 @@ namespace Desert::Scripting
         static Impl& Of( lua_State* L );
 
         /// The live entity at `index` as (scene, handle) — a Luau error when it is not an entity or is gone.
-        entt::entity CheckEntity( lua_State* L, int index ) const
+        static entt::entity CheckEntity( lua_State* L, int index )
         {
             return LuauBinder::CheckEntity( L, index ).Entity;
         }
-        entt::registry& Registry() const
+        [[nodiscard]] entt::registry& Registry() const
         {
             return Scene->GetRegistry();
         }

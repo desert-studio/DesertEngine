@@ -22,6 +22,8 @@
 
 #include <gtest/gtest.h>
 
+#include <iterator>
+#include <format>
 #include <algorithm>
 #include <cstdio>
 #include <vector>
@@ -532,13 +534,15 @@ TEST( CookedRegistryGate, EveryPackedFileIsOnThisDiskAsGitStoresIt )
     ASSERT_FALSE( root.empty() );
 
     const auto census = Common::Content::TranslatedCheckouts( root, { "Editor/Resources", "Projects" } );
-    ASSERT_TRUE( census.has_value() ) << "git could not be asked how this checkout wrote its files";
+    if ( !census.has_value() )
+        GTEST_FAIL() << "git could not be asked how this checkout wrote its files";
     // Hundreds of shaders, includes and assets are tracked there; a count near zero is a census that read nothing.
     ASSERT_GT( census->Checked, 100u ) << "git listed almost nothing under the packed trees";
 
     std::string listed;
     for ( const Common::Content::TranslatedCheckout& file : census->Translated )
-        listed += "\n  " + file.Path + " (git stores " + file.Index + ", this disk has " + file.Worktree + ")";
+        std::format_to( std::back_inserter( listed ), "\n  {} (git stores {}, this disk has {})", file.Path,
+                        file.Index, file.Worktree );
     EXPECT_TRUE( census->Translated.empty() )
          << census->Translated.size()
          << " tracked file(s) are not on this disk as git stores them: a line-translated checkout (add a `-text` "

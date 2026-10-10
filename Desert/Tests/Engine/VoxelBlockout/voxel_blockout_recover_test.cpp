@@ -108,8 +108,10 @@ TEST( VoxelBlockoutRecover, TheLatticeIsFoundFromTheMesh )
     // One 300 x 100 x 100 box at (130, -20, 7): 8 corners, 12 triangles, every face one merged quad.
     const glm::dvec3        o( 130.0, -20.0, 7.0 );
     std::vector<glm::dvec3> p;
+    p.reserve( 8 );
     for ( int i = 0; i < 8; ++i )
-        p.push_back( o + glm::dvec3( ( i & 1 ) ? 300.0 : 0.0, ( i & 2 ) ? 100.0 : 0.0, ( i & 4 ) ? 100.0 : 0.0 ) );
+        p.push_back( o + glm::dvec3( ( ( i & 1 ) != 0 ) ? 300.0 : 0.0, ( ( i & 2 ) != 0 ) ? 100.0 : 0.0,
+                                     ( ( i & 4 ) != 0 ) ? 100.0 : 0.0 ) );
     // Outward CCW: -X, +X, -Y, +Y, -Z, +Z.
     const std::vector<std::array<int, 3>> tris = { { 0, 4, 6 }, { 0, 6, 2 }, { 1, 3, 7 }, { 1, 7, 5 },
                                                    { 0, 1, 5 }, { 0, 5, 4 }, { 2, 6, 7 }, { 2, 7, 3 },

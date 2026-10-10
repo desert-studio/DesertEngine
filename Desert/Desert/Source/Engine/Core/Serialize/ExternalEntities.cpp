@@ -7,6 +7,7 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <format>
 #include <algorithm>
 #include <cstdint>
 #include <optional>
@@ -333,6 +334,8 @@ namespace Desert::Core::ExternalEntities
                 return Common::MakeError<WriteOutcome>( idDocument.GetError() );
             ids.push_back( idDocument.ExtractValue() );
         }
+        // The records member is replaced by the id list member (as in the writer above); the order is the intent.
+        // NOLINTNEXTLINE(readability-suspicious-call-argument)
         const auto header = scene.WithArrayMember( kRecords, kListMember, ids );
         if ( !header )
             return Common::MakeError<WriteOutcome>(
@@ -489,7 +492,7 @@ namespace Desert::Core::ExternalEntities
         };
         auto scene = Assemble( document.GetValue(), path.string(), read );
         if ( !scene )
-            return Common::MakeError<std::string>( "[SceneSerializer] " + scene.GetError() );
+            return Common::MakeError<std::string>( std::format( "[SceneSerializer] {}", scene.GetError() ) );
 
         auto onDisk = PiecesOnDisk( path );
         if ( !onDisk )

@@ -3,6 +3,7 @@
 #include <Engine/Geometry/GreedyMesher.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <iterator>
@@ -73,6 +74,14 @@ namespace Desert::Geometry::VoxelBlockout
 
     const glm::ivec3 kNeighbor[6] = { { 0, 0, 1 },  { 0, 0, -1 }, { 0, 1, 0 },
                                       { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 } };
+
+    // The axis a unit neighbour offset points along: 0 = X, 1 = Y, 2 = Z.
+    int AxisOf( const glm::ivec3& offset )
+    {
+        if ( offset.x != 0 )
+            return 0;
+        return offset.y != 0 ? 1 : 2;
+    }
 
     const int kFaceCorner[6][4] = {
          { 4, 5, 7, 6 }, // Front  (+Z)
@@ -1300,7 +1309,8 @@ namespace Desert::Geometry::VoxelBlockout
 
         const char* AxisName( int a )
         {
-            return a == 0 ? "X" : a == 1 ? "Y" : "Z";
+            constexpr std::array<const char*, 3> kNames{ "X", "Y", "Z" };
+            return kNames.at( static_cast<std::size_t>( a ) );
         }
     } // namespace
 
@@ -1340,7 +1350,7 @@ namespace Desert::Geometry::VoxelBlockout
             welded[i] = weld.try_emplace( q[i], static_cast<int>( weld.size() ) ).first->second;
         const auto normalOf = [&]( const std::array<int, 3>& tri )
         {
-            std::array<glm::dvec3, 3> c;
+            std::array<glm::dvec3, 3> c{};
             for ( int k = 0; k < 3; ++k )
             {
                 const auto& v = q[static_cast<size_t>( tri[k] )];
@@ -1362,8 +1372,9 @@ namespace Desert::Geometry::VoxelBlockout
             const glm::dvec3 n = normalOf( triangles[t] );
             if ( n == glm::dvec3( 0.0 ) )
                 continue; // a zero-area sliver bounds nothing
-            const int        nonZero = ( n.x != 0.0 ) + ( n.y != 0.0 ) + ( n.z != 0.0 );
-            const glm::dvec3 dir     = glm::sign( n );
+            const int nonZero =
+                 static_cast<int>( n.x != 0.0 ) + static_cast<int>( n.y != 0.0 ) + static_cast<int>( n.z != 0.0 );
+            const glm::dvec3 dir = glm::sign( n );
             for ( int k = 0; k < 3; ++k )
             {
                 Star& s = stars[static_cast<size_t>( welded[static_cast<size_t>( triangles[t][k] )] )];
@@ -1412,7 +1423,7 @@ namespace Desert::Geometry::VoxelBlockout
                 return Common::MakeError<Volume>(
                      std::format( "triangle {} has material {}, outside a cell face's 0..{}", t, materials[t],
                                   static_cast<int>( std::numeric_limits<uint8_t>::max() ) ) );
-            std::array<glm::dvec3, 3> p;
+            std::array<glm::dvec3, 3> p{};
             for ( int k = 0; k < 3; ++k )
             {
                 const auto& c = q[static_cast<size_t>( triangles[t][k] )];
@@ -1537,7 +1548,7 @@ namespace Desert::Geometry::VoxelBlockout
             {
                 if ( cells.contains( Pack( c + kNeighbor[f] ) ) )
                     continue;
-                const int  a     = kNeighbor[f].x != 0 ? 0 : kNeighbor[f].y != 0 ? 1 : 2;
+                const int  a     = AxisOf( kNeighbor[f] );
                 const int  dir   = kNeighbor[f][a];
                 glm::ivec3 plane = c;
                 plane[a] += dir > 0 ? 1 : 0;

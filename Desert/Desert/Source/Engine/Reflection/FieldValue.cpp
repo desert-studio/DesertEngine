@@ -146,21 +146,21 @@ namespace Desert::Reflection
                 return Common::MakeSuccess( Value::Bool( Load<bool>( at ) ) );
             case FieldType::Int:
             {
-                Common::ResultStr<std::int64_t> bits = LoadSigned( field, at );
+                Common::ResultStr<std::int64_t> const bits = LoadSigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::Int( bits.GetValue() ) );
             }
             case FieldType::Enum:
             {
-                Common::ResultStr<std::int64_t> bits = LoadSigned( field, at );
+                Common::ResultStr<std::int64_t> const bits = LoadSigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::Enum( bits.GetValue() ) );
             }
             case FieldType::UInt:
             {
-                Common::ResultStr<std::uint64_t> bits = LoadUnsigned( field, at );
+                Common::ResultStr<std::uint64_t> const bits = LoadUnsigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::UInt( bits.GetValue() ) );
@@ -170,7 +170,7 @@ namespace Desert::Reflection
             case FieldType::Double:
                 return Common::MakeSuccess( Value::Double( Load<double>( at ) ) );
             case FieldType::String:
-                return Common::MakeSuccess( Value::String( *reinterpret_cast<const std::string*>( at ) ) );
+                return Common::MakeSuccess( Value::String( *static_cast<const std::string*>( at ) ) );
             case FieldType::Vec2:
                 return LoadFloats<Value::Float2>( field, at, &Value::Vec2 );
             case FieldType::Vec3:
@@ -181,7 +181,7 @@ namespace Desert::Reflection
             {
                 // The 64-bit handle id as a UInt Value — the form the serializer stores and a container element
                 // of handles travels as (ContainerAccess.hpp).
-                Common::ResultStr<std::uint64_t> bits = LoadUnsigned( field, at );
+                Common::ResultStr<std::uint64_t> const bits = LoadUnsigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::UInt( bits.GetValue() ) );
@@ -227,7 +227,7 @@ namespace Desert::Reflection
                 Store<double>( at, *value.Get<double>() );
                 return Common::MakeSuccess( true );
             case FieldType::String:
-                *reinterpret_cast<std::string*>( at ) = *value.Get<std::string>();
+                *static_cast<std::string*>( at ) = *value.Get<std::string>();
                 return Common::MakeSuccess( true );
             case FieldType::Vec2:
                 return StoreFloats( field, at, value.Get<Value::Float2>() );

@@ -13,6 +13,8 @@
 
 #include <gtest/gtest.h>
 
+#include <iterator>
+#include <format>
 #include <chrono>
 #include <filesystem>
 #include <map>
@@ -36,7 +38,7 @@ namespace
         ModelWorld()
         {
             Root = std::filesystem::temp_directory_path() /
-                   ( "wp17_" + std::to_string( std::chrono::steady_clock::now().time_since_epoch().count() ) );
+                   std::format( "wp17_{}", std::chrono::steady_clock::now().time_since_epoch().count() );
             std::filesystem::create_directories( Root );
             Scene = Root / "World.desce";
             Tags  = { { 10, "A" }, { 20, "B" }, { 30, "C" } };
@@ -47,10 +49,11 @@ namespace
             std::filesystem::remove_all( Root, ec );
         }
 
-        std::vector<LiveEntity> Live() const
+        [[nodiscard]] std::vector<LiveEntity> Live() const
         {
             std::vector<LiveEntity> live;
             std::uint32_t           index = 0;
+            live.reserve( Tags.size() );
             for ( const auto& [id, tag] : Tags )
                 live.push_back( LiveEntity{ UUID( id ), UUID( id ), UUID( 0 ), index++ } );
             return live;
@@ -72,13 +75,14 @@ namespace
                          if ( only != nullptr && !only->contains( id ) )
                              continue;
                          ++Composed;
-                         records += ( records.empty() ? "" : "," ) + std::string( R"({"id":)" ) +
-                                    std::to_string( id ) + R"(,"Tag":")" + tag + R"(","siblingIndex":)" +
-                                    std::to_string( sibling ) + "}";
+                         std::format_to( std::back_inserter( records ),
+                                         R"({}{{"id":{},"Tag":"{}","siblingIndex":{}}})",
+                                         records.empty() ? "" : ",", id, tag, sibling );
                      }
                      return Common::Json::TextDocument::Parse(
-                          R"({"SceneName":"World","Entities":[)" + records +
-                          R"(],"WorldPartition":{"Grids":[{"CellSize":12800.0,"LoadingRange":25600.0}]}})" );
+                          std::format( R"({{"SceneName":"World","Entities":[{}],"WorldPartition":{{"Grids":[{{)"
+                                       R"("CellSize":12800.0,"LoadingRange":25600.0}}]}}}})",
+                                       records ) );
                  },
                  check );
         }
@@ -90,7 +94,7 @@ namespace
             return saved ? saved.GetValue() : PackageSaveOutcome{};
         }
 
-        std::string Joined() const
+        [[nodiscard]] std::string Joined() const
         {
             const auto text = EE::ReadSceneFileText( Scene );
             EXPECT_TRUE( text ) << ( text ? "" : text.GetError() );
@@ -253,7 +257,7 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     world.Packages.Baseline( world.Scene, world.Live() );
     const auto thirtyRead = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) );
     ASSERT_TRUE( thirtyRead ) << thirtyRead.GetError();
-    const std::string thirtyBefore = thirtyRead.GetValue();
+    const std::string& thirtyBefore = thirtyRead.GetValue();
 
     world.Tags.erase( 30 ); // unloaded: the scene no longer holds it
     const std::vector<UUID> notLoaded{ UUID( 30 ) };

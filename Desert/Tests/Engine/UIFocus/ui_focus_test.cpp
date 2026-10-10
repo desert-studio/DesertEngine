@@ -51,7 +51,7 @@ TEST( UIFocus, SpatialPicksTheNeighbourInEachDirection )
 
 TEST( UIFocus, SpatialPrefersTheNearestEdgeInTheBand )
 {
-    std::vector<FocusEntry> row = {
+    std::vector<FocusEntry> const row = {
          { N( 1 ), { 0, 0, 50, 50 } }, { N( 2 ), { 400, 0, 50, 50 } }, { N( 3 ), { 100, 10, 50, 50 } } };
     EXPECT_EQ( UI::FindNextFocusable( row, N( 1 ), UINavigation::Right, kView ), N( 3 ) );
 }
@@ -59,7 +59,7 @@ TEST( UIFocus, SpatialPrefersTheNearestEdgeInTheBand )
 TEST( UIFocus, SpatialNeverTakesAControlOutsideTheBand )
 {
     // Right of the source but entirely below its band: Escape at the edge leaves focus where it is.
-    std::vector<FocusEntry> e = { { N( 1 ), { 0, 0, 50, 50 } }, { N( 2 ), { 200, 300, 50, 50 } } };
+    std::vector<FocusEntry> const e = { { N( 1 ), { 0, 0, 50, 50 } }, { N( 2 ), { 200, 300, 50, 50 } } };
     EXPECT_EQ( UI::FindNextFocusable( e, N( 1 ), UINavigation::Right, kView ), NodeId::Null );
 }
 

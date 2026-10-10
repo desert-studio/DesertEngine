@@ -122,8 +122,7 @@ namespace Desert::Editor
     } // namespace
 
     WorldPartitionPanel::WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
-                                              const ::Desert::Assets::AssetManager*  assets,
-                                              StreamerGetter                         streamer )
+                                              ::Desert::Assets::AssetManager* assets, StreamerGetter streamer )
          : IPanel( "World Partition", false ), m_Scene( std::move( scene ) ), m_Assets( assets ),
            m_Streamer( std::move( streamer ) )
     {
@@ -300,7 +299,7 @@ namespace Desert::Editor
     {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
-        auto* assets = const_cast<::Desert::Assets::AssetManager*>( m_Assets );
+        auto* assets = m_Assets;
         auto  changed =
              region.has_value()
                    ? ::Desert::Core::EditorRegions::LoadRegions(

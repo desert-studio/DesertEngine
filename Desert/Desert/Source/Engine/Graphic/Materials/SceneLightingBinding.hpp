@@ -100,12 +100,13 @@ namespace Desert::Graphic
         // loops 0..count with the count below, so the row is never read; skipping the write instead left the
         // buffer unfilled by either route, and a lit forward pass with no point light in the scene
         // ("Deferred: Skinned" over StandardSurface/Skinned.Forward) was refused at setup.
-        if ( auto* sb = material->Get<StorageBufferProperty>( point.Name ) )
+        if ( auto* sb =
+                  material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::PointLight::Name ) )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( point.PointLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
         }
-        if ( auto* sb = material->Get<StorageBufferProperty>( spot.Name ) )
+        if ( auto* sb = material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::SpotLight::Name ) )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( spot.SpotLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );

@@ -94,7 +94,8 @@ namespace Desert::Scripting::LuauBinder
             }
 
             std::vector<Value> rets( function.Returns.size() );
-            if ( Common::BoolResultStr called = function.Invoke( self, args.data(), args.size(), rets.data() );
+            if ( Common::BoolResultStr const called =
+                      function.Invoke( self, args.data(), args.size(), rets.data() );
                  !called.IsSuccess() )
                 luaL_errorL( L, "%s", called.GetError().c_str() );
             for ( const Value& ret : rets )
@@ -120,17 +121,24 @@ namespace Desert::Scripting::LuauBinder
             return Invoke( L, *function, nullptr, 1 );
         }
 
+        // Luau keys light userdata by a void*: a FunctionInfo's address is the key and the closure's upvalue,
+        // read back as const and never written through, so dropping const here is the C API's spelling only.
+        void* LightKeyOf( const FunctionInfo& function )
+        {
+            return const_cast<FunctionInfo*>( &function ); // NOLINT(cppcoreguidelines-pro-type-const-cast)
+        }
+
         void PushMethod( lua_State* L, const FunctionInfo& function )
         {
             lua_rawgetfield( L, LUA_REGISTRYINDEX, kMethodCache );
-            lua_pushlightuserdata( L, const_cast<FunctionInfo*>( &function ) );
+            lua_pushlightuserdata( L, LightKeyOf( function ) );
             lua_rawget( L, -2 );
             if ( lua_isnil( L, -1 ) )
             {
                 lua_pop( L, 1 );
-                lua_pushlightuserdata( L, const_cast<FunctionInfo*>( &function ) );
+                lua_pushlightuserdata( L, LightKeyOf( function ) );
                 lua_pushcclosure( L, CallMethod, function.Name.c_str(), 1 );
-                lua_pushlightuserdata( L, const_cast<FunctionInfo*>( &function ) );
+                lua_pushlightuserdata( L, LightKeyOf( function ) );
                 lua_pushvalue( L, -2 );
                 lua_rawset( L, -4 );
             }
@@ -145,6 +153,8 @@ namespace Desert::Scripting::LuauBinder
 
         void PushHandle( lua_State* L, std::uint64_t id )
         {
+            // An asset handle travels as tagged light userdata carrying the id itself (kAssetHandleTag), not an
+            // address. NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
             lua_pushlightuserdatatagged( L, reinterpret_cast<void*>( static_cast<std::uintptr_t>( id ) ),
                                          kAssetHandleTag );
         }
@@ -193,7 +203,7 @@ namespace Desert::Scripting::LuauBinder
                 PushObject( L, Nested( object, field ) );
                 return;
             }
-            Common::ResultStr<Value> value = Reflection::ReadField( field, Instance( L, object ) );
+            Common::ResultStr<Value> const value = Reflection::ReadField( field, Instance( L, object ) );
             if ( !value.IsSuccess() )
                 luaL_errorL( L, "%s", value.GetError().c_str() );
             PushOf( L, field.Type, value.GetValue() );
@@ -457,7 +467,8 @@ namespace Desert::Scripting::LuauBinder
             const std::optional<Value> value = ToValue( L, 3, field->Type, why );
             if ( !value )
                 luaL_errorL( L, "%s.%s: %s", owner, key, why.c_str() );
-            if ( Common::BoolResultStr written = Reflection::WriteField( *field, Instance( L, object ), *value );
+            if ( Common::BoolResultStr const written =
+                      Reflection::WriteField( *field, Instance( L, object ), *value );
                  !written.IsSuccess() )
                 luaL_errorL( L, "%s.%s: %s", owner, key, written.GetError().c_str() );
             Touched( object );
@@ -522,7 +533,7 @@ namespace Desert::Scripting::LuauBinder
                         lua_newtable( L );
                         any = true;
                     }
-                    lua_pushlightuserdata( L, const_cast<FunctionInfo*>( &function ) );
+                    lua_pushlightuserdata( L, LightKeyOf( function ) );
                     lua_pushcclosure( L, CallStatic, function.Name.c_str(), 1 );
                     lua_setfield( L, -2, function.Name.c_str() );
                 }
@@ -760,6 +771,7 @@ namespace Desert::Scripting::LuauBinder
                 // The handle a read returned (kAssetHandleTag); its id travels as the UInt WriteField takes.
                 if ( type != LUA_TLIGHTUSERDATA || lua_lightuserdatatag( L, index ) != kAssetHandleTag )
                     return got( "an asset handle" );
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): the id PushHandle stored, read back
                 return Value::UInt( static_cast<std::uint64_t>( reinterpret_cast<std::uintptr_t>(
                      lua_tolightuserdatatagged( L, index, kAssetHandleTag ) ) ) );
             case FieldType::Unknown:
@@ -773,7 +785,7 @@ namespace Desert::Scripting::LuauBinder
 
 namespace Desert::Scripting
 {
-    LuauBinding ComponentBinding( std::string name, std::function<LuauEntityRef()> entity,
+    LuauBinding ComponentBinding( std::string name, const std::function<LuauEntityRef()>& entity,
                                   const ECS::ReflectedComponent& row )
     {
         // Every access re-resolves the entity: the binding never holds the registry, the entity or the data.

@@ -74,7 +74,7 @@ namespace Desert::Scripting
                                                   [&name]( const Animation::ActiveNotifyState& state )
                                                   { return state.Name == name; } );
             }
-            lua_pushboolean( L, active );
+            lua_pushboolean( L, static_cast<int>( active ) );
             return 1;
         }
 
@@ -135,7 +135,7 @@ namespace Desert::Scripting
                     linked = true;
                 }
             }
-            lua_pushboolean( L, linked );
+            lua_pushboolean( L, static_cast<int>( linked ) );
             return 1;
         }
 
@@ -152,7 +152,7 @@ namespace Desert::Scripting
                 if ( !unlinked )
                     LOG_ERROR( "[Anim] unlinkAnimLayers('{}'): the entity has not linked that graph.", path );
             }
-            lua_pushboolean( L, unlinked );
+            lua_pushboolean( L, static_cast<int>( unlinked ) );
             return 1;
         }
 

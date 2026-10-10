@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <utility>
 #include <vector>
@@ -165,8 +166,8 @@ namespace Desert::Editor
                 return;
             }
             if ( undo )
-                for ( auto it = command.m_Stamps.rbegin(); it != command.m_Stamps.rend(); ++it )
-                    ledger->Restore( it->Id, it->Before );
+                for ( const auto& m_Stamp : std::ranges::reverse_view( command.m_Stamps ) )
+                    ledger->Restore( m_Stamp.Id, m_Stamp.Before );
             else
                 for ( const auto& stamp : command.m_Stamps )
                     ledger->Restore( stamp.Id, stamp.After );

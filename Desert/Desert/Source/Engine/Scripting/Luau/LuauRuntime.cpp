@@ -5,6 +5,7 @@
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
 
 #include <cstdlib>
+#include <memory>
 #include <format>
 #include <unordered_map>
 #include <utility>
@@ -18,6 +19,17 @@ namespace Desert::Scripting
 {
     namespace
     {
+        // luau_compile hands back bytecode from malloc; owning it here frees it on every path. The one free of
+        // the C API's allocation lives in this deleter.
+        struct FreeBytecode
+        {
+            void operator()( char* bytecode ) const noexcept
+            {
+                std::free( bytecode ); // NOLINT(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory)
+            }
+        };
+        using Bytecode = std::unique_ptr<char, FreeBytecode>;
+
         using Clock = std::chrono::steady_clock;
 
         /// Luau numbers its memory categories 0..LUA_MEMORY_CATEGORIES-1; 0 is the engine's own (libraries,
@@ -87,7 +99,7 @@ namespace Desert::Scripting
 
         static int Print( lua_State* state )
         {
-            Impl&       impl = Of( state );
+            Impl const& impl = Of( state );
             std::string line;
             const int   count = lua_gettop( state );
             for ( int i = 1; i <= count; ++i )
@@ -135,12 +147,11 @@ namespace Desert::Scripting
             lua_CompileOptions options{};
             options.optimizationLevel = 1;
             options.debugLevel        = 1;
-            std::size_t size          = 0;
-            char*       bytecode      = luau_compile( source.data(), source.size(), &options, &size );
+            std::size_t    size       = 0;
+            const Bytecode bytecode( luau_compile( source.data(), source.size(), &options, &size ) );
             ++Compiles;
-            const std::string chunk  = "@" + script;
-            const int         status = luau_load( L, chunk.c_str(), bytecode, size, 0 );
-            std::free( bytecode );
+            const std::string chunk  = std::format( "@{}", script );
+            const int         status = luau_load( L, chunk.c_str(), bytecode.get(), size, 0 );
             if ( status != 0 )
             {
                 const std::string error = lua_tostring( L, -1 );
@@ -162,13 +173,16 @@ namespace Desert::Scripting
             if ( found == Scripts.end() && NextCategory >= LUA_MEMORY_CATEGORIES )
                 return Common::MakeError<Script*>( std::format( "{}: the runtime accounts at most {} scripts",
                                                                 script, LUA_MEMORY_CATEGORIES - 1 ) );
-            if ( Common::BoolResultStr compiled = Compile( script, source ); !compiled.IsSuccess() )
+            if ( Common::BoolResultStr const compiled = Compile( script, source ); !compiled.IsSuccess() )
                 return Common::MakeError<Script*>( compiled.GetError() );
 
             const int prototype = lua_ref( L, -1 );
             lua_pop( L, 1 );
             if ( found == Scripts.end() )
-                found = Scripts.emplace( script, Script{ .Category = NextCategory++ } ).first;
+                found = Scripts
+                             .emplace( script,
+                                       Script{ .Source = {}, .Prototype = LUA_NOREF, .Category = NextCategory++ } )
+                             .first;
             else
                 lua_unref( L, found->second.Prototype );
             found->second.Source    = source;
@@ -195,7 +209,7 @@ namespace Desert::Scripting
             lua_getref( thread, code.Prototype );
             lua_clonefunction( thread, -1 ); // the clone's globals are the thread's sandbox
             lua_remove( thread, -2 );
-            if ( Common::BoolResultStr ran = Run( thread, 0, 0, code.Category, script ); !ran.IsSuccess() )
+            if ( Common::BoolResultStr const ran = Run( thread, 0, 0, code.Category, script ); !ran.IsSuccess() )
             {
                 lua_unref( L, threadRef );
                 return Common::MakeError<Slot>( ran.GetError() );
@@ -257,7 +271,7 @@ namespace Desert::Scripting
                      script, binding.Name ) );
         }
 
-        Common::ResultStr<Impl::Script*> code = impl.Prototype( script, source );
+        Common::ResultStr<Impl::Script*> const code = impl.Prototype( script, source );
         if ( !code.IsSuccess() )
             return Common::MakeError<LuauSlot>( code.GetError() );
         Common::ResultStr<Impl::Slot> slot = impl.Start( script, *code.GetValue(), std::move( bindings ) );
@@ -274,7 +288,7 @@ namespace Desert::Scripting
         Impl& impl = *m_Impl;
         if ( !impl.Scripts.contains( script ) )
             return Common::MakeError<bool>( std::format( "{}: no slot runs this script", script ) );
-        Common::ResultStr<Impl::Script*> code = impl.Prototype( script, source );
+        Common::ResultStr<Impl::Script*> const code = impl.Prototype( script, source );
         if ( !code.IsSuccess() )
             return Common::MakeError<bool>( code.GetError() );
 
@@ -462,13 +476,12 @@ namespace Desert::Scripting
         options.debugLevel = 1;
         bool        loaded = false;
         std::string error;
-        for ( const std::string& text : { "return " + code, code } )
+        for ( const std::string& text : { std::format( "return {}", code ), code } )
         {
-            std::size_t size     = 0;
-            char*       bytecode = luau_compile( text.data(), text.size(), &options, &size );
+            std::size_t    size = 0;
+            const Bytecode bytecode( luau_compile( text.data(), text.size(), &options, &size ) );
             ++impl.Compiles;
-            const int status = luau_load( console, "=console", bytecode, size, 0 );
-            std::free( bytecode );
+            const int status = luau_load( console, "=console", bytecode.get(), size, 0 );
             if ( status == 0 )
             {
                 loaded = true;

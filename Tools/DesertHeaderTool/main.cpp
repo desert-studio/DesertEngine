@@ -517,13 +517,14 @@ namespace
                 continue;
             if ( tok == "ScriptCallable" )
                 m.scriptCallable = true;
-            else if ( tok.rfind( "Category", 0 ) == 0 )
+            else if ( tok.starts_with( "Category" ) )
                 m.category = ExtractStringLiteral( tok );
-            else if ( tok.rfind( "Tooltip", 0 ) == 0 )
+            else if ( tok.starts_with( "Tooltip" ) )
                 m.tooltip = ExtractStringLiteral( tok );
             else
-                error = "FUNCTION: unknown attribute '" + tok +
-                        "' (ScriptCallable, Category(\"...\"), Tooltip(\"...\"))";
+                error = std::format(
+                     R"(FUNCTION: unknown attribute '{}' (ScriptCallable, Category("..."), Tooltip("...")))",
+                     tok );
         }
         return m;
     }
@@ -531,8 +532,8 @@ namespace
     // The trailing identifier of `text` ("const std::string& name" -> "name"), or empty.
     std::string TrailingIdent( const std::string& text )
     {
-        size_t e = text.size();
-        size_t b = e;
+        size_t const e = text.size();
+        size_t       b = e;
         while ( b > 0 && IsIdentChar( text[b - 1] ) )
             --b;
         return text.substr( b, e - b );
@@ -564,8 +565,8 @@ namespace
             const std::string ptype = Trimmed( param.substr( 0, param.size() - pname.size() ) );
             if ( pname.empty() || ptype.empty() )
             {
-                error =
-                     what + ": parameter '" + param + "' has no name (a caller sees every parameter by its name)";
+                error = std::format( "{}: parameter '{}' has no name (a caller sees every parameter by its name)",
+                                     what, param );
                 return close;
             }
             params.emplace_back( pname, ptype );
@@ -582,12 +583,12 @@ namespace
             const std::string tok = Trimmed( tokRaw );
             if ( tok.empty() )
                 continue;
-            if ( tok.rfind( "Category", 0 ) == 0 )
+            if ( tok.starts_with( "Category" ) )
                 m.category = ExtractStringLiteral( tok );
-            else if ( tok.rfind( "Tooltip", 0 ) == 0 )
+            else if ( tok.starts_with( "Tooltip" ) )
                 m.tooltip = ExtractStringLiteral( tok );
             else
-                error = "EVENT: unknown attribute '" + tok + "' (Category(\"...\"), Tooltip(\"...\"))";
+                error = std::format( R"(EVENT: unknown attribute '{}' (Category("..."), Tooltip("...")))", tok );
         }
         return m;
     }
@@ -605,7 +606,7 @@ namespace
         }
         const std::string head = Trimmed( raw.substr( start, open - start ) ); // "using OnHit = void"
         const size_t      eq   = head.find( '=' );
-        if ( head.rfind( "using ", 0 ) != 0 || eq == std::string::npos ||
+        if ( !head.starts_with( "using " ) || eq == std::string::npos ||
              Trimmed( head.substr( eq + 1 ) ) != "void" )
         {
             error = "EVENT: expected 'using <Name> = void( <params> );' after the annotation (an event returns "
@@ -615,10 +616,10 @@ namespace
         ev.name = Trimmed( head.substr( 6, eq - 6 ) );
         if ( ev.name.empty() || TrailingIdent( ev.name ) != ev.name )
         {
-            error = "EVENT: '" + ev.name + "' is not a name";
+            error = std::format( "EVENT: '{}' is not a name", ev.name );
             return semi + 1;
         }
-        const size_t close = ParseParams( raw, open, "EVENT " + ev.name, ev.params, error );
+        const size_t close = ParseParams( raw, open, std::format( "EVENT {}", ev.name ), ev.params, error );
         return std::max( close, semi ) + 1;
     }
 
@@ -639,7 +640,7 @@ namespace
         fn.name         = TrailingIdent( head );
         std::string ret = Trimmed( head.substr( 0, head.size() - fn.name.size() ) );
         for ( const char* specifier : { "static ", "virtual ", "inline ", "constexpr ", "explicit " } )
-            while ( ret.rfind( specifier, 0 ) == 0 )
+            while ( ret.starts_with( specifier ) )
                 ret = Trimmed( ret.substr( std::string_view( specifier ).size() ) );
         fn.returnType = ret;
         if ( fn.name.empty() || fn.returnType.empty() )
@@ -648,7 +649,7 @@ namespace
             return raw.size();
         }
 
-        const size_t close = ParseParams( raw, open, "FUNCTION " + fn.name, fn.params, error );
+        const size_t close = ParseParams( raw, open, std::format( "FUNCTION {}", fn.name ), fn.params, error );
         if ( !error.empty() )
             return raw.size();
 
@@ -704,7 +705,7 @@ namespace
         const auto   fail            = [&]( size_t at, const std::string& message )
         {
             const auto line = std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( at ), '\n' ) + 1;
-            errors.push_back( file.generic_string() + ":" + std::to_string( line ) + ": " + message );
+            errors.push_back( std::format( "{}:{}: {}", file.generic_string(), line, message ) );
         };
 
         for ( size_t i = 0; i < raw.size(); )
@@ -795,8 +796,8 @@ namespace
                     std::string args;
                     if ( i < raw.size() && raw[i] == '(' )
                     {
-                        int    p  = 0;
-                        size_t s0 = i;
+                        int          p  = 0;
+                        size_t const s0 = i;
                         do
                         {
                             if ( raw[i] == '(' )
@@ -863,7 +864,7 @@ namespace
                     if ( std::any_of( events.begin(), events.end(),
                                       [&]( const Event& other ) { return other.name == ev.name; } ) )
                     {
-                        fail( start, "EVENT " + ev.name + " is declared twice in this type" );
+                        fail( start, std::format( "EVENT {} is declared twice in this type", ev.name ) );
                         continue;
                     }
                     events.push_back( std::move( ev ) );
@@ -892,7 +893,7 @@ namespace
                     }
                     if ( scopes.back().component.has_value() )
                     {
-                        fail( start, "COMPONENT twice in " + scopes.back().name );
+                        fail( start, std::format( "COMPONENT twice in {}", scopes.back().name ) );
                         continue;
                     }
                     std::string    error;
@@ -904,7 +905,7 @@ namespace
                     }
                     const auto line =
                          std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( start ), '\n' ) + 1;
-                    c.where                 = file.generic_string() + ":" + std::to_string( line );
+                    c.where                 = std::format( "{}:{}", file.generic_string(), line );
                     c.headerInclude         = headerInclude;
                     scopes.back().component = std::move( c );
                     continue;
@@ -926,8 +927,9 @@ namespace
                                       [&]( const Function& other ) { return other.name == fn.name; } ) )
                     {
                         fail( start,
-                              "FUNCTION " + fn.name +
-                                   " is declared twice in this type (no overloads: a caller calls by name)" );
+                              std::format( "FUNCTION {} is declared twice in this type (no overloads: a caller "
+                                           "calls by name)",
+                                           fn.name ) );
                         continue;
                     }
                     functions.push_back( std::move( fn ) );
@@ -1018,7 +1020,9 @@ namespace
                     if ( sc.isStruct && sc.component.has_value() )
                     {
                         ComponentBlock c = std::move( *sc.component );
-                        c.fqn = JoinScopes( scopes ).empty() ? sc.name : JoinScopes( scopes ) + "::" + sc.name;
+                        c.fqn            = JoinScopes( scopes ).empty()
+                                                ? sc.name
+                                                : std::format( "{}::{}", JoinScopes( scopes ), sc.name );
                         if ( !c.member.empty() )
                         {
                             // The member's declared type, from the struct's own body: "<type> <Member> ;|=|{".
@@ -1026,8 +1030,8 @@ namespace
                             if ( auto type = Desert::HeaderTool::DeclaredMemberType( body, c.member ) )
                                 c.memberType = std::move( *type );
                             else
-                                errors.push_back( c.where + ": COMPONENT " + c.key + ": no member '" + c.member +
-                                                  "' declared in " + sc.name );
+                                errors.push_back( std::format( "{}: COMPONENT {}: no member '{}' declared in {}",
+                                                               c.where, c.key, c.member, sc.name ) );
                         }
                         components.push_back( std::move( c ) );
                     }

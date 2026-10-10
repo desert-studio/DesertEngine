@@ -278,7 +278,7 @@ namespace Desert::Editor
         /// The header's track filters, Selected and Keyed (UE: Filters ▸ Selected / Keyed) — toggles of
         /// EditorPreferences::SequencerFilterSelected / SequencerFilterKeyed; the rule is
         /// Sequencer/TrackFilter.hpp.
-        void DrawLevelTrackFilters();
+        static void DrawLevelTrackFilters();
         /// The player, (re)built when the sequence's range is not the one it was built for.
         Animation::Timeline::Player& LevelPlayer( const Animation::Timeline::Sequence& sequence );
         void                         JumpLevel( const Animation::Timeline::Sequence& sequence, int32_t tick );

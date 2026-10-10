@@ -348,19 +348,19 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
 // Red if PrepareFrame stops retiring, or if any link of the chain frees a Vulkan object immediately.
 TEST( RuntimeHandleCensus, ARetiredEmitterReleasesItsGpuStateThroughTheDeletionRing )
 {
-    const std::string root = RepoRoot();
-    const std::string vk   = root + "Desert/Desert/Source/Engine/Graphic/API/Vulkan/";
+    const fs::path root = RepoRoot();
+    const fs::path vk   = root / "Desert/Desert/Source/Engine/Graphic/API/Vulkan";
 
     const std::string renderer =
-         Code( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+         Code( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
     ASSERT_FALSE( renderer.empty() );
     EXPECT_TRUE( Contains( renderer, "RetireDestroyedEmitters( m_Emitters, reg )" ) )
          << "PrepareFrame no longer retires emitters whose entity is gone";
 
-    const std::string copy     = Code( root + "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan/"
-                                                  "VulkanMappedBufferCopy.cpp" );
-    const std::string material = Code( vk + "VulkanMaterialBackend.cpp" );
-    const std::string pools    = Code( vk + "VulkanViewDescriptorPools.cpp" );
+    const std::string copy =
+         Code( root / "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan/VulkanMappedBufferCopy.cpp" );
+    const std::string material = Code( vk / "VulkanMaterialBackend.cpp" );
+    const std::string pools    = Code( vk / "VulkanViewDescriptorPools.cpp" );
     ASSERT_FALSE( copy.empty() );
     ASSERT_FALSE( material.empty() );
     ASSERT_FALSE( pools.empty() );

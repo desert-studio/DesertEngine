@@ -71,7 +71,7 @@ namespace Desert::Editor
     AssetThumbnailRenderer::~AssetThumbnailRenderer()
     {
         // The worker holds the readback and writes a file: it finishes before the device it reads from goes.
-        for ( Writing& writing : m_Writing )
+        for ( Writing const& writing : m_Writing )
             writing.Encode.wait();
         m_Writing.clear();
         m_Readback.reset();

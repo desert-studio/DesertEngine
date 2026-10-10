@@ -2,6 +2,8 @@
 
 #include <Engine/Localization/LocalizationService.hpp>
 
+#include <format>
+
 namespace Desert::Scripting
 {
     namespace
@@ -90,7 +92,7 @@ namespace Desert::Scripting
         int Number( lua_State* L )
         {
             const double value  = luaL_checknumber( L, 1 );
-            const int    digits = static_cast<int>( luaL_optinteger( L, 2, 0 ) );
+            const int    digits = luaL_optinteger( L, 2, 0 );
             PushText( L, Localization::FormatNumber( Language(), value, digits ) );
             return 1;
         }
@@ -105,7 +107,7 @@ namespace Desert::Scripting
                 // The CODE is returned beside the raw amount rather than a plausible-looking sum in the wrong
                 // currency. A price shown in the wrong money is the one formatting mistake a player will act on.
                 LOG_ERROR( "[Localization] currency '{}' is not one this build knows", code );
-                PushText( L, Localization::FormatNumber( Language(), amount, 2 ) + " " + code );
+                PushText( L, std::format( "{} {}", Localization::FormatNumber( Language(), amount, 2 ), code ) );
                 return 1;
             }
             PushText( L, Localization::FormatCurrency( Language(), amount, *currency ) );
@@ -114,9 +116,8 @@ namespace Desert::Scripting
 
         int Date( lua_State* L )
         {
-            const Localization::CalendarDate date{ static_cast<int>( luaL_checkinteger( L, 1 ) ),
-                                                   static_cast<int>( luaL_checkinteger( L, 2 ) ),
-                                                   static_cast<int>( luaL_checkinteger( L, 3 ) ) };
+            const Localization::CalendarDate date{ luaL_checkinteger( L, 1 ), luaL_checkinteger( L, 2 ),
+                                                   luaL_checkinteger( L, 3 ) };
             const auto                       formatted = Localization::FormatDate( Language(), date );
             if ( !formatted )
             {

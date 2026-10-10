@@ -85,7 +85,8 @@ namespace Desert::Geometry
 
     int TriangleMaterialID( const DynamicMesh3& mesh, int triangle )
     {
-        const DynamicMeshMaterialAttribute* ids = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
+        const DynamicMeshMaterialAttribute* ids =
+             mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
         return ids != nullptr ? ids->GetValue( triangle ) : 0;
     }
 

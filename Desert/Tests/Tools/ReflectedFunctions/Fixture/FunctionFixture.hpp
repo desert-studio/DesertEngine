@@ -47,7 +47,7 @@ namespace ReflectedFunctionsFixture
         }
 
         FUNCTION( ScriptCallable )
-        [[nodiscard]] std::string Greet( const std::string& name, Mood mood ) const
+        [[nodiscard]] static std::string Greet( const std::string& name, Mood mood )
         {
             return ( mood == Mood::Angry ? "Go away, " : "Hello, " ) + name;
         }
@@ -61,7 +61,8 @@ namespace ReflectedFunctionsFixture
         FUNCTION()
         void SetSmall( std::int8_t value )
         {
-            Count = value;
+            // An 8-bit integer parameter, not a character: the reflected kind under test is Int8.
+            Count = value; // NOLINT(bugprone-signed-char-misuse)
         }
 
         // An EVENT(...) signature (SCR-API-3): no body, no storage — a description the tool registers as an

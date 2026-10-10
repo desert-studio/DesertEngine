@@ -14,6 +14,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <format>
 #include <algorithm>
 #include <span>
 #include <unordered_set>
@@ -131,8 +132,8 @@ namespace Desert::UI::Walk
 
         // --- Input first, so the frame shows its own result -------------------------------------------
         edit.Sync( f.Text );
-        const bool press = input && input->MouseDown && !ctx.View.PrevDown;
-        if ( interactive && focused && hover && press )
+        const bool press = ( input != nullptr ) && input->MouseDown && !ctx.View.PrevDown;
+        if ( interactive && ( focused != nullptr ) && hover && press )
         {
             *focused             = e; // focus on press, as Slate does, so the same press places the caret
             const std::size_t at = offsetAt( input->MousePx );
@@ -143,18 +144,18 @@ namespace Desert::UI::Walk
             edit.LastClickTime = ctx.View.Time;
             edit.Dragging      = true;
         }
-        else if ( edit.Dragging && input && input->MouseDown )
+        else if ( edit.Dragging && ( input != nullptr ) && input->MouseDown )
             edit.SetCaret( f.Text, offsetAt( input->MousePx ), true );
-        if ( !input || !input->MouseDown )
+        if ( ( input == nullptr ) || !input->MouseDown )
             edit.Dragging = false;
-        if ( hover && input && input->MouseReleased && focused )
+        if ( hover && ( input != nullptr ) && input->MouseReleased && ( focused != nullptr ) )
             *focused = e; // click to focus
 
         const bool isFocused = interactive && focused != nullptr && *focused == e;
         auto       send      = [&]( const std::string& message )
         {
             if ( !message.empty() )
-                ctx.View.WalkMessages.push_back( message + "|" + f.Text );
+                ctx.View.WalkMessages.push_back( std::format( "{}|{}", message, f.Text ) );
         };
         if ( isFocused && input != nullptr )
         {

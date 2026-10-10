@@ -222,7 +222,9 @@ TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNo
          << "CreateProcedural no longer returns what the bake's Finish hands over";
 
     const std::string skybox = StripComments(
-         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp" ) );
+         ReadAll( ( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/"
+                                                    "SkyboxRenderer.cpp" )
+                       .string() ) );
     const std::string land = BodyOf( skybox, "bool SkyboxRenderer::LandPendingBake" );
     ASSERT_FALSE( land.empty() ) << "SkyboxRenderer::LandPendingBake is not where this suite expects it";
     EXPECT_NE( land.find( "m_PendingBake->Finish()" ), std::string::npos )

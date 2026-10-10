@@ -118,7 +118,9 @@ namespace Desert::UI
         return p;
     }
 
-    glm::vec2 SlotPreferredPx( const IUITree& tree, NodeId e, float scale )
+    // Recursive with GatherLayoutSlots by design (Slate's ComputeDesiredSize): a SizeBox's preferred size is its
+    // children's, so the walk is as deep as the authored hierarchy.
+    glm::vec2 SlotPreferredPx( const IUITree& tree, NodeId e, float scale ) // NOLINT(misc-no-recursion)
     {
         glm::vec2 pref( 0.0f );
         if ( tree.Has<UILayoutData>( e ) )
@@ -140,6 +142,7 @@ namespace Desert::UI
         return pref;
     }
 
+    // NOLINTNEXTLINE(misc-no-recursion): mutual recursion with SlotPreferredPx, see there.
     std::vector<LayoutSlot> GatherLayoutSlots( const IUITree& tree, NodeId e, float scale,
                                                std::vector<NodeId>* kids )
     {
@@ -159,7 +162,7 @@ namespace Desert::UI
                 s.Shrink      = L.FlexShrink;
             }
             slots.push_back( s );
-            if ( kids )
+            if ( kids != nullptr )
                 kids->push_back( c );
         }
         return slots;

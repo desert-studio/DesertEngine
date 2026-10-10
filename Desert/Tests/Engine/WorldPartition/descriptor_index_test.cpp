@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -28,7 +29,7 @@ namespace
         TempWorld()
         {
             const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-            Dir              = std::filesystem::temp_directory_path() / ( "wp18_desc_" + std::to_string( stamp ) );
+            Dir              = std::filesystem::temp_directory_path() / std::format( "wp18_desc_{}", stamp );
             Scene            = Dir / "World.desce";
             std::filesystem::create_directories( Dir );
         }
@@ -43,11 +44,13 @@ namespace
 
     std::string World( const std::string& tagA = "A", bool withB = true )
     {
-        const std::string a = R"({"id":1001,"Tag":")" + tagA + R"("})";
+        const std::string a = std::format( R"({{"id":1001,"Tag":"{}"}})", tagA );
         const std::string b = R"({"id":12345678901234567890,"Tag":"B"})";
         const std::string c = R"({"id":77,"Tag":"C","parent":1001})";
-        return R"({"SceneName":"World","Entities":[)" + a + "," + ( withB ? b + "," : "" ) + c +
-               R"(],"WorldPartition":{"Grids":[{"CellSize":12800.0,"LoadingRange":25600.0}]}})";
+        return std::format(
+             R"({{"SceneName":"World","Entities":[{},{}{}],"WorldPartition":{{"Grids":[{{"CellSize":)"
+             R"(12800.0,"LoadingRange":25600.0}}]}}}})",
+             a, withB ? b + "," : std::string(), c );
     }
 
     bool Write( const TempWorld& world, const std::string& json )
@@ -68,7 +71,7 @@ namespace
 // The index is the world's entities, described: row for row what DescribeEntity says of each file's record.
 TEST( DescriptorIndex, TheIndexIsTheEntitiesDescribed )
 {
-    TempWorld world;
+    TempWorld const world;
     ASSERT_TRUE( Write( world, World() ) );
     DropIndex( world );
     const auto built = DI::Refresh( world.Scene );
@@ -104,7 +107,7 @@ TEST( DescriptorIndex, TheIndexIsTheEntitiesDescribed )
 // An entity file edited behind the index's back is caught by the gate; a refresh re-describes exactly that one.
 TEST( DescriptorIndex, AnEditedFileIsStaleUntilRefreshed )
 {
-    TempWorld world;
+    TempWorld const world;
     ASSERT_TRUE( Write( world, World() ) );
     ASSERT_TRUE( DI::Refresh( world.Scene ) );
 
@@ -128,7 +131,7 @@ TEST( DescriptorIndex, AnEditedFileIsStaleUntilRefreshed )
 // A deleted entity leaves the index; until the refresh the gate refuses the index that still has it.
 TEST( DescriptorIndex, ADeletedEntityLeavesTheIndex )
 {
-    TempWorld world;
+    TempWorld const world;
     ASSERT_TRUE( Write( world, World() ) );
     const auto withB = Common::Utils::FileSystem::ReadFileContent( DI::PathOf( world.Scene ) );
     ASSERT_TRUE( withB );
@@ -153,7 +156,7 @@ TEST( DescriptorIndex, ADeletedEntityLeavesTheIndex )
 // changes nothing leaves the index as it was.
 TEST( DescriptorIndex, ASaveKeepsTheIndexFresh )
 {
-    TempWorld world;
+    TempWorld const world;
     ASSERT_TRUE( Write( world, World() ) );
     const auto first = DI::ReadFresh( world.Scene );
     ASSERT_TRUE( first ) << first.GetError();
@@ -173,7 +176,7 @@ TEST( DescriptorIndex, ASaveKeepsTheIndexFresh )
 // A scene saved without partition has no index: the one its partitioned past left is removed with its entities.
 TEST( DescriptorIndex, AnUnpartitionedSaveRemovesTheIndex )
 {
-    TempWorld world;
+    TempWorld const world;
     ASSERT_TRUE( Write( world, World() ) );
     ASSERT_TRUE( std::filesystem::exists( DI::PathOf( world.Scene ) ) );
     ASSERT_TRUE( Write( world, R"({"SceneName":"World","Entities":[{"id":1001,"Tag":"A"}]})" ) );
@@ -183,7 +186,7 @@ TEST( DescriptorIndex, AnUnpartitionedSaveRemovesTheIndex )
 // No index is a refusal of the gate, never an empty world.
 TEST( DescriptorIndex, NoIndexIsRefused )
 {
-    TempWorld world;
+    TempWorld const world;
     ASSERT_TRUE( Write( world, World() ) );
     DropIndex( world );
     const auto none = DI::ReadFresh( world.Scene );

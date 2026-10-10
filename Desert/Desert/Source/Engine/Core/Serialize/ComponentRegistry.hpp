@@ -50,7 +50,7 @@ namespace Desert::Core::Serialize
 
         // The order a record's blocks are WRITTEN in: sorted by key, so the file does not depend on where a
         // serializer happens to be registered (or on the order the header tool generated a row in).
-        const std::vector<const ComponentSerializer*>& InFileOrder() const
+        [[nodiscard]] const std::vector<const ComponentSerializer*>& InFileOrder() const
         {
             return m_InFileOrder;
         }

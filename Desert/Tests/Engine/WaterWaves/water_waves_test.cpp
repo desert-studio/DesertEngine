@@ -303,7 +303,8 @@ TEST( WaterQuery, ThePointIsAnsweredByTheBodyItIsDeepestInAndNoneOutsideEveryFoo
     const std::vector<Desert::Water::WaterBodyState> bodies{ low, high };
 
     const auto hit = Desert::Water::QueryWater( bodies, {}, glm::vec3( 10.0f, -5.0f, 10.0f ), 0.0f );
-    ASSERT_TRUE( hit.has_value() );
+    if ( !hit.has_value() )
+        GTEST_FAIL() << "the point under both bodies is in no water";
     EXPECT_EQ( hit->Body, 1u );
     EXPECT_FLOAT_EQ( hit->Result.ImmersionDepth, 85.0f );
 
@@ -324,7 +325,8 @@ TEST( WaterQuery, TheSubsystemClockIsTheSumOfThePhysicsStepsAndItsQueryUsesIt )
     const glm::vec3 point( 120.0f, belowTroughs, 40.0f );
     const auto      viaSubsystem = water.Query( point );
     const auto      direct       = Desert::Water::QueryWater( water.Bodies(), {}, point, water.Time() );
-    ASSERT_TRUE( viaSubsystem.has_value() && direct.has_value() );
+    if ( !viaSubsystem.has_value() || !direct.has_value() )
+        GTEST_FAIL() << "the point below the troughs is in no water";
     EXPECT_EQ( viaSubsystem->Result.SurfaceLocation, direct->Result.SurfaceLocation );
 
     water.SetTime( 7.25 );

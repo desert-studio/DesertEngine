@@ -29,7 +29,7 @@ namespace Desert::HeaderTool
         std::string StringField( lua_State* L, const char* key )
         {
             lua_getfield( L, -1, key );
-            std::string value = lua_isstring( L, -1 ) ? lua_tostring( L, -1 ) : "";
+            std::string value = ( lua_isstring( L, -1 ) != 0 ) ? lua_tostring( L, -1 ) : "";
             lua_pop( L, 1 );
             return value;
         }
@@ -55,14 +55,14 @@ namespace Desert::HeaderTool
 
         std::string TopError( lua_State* L )
         {
-            return lua_isstring( L, -1 ) ? lua_tostring( L, -1 ) : "(no message)";
+            return ( lua_isstring( L, -1 ) != 0 ) ? lua_tostring( L, -1 ) : "(no message)";
         }
     } // namespace
 
     Common::ResultStr<ModuleTable> ModuleTable::Load( const std::filesystem::path& tableFile )
     {
-        LuaState   owned( luaL_newstate() );
-        lua_State* L = owned.get();
+        LuaState const owned( luaL_newstate() );
+        lua_State*     L = owned.get();
         luaL_openlibs( L );
         if ( luaL_dofile( L, tableFile.string().c_str() ) != LUA_OK )
             return Common::MakeError<ModuleTable>(

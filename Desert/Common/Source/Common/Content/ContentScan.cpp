@@ -13,6 +13,8 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <format>
+#include <iterator>
 #include <array>
 #include <cstring>
 #include <fstream>
@@ -755,9 +757,9 @@ namespace Common::Content
         // is about, committed once more inside its own repair: an instrument answered a different
         // question and had nothing in its output to say so. Hence: resolve the root, and let the caller
         // pass any directory inside the checkout.
-        const std::string toplevelCommand = "git -C " +
-                                            QuoteForShell( WithoutTrailingSeparator( repoRoot.string() ) ) +
-                                            " rev-parse --show-toplevel 2>" + std::string( kNullDevice );
+        const std::string toplevelCommand =
+             std::format( "git -C {} rev-parse --show-toplevel 2>{}",
+                          QuoteForShell( WithoutTrailingSeparator( repoRoot.string() ) ), kNullDevice );
         std::string toplevel = RunAndCapture( toplevelCommand );
         while ( !toplevel.empty() && ( toplevel.back() == '\n' || toplevel.back() == '\r' ) )
             toplevel.pop_back();
@@ -865,11 +867,11 @@ namespace Common::Content
         if ( toplevel.empty() )
             return std::nullopt;
 
-        std::string command = "git -C " + QuoteForShell( WithoutTrailingSeparator( toplevel ) ) +
-                              " ls-files --eol -z --full-name --";
+        std::string command = std::format( "git -C {} ls-files --eol -z --full-name --",
+                                           QuoteForShell( WithoutTrailingSeparator( toplevel ) ) );
         for ( const std::string& spec : pathspecs )
-            command += " " + QuoteForShell( spec );
-        command += " 2>" + std::string( kNullDevice );
+            std::format_to( std::back_inserter( command ), " {}", QuoteForShell( spec ) );
+        std::format_to( std::back_inserter( command ), " 2>{}", kNullDevice );
         return TranslatedInEolListing( RunAndCapture( command ) );
     }
 

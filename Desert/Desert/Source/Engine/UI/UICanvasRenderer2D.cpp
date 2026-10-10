@@ -405,7 +405,7 @@ namespace Desert::UI
                 // Tab now steps OVER such a control rather than sticking on it.
                 // A navigation rule's boundary is this element's box, focusable or not (a container's rule
                 // bounds the controls inside it).
-                if ( focusables && tree.Has<UINavigationData>( e ) )
+                if ( ( focusables != nullptr ) && tree.Has<UINavigationData>( e ) )
                     ctx.View.NavigationBoxes.push_back(
                          { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
                 if ( interactive && IsFocusable( tree, e ) )

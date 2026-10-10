@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <map>
 #include <string>
 
@@ -32,7 +33,7 @@ namespace
         std::map<std::string, Refl::Value> Run( const std::string& code )
         {
             std::map<std::string, Refl::Value> out;
-            auto slot = Runtime.Load( "UIScriptCollections", "Out = {}\n" + code, {} );
+            auto slot = Runtime.Load( "UIScriptCollections", std::format( "Out = {{}}\n{}", code ), {} );
             EXPECT_TRUE( slot.IsSuccess() ) << ( slot.IsSuccess() ? "" : slot.GetError() );
             if ( slot.IsSuccess() )
                 for ( const Scripting::LuauTableEntry& entry : Runtime.ReadTable( slot.GetValue(), "Out" ) )

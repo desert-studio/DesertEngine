@@ -31,9 +31,9 @@ namespace Desert::UI
     // then do nothing — the UI never reaches for a platform on its own.
     struct IUIClipboard
     {
-        virtual ~IUIClipboard()                                = default;
-        virtual std::string GetText() const                    = 0;
-        virtual void        SetText( const std::string& text ) = 0;
+        virtual ~IUIClipboard()                                              = default;
+        [[nodiscard]] virtual std::string GetText() const                    = 0;
+        virtual void                      SetText( const std::string& text ) = 0;
     };
 
     // The authored rules an edit is checked against — the field's data, read once per frame.
@@ -74,21 +74,21 @@ namespace Desert::UI
     {
     public:
         // --- Where the caret is ---------------------------------------------------------------------
-        std::size_t Caret() const
+        [[nodiscard]] std::size_t Caret() const
         {
             return m_Caret;
         }
-        std::size_t Anchor() const
+        [[nodiscard]] std::size_t Anchor() const
         {
             return m_Anchor;
         }
-        bool HasSelection() const
+        [[nodiscard]] bool HasSelection() const
         {
             return m_Caret != m_Anchor;
         }
         // [lo, hi) of the selection, in bytes.
-        std::pair<std::size_t, std::size_t> Selection() const;
-        std::string                         SelectedText( const std::string& text ) const;
+        [[nodiscard]] std::pair<std::size_t, std::size_t> Selection() const;
+        [[nodiscard]] std::string                         SelectedText( const std::string& text ) const;
 
         // The text was written by someone else (a binding, a script, the Details panel): pull the caret and
         // anchor back inside it, onto a codepoint boundary. Called every frame before anything reads them.
@@ -113,11 +113,11 @@ namespace Desert::UI
         bool Paste( std::string& text, const UITextEditRules& rules, const IUIClipboard& clipboard );
         bool Undo( std::string& text );
         bool Redo( std::string& text );
-        bool CanUndo() const
+        [[nodiscard]] bool CanUndo() const
         {
             return !m_Undo.empty();
         }
-        bool CanRedo() const
+        [[nodiscard]] bool CanRedo() const
         {
             return !m_Redo.empty();
         }
