@@ -7,6 +7,9 @@
 
 #include <ImGui/imgui.h>
 
+#include <algorithm>
+#include <cmath>
+#include <format>
 #include <unordered_map>
 
 namespace Desert::Editor::Render
@@ -26,6 +29,54 @@ namespace Desert::Editor::Render
         {
             static std::unordered_map<const ::Desert::Core::Scene*, Shown> previews;
             return previews;
+        }
+
+        // An edge lying on a surface the scene also drew (a Disc placed on the floor) ties with that surface only
+        // ON the edge's own line. A line fragment is the pixel the rasterizer stepped to, up to half a pixel off
+        // the line, and the scene's depth there was written at a jitter of up to another half pixel: where the
+        // surface is grazing, its depth one pixel to the side is nearer by far more than any fixed pull, and the
+        // edge loses every few pixels - a regular dash pattern. Each end is therefore moved along its view ray
+        // (its pixel does not change) by the surface's depth change across that pixel: a polygon's slope-scaled
+        // depth bias (UE's line DepthBias), worked out per frame because it depends on the view.
+        constexpr float kLiftPixels  = 1.0f;  // half a pixel of line stepping + half a pixel of jitter
+        constexpr float kMinGrazing  = 0.05f; // the cosine below which the lift stops growing (~87 degrees)
+        constexpr float kFloorPixels = 0.25f; // the lift of a surface square to the view: depth precision only
+
+        Common::BoolResultStr LiftEdges( const Graphic::ViewFrame& view, const ToolPreviewMesh& mesh,
+                                         std::vector<Graphic::MaterialDebugLine::LineVertex>& out )
+        {
+            if ( mesh.EdgeSurfaces.size() * 2 != mesh.Edges.size() )
+                return Common::MakeError( std::format( "EditorToolPreviewPass: {} edge vertices but {} edge surfaces "
+                                                       "(one surface per two vertices)",
+                                                       mesh.Edges.size(), mesh.EdgeSurfaces.size() ) );
+            out                = mesh.Edges;
+            const float height = static_cast<float>( view.Split.Render.Height );
+            const float focal  = view.Projection[1][1];
+            if ( height <= 0.0f || focal == 0.0f )
+                return Common::MakeError( "EditorToolPreviewPass: the view has no render height or no focal length" );
+            // The world size of one render pixel at a point is its clip w times this (perspective: w is the view
+            // depth; orthographic: w is 1, and the size is the same everywhere).
+            const float     pixelPerW    = 2.0f / ( std::abs( focal ) * height );
+            const bool      orthographic = view.Projection[3][3] == 1.0f;
+            const glm::vec3 back         = glm::normalize( glm::vec3( view.InvView[2] ) );
+            for ( size_t v = 0; v < out.size(); ++v )
+            {
+                glm::vec3       p      = glm::vec3( out[v].PositionWS );
+                const glm::vec3 normal = mesh.EdgeSurfaces[v / 2];
+                const glm::vec3 toEye  = orthographic ? back : view.CameraPosition - p;
+                const float     dist   = glm::length( toEye );
+                if ( dist <= 0.0f )
+                    continue;
+                const glm::vec3 ray     = toEye / dist;
+                const float     w       = ( view.ViewProjection * glm::vec4( p, 1.0f ) ).w;
+                const float     pixel   = std::abs( w ) * pixelPerW;
+                const float     cosine  = std::min( std::abs( glm::dot( normal, ray ) ), 1.0f );
+                const float     tangent = std::sqrt( 1.0f - cosine * cosine ) / std::max( cosine, kMinGrazing );
+                const float     lift    = pixel * ( kLiftPixels * tangent + kFloorPixels );
+                p += ray * ( orthographic ? lift : std::min( lift, dist * 0.5f ) );
+                out[v].PositionWS = glm::vec4( p, out[v].PositionWS.w );
+            }
+            return BOOLSUCCESS;
         }
     } // namespace
 
@@ -90,8 +141,8 @@ namespace Desert::Editor::Render
         edges.DebugName                              = "EditorToolPreviewEdges";
         edges.Topology                               = Graphic::PrimitiveTopology::Lines;
         edges.LineWidth                              = 1.0f;
-        // Line primitives are never depth-biased by the rasterizer: the edges come pulled toward the eye by the
-        // tool that built them (CreateShapeTool::ShowPreview), not by a bias that would read as if it worked.
+        // Line primitives are never depth-biased by the rasterizer: LiftEdges gives the edges their slope-scaled
+        // bias on the CPU instead, not a pipeline bias that would read as if it worked.
         edges.DepthBiasConstant = 0.0f;
         edges.DepthBiasSlope    = 0.0f;
 
@@ -133,7 +184,9 @@ namespace Desert::Editor::Render
             }
             if ( !mesh->Edges.empty() )
             {
-                m_EdgeMaterial->Update( *view, mesh->Edges );
+                if ( auto lifted = LiftEdges( *view, *mesh, m_LiftedEdges ); !lifted.IsSuccess() )
+                    return lifted;
+                m_EdgeMaterial->Update( *view, m_LiftedEdges );
                 Graphic::Renderer::SubmitPulled( m_EdgePipeline.get(), static_cast<uint32_t>( mesh->Edges.size() ),
                                                  1.0f, m_EdgeMaterial->GetMaterialExecutor() );
             }

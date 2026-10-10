@@ -253,25 +253,33 @@ namespace Desert::Editor::Tools
             for ( const glm::vec3& corner : face.Corners )
                 mesh.Triangles.push_back( Vertex{ glm::vec4( corner, 1.0f ), colour } );
         }
-        // The form's edges: polygroup and open borders on the near side, and the silhouette. The faces' depth
-        // bias does not reach them - a rasterizer biases polygons, never line primitives - so each end is drawn
-        // a fraction of its distance toward the eye instead (UE's PDI line DepthBias, applied in view space):
-        // a border lying on the surface it was placed on is then not dashed by that surface.
-        constexpr float kEdgeTowardEye = 0.002f;
-        const auto      lifted         = [&]( const glm::vec3& local )
-        {
-            const glm::vec3 p = at( local );
-            return p + ( eye - p ) * kEdgeTowardEye;
-        };
+        // The form's edges: polygroup and open borders on the near side, and the silhouette. Each carries the
+        // surface it lies on - the more grazing of its two faces - for the pass to lift it off that surface.
         const glm::vec4 edgeColour( 1.0f, 0.86f, 0.47f, 1.0f );
+        const auto      surface = [&]( uint32_t t )
+        {
+            const auto&     tri = m_Preview.Indices[t];
+            const glm::vec3 a   = at( m_Preview.Vertices[tri.V1].Position );
+            const glm::vec3 n   = glm::cross( at( m_Preview.Vertices[tri.V2].Position ) - a,
+                                              at( m_Preview.Vertices[tri.V3].Position ) - a );
+            const float     len = glm::length( n );
+            return len > 0.0f ? n / len : glm::vec3( 0.0f );
+        };
         for ( const FeatureEdge& edge : m_Edges )
         {
             const bool a = front[edge.TriA] != 0;
             const bool b = front[edge.TriB] != 0;
             if ( closed ? !( a || b ) || !( edge.Feature || a != b ) : !edge.Feature )
                 continue;
-            mesh.Edges.push_back( Vertex{ glm::vec4( lifted( edge.A ), 1.0f ), edgeColour } );
-            mesh.Edges.push_back( Vertex{ glm::vec4( lifted( edge.B ), 1.0f ), edgeColour } );
+            const glm::vec3 pa    = at( edge.A );
+            const glm::vec3 pb    = at( edge.B );
+            const glm::vec3 toEye = eye - ( pa + pb ) * 0.5f;
+            const glm::vec3 na    = surface( edge.TriA );
+            const glm::vec3 nb    = surface( edge.TriB );
+            mesh.Edges.push_back( Vertex{ glm::vec4( pa, 1.0f ), edgeColour } );
+            mesh.Edges.push_back( Vertex{ glm::vec4( pb, 1.0f ), edgeColour } );
+            mesh.EdgeSurfaces.push_back( std::abs( glm::dot( na, toEye ) ) <= std::abs( glm::dot( nb, toEye ) ) ? na
+                                                                                                                  : nb );
         }
         Render::ToolPreview::Show( scene, std::move( mesh ) );
     }

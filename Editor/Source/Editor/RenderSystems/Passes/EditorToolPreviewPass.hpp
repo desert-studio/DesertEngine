@@ -17,6 +17,10 @@ namespace Desert::Editor::Render
         std::vector<Graphic::MaterialDebugLine::LineVertex> Triangles;
         // World space, two vertices per edge: the form's edges, depth-tested like the faces.
         std::vector<Graphic::MaterialDebugLine::LineVertex> Edges;
+        // One per edge: the unit world normal of the surface the edge lies on (its most grazing face). The pass
+        // lifts each edge off that surface by what the surface's depth changes across a pixel - the slope-scaled
+        // depth bias a rasterizer gives polygons and never gives line primitives.
+        std::vector<glm::vec3> EdgeSurfaces;
     };
 
     // The previews a tool shows, one per scene. A tool shows its preview every frame it is active and hides
@@ -49,5 +53,7 @@ namespace Desert::Editor::Render
         // One material per draw: each owns the storage buffer its draw reads.
         std::unique_ptr<Graphic::MaterialDebugLine> m_FaceMaterial;
         std::unique_ptr<Graphic::MaterialDebugLine> m_EdgeMaterial;
+        // This frame's edges, lifted off their surfaces for this view (LiftEdges).
+        std::vector<Graphic::MaterialDebugLine::LineVertex> m_LiftedEdges;
     };
 } // namespace Desert::Editor::Render
