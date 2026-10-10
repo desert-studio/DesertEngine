@@ -175,6 +175,19 @@ namespace Desert::Scripting
             LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
     }
 
+    void ScriptEngine::CallOverlap( uint32_t entity, uint32_t slot, const char* callback, entt::registry& registry,
+                                    entt::entity other )
+    {
+        const LuauSlot target = m_Impl->SlotOf( entity, slot );
+        if ( target == 0 || !m_Impl->Runtime->Defines( target, callback ) )
+            return;
+        m_Impl->CurrentOwner = Impl::SlotKey( entity, slot ); // Timer.after ownership
+        if ( Common::BoolResultStr r = m_Impl->Runtime->CallWithEntity( target, callback, registry, other );
+             !r.IsSuccess() )
+            LOG_ERROR( "[Lua] {} error: {}", callback, r.GetError() );
+        m_Impl->Settle();
+    }
+
     void ScriptEngine::BroadcastUIMessage( const std::string& message )
     {
         const Reflection::Value arg = Reflection::Value::String( message );

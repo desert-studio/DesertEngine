@@ -4,6 +4,7 @@
 #include <Engine/ECS/System/CharacterMovement.hpp>
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
+#include <Engine/ECS/System/KinematicBodies.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/WaterBodyGather.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
@@ -171,30 +172,11 @@ namespace Desert::ECS
                 }
                 desc.Profile = profile.GetValue();
 
-                // Use the WORLD pose (walk parents) so a collider on a CHILD entity (e.g. a wall inside a
-                // "House" prefab root) is created where it actually is, not at its local offset.
-                glm::mat4    world = transform.GetTransform();
-                entt::entity cur   = entity;
-                while ( registry.has<RelationshipComponent>( cur ) )
-                {
-                    const auto& rel = registry.get<RelationshipComponent>( cur );
-                    if ( rel.Parent == entt::null )
-                        break;
-                    cur = rel.Parent;
-                    if ( registry.has<TransformComponent>( cur ) )
-                        world = registry.get<TransformComponent>( cur ).GetTransform() * world;
-                }
-                desc.Position = glm::vec3( world[3] );
-                glm::mat3       basis( world ); // strip scale so quat_cast gives a clean rotation
-                const glm::vec3 worldScale( glm::length( basis[0] ), glm::length( basis[1] ),
-                                            glm::length( basis[2] ) );
-                if ( glm::length( basis[0] ) > 1e-6f )
-                    basis[0] = glm::normalize( basis[0] );
-                if ( glm::length( basis[1] ) > 1e-6f )
-                    basis[1] = glm::normalize( basis[1] );
-                if ( glm::length( basis[2] ) > 1e-6f )
-                    basis[2] = glm::normalize( basis[2] );
-                desc.Rotation = glm::quat_cast( basis );
+                // The WORLD pose, so a collider on a CHILD entity is created where it actually is.
+                const EntityWorldPose pose       = ComputeEntityWorldPose( registry, entity );
+                const glm::vec3       worldScale = pose.Scale;
+                desc.Position                    = pose.Position;
+                desc.Rotation                    = pose.Rotation;
 
                 std::optional<ColliderMesh> colliderMesh;
                 if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
@@ -283,6 +265,9 @@ namespace Desert::ECS
                      m_Water->Advance( dt );
                      StepCharacters( registry, camFwd, camRight, dt );
                  } );
+            // A kinematic body follows its entity (UE: the component leads, the body travels to it over the
+            // step's fixed steps); only a dynamic body's pose is written back below.
+            DriveKinematicBodies( registry, *m_World );
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
             PublishEvents( registry );
@@ -294,7 +279,7 @@ namespace Desert::ECS
             for ( auto entity : bodies )
             {
                 auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type == Physics::BodyType::Static )
+                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
                     continue;
 
                 auto& transform       = bodies.get<TransformComponent>( entity );
@@ -398,14 +383,30 @@ namespace Desert::ECS
                 if ( rb.RuntimeBody != Physics::kInvalidBody )
                     m_BodyEntities[rb.RuntimeBody] = entity;
             }
+            // A character is its inner body to the others (PhysicsWorld::GetCharacterBody): the pawn that walks
+            // into a trigger is named by its entity.
+            for ( auto entity : registry.view<CharacterControllerComponent>() )
+            {
+                const auto& cc = registry.get<CharacterControllerComponent>( entity );
+                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                    continue;
+                if ( const Physics::BodyHandle body = m_World->GetCharacterBody( cc.RuntimeCharacter );
+                     body != Physics::kInvalidBody )
+                    m_BodyEntities[body] = entity;
+            }
             NameContactEvents( m_World->GetContactEvents(), m_BodyEntities, queue.Events );
 
             std::erase_if( m_BodyEntities,
                            [&]( const auto& entry )
                            {
-                               return !registry.valid( entry.second ) ||
-                                      !registry.has<RigidBodyComponent>( entry.second ) ||
-                                      registry.get<RigidBodyComponent>( entry.second ).RuntimeBody != entry.first;
+                               if ( !registry.valid( entry.second ) )
+                                   return true;
+                               if ( const auto* rb = registry.try_get<RigidBodyComponent>( entry.second );
+                                    rb != nullptr && rb->RuntimeBody == entry.first )
+                                   return false;
+                               const auto* cc = registry.try_get<CharacterControllerComponent>( entry.second );
+                               return cc == nullptr || cc->RuntimeCharacter == Physics::kInvalidCharacter ||
+                                      m_World->GetCharacterBody( cc->RuntimeCharacter ) != entry.first;
                            } );
         }
 

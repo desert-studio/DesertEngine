@@ -68,6 +68,12 @@ namespace Desert::Scripting
         // level sequence Event key's CallScript action fires (its function, with the key's name).
         void CallSlotFunction( uint32_t entity, uint32_t slot, const char* function, const std::string& argument );
 
+        // Calls a slot's @p callback (OnBeginOverlap / OnEndOverlap: UE ReceiveActorBeginOverlap) with the other
+        // entity of the overlap, if defined. The other entity may already be destroyed (an End its removal
+        // caused): the script gets a handle whose valid() is false.
+        void CallOverlap( uint32_t entity, uint32_t slot, const char* callback, entt::registry& registry,
+                          entt::entity other );
+
         // Writes the slot's editor-set property values into its env's `Properties` table, so the running
         // script reads the overridden values. Call after LoadEntityScript, before OnStart.
         void ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props );

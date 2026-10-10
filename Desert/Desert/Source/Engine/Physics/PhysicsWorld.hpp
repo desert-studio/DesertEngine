@@ -321,8 +321,8 @@ namespace Desert::Physics
                                                         float radius, float maxDistance ) const;
 
         /// UE OverlapAnyTestByChannel with a capsule standing on Y: does any body intersect the capsule of
-        /// @p radius and cylinder @p halfHeight (excluding the caps) centred at @p center? Characters are not
-        /// bodies, so a character never overlaps itself here.
+        /// @p radius and cylinder @p halfHeight (excluding the caps) centred at @p center? A character's inner
+        /// body is never found (GetCharacterBody), so a character never overlaps itself here.
         [[nodiscard]] bool OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const;
 
         // Read simulated transform (body origin, not center-of-mass).
@@ -336,6 +336,11 @@ namespace Desert::Physics
 
         // Teleport / drive a body (use for Kinematic bodies or resetting on Play).
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
+        /// The pose a Kinematic body travels to (UE: a kinematic body follows its component). Every fixed step
+        /// of the next Step moves it there with Jolt's MoveKinematic, the remaining distance shared evenly over
+        /// the steps, so contacts and overlaps see it travel rather than teleport. Kept until replaced or the
+        /// body is removed. Ignored for a handle that is not a kinematic body.
+        void SetKinematicTarget( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
         /// Adds @p impulse (kg*cm/s) at the centre of mass and wakes the body; a static body ignores it.
         void                    AddImpulse( BodyHandle handle, const glm::vec3& impulse );
@@ -376,6 +381,10 @@ namespace Desert::Physics
         // character moves at the world's rate, not the frame's.
         void            UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float dt );
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
+        /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body), in the
+        /// character's profile: what a trigger sees of it, and the body its contact events name. Queries
+        /// (CastRay, CastSphere, OverlapsCapsule) never find it. kInvalidBody for no character.
+        [[nodiscard]] BodyHandle GetCharacterBody( CharacterHandle handle ) const;
         /// The capsule centre to DRAW, interpolated as GetInterpolatedPosition is.
         [[nodiscard]] glm::vec3 GetInterpolatedCharacterPosition( CharacterHandle handle ) const;
         bool            IsCharacterOnGround( CharacterHandle handle ) const;

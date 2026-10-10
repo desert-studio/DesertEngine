@@ -381,6 +381,19 @@ namespace Desert::Physics
 
         // Body user-data bit: the body's contacts are measured (CompoundBodyDesc::ReportContactImpulses).
         constexpr JPH::uint64 kReportImpulsesBit = 1u;
+        // Body user-data bit: the body is a character's inner body (CharacterVirtual's mInnerBodyShape), what
+        // another body's contacts and overlaps see of the character. Queries skip it: a character's own
+        // probes (the spring arm, the crouch check) start inside its capsule.
+        constexpr JPH::uint64 kCharacterInnerBit = 2u;
+
+        class NotCharacterBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            bool ShouldCollideLocked( const JPH::Body& body ) const override
+            {
+                return ( body.GetUserData() & kCharacterInnerBit ) == 0u;
+            }
+        };
 
         // Velocity iterations of the impulse estimate: Jolt's own default for EstimateCollisionResponse.
         constexpr JPH::uint kImpulseEstimateIterations = 10u;
@@ -601,6 +614,14 @@ namespace Desert::Physics
         std::function<void( float )> PreStepCallback;
         std::function<void( float )> StepCallback;
 
+        // SetKinematicTarget: the pose each kinematic body is being moved to. Main thread only.
+        struct KinematicTarget
+        {
+            JPH::RVec3 Position;
+            JPH::Quat  Rotation;
+        };
+        std::unordered_map<BodyHandle, KinematicTarget> KinematicTargets;
+
         // The fixed step's clock. The bank is double: a float bank fed 1/240 four times must reach exactly
         // the step a 1/60 frame reaches, or two frame rates would take their steps a frame apart.
         double   Bank      = 0.0;
@@ -764,14 +785,28 @@ namespace Desert::Physics
         constexpr auto kStep = static_cast<double>( kFixedStepSeconds );
         world.Bank += static_cast<double>( dt );
         uint32_t taken = 0;
+        // Counted before the first is taken, so a kinematic body can share its remaining travel over them.
+        const auto steps = static_cast<uint32_t>(
+             std::min( std::floor( world.Bank / kStep ), static_cast<double>( kMaxStepsPerFrame ) ) );
         world.StepEvents.clear();
-        while ( world.Bank >= kStep && taken < kMaxStepsPerFrame )
+        while ( taken < steps )
         {
             world.KeepPoses();
             world.InStep = true;
             if ( world.PreStepCallback )
                 world.PreStepCallback( kFixedStepSeconds );
             world.InStep = false;
+            // Each kinematic body covers 1/(steps left) of what remains to its target, so it arrives on the
+            // call's last fixed step whatever their number, and contacts see it travel rather than teleport.
+            const float share = 1.0f / static_cast<float>( steps - taken );
+            for ( const auto& [handle, target] : world.KinematicTargets )
+            {
+                const JPH::BodyID id( handle );
+                const JPH::RVec3  from = world.Bodies->GetPosition( id );
+                const JPH::Quat   turn = world.Bodies->GetRotation( id );
+                world.Bodies->MoveKinematic( id, from + ( target.Position - from ) * share,
+                                             turn.SLERP( target.Rotation, share ).Normalized(), kFixedStepSeconds );
+            }
             // Jolt clears a body's forces after every update, so a held force is given again on each step.
             for ( const Impl::HeldForce& force : world.HeldForces )
                 world.Apply( force );
@@ -1041,6 +1076,7 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return;
         const JPH::BodyID id( handle );
+        m_Impl->KinematicTargets.erase( handle );
         m_Impl->Bodies->RemoveBody( id );
         m_Impl->Bodies->DestroyBody( id );
         m_Impl->HeightFields.erase( handle );
@@ -1152,7 +1188,8 @@ namespace Desert::Physics
         const JPH::RRayCast ray( JPH::RVec3( origin.x, origin.y, origin.z ), ToJolt( dir * maxDistance ) );
         JPH::RayCastResult         result;
         const QueryableLayerFilter queryable( m_Impl->Profiles );
-        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, queryable ) )
+        const NotCharacterBodyFilter notCharacter;
+        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, queryable, notCharacter ) )
             return std::nullopt;
 
         RayHit hit;
@@ -1186,7 +1223,9 @@ namespace Desert::Physics
                                                                          ToJolt( dir * maxDistance ) );
         JPH::ShapeCastSettings                                     settings;
         JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-        m_Impl->System.GetNarrowPhaseQuery().CastShape( cast, settings, JPH::RVec3::sZero(), collector );
+        const NotCharacterBodyFilter notCharacter;
+        m_Impl->System.GetNarrowPhaseQuery().CastShape( cast, settings, JPH::RVec3::sZero(), collector, {}, {},
+                                                        notCharacter );
         if ( !collector.HadHit() )
             return std::nullopt;
 
@@ -1210,7 +1249,7 @@ namespace Desert::Physics
         m_Impl->System.GetNarrowPhaseQuery().CollideShape(
              capsule, JPH::Vec3::sReplicate( 1.0f ),
              JPH::RMat44::sTranslation( JPH::RVec3( center.x, center.y, center.z ) ), settings,
-             JPH::RVec3::sZero(), collector );
+             JPH::RVec3::sZero(), collector, {}, {}, NotCharacterBodyFilter{} );
         return collector.HadHit();
     }
 
@@ -1258,6 +1297,18 @@ namespace Desert::Physics
         if ( previous == m_Impl->PreviousPoses.end() )
             return current;
         return glm::slerp( previous->second.Rotation, current, GetInterpolationAlpha() );
+    }
+
+    void PhysicsWorld::SetKinematicTarget( BodyHandle handle, const glm::vec3& position,
+                                           const glm::quat& rotation )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        const JPH::BodyID id( handle );
+        if ( m_Impl->Bodies->GetMotionType( id ) != JPH::EMotionType::Kinematic )
+            return;
+        m_Impl->KinematicTargets[handle] = { JPH::RVec3( position.x, position.y, position.z ),
+                                             ToJolt( rotation ).Normalized() };
     }
 
     void PhysicsWorld::SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity )
@@ -1356,10 +1407,16 @@ namespace Desert::Physics
         settings.mMaxSlopeAngle = glm::radians( desc.MaxSlopeDeg );
         // Keep the contact point a little inside the capsule so the character doesn't get stuck on edges.
         settings.mSupportingVolume = JPH::Plane( JPH::Vec3::sAxisY(), -desc.Radius );
+        // The inner body is what other bodies see of the character (UE: the pawn's capsule component), in the
+        // character's own profile: a trigger's Overlap answer reports it, a Block answer is pushed by it.
+        settings.mInnerBodyShape = settings.mShape;
+        settings.mInnerBodyLayer = LayerOf( desc.Profile, true );
 
         JPH::Ref<JPH::CharacterVirtual> character =
              new JPH::CharacterVirtual( &settings, ToJolt( desc.Position ), JPH::Quat::sIdentity(),
                                         &m_Impl->System );
+        if ( !character->GetInnerBodyID().IsInvalid() )
+            m_Impl->Bodies->SetUserData( character->GetInnerBodyID(), kCharacterInnerBit );
 
         // Reuse a released slot before growing. Slots used to be append-only, which was harmless while
         // characters lived as long as a Play session, and is a vector that only grows once streaming creates
@@ -1403,6 +1460,14 @@ namespace Desert::Physics
                            {}, {}, *m_Impl->TempAllocator );
     }
 
+    BodyHandle PhysicsWorld::GetCharacterBody( CharacterHandle handle ) const
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return kInvalidBody;
+        const JPH::BodyID id = m_Impl->Characters[handle]->GetInnerBodyID();
+        return id.IsInvalid() ? kInvalidBody : id.GetIndexAndSequenceNumber();
+    }
+
     glm::vec3 PhysicsWorld::GetCharacterPosition( CharacterHandle handle ) const
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
@@ -1441,10 +1506,15 @@ namespace Desert::Physics
         auto&                           character = m_Impl->Characters[handle];
         const JPH::RefConst<JPH::Shape> capsule =
              new JPH::CapsuleShape( glm::max( halfHeight, 1.0f ), glm::max( radius, 1.0f ) );
+        const CollisionProfileId  profile = m_Impl->CharacterProfiles[handle];
+        const BlockingLayerFilter blockedBy( m_Impl->Profiles, profile );
         // Jolt's own crouch sample allows the character's padding of penetration and no more.
-        return character->SetShape( capsule, 1.5f * character->GetCharacterPadding(),
-                                    m_Impl->System.GetDefaultBroadPhaseLayerFilter( Layers::MOVING ),
-                                    m_Impl->System.GetDefaultLayerFilter( Layers::MOVING ), {}, {},
-                                    *m_Impl->TempAllocator );
+        if ( !character->SetShape( capsule, 1.5f * character->GetCharacterPadding(),
+                                   m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ),
+                                   blockedBy, {}, {}, *m_Impl->TempAllocator ) )
+            return false;
+        // What other bodies see of the character changes with it.
+        character->SetInnerBodyShape( capsule );
+        return true;
     }
 } // namespace Desert::Physics

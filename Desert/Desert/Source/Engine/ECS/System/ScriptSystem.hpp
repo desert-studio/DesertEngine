@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
@@ -192,6 +193,8 @@ namespace Desert::ECS
                 }
             }
 
+            DeliverOverlaps( registry );
+
             // Deliver whatever the canvas raised this frame (button actions, pointer events, drops) to
             // every script defining OnUIMessage. Drained here rather than pushed by the UI, so the canvas
             // stays unaware that scripting exists — and so a message queued while paused isn't lost.
@@ -217,6 +220,37 @@ namespace Desert::ECS
         }
 
     private:
+        // The overlaps physics published since the last delivery (PhysicsEventQueue, the profiles' Overlap
+        // answers), in order, to every started slot of the entity the event is for: OnBeginOverlap /
+        // OnEndOverlap (UE ReceiveActorBeginOverlap / ReceiveActorEndOverlap). A callback may destroy its entity,
+        // which ends that entity's delivery.
+        void DeliverOverlaps( entt::registry& registry )
+        {
+            const auto* queue = registry.try_ctx<PhysicsEventQueue>();
+            if ( queue == nullptr || queue->Publication == m_DeliveredPhysics )
+                return;
+            m_DeliveredPhysics = queue->Publication;
+            const std::vector<PhysicsEvent> events = queue->Events; // a callback may destroy, never re-publish
+            for ( const PhysicsEvent& event : events )
+            {
+                if ( event.Kind == PhysicsEventKind::Hit || !registry.valid( event.Self ) ||
+                     !registry.has<ScriptComponent>( event.Self ) )
+                    continue;
+                const char*    callback = event.Kind == PhysicsEventKind::BeginOverlap ? "OnBeginOverlap"
+                                                                                        : "OnEndOverlap";
+                const uint32_t id       = static_cast<uint32_t>( event.Self );
+                const auto     slots    = static_cast<uint32_t>( registry.get<ScriptComponent>( event.Self ).Scripts.size() );
+                for ( uint32_t slot = 0; slot < slots && registry.valid( event.Self ); ++slot )
+                {
+                    const auto& script = registry.get<ScriptComponent>( event.Self ).Scripts[slot];
+                    if ( !script.ScriptKey.empty() && script.Started )
+                        m_Engine.CallOverlap( id, slot, callback, registry, event.Other );
+                }
+            }
+        }
+
+        std::uint64_t m_DeliveredPhysics = 0; // PhysicsEventQueue::Publication last delivered
+
         // Polls the mtimes of every script file referenced by a running slot; on change, flags
         // the slot for re-load (Started=false -> next frame: fresh env + OnStart + properties).
         // Errors surface through the normal load path (Logs panel) and never kill the session.
