@@ -170,7 +170,8 @@ namespace Desert::Reflection
             case FieldType::Double:
                 return Common::MakeSuccess( Value::Double( Load<double>( at ) ) );
             case FieldType::String:
-                return Common::MakeSuccess( Value::String( *static_cast<const std::string*>( at ) ) );
+                return Common::MakeSuccess(
+                     Value::String( *static_cast<const std::string*>( static_cast<const void*>( at ) ) ) );
             case FieldType::Vec2:
                 return LoadFloats<Value::Float2>( field, at, &Value::Vec2 );
             case FieldType::Vec3:
@@ -227,7 +228,7 @@ namespace Desert::Reflection
                 Store<double>( at, *value.Get<double>() );
                 return Common::MakeSuccess( true );
             case FieldType::String:
-                *static_cast<std::string*>( at ) = *value.Get<std::string>();
+                *static_cast<std::string*>( static_cast<void*>( at ) ) = *value.Get<std::string>();
                 return Common::MakeSuccess( true );
             case FieldType::Vec2:
                 return StoreFloats( field, at, value.Get<Value::Float2>() );

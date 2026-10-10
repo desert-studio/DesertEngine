@@ -396,12 +396,12 @@ TEST( ImportRecord, ASplitRecordIsParsedOnceAndAgainOnlyWhenItsFileChanges )
     const uint64_t before = Ser::ImportRecordParseCount();
     const auto     read   = Ser::ReadImportRecord( project.Source );
     ASSERT_TRUE( read ) << read.GetError();
-    const std::optional<Ser::ImportRecordData>& record = read.GetValue();
-    if ( !record || !record->Nodes )
+    const std::optional<Ser::ImportRecordData>& readRecord = read.GetValue();
+    if ( !readRecord || !readRecord->Nodes )
         GTEST_FAIL() << "the record or its Nodes were not read";
     const std::vector<Ser::ImportRecordNode> stated = { { "StringLight_Wind_20", { -205.5f, 708.25f, -2093.0f } },
                                                         { "Doors_2", { 1.0f, 2.0f, 3.0f } } };
-    EXPECT_EQ( *record->Nodes, stated ) << "the record's Nodes are not read as Name and Placement";
+    EXPECT_EQ( *readRecord->Nodes, stated ) << "the record's Nodes are not read as Name and Placement";
 
     // Every ask a node mesh's thumbnail makes, many times over: no parse beyond the first.
     for ( int ask = 0; ask < 50; ++ask )
