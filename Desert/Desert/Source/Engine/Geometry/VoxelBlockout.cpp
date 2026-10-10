@@ -1319,18 +1319,76 @@ namespace Desert::Geometry::VoxelBlockout
                     return Common::MakeError<Volume>(
                          std::format( "triangle {} names vertex {} of {}", t, v, positions.size() ) );
 
-        // The lattice: origin at the lowest corner, step = the gcd of every coordinate's offset from it.
+        // The lattice: origin at the lowest corner, step = the gcd of every lattice point's offset from it.
         glm::dvec3 low( std::numeric_limits<double>::max() );
         for ( const glm::dvec3& p : positions )
             low = glm::min( low, p );
         std::vector<std::array<int64_t, 3>> q( positions.size() );
-        int64_t                             step = 0;
         for ( size_t i = 0; i < positions.size(); ++i )
             for ( int a = 0; a < 3; ++a )
-            {
                 q[i][a] = std::llround( ( positions[i][a] - low[a] ) * 100.0 );
-                step    = std::gcd( step, q[i][a] );
+
+        // A point inside one flat face of one material is not a lattice point: the bake fans a quad whose edge
+        // a neighbour's corner splits from the quad's CENTRE (Volume::Bake, T-junctions), and the centre of an
+        // odd run of blocks sits half a block off the lattice. Such a point is where every triangle touching it
+        // lies in one axis plane, faces one way, has one material, and closes a full fan around it (each edge
+        // from it is walked once out and once back). The faces' outlines - where the surface turns, or the
+        // material changes - are what the blocks are made of, so the step is taken from those points only.
+        std::map<std::array<int64_t, 3>, int> weld;
+        std::vector<int>                      welded( positions.size() );
+        for ( size_t i = 0; i < positions.size(); ++i )
+            welded[i] = weld.try_emplace( q[i], static_cast<int>( weld.size() ) ).first->second;
+        const auto normalOf = [&]( const std::array<int, 3>& tri )
+        {
+            std::array<glm::dvec3, 3> c;
+            for ( int k = 0; k < 3; ++k )
+            {
+                const auto& v = q[static_cast<size_t>( tri[k] )];
+                c[k]          = glm::dvec3( static_cast<double>( v[0] ), static_cast<double>( v[1] ),
+                                            static_cast<double>( v[2] ) );
             }
+            return glm::cross( c[1] - c[0], c[2] - c[0] ); // integer coordinates: exact
+        };
+        struct Star
+        {
+            glm::dvec3         Normal{ 0.0 };
+            int                Material = -1;
+            bool               Flat     = true;
+            std::map<int, int> Turns; // neighbour -> (edges out) - (edges back)
+        };
+        std::vector<Star> stars( weld.size() );
+        for ( size_t t = 0; t < triangles.size(); ++t )
+        {
+            const glm::dvec3 n = normalOf( triangles[t] );
+            if ( n == glm::dvec3( 0.0 ) )
+                continue; // a zero-area sliver bounds nothing
+            const int        nonZero = ( n.x != 0.0 ) + ( n.y != 0.0 ) + ( n.z != 0.0 );
+            const glm::dvec3 dir     = glm::sign( n );
+            for ( int k = 0; k < 3; ++k )
+            {
+                Star& s = stars[static_cast<size_t>( welded[static_cast<size_t>( triangles[t][k] )] )];
+                if ( s.Material < 0 )
+                {
+                    s.Normal   = dir;
+                    s.Material = materials[t];
+                }
+                s.Flat = s.Flat && nonZero == 1 && s.Normal == dir && s.Material == materials[t];
+                ++s.Turns[welded[static_cast<size_t>( triangles[t][( k + 1 ) % 3] )]];
+                --s.Turns[welded[static_cast<size_t>( triangles[t][( k + 2 ) % 3] )]];
+            }
+        }
+        std::vector<bool> latticePoint( weld.size(), true );
+        for ( size_t w = 0; w < stars.size(); ++w )
+        {
+            const Star& s   = stars[w];
+            latticePoint[w] = s.Material < 0 || !s.Flat ||
+                              !std::ranges::all_of( s.Turns, []( const auto& turn ) { return turn.second == 0; } );
+        }
+        int64_t step = 0;
+        for ( const auto& [at, w] : weld )
+            if ( latticePoint[static_cast<size_t>( w )] )
+                for ( int a = 0; a < 3; ++a )
+                    step = std::gcd( step, at[a] );
         if ( step == 0 )
             return Common::MakeError<Volume>( "every vertex sits at one point: it encloses no block" );
         const double unit = static_cast<double>( step ) / 100.0;
@@ -1358,11 +1416,13 @@ namespace Desert::Geometry::VoxelBlockout
             for ( int k = 0; k < 3; ++k )
             {
                 const auto& c = q[static_cast<size_t>( triangles[t][k] )];
-                p[k]          = glm::dvec3( static_cast<double>( c[0] / step ), static_cast<double>( c[1] / step ),
-                                            static_cast<double>( c[2] / step ) );
+                // In blocks; a point inside a flat face (a fan centre) may sit between lattice planes.
+                p[k] = glm::dvec3( static_cast<double>( c[0] ), static_cast<double>( c[1] ),
+                                   static_cast<double>( c[2] ) ) /
+                       static_cast<double>( step );
             }
-            // Integer lattice coordinates: the cross product is exact, so "axis-aligned" is an exact test.
-            const glm::dvec3 n = glm::cross( p[1] - p[0], p[2] - p[0] );
+            // From the integer coordinates: the cross product is exact, so "axis-aligned" is an exact test.
+            const glm::dvec3 n = normalOf( triangles[t] );
             int              a = 0;
             for ( int k = 1; k < 3; ++k )
                 if ( std::abs( n[k] ) > std::abs( n[a] ) )
@@ -1384,14 +1444,22 @@ namespace Desert::Geometry::VoxelBlockout
             const glm::dvec2 lo2  = glm::min( glm::min( flat[0], flat[1] ), flat[2] );
             const glm::dvec2 hi2  = glm::max( glm::max( flat[0], flat[1] ), flat[2] );
             const double     sign = n[a] > 0.0 ? 1.0 : -1.0;
-            for ( auto su = static_cast<int64_t>( lo2.x ); su < static_cast<int64_t>( hi2.x ); ++su )
-                for ( auto sv = static_cast<int64_t>( lo2.y ); sv < static_cast<int64_t>( hi2.y ); ++sv )
+            const int64_t    plane = q[static_cast<size_t>( triangles[t][0] )][a];
+            if ( plane % step != 0 )
+                return Common::MakeError<Volume>(
+                     std::format( "triangle {} lies between the {:.2f} cm block planes along {}: its faces are "
+                                  "not whole blocks",
+                                  t, static_cast<double>( step ) / 100.0, AxisName( a ) ) );
+            for ( auto su = static_cast<int64_t>( std::floor( lo2.x ) );
+                  su < static_cast<int64_t>( std::ceil( hi2.x ) ); ++su )
+                for ( auto sv = static_cast<int64_t>( std::floor( lo2.y ) );
+                      sv < static_cast<int64_t>( std::ceil( hi2.y ) ); ++sv )
                 {
                     const double area = AreaInSquare( flat, su, sv );
                     if ( area <= 0.0 )
                         continue;
                     glm::ivec3 key;
-                    key[a]         = static_cast<int>( p[0][a] );
+                    key[a]         = static_cast<int>( plane / step );
                     key[u]         = static_cast<int>( su );
                     key[v]         = static_cast<int>( sv );
                     SquareCover& c = cover[a][Pack( key )];
