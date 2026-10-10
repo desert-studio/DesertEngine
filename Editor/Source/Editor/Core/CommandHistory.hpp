@@ -1,5 +1,9 @@
 #pragma once
 
+#include <Engine/Core/Serialize/EditStamps.hpp>
+
+#include <Common/Core/UUID.hpp>
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -43,6 +47,15 @@ namespace Desert::Editor
         {
             return "Edit";
         }
+
+    private:
+        // WHICH ENTITY FILES THIS RECORD MADE DIRTY (WP17, Core/Serialize/EditStamps.hpp) - UE's transaction
+        // remembering each package's dirty state. Kept and applied by CommandHistory alone: a command never sees
+        // them, and a record that named no entities (and is not an asset edit) marks the whole scene.
+        friend class CommandHistory;
+        std::weak_ptr<::Desert::Core::IEditStamps>      m_Ledger;
+        std::vector<::Desert::Core::IEditStamps::Stamp> m_Stamps;
+        bool                                     m_StampsWhole = false;
     };
 
     // The single editor-wide undo/redo stack: reflected-property edits, gizmo transforms and structural
@@ -68,7 +81,7 @@ namespace Desert::Editor
         // Desert/Tests/Editor/PropertyUndoPolicy.
         void Push( void* target, const void* oldBytes, const void* newBytes, std::size_t size )
         {
-            PushCommand( std::make_unique<ByteCommand>( target, oldBytes, newBytes, size ) );
+            PushFieldEdit( std::make_unique<ByteCommand>( target, oldBytes, newBytes, size ) );
         }
 
         // Reflected-property STRING edit: before/after VALUES, restored by assignment. The value and the
@@ -76,10 +89,90 @@ namespace Desert::Editor
         // being stored (see Push above).
         void PushString( std::string* target, std::string oldValue, std::string newValue )
         {
-            PushCommand( std::make_unique<StringCommand>( target, std::move( oldValue ), std::move( newValue ) ) );
+            PushFieldEdit(
+                 std::make_unique<StringCommand>( target, std::move( oldValue ), std::move( newValue ) ) );
         }
 
+        // THE ENTITY A FIELD EDIT BELONGS TO (WP17). The reflected-property builder writes raw field addresses
+        // and cannot say whose they are; the panel that draws an entity's components can. While a scope is
+        // alive, Push/PushString are recorded as edits of its entity (PushEntityEdit) - only that entity's file
+        // is rewritten - instead of edits of the whole scene. Scopes nest; the innermost names the entity.
+        class FieldSubject
+        {
+        public:
+            explicit FieldSubject( Common::UUID entity )
+            {
+                Get().m_FieldSubjects.push_back( entity );
+            }
+            ~FieldSubject()
+            {
+                Get().m_FieldSubjects.pop_back();
+            }
+            FieldSubject( const FieldSubject& )            = delete;
+            FieldSubject& operator=( const FieldSubject& ) = delete;
+        };
+
+        // The entity ledger of the scene the scene commands edit (Commands::SetContext binds it). Held weakly: a
+        // record outliving its scene stamps nothing.
+        void BindPackages( std::weak_ptr<::Desert::Core::IEditStamps> ledger )
+        {
+            m_Packages = std::move( ledger );
+        }
+
+        // A record that names the entities whose records it changed: only their files are rewritten by the next
+        // save, and its undo/redo puts their revisions back (WP17). The entities created, deleted or reparented
+        // need not be named - the save reads that off the hierarchy.
+        void PushEntityEdit( std::unique_ptr<ICommand> command, const std::vector<Common::UUID>& entities )
+        {
+            command->m_Ledger = m_Packages;
+            if ( const auto ledger = m_Packages.lock() )
+                for ( const Common::UUID id : entities )
+                    command->m_Stamps.push_back( ledger->Touch( id ) );
+            Record( std::move( command ) );
+        }
+
+        // A record that names no entities: an asset edit (EditedObject) touches no scene file; anything else may
+        // have changed any record, so the next save of the scene is whole.
         void PushCommand( std::unique_ptr<ICommand> command )
+        {
+            if ( command->EditedObject() == nullptr )
+            {
+                command->m_Ledger      = m_Packages;
+                command->m_StampsWhole = true;
+                if ( const auto ledger = m_Packages.lock() )
+                    ledger->TouchAll();
+            }
+            Record( std::move( command ) );
+        }
+
+    private:
+        void PushFieldEdit( std::unique_ptr<ICommand> command )
+        {
+            if ( m_FieldSubjects.empty() )
+                PushCommand( std::move( command ) );
+            else
+                PushEntityEdit( std::move( command ), { m_FieldSubjects.back() } );
+        }
+
+        static void ApplyStamps( const ICommand& command, bool undo )
+        {
+            const auto ledger = command.m_Ledger.lock();
+            if ( !ledger )
+                return;
+            if ( command.m_StampsWhole )
+            {
+                ledger->TouchAll();
+                return;
+            }
+            if ( undo )
+                for ( auto it = command.m_Stamps.rbegin(); it != command.m_Stamps.rend(); ++it )
+                    ledger->Restore( it->Id, it->Before );
+            else
+                for ( const auto& stamp : command.m_Stamps )
+                    ledger->Restore( stamp.Id, stamp.After );
+        }
+
+        void Record( std::unique_ptr<ICommand> command )
         {
             // A new edit invalidates the redo branch.
             m_Redo.clear();
@@ -88,6 +181,8 @@ namespace Desert::Editor
                 m_Undo.erase( m_Undo.begin() );
             ++m_Revision;
         }
+
+    public:
 
         /// The last two entries become ONE, undone newest-first and redone oldest-first. For a single
         /// user action whose two halves are recorded by two owners a frame apart: an auto-keyed control
@@ -104,7 +199,14 @@ namespace Desert::Editor
             m_Undo.pop_back();
             std::unique_ptr<ICommand> first = std::move( m_Undo.back() );
             m_Undo.pop_back();
-            m_Undo.push_back( std::make_unique<JoinedCommand>( std::move( first ), std::move( second ) ) );
+            auto joined           = std::make_unique<JoinedCommand>( std::move( first ), std::move( second ) );
+            joined->m_Ledger      = joined->First().m_Ledger.expired() ? joined->Second().m_Ledger
+                                                                       : joined->First().m_Ledger;
+            joined->m_StampsWhole = joined->First().m_StampsWhole || joined->Second().m_StampsWhole;
+            joined->m_Stamps      = joined->First().m_Stamps;
+            joined->m_Stamps.insert( joined->m_Stamps.end(), joined->Second().m_Stamps.begin(),
+                                     joined->Second().m_Stamps.end() );
+            m_Undo.push_back( std::move( joined ) );
             ++m_Revision;
             return true;
         }
@@ -134,6 +236,7 @@ namespace Desert::Editor
                 m_Undo.pop_back();
                 if ( cmd->Undo() )
                 {
+                    ApplyStamps( *cmd, true );
                     m_Redo.push_back( std::move( cmd ) );
                     ++m_Revision;
                     return true;
@@ -150,6 +253,7 @@ namespace Desert::Editor
                 m_Redo.pop_back();
                 if ( cmd->Redo() )
                 {
+                    ApplyStamps( *cmd, false );
                     m_Undo.push_back( std::move( cmd ) );
                     ++m_Revision;
                     return true;
@@ -253,6 +357,15 @@ namespace Desert::Editor
                 return m_First->GetLabel() + " + " + m_Second->GetLabel();
             }
 
+            [[nodiscard]] const ICommand& First() const
+            {
+                return *m_First;
+            }
+            [[nodiscard]] const ICommand& Second() const
+            {
+                return *m_Second;
+            }
+
         private:
             std::unique_ptr<ICommand> m_First;
             std::unique_ptr<ICommand> m_Second;
@@ -342,6 +455,8 @@ namespace Desert::Editor
 
         std::vector<std::unique_ptr<ICommand>> m_Undo;
         std::vector<std::unique_ptr<ICommand>> m_Redo;
+        std::weak_ptr<::Desert::Core::IEditStamps>       m_Packages;
+        std::vector<Common::UUID>                        m_FieldSubjects; // FieldSubject scopes, innermost last
         uint64_t                               m_Revision = 0;
     };
 } // namespace Desert::Editor

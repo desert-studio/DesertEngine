@@ -12,6 +12,7 @@
 //   5. A LISTED FILE THAT IS MISSING IS A REFUSAL naming the path and the id; an unlisted file is a refusal
 //      naming the path; a partitioned world with inline records is refused and names the migrator.
 
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
@@ -78,12 +79,14 @@ namespace
         return document ? document.ExtractValue() : TextDocument();
     }
 
-    // Every file below `root` and its bytes: what "changed exactly one file" is measured against.
+    // Every AUTHORED file below `root` and its bytes: what "changed exactly one file" is measured against. The
+    // descriptor index (WP18) is derived from these files, follows every save and is never committed, so it is
+    // not one of them; descriptor_index_test.cpp holds it.
     std::map<std::string, std::string> Snapshot( const std::filesystem::path& root )
     {
         std::map<std::string, std::string> files;
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
-            if ( entry.is_regular_file() )
+            if ( entry.is_regular_file() && entry.path().filename() != Desert::Core::DescriptorIndex::kFileName )
                 files[entry.path().lexically_relative( root ).generic_string()] = ReadAll( entry.path() );
         return files;
     }

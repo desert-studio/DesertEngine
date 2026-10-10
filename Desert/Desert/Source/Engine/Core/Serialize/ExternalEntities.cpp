@@ -1,14 +1,20 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
+
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <system_error>
 #include <unordered_set>
+#include <vector>
 
 namespace Desert::Core::ExternalEntities
 {
@@ -18,6 +24,10 @@ namespace Desert::Core::ExternalEntities
         struct RecordIdentity
         {
             std::optional<std::uint64_t> id;
+        };
+        struct RecordTag
+        {
+            std::optional<std::string> Tag;
         };
         struct HeaderList
         {
@@ -225,6 +235,10 @@ namespace Desert::Core::ExternalEntities
                      fmt::format( "could not lay out {} as text: {}", scenePath.string(), text.GetError() ) );
             if ( const auto written = WriteIfChanged( scenePath, text.GetValue(), outcome ); !written )
                 return Common::MakeError<WriteOutcome>( written.GetError() );
+            // A scene that is no longer partitioned has no descriptor index: removed before the folder it sits in
+            // is cleared, so a stale index never outlives the entities it described.
+            std::error_code ec;
+            std::filesystem::remove( DescriptorIndex::PathOf( scenePath ), ec );
             if ( const auto removed = RemoveUnclaimed( scenePath, claimed, outcome ); !removed )
                 return Common::MakeError<WriteOutcome>( removed.GetError() );
             return Common::MakeSuccess( outcome );
@@ -233,6 +247,8 @@ namespace Desert::Core::ExternalEntities
         auto split = Split( scene, scenePath.string() );
         if ( !split )
             return Common::MakeError<WriteOutcome>( split.GetError() );
+        std::vector<Common::UUID>                      listed;
+        std::unordered_map<std::uint64_t, std::string> texts;
         for ( const auto& [id, record] : split.GetValue().Records )
         {
             const std::filesystem::path file = FileOf( scenePath, id );
@@ -244,6 +260,8 @@ namespace Desert::Core::ExternalEntities
             if ( const auto written = WriteIfChanged( file, text.GetValue(), outcome ); !written )
                 return Common::MakeError<WriteOutcome>( written.GetError() );
             claimed.insert( file.lexically_normal().generic_string() );
+            listed.push_back( id );
+            texts.emplace( Bits( id ), text.GetValue() );
         }
 
         // The header after its records: a write that stops half way leaves the old list naming files that
@@ -259,7 +277,140 @@ namespace Desert::Core::ExternalEntities
         // list does not name), so the save that dropped the entity drops its file.
         if ( const auto removed = RemoveUnclaimed( scenePath, claimed, outcome ); !removed )
             return Common::MakeError<WriteOutcome>( removed.GetError() );
+
+        // The descriptor index follows every save (WP18): the texts just written are its input, so only the
+        // entities whose file changed are re-described and an unchanged world leaves the index untouched.
+        const auto indexed =
+             DescriptorIndex::Refresh( scenePath, listed, [&]( Common::UUID id ) -> Common::ResultStr<std::string>
+                                       { return Common::MakeSuccess( texts.at( Bits( id ) ) ); } );
+        if ( !indexed )
+            return Common::MakeError<WriteOutcome>( indexed.GetError() );
         return Common::MakeSuccess( outcome );
+    }
+
+    Common::ResultStr<WriteOutcome> WriteSceneDelta( const std::filesystem::path&      scenePath,
+                                                     const Common::Json::TextDocument& scene,
+                                                     std::span<const Common::UUID>     listed,
+                                                     std::span<const Common::UUID>     changed,
+                                                     std::span<const Common::UUID>     removed )
+    {
+        WriteOutcome outcome;
+        auto         split = Split( scene, scenePath.string() );
+        if ( !split )
+            return Common::MakeError<WriteOutcome>( split.GetError() );
+
+        std::unordered_set<std::uint64_t> wanted;
+        for ( const Common::UUID id : changed )
+            wanted.insert( Bits( id ) );
+        std::unordered_map<std::uint64_t, std::string> texts;
+        for ( const auto& [id, record] : split.GetValue().Records )
+        {
+            if ( !wanted.contains( Bits( id ) ) )
+                continue;
+            const std::filesystem::path file = FileOf( scenePath, id );
+            const auto                  text = Common::Json::WriteCanonical( record );
+            if ( !text )
+                return Common::MakeError<WriteOutcome>(
+                     fmt::format( "could not lay out entity {} ({}) as text: {}", Bits( id ), file.string(),
+                                  text.GetError() ) );
+            if ( const auto written = WriteIfChanged( file, text.GetValue(), outcome ); !written )
+                return Common::MakeError<WriteOutcome>( written.GetError() );
+            texts.emplace( Bits( id ), text.GetValue() );
+        }
+        for ( const Common::UUID id : changed )
+            if ( !texts.contains( Bits( id ) ) )
+                return Common::MakeError<WriteOutcome>(
+                     fmt::format( "'{}': entity {} is to be written but the scene composed no record for it",
+                                  scenePath.string(), Bits( id ) ) );
+
+        // The header states the WHOLE list: the document carried only the changed records.
+        std::vector<Common::Json::TextDocument> ids;
+        ids.reserve( listed.size() );
+        for ( const Common::UUID id : listed )
+        {
+            auto idDocument = Common::Json::TextDocument::Parse( std::to_string( Bits( id ) ) );
+            if ( !idDocument )
+                return Common::MakeError<WriteOutcome>( idDocument.GetError() );
+            ids.push_back( idDocument.ExtractValue() );
+        }
+        const auto header = scene.WithArrayMember( kRecords, kListMember, ids );
+        if ( !header )
+            return Common::MakeError<WriteOutcome>( fmt::format( "'{}': {}", scenePath.string(), header.GetError() ) );
+        const auto headerText = Common::Json::WriteCanonical( header.GetValue() );
+        if ( !headerText )
+            return Common::MakeError<WriteOutcome>(
+                 fmt::format( "could not lay out {} as text: {}", scenePath.string(), headerText.GetError() ) );
+        if ( const auto written = WriteIfChanged( scenePath, headerText.GetValue(), outcome ); !written )
+            return Common::MakeError<WriteOutcome>( written.GetError() );
+
+        // After the header, as in WriteSceneFile: the old list never names a file that is already gone.
+        for ( const Common::UUID id : removed )
+        {
+            const std::filesystem::path file = FileOf( scenePath, id );
+            std::error_code             ec;
+            if ( !std::filesystem::exists( file, ec ) )
+                continue;
+            if ( !std::filesystem::remove( file, ec ) || ec )
+                return Common::MakeError<WriteOutcome>(
+                     fmt::format( "could not remove {}, the file of an entity the scene no longer has: {}",
+                                  file.string(), ec ? ec.message() : "not removed" ) );
+            ++outcome.Removed;
+            std::filesystem::remove( file.parent_path(), ec ); // only when empty
+        }
+
+        const auto indexed = DescriptorIndex::Refresh(
+             scenePath, listed,
+             [&]( Common::UUID id ) -> Common::ResultStr<std::string>
+             {
+                 if ( const auto found = texts.find( Bits( id ) ); found != texts.end() )
+                     return Common::MakeSuccess( found->second );
+                 return Common::Utils::FileSystem::ReadFileContent( FileOf( scenePath, id ) );
+             },
+             [&]( Common::UUID id ) { return !texts.contains( Bits( id ) ); } );
+        if ( !indexed )
+            return Common::MakeError<WriteOutcome>( indexed.GetError() );
+        return Common::MakeSuccess( outcome );
+    }
+
+    Common::BoolResultStr VerifyCleanRecords( const std::filesystem::path&      scenePath,
+                                              const Common::Json::TextDocument& scene,
+                                              std::span<const Common::UUID>     clean )
+    {
+        auto split = Split( scene, scenePath.string() );
+        if ( !split )
+            return Common::MakeError( split.GetError() );
+
+        std::unordered_set<std::uint64_t> wanted;
+        for ( const Common::UUID id : clean )
+            wanted.insert( Bits( id ) );
+        std::unordered_set<std::uint64_t> seen;
+        for ( const auto& [id, record] : split.GetValue().Records )
+        {
+            if ( !wanted.contains( Bits( id ) ) )
+                continue;
+            seen.insert( Bits( id ) );
+            const std::filesystem::path file = FileOf( scenePath, id );
+            const auto                  text = Common::Json::WriteCanonical( record );
+            if ( !text )
+                return Common::MakeFormattedError( "could not lay out entity {} ({}) as text: {}", Bits( id ),
+                                                   file.string(), text.GetError() );
+            const auto onDisk = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( onDisk && onDisk.GetValue() == text.GetValue() )
+                continue;
+            const auto tag = record.AsDocument<RecordTag>();
+            return Common::MakeFormattedError(
+                 "entity '{}' ({}) differs from its file {} but nothing marked it modified - an edit that "
+                 "bypassed "
+                 "Scene::MarkModified and the command history would be lost by this save",
+                 tag && tag.GetValue().Tag ? *tag.GetValue().Tag : std::string( "Entity" ), Bits( id ),
+                 onDisk ? file.string() : fmt::format( "{} (unreadable: {})", file.string(), onDisk.GetError() ) );
+        }
+        for ( const Common::UUID id : clean )
+            if ( !seen.contains( Bits( id ) ) )
+                return Common::MakeFormattedError(
+                     "'{}': entity {} is held clean but the scene composed no record for it", scenePath.string(),
+                     Bits( id ) );
+        return BOOLSUCCESS;
     }
 
     Common::ResultStr<WriteOutcome> WriteSceneText( const std::filesystem::path& scenePath, std::string_view json )
@@ -269,6 +420,28 @@ namespace Desert::Core::ExternalEntities
             return Common::MakeError<WriteOutcome>(
                  fmt::format( "the text meant for {} is not JSON: {}", scenePath.string(), document.GetError() ) );
         return WriteSceneFile( scenePath, document.GetValue() );
+    }
+
+    Common::ResultStr<std::vector<Common::UUID>> ListedEntities( const std::filesystem::path& path )
+    {
+        using Result = std::vector<Common::UUID>;
+        auto text    = Common::Utils::FileSystem::ReadFileContent( path );
+        if ( !text )
+            return Common::MakeError<Result>( text.GetError() );
+        auto document = Common::Json::TextDocument::Parse( text.GetValue() );
+        if ( !document )
+            return Common::MakeError<Result>( fmt::format( "'{}' is not JSON: {}", path.string(), document.GetError() ) );
+        if ( !IsHeader( document.GetValue() ) )
+            return Common::MakeError<Result>(
+                 fmt::format( "'{}' is not a partitioned world's header: it lists no {}", path.string(), kListMember ) );
+        auto list = document.GetValue().AsDocument<HeaderList>();
+        if ( !list )
+            return Common::MakeError<Result>(
+                 fmt::format( "'{}': the entity list cannot be read: {}", path.string(), list.GetError() ) );
+        Result ids;
+        for ( const std::uint64_t bits : list.GetValue().ExternalEntities )
+            ids.emplace_back( bits );
+        return Common::MakeSuccess( std::move( ids ) );
     }
 
     Common::ResultStr<std::string> ReadSceneFileText( const std::filesystem::path& path )
@@ -327,6 +500,64 @@ namespace Desert::Core::ExternalEntities
                      "Nothing "
                      "was loaded.",
                      path.string(), piece.string() ) );
+        return Common::MakeSuccess( scene.GetValue().Text() );
+    }
+
+    Common::ResultStr<std::string> ReadSceneRegionText( const std::filesystem::path&             path,
+                                                        const std::unordered_set<std::uint64_t>& wanted )
+    {
+        auto text = Common::Utils::FileSystem::ReadFileContent( path );
+        if ( !text )
+            return text;
+        auto document = Common::Json::TextDocument::Parse( text.GetValue() );
+        if ( !document )
+            return Common::MakeError<std::string>(
+                 fmt::format( "[SceneSerializer] '{}' is not JSON: {}", path.string(), document.GetError() ) );
+        if ( !IsHeader( document.GetValue() ) || !HasMember( document.GetValue(), "WorldPartition" ) )
+            return Common::MakeError<std::string>( fmt::format(
+                 "[SceneSerializer] '{}' is not a partitioned world's header: only a world kept one file per entity "
+                 "loads by region.",
+                 path.string() ) );
+        auto list = document.GetValue().AsDocument<HeaderList>();
+        if ( !list )
+            return Common::MakeError<std::string>( fmt::format(
+                 "[SceneSerializer] '{}': the entity list cannot be read: {}", path.string(), list.GetError() ) );
+
+        std::vector<Common::Json::TextDocument> kept;
+        std::size_t                             found = 0;
+        for ( const std::uint64_t bits : list.GetValue().ExternalEntities )
+        {
+            if ( !wanted.contains( bits ) )
+                continue;
+            ++found;
+            auto idDocument = Common::Json::TextDocument::Parse( std::to_string( bits ) );
+            if ( !idDocument )
+                return Common::MakeError<std::string>( idDocument.GetError() );
+            kept.push_back( idDocument.ExtractValue() );
+        }
+        if ( found != wanted.size() )
+            for ( const std::uint64_t bits : wanted )
+                if ( std::find( list.GetValue().ExternalEntities.begin(), list.GetValue().ExternalEntities.end(),
+                                bits ) == list.GetValue().ExternalEntities.end() )
+                    return Common::MakeError<std::string>( fmt::format(
+                         "[SceneSerializer] '{}' does not list entity {}: a region loads only what the world holds.",
+                         path.string(), bits ) );
+
+        auto header = document.GetValue().WithArrayMember( kListMember, kListMember, kept );
+        if ( !header )
+            return Common::MakeError<std::string>(
+                 fmt::format( "[SceneSerializer] '{}': {}", path.string(), header.GetError() ) );
+        const auto read = [&]( Common::UUID id ) -> Common::ResultStr<std::string>
+        {
+            const std::filesystem::path file = FileOf( path, id );
+            std::error_code             ec;
+            if ( !std::filesystem::is_regular_file( file, ec ) )
+                return Common::MakeError<std::string>( fmt::format( "its file {} does not exist", file.string() ) );
+            return Common::Utils::FileSystem::ReadFileContent( file );
+        };
+        auto scene = Assemble( header.GetValue(), path.string(), read );
+        if ( !scene )
+            return Common::MakeError<std::string>( "[SceneSerializer] " + scene.GetError() );
         return Common::MakeSuccess( scene.GetValue().Text() );
     }
 } // namespace Desert::Core::ExternalEntities

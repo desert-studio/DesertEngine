@@ -10,6 +10,7 @@
 
 #include "SceneSettings.hpp"
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 #include "WorldTime.hpp"
@@ -441,6 +442,32 @@ namespace Desert::Core
             m_LoadedDocument = std::move( document );
         }
 
+        // WHICH ENTITIES DIFFER FROM THEIR FILES (WP17, EntityPackages.hpp): stamped by the editor's recorded
+        // edits, baselined by the open and by every save, read by SceneSerializer::SaveToFile. Shared so an
+        // undo record can hold it weakly and outlive the scene without dangling.
+        [[nodiscard]] const std::shared_ptr<EntityPackages>& Packages() const
+        {
+            return m_Packages;
+        }
+
+        // UE's Modify(): EVERY editor path that changes entity `id` outside the command history (a tool's direct
+        // write, an editor system, an import's rebind, a script) calls this, or a save of a partitioned world
+        // skips the entity's file and the change is lost. A Debug save refuses an entity that differs from its
+        // file without a mark (EntityPackages.hpp, CleanCheck). Recorded edits stamp through CommandHistory.
+        void MarkModified( Common::UUID id ) const
+        {
+            m_Packages->MarkModified( id );
+        }
+
+        // MarkModified for `root` and every entity below it (a recursive toggle: lock, unpack).
+        void MarkModifiedSubtree( ECS::Entity root ) const;
+
+        // An edit outside the history whose entities cannot be named: the next save writes the whole world.
+        void MarkModifiedAll() const
+        {
+            m_Packages->TouchAll();
+        }
+
         // WHETHER THIS WORLD IS PARTITIONED, AND WITH WHAT — held on the live scene, which is what makes
         // it editable at all.
         //
@@ -607,6 +634,8 @@ namespace Desert::Core
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.
         std::optional<Common::Json::TextDocument> m_LoadedDocument;
+        // See Packages().
+        std::shared_ptr<EntityPackages> m_Packages = std::make_shared<EntityPackages>();
         // See GetWorldPartition().
         std::optional<WorldPartitionSerialized> m_WorldPartition;
 

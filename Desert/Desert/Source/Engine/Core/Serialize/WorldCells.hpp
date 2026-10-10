@@ -196,6 +196,13 @@ namespace Desert::Core::WorldCells
     [[nodiscard]] Common::ResultStr<CookedWorld>
     CookWorld( const SceneSerialized& scene, std::span<const Common::Utils::AssetRegistry> registries );
 
+    // The same cook, PLANNED FROM DESCRIPTORS (WP18): `descriptors` (the world's descriptor index,
+    // EntityDescriptorIndex.hpp) are what the cells are decided with; the records only fill the cell files.
+    // Refused when the descriptors are not the records', id for id and in order.
+    [[nodiscard]] Common::ResultStr<CookedWorld>
+    CookWorld( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
+               std::span<const Common::Utils::AssetRegistry> registries );
+
     // The bounds source a cook plans with: the first registry that knows the mesh answers.
     [[nodiscard]] Rules::AssetBoundsSource BoundsFrom( std::span<const Common::Utils::AssetRegistry> registries );
 

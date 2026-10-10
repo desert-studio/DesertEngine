@@ -193,6 +193,69 @@ namespace Desert::Core
 
     Common::ResultStr<Common::Json::TextDocument> SceneSerializer::SerializeToDocument() const
     {
+        return SerializeToDocument( nullptr );
+    }
+
+    namespace
+    {
+        // The record that states `entity`: the topmost prefab-instance or foliage-field root above it (the
+        // saver skips everything under one, see isPrefabChild below), else the entity itself.
+        Common::UUID IdOf( const entt::registry& registry, entt::entity handle )
+        {
+            return registry.has<ECS::UUIDComponent>( handle ) ? registry.get<ECS::UUIDComponent>( handle ).UUID
+                                                                  : Common::UUID( 0 );
+        }
+
+        Common::UUID RecordOf( const ECS::Entity& entity )
+        {
+            auto*        registry = entity.GetRegistry();
+            entt::entity current  = entity.GetHandle();
+            entt::entity owner    = entity.GetHandle();
+            while ( registry->has<ECS::RelationshipComponent>( current ) )
+            {
+                const entt::entity parent = registry->get<ECS::RelationshipComponent>( current ).Parent;
+                if ( parent == entt::null )
+                    break;
+                current = parent;
+                if ( registry->has<ECS::PrefabComponent>( current ) || registry->has<ECS::FoliageComponent>( current ) )
+                    owner = current;
+            }
+            return IdOf( *registry, owner );
+        }
+    } // namespace
+
+    std::vector<LiveEntity> SceneSerializer::LiveEntities() const
+    {
+        std::vector<LiveEntity> live;
+        live.reserve( m_Scene->GetAllEntities().size() );
+        uint32_t nextRootIndex = 0;
+        for ( const auto& entity : m_Scene->GetAllEntities() )
+        {
+            LiveEntity row;
+            row.Id     = IdOf( *entity.GetRegistry(), entity.GetHandle() );
+            row.Record = RecordOf( entity );
+            if ( entity.HasComponent<ECS::RelationshipComponent>() )
+            {
+                const entt::entity parent = entity.GetComponent<ECS::RelationshipComponent>().Parent;
+                if ( parent != entt::null )
+                    row.Parent = IdOf( *entity.GetRegistry(), parent );
+            }
+            // The same count SerializeToDocument keeps: every root of the scene in its order, records or not.
+            row.SiblingIndex = SiblingIndexOf( entity, nextRootIndex );
+            live.push_back( row );
+        }
+        return live;
+    }
+
+    void SceneSerializer::AdoptAsSaved( const Common::Filepath& path ) const
+    {
+        const std::vector<LiveEntity> live = LiveEntities();
+        m_Scene->Packages()->Baseline( path, live );
+    }
+
+    Common::ResultStr<Common::Json::TextDocument>
+    SceneSerializer::SerializeToDocument( const std::unordered_set<std::uint64_t>* only ) const
+    {
         SceneSerialized scene;
         // The GUID survives the save (StampTextHeader keeps the loaded one); a scene that never had one gets
         // it minted here, and remembers it, so the next save states the same identity.
@@ -239,8 +302,14 @@ namespace Desert::Core
             {
                 continue;
             }
+            // Counted before the filter: a root's sibling index is its place among ALL roots.
+            const uint32_t siblingIndex = SiblingIndexOf( entity, nextRootIndex );
+            if ( only != nullptr && !only->contains( static_cast<uint64_t>( IdOf( *entity.GetRegistry(), entity.GetHandle() ) ) ) )
+            {
+                continue;
+            }
             Assets::EntityData data = Serialize::EntitySerializer::SerializeEntity( entity, *m_AssetManager );
-            data.siblingIndex       = SiblingIndexOf( entity, nextRootIndex );
+            data.siblingIndex       = siblingIndex;
 
             // A PREFAB INSTANCE IS A LINK PLUS ITS DIFFERENCES, AND NOTHING ELSE.
             //
@@ -420,6 +489,8 @@ namespace Desert::Core
         }
         phases.Lap( "count undeclared keys", scene.Entities.size() );
         m_Scene->SetLoadedDocument( std::move( loaded.Document ) );
+        // A load replaces every entity: nothing is known about any file until the caller adopts one (AdoptAsSaved).
+        m_Scene->Packages()->Forget();
 
         // Restore the scene name (was only logged before — so a renamed+saved scene reverted on load).
         if ( !scene.SceneName.empty() )
@@ -719,19 +790,17 @@ namespace Desert::Core
             return Common::MakeFormattedError( "could not save the landscape of '{}': {}", m_Scene->GetSceneName(),
                                                tiles.GetError() );
 
-        // The file is the canonical text (AF6), not the writer's single line: one field per line is what makes a
-        // scene's git diff name the fields that changed and two edits to different entities merge.
-        const auto document = SerializeToDocument();
-        if ( !document )
-            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
-                                               document.GetError() );
-        // Through the one scene writer (ExternalEntities::WriteSceneFile): a partitioned world lands as its header
-        // plus one file per entity (v35, WP16), so a save after an edit to one entity rewrites that entity's file
-        // alone; any other scene lands whole. The document is the same either way, so the foreign-key carry above
-        // does not know the difference.
-        if ( const auto written = ExternalEntities::WriteSceneFile( path, document.GetValue() ); !written )
-            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
-                                               written.GetError() );
+        // THROUGH THE ENTITY PACKAGES (WP17): a partitioned world saved to the file it was opened from or last
+        // saved to serializes and writes only the entities that differ from their files, plus the header and the
+        // files of deleted entities; anything else is the whole save, as before.
+        const std::vector<LiveEntity> live = LiveEntities();
+        auto                          saved = SaveThroughPackages(
+             path, *m_Scene->Packages(), live, m_Scene->GetWorldPartition().has_value(),
+             [this]( const std::unordered_set<std::uint64_t>* only ) { return SerializeToDocument( only ); },
+             kEditorCleanCheck );
+        if ( !saved )
+            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(), saved.GetError() );
+        m_LastSave = saved.GetValue();
         return BOOLSUCCESS;
     }
 

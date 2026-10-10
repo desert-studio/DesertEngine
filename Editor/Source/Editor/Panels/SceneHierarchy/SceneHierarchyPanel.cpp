@@ -457,11 +457,15 @@ namespace Desert::Editor
                 {
                     for ( const auto& id : Core::SelectionManager::GetSelection() )
                         if ( auto ref = m_Scene->FindEntityByID( id ) )
+                        {
                             ECS::SetLockedRecursive( reg, ref->get().GetHandle(), !locked );
+                            m_Scene->MarkModifiedSubtree( ref->get() );
+                        }
                 }
                 else
                 {
                     ECS::SetLockedRecursive( reg, entity.GetHandle(), !locked );
+                    m_Scene->MarkModifiedSubtree( entity );
                 }
             }
 
@@ -551,7 +555,10 @@ namespace Desert::Editor
         ImGui::TextUnformatted( locked ? ICON_MDI_LOCK : ICON_MDI_LOCK_OPEN_OUTLINE );
         ImGui::PopStyleColor();
         if ( ImGui::IsItemClicked() )
+        {
             ECS::SetLockedRecursive( *entity.GetRegistry(), entity.GetHandle(), !locked );
+            m_Scene->MarkModifiedSubtree( entity );
+        }
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( locked ? "Unlock (allow picking and gizmo edits)"
                                       : "Lock (refuse picking and gizmo edits)" );
@@ -1065,6 +1072,7 @@ namespace Desert::Editor
                                 strip( c );
                 };
                 strip( root->get().GetHandle() );
+                m_Scene->MarkModifiedSubtree( root->get() );
             }
             m_PendingPrefabUnpack.reset();
         }
@@ -1127,6 +1135,7 @@ namespace Desert::Editor
                         if ( !root.HasComponent<ECS::PrefabComponent>() )
                             root.AddComponent<ECS::PrefabComponent>();
                         root.GetComponent<ECS::PrefabComponent>().Prefab = saved.GetValue()->GetMetadata().Handle;
+                        m_Scene->MarkModifiedSubtree( root );
 
                         LOG_INFO( "[Prefab] Saved '{}' -> {}", root.GetComponent<ECS::TagComponent>().Tag,
                                   m_SavePrefabPath );

@@ -1057,12 +1057,205 @@ namespace Desert::Core::Rules
         return found;
     }
 
+    // ── THE ENTITY DESCRIPTOR: WHAT THE PLANNER READS OF A RECORD (WP18) ─────────────────────────────
+    //
+    // UE's FWorldPartitionActorDesc: everything streaming generation decides with, read once out of the
+    // actor's package and kept in a cache beside the world, so generation never loads an actor
+    // (WorldPartitionActorDesc.h; the container refreshes a desc when its package changes, ActorDescContainer.h).
+    // The pattern and not the letter: a record states its transform RELATIVE TO ITS PARENT, so a descriptor
+    // keeps the local frame and the parent, and the world frame is composed at planning time, as for records.
+    // Mesh assets are kept as references, not as boxes: the box is the registry's answer at planning time, so a
+    // descriptor depends on its entity's file alone and goes stale only when that file changes.
+    //
+    // PlanWorldPartition plans from descriptors only; its record overload describes and plans, so a scene in
+    // memory and a world on disk (EntityDescriptorIndex.hpp) take the same planner.
+
+    // A mesh asset a record names; the AssetBoundsSource answers its box at planning time.
+    struct DescriptorMesh
+    {
+        std::string Guid; // AssetGuid text; empty when the record names the asset by path alone
+        std::string Path;
+    };
+
+    // One kEntityReferences reference the record states, its target read and not null.
+    struct DescriptorReference
+    {
+        std::string   Component;
+        std::string   Field;
+        std::uint64_t Target = 0;
+        ReferenceKind Kind   = ReferenceKind::Observation;
+    };
+
+    // A landscape tile: its rectangle is its root's, so it keeps the root and its own tile coordinate.
+    struct DescriptorLandscapeTile
+    {
+        std::uint64_t Root = 0; // 0: the reference is absent, null or unreadable - the tile has no place
+        std::int32_t  X    = 0;
+        std::int32_t  Z    = 0;
+    };
+
+    // A landscape root's tiling, as LandscapeTileRectOf reads it (the origin is the root's world position).
+    struct DescriptorLandscapeRoot
+    {
+        std::uint32_t QuadsPerTile = World::Landscape::kLandscapeDefaultTileQuads;
+        float         SpacingCm    = World::Landscape::kLandscapeDefaultSpacingCm;
+        float         ZScale       = World::Landscape::kLandscapeDefaultZScale;
+    };
+
+    struct EntityDescriptor
+    {
+        std::optional<std::uint64_t> Id;     // absent: the record states none (or a null one)
+        std::optional<std::uint64_t> Parent; // absent: none, or a null one
+        std::string                  Tag;
+        std::vector<std::string>     Components; // the record's component keys, in file order: its type
+
+        std::optional<glm::vec3> Translation;
+        std::optional<glm::vec3> Rotation;
+        std::optional<glm::vec3> Scale;
+
+        // A prefab instance: its path (its box is the registry's), and what it lacks of the root transform
+        // scene v37 requires (MissingInstanceTransform; empty when nothing) - such an instance has no place.
+        std::optional<std::string> PrefabPath;
+        std::string                MissingTransform;
+
+        std::vector<Common::Math::AABB> Boxes;  // local boxes the record states itself (primitive, edit mesh)
+        std::vector<DescriptorMesh>     Meshes; // mesh assets, answered by the bounds source
+        std::vector<glm::vec2>          InstancePoints;
+
+        AlwaysLoadedReason                     Reason = AlwaysLoadedReason::None; // None / Author / Component
+        std::vector<DescriptorReference>       References;
+        std::optional<DescriptorLandscapeTile> LandscapeTile;
+        std::optional<DescriptorLandscapeRoot> LandscapeRoot;
+
+        // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
+        Common::Json::Issues Issues;
+    };
+
     namespace Detail
     {
-        // EVERY RECORD'S WORLD MATRIX, composed from its parent chain (ComposeLocal per link).
+        [[nodiscard]] inline std::optional<std::uint64_t> IdBits( const std::optional<Common::UUID>& id )
+        {
+            if ( !id.has_value() || id->IsNull() )
+                return std::nullopt;
+            return static_cast<std::uint64_t>( *id );
+        }
+    } // namespace Detail
+
+    // THE ONE READER OF A RECORD FOR PLANNING. Everything the planner used to read off the record is read
+    // here, once, with the same helpers.
+    [[nodiscard]] inline EntityDescriptor DescribeEntity( const Assets::EntityData& record )
+    {
+        EntityDescriptor out;
+        Common::Json::Issues& issues = out.Issues;
+        out.Id                       = Detail::IdBits( record.id );
+        out.Parent                   = Detail::IdBits( record.parent );
+        out.Tag                      = record.Tag.value_or( "" );
+        for ( const auto& [name, payload] : record.Components )
+            out.Components.push_back( name );
+        out.Translation = record.Translation;
+        out.Rotation    = record.Rotation;
+        out.Scale       = record.Scale;
+        out.PrefabPath  = record.PrefabPath;
+        out.MissingTransform = Assets::MissingInstanceTransform( record );
+
+        // The record's own boxes, and the mesh assets whose boxes the bounds source states.
+        Detail::ForEachLocalBox( record, AssetBoundsSource{}, issues,
+                                 [&]( const Common::Math::AABB& box ) { out.Boxes.push_back( box ); } );
+        for ( const std::string_view key : kMeshAssetComponents )
+        {
+            const auto mesh = Detail::BlockOf( record, key, issues );
+            if ( !mesh.has_value() )
+                continue;
+            DescriptorMesh named;
+            const Common::Content::AssetGuid guid = Detail::ReadGuid( *mesh, kMeshHandleField, issues );
+            mesh->ReadInto( kMeshPathField, named.Path, issues );
+            if ( guid.IsNull() && named.Path.empty() )
+                continue;
+            if ( !guid.IsNull() )
+                named.Guid = Common::Content::AssetGuidToText( guid );
+                out.Meshes.push_back( std::move( named ) );
+        }
+        if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
+            out.Meshes.push_back( DescriptorMesh{ std::string(), *record.PrefabPath } );
+        Detail::AppendInstancePoints( record, out.InstancePoints, issues );
+
+        out.Reason = Detail::GlobalReasonOf( record, issues );
+
+        for ( const EntityReferenceRow& row : kEntityReferences )
+        {
+            const auto block = Detail::BlockOf( record, row.ComponentKey, issues );
+            if ( !block.has_value() )
+                continue;
+            Common::UUID target;
+            if ( !Detail::ReadReference( *block, row.Field, target, issues ) || target.IsNull() )
+                continue;
+            out.References.push_back( DescriptorReference{ std::string( row.ComponentKey ),
+                                                           std::string( row.Field ),
+                                                           static_cast<std::uint64_t>( target ), row.Kind } );
+        }
+
+        if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
+        {
+            DescriptorLandscapeTile placed;
+            Common::UUID            root;
+            if ( Detail::ReadReference( *tile, "Landscape", root, issues ) && !root.IsNull() )
+                placed.Root = static_cast<std::uint64_t>( root );
+            tile->ReadInto( "TileX", placed.X, issues );
+            tile->ReadInto( "TileZ", placed.Z, issues );
+            out.LandscapeTile = placed;
+        }
+        else if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
+            out.LandscapeTile = DescriptorLandscapeTile{}; // a tile whose block is unreadable: no place
+        if ( const auto root = Detail::BlockOf( record, kLandscapeRootComponent, issues ); root.has_value() )
+        {
+            DescriptorLandscapeRoot tiling;
+            root->ReadInto( "QuadsPerTile", tiling.QuadsPerTile, issues );
+            root->ReadInto( "SpacingCm", tiling.SpacingCm, issues );
+            root->ReadInto( "ZScale", tiling.ZScale, issues );
+            out.LandscapeRoot = tiling;
+        }
+        return out;
+    }
+
+    [[nodiscard]] inline std::vector<EntityDescriptor> DescribeEntities( std::span<const Assets::EntityData> records )
+    {
+        std::vector<EntityDescriptor> out;
+        out.reserve( records.size() );
+        for ( const Assets::EntityData& record : records )
+            out.push_back( DescribeEntity( record ) );
+        return out;
+    }
+
+    namespace Detail
+    {
+        [[nodiscard]] inline std::optional<Common::UUID> ParentOf( const Assets::EntityData& record )
+        {
+            if ( record.parent.has_value() && !record.parent->IsNull() )
+                return *record.parent;
+            return std::nullopt;
+        }
+
+        [[nodiscard]] inline std::optional<Common::UUID> ParentOf( const EntityDescriptor& descriptor )
+        {
+            if ( descriptor.Parent.has_value() )
+                return Common::UUID( *descriptor.Parent );
+            return std::nullopt;
+        }
+
+        [[nodiscard]] inline glm::mat4 ComposeLocal( const EntityDescriptor& descriptor )
+        {
+            const glm::vec3 translation = descriptor.Translation.value_or( glm::vec3( 0.0f ) );
+            const glm::vec3 rotation    = descriptor.Rotation.value_or( glm::vec3( 0.0f ) );
+            const glm::vec3 scale       = descriptor.Scale.value_or( glm::vec3( 1.0f ) );
+            return glm::translate( glm::mat4( 1.0f ), translation ) * glm::toMat4( glm::quat( rotation ) ) *
+                   glm::scale( glm::mat4( 1.0f ), scale );
+        }
+
+        // EVERY RECORD'S WORLD MATRIX, composed from its parent chain (ComposeLocal per link). `Records` is a
+        // sequence of Assets::EntityData or of EntityDescriptor: one walk for both.
+        template <class Records>
         [[nodiscard]] inline std::vector<glm::mat4>
-        ComposeWorld( std::span<const Assets::EntityData>                  records,
-                      const std::unordered_map<Common::UUID, std::size_t>& byId )
+        ComposeWorld( const Records& records, const std::unordered_map<Common::UUID, std::size_t>& byId )
         {
             // Resolved by walking each record's parent chain rather than by a topological sort: a chain is
             // short, a file can name a parent that comes later, and a corrupt file can name a cycle. The
@@ -1081,11 +1274,10 @@ namespace Desert::Core::Rules
                 while ( walk != kNoRecord && !resolved[walk] && chain.size() < records.size() + 1 )
                 {
                     chain.push_back( walk );
-                    const Assets::EntityData& data = records[walk];
-                    std::size_t               next = kNoRecord;
-                    if ( data.parent.has_value() && !data.parent->IsNull() )
+                    std::size_t next = kNoRecord;
+                    if ( const auto parent = ParentOf( records[walk] ); parent.has_value() )
                     {
-                        const auto found = byId.find( *data.parent );
+                        const auto found = byId.find( *parent );
                         if ( found != byId.end() && found->second != walk )
                             next = found->second;
                     }
@@ -1144,16 +1336,68 @@ namespace Desert::Core::Rules
     //
     // `bounds` answers for the one extent that lives in other files, a mesh asset's (AssetBoundsSource);
     // left empty, every mesh-asset record is its position and is counted as such.
-    [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
-                                                                const WorldPartitionSerialized&     settings,
-                                                                const AssetBoundsSource&            bounds = {} )
+    namespace Detail
+    {
+        // A descriptor's footprint points: its world position, then the corners of every box it states or
+        // the bounds source answers for its meshes, then its instance points. True when it had more than
+        // the position (AppendFootprint over the record, the same points).
+        inline bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
+        {
+            out.emplace_back( world[3].x, world[3].z );
+            const std::size_t before = out.size();
+            for ( const Common::Math::AABB& box : descriptor.Boxes )
+                AppendBoundsCorners( world, box, out );
+            if ( bounds )
+                for ( const DescriptorMesh& mesh : descriptor.Meshes )
+                {
+                    Common::Content::AssetGuid guid;
+                    if ( !mesh.Guid.empty() )
+                        if ( const auto parsed = Common::Content::AssetGuidFromText( mesh.Guid ) )
+                            guid = parsed.GetValue();
+                    if ( const auto box = bounds( guid, mesh.Path ); box.has_value() )
+                        AppendBoundsCorners( world, box.value(), out );
+                }
+            out.insert( out.end(), descriptor.InstancePoints.begin(), descriptor.InstancePoints.end() );
+            return out.size() > before;
+        }
+
+        // A landscape tile's rectangle from its root's descriptor and world position (LandscapeTileRectOf).
+        inline std::optional<World::Landscape::LandscapeTileRect>
+        LandscapeTileRectOf( const EntityDescriptor& tile, const std::vector<glm::mat4>& world,
+                             std::span<const EntityDescriptor>                    descriptors,
+                             const std::unordered_map<Common::UUID, std::size_t>& byId )
+        {
+            if ( !tile.LandscapeTile.has_value() || tile.LandscapeTile->Root == 0 )
+                return std::nullopt;
+            const auto found = byId.find( Common::UUID( tile.LandscapeTile->Root ) );
+            if ( found == byId.end() || !descriptors[found->second].LandscapeRoot.has_value() )
+                return std::nullopt;
+            const DescriptorLandscapeRoot& tiling = *descriptors[found->second].LandscapeRoot;
+            World::Landscape::LandscapeRoot root;
+            root.Origin       = glm::vec3( world[found->second][3] );
+            root.QuadsPerTile = tiling.QuadsPerTile;
+            root.SpacingCm    = tiling.SpacingCm;
+            root.ZScale       = tiling.ZScale;
+            if ( !World::Landscape::ValidateLandscapeRoot( root ) )
+                return std::nullopt;
+            return World::Landscape::LandscapeTileBounds( root, tile.LandscapeTile->X, tile.LandscapeTile->Z );
+        }
+    } // namespace Detail
+
+    // THE PLANNER, over descriptors (an index on disk, EntityDescriptorIndex.hpp, or DescribeEntities of a
+    // scene in memory). Record `r` of the plan is descriptor `r`.
+    [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const EntityDescriptor> records,
+                                                                const WorldPartitionSerialized&   settings,
+                                                                const AssetBoundsSource&          bounds = {} )
     {
         WorldPartitionPlan                            plan;
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            if ( records[record].id.has_value() && !records[record].id->IsNull() )
-                byId.emplace( *records[record].id, record );
+            if ( records[record].Id.has_value() )
+                byId.emplace( Common::UUID( *records[record].Id ), record );
+            plan.Issues.insert( plan.Issues.end(), records[record].Issues.begin(), records[record].Issues.end() );
         }
 
         // ── 1. World positions ────────────────────────────────────────────────────────────────────
@@ -1164,9 +1408,9 @@ namespace Desert::Core::Rules
         std::vector<std::optional<World::Landscape::LandscapeTileRect>> tileRect( records.size() );
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            if ( !Detail::PayloadOf( records[record], kLandscapeTileComponent ).has_value() )
+            if ( !records[record].LandscapeTile.has_value() )
                 continue;
-            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId, plan.Issues );
+            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId );
             if ( !tileRect[record].has_value() )
                 plan.UnplacedLandscapeTiles.push_back( record );
         }
@@ -1174,43 +1418,36 @@ namespace Desert::Core::Rules
         // ── 2. Containment edges, then composites ─────────────────────────────────────────────────
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            const Assets::EntityData& data = records[record];
+            const EntityDescriptor& data = records[record];
 
             // Placed like any record, by the transform it states (v37) and the prefab's box from the
-            // registry (ForEachLocalBox). One that states none is REFUSED by name, not put at the origin.
-            if ( const std::string missing = Assets::MissingInstanceTransform( data ); !missing.empty() )
+            // registry (Meshes). One that states none is REFUSED by name, not put at the origin.
+            if ( !data.MissingTransform.empty() )
             {
                 plan.UnplacedPrefabInstances.push_back( record );
                 plan.Issues.push_back( Common::Json::Issue{
-                     data.id.has_value()
-                          ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *data.id ) ) + "]"
-                          : "Entities[" + std::to_string( record ) + "]",
+                     data.Id.has_value() ? "Entities[id=" + std::to_string( *data.Id ) + "]"
+                                         : "Entities[" + std::to_string( record ) + "]",
                      "a prefab instance stating its root transform (scene v37)",
-                     "no " + missing + " on the instance of '" + *data.PrefabPath + "'" } );
+                     "no " + data.MissingTransform + " on the instance of '" + data.PrefabPath.value_or( "" ) +
+                          "'" } );
             }
 
-            if ( data.parent.has_value() && !data.parent->IsNull() )
+            if ( const auto parent = Detail::ParentOf( data ); parent.has_value() )
             {
-                const auto found = byId.find( *data.parent );
+                const auto found = byId.find( *parent );
                 if ( found == byId.end() )
-                    plan.Dangling.push_back( DanglingContainment{ record, Containment::Hierarchy, *data.parent } );
+                    plan.Dangling.push_back( DanglingContainment{ record, Containment::Hierarchy, *parent } );
                 else if ( found->second != record )
                     plan.Containment.push_back(
-                         ContainmentEdge{ found->second, record, Containment::Hierarchy, *data.parent } );
+                         ContainmentEdge{ found->second, record, Containment::Hierarchy, *parent } );
             }
 
-            for ( const EntityReferenceRow& row : kEntityReferences )
+            for ( const DescriptorReference& reference : data.References )
             {
-                if ( row.Kind != ReferenceKind::Containment )
+                if ( reference.Kind != ReferenceKind::Containment )
                     continue;
-
-                const auto block = Detail::BlockOf( data, row.ComponentKey, plan.Issues );
-                if ( !block.has_value() )
-                    continue;
-
-                Common::UUID target;
-                if ( !Detail::ReadReference( *block, row.Field, target, plan.Issues ) || target.IsNull() )
-                    continue;
+                const Common::UUID target( reference.Target );
 
                 const auto found = byId.find( target );
                 if ( found == byId.end() )
@@ -1297,7 +1534,7 @@ namespace Desert::Core::Rules
         {
             for ( const std::size_t member : group.Members )
             {
-                const AlwaysLoadedReason reason = Detail::GlobalReasonOf( records[member], plan.Issues );
+                const AlwaysLoadedReason reason = records[member].Reason;
                 // Author outranks Component, and the first member in file order names it.
                 if ( reason != AlwaysLoadedReason::None &&
                      ( group.Reason == AlwaysLoadedReason::None ||
@@ -1319,7 +1556,7 @@ namespace Desert::Core::Rules
                     points.emplace_back( rect->MinX, rect->MaxZ );
                     points.emplace_back( rect->MaxX, rect->MaxZ );
                 }
-                else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points, plan.Issues ) )
+                else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
                     ++plan.PointOnlyRecords;
                 for ( const glm::vec2& point : points )
                 {
@@ -1435,6 +1672,15 @@ namespace Desert::Core::Rules
         }
 
         return plan;
+    }
+
+    // A scene in memory: described, then planned by the one planner.
+    [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
+                                                                const WorldPartitionSerialized&     settings,
+                                                                const AssetBoundsSource&            bounds = {} )
+    {
+        const std::vector<EntityDescriptor> descriptors = DescribeEntities( records );
+        return PlanWorldPartition( std::span<const EntityDescriptor>( descriptors ), settings, bounds );
     }
 
     // How many cells each level holds, index = level. Sized LevelCount.

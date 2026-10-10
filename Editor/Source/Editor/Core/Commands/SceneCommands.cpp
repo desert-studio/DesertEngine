@@ -959,6 +959,10 @@ namespace Desert::Editor::Commands
     {
         s_Scene        = scene;
         s_AssetManager = assetManager;
+        // The scene's entity ledger (WP17): the history stamps the entities each record names.
+        CommandHistory::Get().BindPackages( scene != nullptr ? std::weak_ptr<::Desert::Core::EntityPackages>(
+                                                                    scene->Packages() )
+                                                              : std::weak_ptr<::Desert::Core::EntityPackages>() );
     }
 
     void NotifyCreated( const std::vector<Common::UUID>& roots )
@@ -1113,7 +1117,7 @@ namespace Desert::Editor::Commands
         if ( tag == newName )
             return;
 
-        CommandHistory::Get().PushCommand( std::make_unique<RenameCommand>( uuid, tag, newName ) );
+        CommandHistory::Get().PushEntityEdit( std::make_unique<RenameCommand>( uuid, tag, newName ), { uuid } );
         tag = newName;
     }
 
@@ -1130,8 +1134,10 @@ namespace Desert::Editor::Commands
              e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
         if ( after == before )
             return;
-        CommandHistory::Get().PushCommand( std::make_unique<EditMeshCommand>(
-             uuid, label, std::move( before ), std::move( after ), std::move( alongside ) ) );
+        CommandHistory::Get().PushEntityEdit( std::make_unique<EditMeshCommand>( uuid, label, std::move( before ),
+                                                                                std::move( after ),
+                                                                                std::move( alongside ) ),
+                                              { uuid } );
     }
 
     Common::ResultStr<Common::UUID> RecordEditMeshSplit( const Common::UUID& uuid, const std::string& label,
@@ -1263,8 +1269,10 @@ namespace Desert::Editor::Commands
              glm::all( glm::epsilonEqual( tc.Scale, oldScale, epsilon ) ) )
             return; // click without an actual drag
 
-        CommandHistory::Get().PushCommand( std::make_unique<TransformCommand>(
-             uuid, oldTranslation, oldRotation, oldScale, tc.Translation, tc.Rotation, tc.Scale ) );
+        CommandHistory::Get().PushEntityEdit( std::make_unique<TransformCommand>( uuid, oldTranslation, oldRotation,
+                                                                                 oldScale, tc.Translation,
+                                                                                 tc.Rotation, tc.Scale ),
+                                              { uuid } );
     }
 
     bool RecordTransformEdits( const std::vector<TransformSnapshot>& before )

@@ -64,6 +64,13 @@ namespace Desert::Editor
         /// REFUSES, BY NAME, a scene that is already partitioned. The refusal is the returned error, so
         /// the button and the command palette both show the same sentence.
         [[nodiscard]] Common::BoolResultStr ConvertSceneToWorldPartition();
+
+        /// UE's "Load Region" (WP19, decision O3): the scene holds exactly the part of its world on disk that
+        /// the rectangle [min, max] (X/Z, cm) selects - EditorRegions::LoadRegions; `std::nullopt` loads the whole
+        /// world back. Refused by name (a dirty entity that would leave, a scene not opened from its files). The
+        /// undo history is reset on success, as UE resets its transactions when it unloads actors: an entry may
+        /// name an entity that is gone.
+        [[nodiscard]] Common::BoolResultStr LoadRegion( std::optional<::Desert::Core::Rules::CellBounds> region );
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -95,6 +102,10 @@ namespace Desert::Editor
         std::optional<::Desert::Core::WorldPartitionSerialized> m_PlanSource;
         // The last conversion's refusal, shown under the button until the next attempt.
         std::string m_ConvertStatus;
+        // Load Region: the rectangle in metres as the user types it, and the last change's report or refusal.
+        glm::vec2   m_RegionMinM{ -100.0f };
+        glm::vec2   m_RegionMaxM{ 100.0f };
+        std::string m_RegionStatus;
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size
