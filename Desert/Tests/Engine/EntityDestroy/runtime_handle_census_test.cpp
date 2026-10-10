@@ -208,14 +208,16 @@ namespace
         return Collapse( code ).find( Collapse( std::string( needle ) ) ) != std::string::npos;
     }
 
-    // `map<entt::entity, ...> Name;` member declarations in @p src (whitespace-insensitive).
+    // `map<entt::entity, ...> Name;` member declarations in @p src (whitespace-insensitive), and their
+    // UI-framework spelling `map<NodeId, ...>`: a NodeId IS the entity id behind the IUITree seam
+    // (ToNode/ToEntity), so a table keyed by it inherits a recycled id exactly as an entt-keyed one does.
     std::vector<std::string> EntityKeyedMembers( const std::string& src )
     {
         std::vector<std::string> out;
         for ( std::size_t at = src.find( "map<" ); at != std::string::npos; at = src.find( "map<", at + 4 ) )
         {
             std::size_t i = ConsumerText::SkipSpace( src, at + 4 );
-            if ( src.compare( i, 12, "entt::entity" ) != 0 )
+            if ( src.compare( i, 12, "entt::entity" ) != 0 && ConsumerText::IdentAt( src, i ) != "NodeId" )
                 continue;
             int depth = 1;
             for ( i = at + 4; i < src.size() && depth > 0; ++i )

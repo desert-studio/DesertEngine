@@ -1,6 +1,7 @@
 #include "StaticMeshViewerDocument.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
+#include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/MeshAssetDetails.hpp>
@@ -179,25 +180,71 @@ namespace Desert::Editor
         ImGui::Text( "Max   %.1f %.1f %.1f", stats.Bounds->Max.x, stats.Bounds->Max.y, stats.Bounds->Max.z );
     }
 
-    void StaticMeshViewerDocument::DrawLightAndLOD()
+    void StaticMeshViewerDocument::ExtendToolbar( AssetEditorToolbar& toolbar )
     {
-        ImGui::Separator();
-        ImGui::TextUnformatted( "LOD" );
-        const std::size_t lods    = m_Stats ? m_Stats->LODs() : 1u;
-        const std::string current = m_ForcedLOD < 0 ? std::string( "Auto" ) : std::format( "LOD {}", m_ForcedLOD );
-        if ( ImGui::BeginCombo( "##lod", current.c_str() ) )
-        {
-            if ( ImGui::Selectable( "Auto", m_ForcedLOD < 0 ) )
-                m_ForcedLOD = -1;
-            for ( std::size_t lod = 0; lod < lods; ++lod )
-            {
-                const std::string label = std::format( "LOD {}", lod );
-                if ( ImGui::Selectable( label.c_str(), m_ForcedLOD == static_cast<int>( lod ) ) )
-                    m_ForcedLOD = static_cast<int>( lod );
-            }
-            ImGui::EndCombo();
-        }
+        const std::size_t                       lods = m_Stats ? m_Stats->LODs() : 1u;
+        std::vector<AssetEditorToolbar::Choice> choices;
+        choices.push_back( { "LOD Auto", [this]() { m_ForcedLOD = -1; } } );
+        for ( std::size_t lod = 0; lod < lods; ++lod )
+            choices.push_back(
+                 { std::format( "LOD {}", lod ), [this, lod]() { m_ForcedLOD = static_cast<int>( lod ); } } );
+        const std::string current =
+             m_ForcedLOD < 0 ? std::string( "LOD Auto" ) : std::format( "LOD {}", m_ForcedLOD );
+        toolbar.AddCombo( ICON_MDI_LAYERS_TRIPLE_OUTLINE, current, "Which LOD the preview draws (viewing only)",
+                          std::move( choices ), static_cast<std::size_t>( m_ForcedLOD ) + 1 );
+        toolbar.AddButton(
+             ICON_MDI_CHART_BOX_OUTLINE, "Stats", "Show the mesh statistics over the viewport",
+             [this]() { m_ShowStats = !m_ShowStats; }, [this]() { return m_ShowStats; } );
+    }
 
+    std::string StaticMeshViewerDocument::StatusText() const
+    {
+        if ( !m_Stats )
+            return {};
+        return std::format( "{} tris \xc2\xb7 {} verts \xc2\xb7 {} sections", m_Stats->Triangles,
+                            m_Stats->Vertices, m_Stats->Sections );
+    }
+
+    void StaticMeshViewerDocument::DrawViewportStats( const ImVec2& origin ) const
+    {
+        if ( !m_Stats || !m_ShowStats )
+            return;
+        const StaticMeshStats& stats = *m_Stats;
+        // AUTO DOES NOT NAME A LEVEL: the preview does not report which LOD distance picked, so the counts are
+        // LOD 0's and the line says so rather than presenting them as the drawn level's.
+        const std::size_t shown =
+             m_ForcedLOD < 0 ? 0u : std::min( static_cast<std::size_t>( m_ForcedLOD ), stats.LODs() - 1u );
+        std::vector<std::string> lines;
+        lines.push_back( m_ForcedLOD < 0 ? std::format( "LOD:  Auto (counts are LOD 0 of {})", stats.LODs() )
+                                         : std::format( "LOD:  {} of {}", shown, stats.LODs() ) );
+        lines.push_back( std::format(
+             "Triangles:  {}", stats.TrianglesPerLOD.empty() ? stats.Triangles : stats.TrianglesPerLOD[shown] ) );
+        lines.push_back( std::format( "Vertices:  {}", stats.Vertices ) );
+        lines.push_back( std::format( "UV Channels:  {}", stats.UVChannels ) );
+        lines.push_back( std::format( "Sections:  {}", stats.Sections ) );
+        if ( stats.Bounds )
+        {
+            const glm::vec3 size = stats.Bounds->Max - stats.Bounds->Min;
+            lines.push_back( std::format( "Approx Size:  {:.0f} x {:.0f} x {:.0f} cm", size.x, size.y, size.z ) );
+        }
+        else
+            lines.emplace_back( "Approx Size:  no sections" );
+
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const float step = ImGui::GetTextLineHeight() + 2.0f;
+        ImVec2      at( origin.x + 10.0f, origin.y + 8.0f );
+        const ImU32 text = ImGui::GetColorU32( ImVec4( 0.784f, 0.784f, 0.784f, 1.0f ) ); // #C8C8C8
+        const ImU32 drop = IM_COL32( 0, 0, 0, 200 );
+        for ( const std::string& line : lines )
+        {
+            draw->AddText( ImVec2( at.x + 1.0f, at.y + 1.0f ), drop, line.c_str() );
+            draw->AddText( at, text, line.c_str() );
+            at.y += step;
+        }
+    }
+
+    void StaticMeshViewerDocument::DrawLight()
+    {
         if ( !m_Preview )
             return;
         // The preview scene's HDR sky and sun, which is the light the mesh is shown in; viewing only.
@@ -239,7 +286,11 @@ namespace Desert::Editor
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
+            {
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
                 (void)m_Preview->Draw( *m_UIHelper, view, PreviewInteraction::Interactive );
+                DrawViewportStats( origin );
+            }
         }
         ImGui::EndChild();
         ImGui::SameLine();
@@ -251,7 +302,7 @@ namespace Desert::Editor
             if ( const auto asset =
                       m_Assets->FindByHandle<Assets::StaticMeshAsset>( Assets::AssetHandle( Subject().Owner ) ) )
                 MeshAssetDetails::Draw( *asset );
-            DrawLightAndLOD();
+            DrawLight();
         }
         ImGui::EndChild();
     }

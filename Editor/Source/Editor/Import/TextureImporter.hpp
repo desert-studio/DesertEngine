@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Core/Formats/TextureIntent.hpp>
+
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -57,7 +59,13 @@ namespace Desert::Editor
         // Imports a raw image (png, jpg, hdr, ...) into its texture asset `<stem>.detex` beside it (AF3):
         // creates the asset on first import, re-takes the source only when its CONTENT changed, and returns
         // the asset's path. `Cook` calls it for any non-asset path; the migration calls it directly.
-        static Common::ResultStr<std::filesystem::path> ImportSourceAsset( const std::filesystem::path& source );
+        // @p slotIntent is what the material slot the image is imported for says it is (ImportTemplate::
+        // TextureIntents); it is written on a FIRST import when no legacy sidecar authored one. An existing asset
+        // keeps its settings.
+        static Common::ResultStr<std::filesystem::path>
+        ImportSourceAsset( const std::filesystem::path&           source,
+                           ::Desert::Core::Formats::TextureIntent slotIntent =
+                                ::Desert::Core::Formats::TextureIntent::Unspecified );
 
         // The texture asset a source image is imported into (`<stem>.detex` beside it); an asset path is its own.
         static std::filesystem::path AssetPathFor( const std::filesystem::path& source );

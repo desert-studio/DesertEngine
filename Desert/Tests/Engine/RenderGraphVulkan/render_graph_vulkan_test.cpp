@@ -434,7 +434,8 @@ void main()
     struct FrameObjects
     {
         FrameObjects( Gpu& gpu, uint32_t frameSlots, bool asyncCompute = false )
-             : Transients( gpu.Rdg, frameSlots ), Descriptors( gpu.Device.device, frameSlots ),
+             : Transients( gpu.Rdg, frameSlots ), Samplers( gpu.Device.device ),
+               Descriptors( gpu.Device.device, Samplers, frameSlots ),
                Objects( gpu.Device.device, gpu.QueueFamily,
                         asyncCompute && gpu.ComputeQueue != VK_NULL_HANDLE
                              ? std::optional<uint32_t>( gpu.ComputeFamily )
@@ -453,6 +454,7 @@ void main()
 
         VulkanRdgQueueSet           Queues;
         VulkanRdgTransientAllocator Transients;
+        VulkanSamplerCache          Samplers; // before Descriptors: they point at it, and it dies after them
         VulkanRdgPassDescriptors    Descriptors;
         VulkanRdgQueueObjects       Objects;
     };

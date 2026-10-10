@@ -2,15 +2,15 @@
 
 #include <optional>
 
-#include <Engine/ECS/Components.hpp>
+#include <Engine/UI/Args/UIArgs.hpp>
+#include <Engine/UI/UITree.hpp>
 #include <Engine/UI/UICanvasResources.hpp>
-#include <Engine/UI/UIAnimationPlayback.hpp>
+#include <Engine/UI/UIAnimationSource.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
 #include <Engine/UI/UIRenderTextureSource.hpp>
 
-#include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -63,7 +63,7 @@ namespace Desert::UI
     {
         bool         Active  = false; // past the threshold: the ghost is up and a drop can land
         bool         Pending = false; // pressed on a draggable, still deciding drag vs click
-        entt::entity Source  = entt::null;
+        NodeId       Source  = NodeId::Null;
         std::string  Payload;
         glm::vec2    Size{ 0.0f };
         glm::vec2    PressPos{ 0.0f };
@@ -78,11 +78,11 @@ namespace Desert::UI
         // Keyed by entity, and an entity belongs to exactly one canvas, so these are the clocks of THIS
         // canvas's tree. Per canvas rather than per view because that is what gives them a death: the cell
         // goes when the canvas does, instead of accumulating a row per element the scene ever had.
-        std::unordered_map<entt::entity, float>    HoverT;    // 0 = rest, 1 = hovered; eased each frame
+        std::unordered_map<NodeId, float> HoverT; // 0 = rest, 1 = hovered; eased each frame
         // Retainers whose Mask Element name was refused (not exactly one match) — logged once per element.
-        std::unordered_set<entt::entity>           RetainerMaskRefused;
-        std::unordered_map<entt::entity, float>    TweenT;    // per-element tween playhead
-        std::unordered_map<entt::entity, uint64_t> TweenSeen; // FrameIndex the tween was last evaluated on
+        std::unordered_set<NodeId>           RetainerMaskRefused;
+        std::unordered_map<NodeId, float>    TweenT;    // per-element tween playhead
+        std::unordered_map<NodeId, uint64_t> TweenSeen; // FrameIndex the tween was last evaluated on
 
         // --- Screens ----------------------------------------------------------------------------------
         // Which of THIS canvas's UIScreen sub-trees is current, and the hand-over running between two of
@@ -105,7 +105,7 @@ namespace Desert::UI
         float                    ScreenT       = 1.0f;  // 0..1 progress of the transition (1 = idle)
         float                    ScreenSlidePx = 60.0f; // mirrored from the canvas's UIScreenStack
         float                    ScreenTime    = 0.25f;
-        ECS::UIEasing            ScreenEasing  = ECS::UIEasing::CubicOut;
+        UIEasing                 ScreenEasing  = UIEasing::CubicOut;
         bool                     ScreenBack    = false; // a Back transition slides the other way
         std::string              ScreenReq;             // requested by a button, applied at the walk's end
         bool                     ScreenReqBack = false;
@@ -138,7 +138,7 @@ namespace Desert::UI
         // The trigger element this overlay was opened by, or entt::null for one opened by name alone. Kept
         // so a pinned tooltip can be re-placed when its trigger moves, and so a submenu knows which item of
         // the menu below owns it — closing that menu closes this one.
-        entt::entity OverlayOpenedBy = entt::null;
+        NodeId OverlayOpenedBy = NodeId::Null;
 
         // One notification on screen: what it says, and how long it has left. The list is the VISIBLE
         // stack, at most UIOverlayData::ToastSlots long; everything else waits in OverlayToastPending.
@@ -180,10 +180,10 @@ namespace Desert::UI
             std::uint64_t Generation = 0;
             bool          AtEnd      = false; // was scrolled to its end when last drawn
         };
-        std::unordered_map<entt::entity, ListBindingSeen> ListBindings;
+        std::unordered_map<NodeId, ListBindingSeen> ListBindings;
         // Bound lists already reported for not having exactly one child (their entry template). Per entity,
         // said once, like WarnedStyles.
-        std::unordered_set<entt::entity> WarnedListTemplates;
+        std::unordered_set<NodeId> WarnedListTemplates;
         // Style names this cell has already refused (Ю13): a UIStyleComponent naming a style the canvas's
         // theme does not declare. Per NAME rather than per ENTITY, because a mistyped style is normally on
         // the twenty elements that were duplicated from one another and the interesting fact is the name,
@@ -272,7 +272,8 @@ namespace Desert::UI
         // A view cannot exist without the resources it draws with: a host keeps a RegistryUICanvasResources
         // beside its view (they die together), a test hands in a mock that answers what it is about. See
         // UICanvasResources.hpp for why this is a constructor argument and not a registry lookup in the walk.
-        explicit UIViewContext( IUICanvasResources& resources ) : m_Resources( &resources )
+        explicit UIViewContext( IUICanvasResources& resources )
+             : m_Resources( &resources ), m_Animation( resources.CreateAnimationSource() )
         {
         }
 
@@ -282,12 +283,20 @@ namespace Desert::UI
             return *m_Resources;
         }
 
+        // What the scene's UI clips add to each element THIS frame, as this view evaluated them
+        // (UIAnimationSource.hpp). Evaluated once in BeginUIFrame, read by every canvas walk of the frame.
+        // Owned by the view and cloned with it, so a probe walking a copy never writes into this view's.
+        [[nodiscard]] IUIAnimationSource& Animation() const
+        {
+            return m_Animation.Get();
+        }
+
         // --- Identity ---------------------------------------------------------------------------------
         // The registry this state describes, remembered so a view that is pointed at another scene starts
         // clean instead of reading its predecessor's entity ids. Compared by address and never dereferenced.
         // BeginUIFrame does the comparison and the Reset, so a host that swaps scenes needs no discipline;
         // a freed registry's address CAN be reused by the next one, which is why Reset() is also public.
-        const entt::registry* Registry = nullptr;
+        const void* Scene = nullptr; // IUITree::Storage() of the scene this state describes
 
         // --- This view's clock ------------------------------------------------------------------------
         // The frame delta the host handed BeginUIFrame, and the sum of them (this view's UI time — the
@@ -331,14 +340,10 @@ namespace Desert::UI
         bool DrivesSceneAnimation = true;
 
         // Is this view showing a GAME world — Play-in-editor, the packaged game, the movie render — rather
-        // than an authored level? Only a game world starts AutoPlay UI clips (UIAnimationPlayback.hpp); an
+        // than an authored level? Only a game world starts AutoPlay UI clips (UI/Ecs/UIAnimationPlayback.hpp); an
         // authored level shows the frame under the clip's playhead and the Sequencer moves it, as UE's
         // designer never auto-plays a widget animation. The editor viewport sets it from the scene's state.
         bool GameWorld = true;
-
-        // What the scene's UI clips add to each element THIS frame, as this view evaluated them
-        // (UIAnimationPlayback.hpp). Filled once in BeginUIFrame, read by every canvas walk of the frame.
-        UIClipFrame AnimClips;
 
         // --- Hit testing ------------------------------------------------------------------------------
         // The frame elects a single HOT element (last writer in draw order = topmost) and controls compare
@@ -346,15 +351,15 @@ namespace Desert::UI
         // every canvas of the frame and is handed over once, in EndUIFrame — doing it per walk gave the
         // LAST canvas drawn the whole answer, so an overlay canvas erased the HUD's hot element merely by
         // existing.
-        entt::entity Hot     = entt::null; // resolved last frame: what the controls react to now
-        entt::entity HotNext = entt::null; // being elected during this frame's walks
+        NodeId       Hot     = NodeId::Null; // resolved last frame: what the controls react to now
+        NodeId       HotNext = NodeId::Null; // being elected during this frame's walks
         Rect         HotNextRect{};
         bool         PrevDown = false; // for the press edge (UIInput only carries held + release)
         UIDragState  Drag;
 
         // Every focusable control the frame drew, in draw order across every canvas — Tab advances through
         // this one list, so focus can leave a HUD canvas and enter an overlay. Rebuilt each frame.
-        std::vector<entt::entity> Focusables;
+        std::vector<NodeId> Focusables;
 
         // --- The frame's viewport, stated ONCE --------------------------------------------------------
         // Where this view draws, in pixels. It used to be a parameter of every RenderCanvas2D call, so a
@@ -370,25 +375,25 @@ namespace Desert::UI
         // ContextMenu overlay opened by an item of the menu below it: Escape closes the innermost, a click
         // outside closes back to whichever entry owns the click, and closing an entry closes everything
         // opened after it. Per view and not per canvas, because the pointer is per view.
-        std::vector<entt::entity> OverlayStack;
+        std::vector<NodeId> OverlayStack;
 
         // The hover trigger the pointer is currently resting on, and for how long. A hover overlay opens
         // when this reaches its UIOverlayData::OpenDelay; moving to another trigger — or to nothing —
         // restarts the clock, which is what makes a delay a delay rather than an accumulator.
-        entt::entity OverlayHoverTrigger = entt::null;
+        NodeId       OverlayHoverTrigger = NodeId::Null;
         float        OverlayHoverHeld    = 0.0f;
 
         // The one open tooltip of this view, if any. A tooltip is deliberately NOT on the stack above: it
         // captures nothing, so Escape and click-outside have no business reaching it, and there can only
         // ever be one because there is only one pointer.
-        entt::entity OverlayTooltip = entt::null;
+        NodeId OverlayTooltip = NodeId::Null;
 
         // A hover trigger whose overlay was DISMISSED — by Escape, or by a press outside it — while the
         // pointer was still resting on the trigger. Without this the dismissal cannot be seen: the hover
         // clock is still satisfied on the very next frame and reopens what was just closed, so Escape looks
         // like it does nothing. Cleared the moment the pointer is on a different trigger (or none), which
         // is the user's way of saying they are done with that dismissal.
-        entt::entity OverlayHoverSuppressed = entt::null;
+        NodeId       OverlayHoverSuppressed = NodeId::Null;
         bool         PrevRightDown          = false; // the right-button press edge, as PrevDown is for the left
 
         // --- Walk-local -------------------------------------------------------------------------------
@@ -427,13 +432,13 @@ namespace Desert::UI
         IUIRenderTextureSource* RenderTextures = nullptr;
 
         // The element this view last drew without a backend, so that report happens once.
-        entt::entity WarnedRenderTexture = entt::null;
+        NodeId WarnedRenderTexture = NodeId::Null;
 
         // --- The (canvas x view) table ----------------------------------------------------------------
 
         // This view's cell for @p canvas, created empty on first use. The only way to obtain one, so a cell
         // can never be paired with a view that does not own it.
-        UICanvasContext& CanvasState( entt::entity canvas )
+        UICanvasContext& CanvasState( NodeId canvas )
         {
             return m_Canvases[canvas];
         }
@@ -441,7 +446,7 @@ namespace Desert::UI
         // The cell for @p canvas if this view has ever drawn it, else nullptr. Nullptr is a MEANINGFUL
         // answer — "this view has not drawn that canvas" — and callers that read state without drawing
         // (the UI Debugger's probe) must be able to tell it from a canvas sitting on its first screen.
-        [[nodiscard]] const UICanvasContext* FindCanvasState( entt::entity canvas ) const
+        [[nodiscard]] const UICanvasContext* FindCanvasState( NodeId canvas ) const
         {
             const auto it = m_Canvases.find( canvas );
             return it == m_Canvases.end() ? nullptr : &it->second;
@@ -466,32 +471,30 @@ namespace Desert::UI
         // it is closed the same way: by an owner that releases rather than by hoping nobody notices.
         // RetireDeadCanvases runs once per frame from BeginUIFrame over a table with as many rows as the
         // scene has canvases.
-        void RetireDeadCanvases( const entt::registry& reg )
+        void RetireDeadCanvases( const IUITree& tree )
         {
             for ( auto it = m_Canvases.begin(); it != m_Canvases.end(); )
-                it = ( reg.valid( it->first ) && reg.has<ECS::UICanvasComponent>( it->first ) )
-                          ? std::next( it )
-                          : m_Canvases.erase( it );
+                it = ( tree.Valid( it->first ) && tree.Has<UICanvasData>( it->first ) ) ? std::next( it )
+                                                                                        : m_Canvases.erase( it );
 
             // The overlay stack is an INDEX INTO that table, so it dies on the same frame the cells do.
             // An index that outlives what it points at is the identical defect one level up: a destroyed
             // menu would still be "open", and Escape would pop an entity nobody can ask anything about.
-            const auto gone = [&reg]( entt::entity c )
-            { return !reg.valid( c ) || !reg.has<ECS::UICanvasComponent>( c ); };
+            const auto gone = [&tree]( NodeId c ) { return !tree.Valid( c ) || !tree.Has<UICanvasData>( c ); };
             OverlayStack.erase( std::remove_if( OverlayStack.begin(), OverlayStack.end(), gone ),
                                 OverlayStack.end() );
-            if ( OverlayTooltip != entt::null && gone( OverlayTooltip ) )
-                OverlayTooltip = entt::null;
+            if ( OverlayTooltip != NodeId::Null && gone( OverlayTooltip ) )
+                OverlayTooltip = NodeId::Null;
         }
 
         // Forget everything about the scene drawn so far. BeginUIFrame calls this itself when it notices the
         // registry changed; a host that swaps scenes behind the same address calls it directly.
         void Reset()
         {
-            Registry = nullptr;
+            Scene = nullptr;
             m_Canvases.clear();
-            Hot         = entt::null;
-            HotNext     = entt::null;
+            Hot         = NodeId::Null;
+            HotNext     = NodeId::Null;
             HotNextRect = Rect{};
             PrevDown    = false;
             Drag        = UIDragState{};
@@ -500,17 +503,18 @@ namespace Desert::UI
             WarnedMaterial = Assets::AssetHandle{};
             ViewportPx     = Rect{};
             OverlayStack.clear();
-            OverlayTooltip         = entt::null;
-            OverlayHoverSuppressed = entt::null;
-            OverlayHoverTrigger    = entt::null;
+            OverlayTooltip         = NodeId::Null;
+            OverlayHoverSuppressed = NodeId::Null;
+            OverlayHoverTrigger    = NodeId::Null;
             OverlayHoverHeld       = 0.0f;
             PrevRightDown          = false;
-            AnimClips.Reset();
+            m_Animation.Get().Reset();
         }
 
     private:
         // Never null: bound by the constructor and copied with the view (an introspection probe walks a copy).
         IUICanvasResources*                               m_Resources;
-        std::unordered_map<entt::entity, UICanvasContext> m_Canvases;
+        UIAnimationSourceSlot                             m_Animation;
+        std::unordered_map<NodeId, UICanvasContext>       m_Canvases;
     };
 } // namespace Desert::UI

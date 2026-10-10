@@ -195,8 +195,8 @@ TEST( PackagedContent, EveryScannedRootIsAPackagedTree )
 
 // WHAT A PACKAGE IS BUILT FROM (PRJ1, UE: /Game + /Engine runtime content). The committed project lives in
 // Projects/Desert/, apart from the engine: every census tree the packager stages is EITHER the project's (its
-// Content/ and its Cooked/, both under the project folder) OR the engine's runtime resources (under the
-// engine directory's Resources/) — never a tree of the editor, and project content never inside the engine.
+// Content/, its Cooked/ and its Config/, all under the project folder) OR the engine's runtime resources (under
+// the engine directory's Resources/) — never a tree of the editor, and project content never inside the engine.
 // Mutation: add a census row for P::RESOURCE_PATH / "Branding" (editor-only) in PackagedContentTrees.hpp, or set
 // the .deproj AssetsRoot to "../../Editor/Resources/Assets" => red here.
 TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnly )
@@ -236,7 +236,10 @@ TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnl
         EXPECT_TRUE( runtimeEngineTrees.contains( rel.begin()->string() ) )
              << "an editor resource tree is packaged: " << path.string();
     }
-    EXPECT_EQ( projectTrees, 2u ) << "the project contributes its Content/ and its Cooked/, nothing else";
+    EXPECT_EQ( projectTrees, 3u ) << "the project contributes its Content/, its Cooked/ and its Config/ (UE "
+                                     "<Project>/Config), nothing else";
+    EXPECT_TRUE( under( Common::Constants::Path::PROJECT_CONFIG_PATH, projectDir / "Config" ) )
+         << Common::Constants::Path::PROJECT_CONFIG_PATH.string();
     EXPECT_TRUE( under( Common::Constants::Path::ASSETS_PATH, projectDir / "Content" ) )
          << Common::Constants::Path::ASSETS_PATH.string();
 
@@ -1622,6 +1625,7 @@ namespace
              { "FONTS_PATH", &P::FONTS_PATH, RootVerdict::Packaged, "" },
              { "ICONS_PATH", &P::ICONS_PATH, RootVerdict::Packaged, "" },
              { "CONFIG_PATH", &P::CONFIG_PATH, RootVerdict::Packaged, "" },
+             { "PROJECT_CONFIG_PATH", &P::PROJECT_CONFIG_PATH, RootVerdict::Packaged, "" },
              { "ENGINE_CONTENT_PATH", &P::ENGINE_CONTENT_PATH, RootVerdict::Packaged, "" },
 
              // --- project content: every row is derived from the assets or cooked root, and both of
@@ -1670,6 +1674,7 @@ namespace
              { "LEVEL_SEQUENCE_PATH", &P::LEVEL_SEQUENCE_PATH, RootVerdict::Packaged, "" },
              { "VFX_PATH", &P::VFX_PATH, RootVerdict::Packaged, "" },
              { "FRACTURE_PATH", &P::FRACTURE_PATH, RootVerdict::Packaged, "" },
+             { "WATER_WAVES_PATH", &P::WATER_WAVES_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
         };
         return roots;

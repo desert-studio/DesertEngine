@@ -55,7 +55,7 @@ namespace Desert::Editor::UIAnchors
     }
 
     // Apply a preset in design space, keeping the element's authored size on point axes.
-    inline void ApplyPreset( ::Desert::ECS::UILayoutData& L, Axis hx, Axis vy )
+    inline void ApplyPreset( ::Desert::UI::UILayoutData& L, Axis hx, Axis vy )
     {
         const float sizeX = std::max( 1.0f, L.OffsetMax.x - L.OffsetMin.x );
         const float sizeY = std::max( 1.0f, L.OffsetMax.y - L.OffsetMin.y );
@@ -69,7 +69,7 @@ namespace Desert::Editor::UIAnchors
     }
 
     // Inspector widget: a "Fill / Match Parent" button + a 4x4 anchor-preset grid (Unity-style). Mutates L.
-    inline void DrawControls( ::Desert::ECS::UILayoutData& L )
+    inline void DrawControls( ::Desert::UI::UILayoutData& L )
     {
         namespace ImGui = ::ImGui;
 

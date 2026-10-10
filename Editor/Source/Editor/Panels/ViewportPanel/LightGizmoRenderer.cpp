@@ -168,7 +168,7 @@ namespace Desert::Editor
             {
                 const ImVec2 p0( topLeft.x + offset.x, topLeft.y + offset.y );
                 const ImVec2 p1( bottomRight.x + offset.x, bottomRight.y + offset.y );
-                for ( const Runtime::IconLayer& layer : icon->Layers )
+                for ( const ::Desert::Text::IconLayer& layer : icon->Layers )
                 {
                     const int alpha = static_cast<int>( 190.0f * static_cast<float>( layer.RGBA & 0xFFu ) / 255.0f );
                     drawList->AddImage( texId, p0, p1, ImVec2( layer.U0, layer.V0 ), ImVec2( layer.U1, layer.V1 ),
@@ -176,7 +176,7 @@ namespace Desert::Editor
                 }
             }
 
-            for ( const Runtime::IconLayer& layer : icon->Layers )
+            for ( const ::Desert::Text::IconLayer& layer : icon->Layers )
             {
                 const int alpha = static_cast<int>( 255.0f * drawn.w * static_cast<float>( layer.RGBA & 0xFFu ) /
                                                     255.0f );

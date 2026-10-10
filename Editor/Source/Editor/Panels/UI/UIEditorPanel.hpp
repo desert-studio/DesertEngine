@@ -2,6 +2,7 @@
 
 #include "../IPanel.hpp"
 
+#include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Common/Core/UUID.hpp>

@@ -47,13 +47,24 @@ namespace Desert::Physics
 {
     namespace
     {
-        // Object layers: which objects can collide. Two are enough (static vs moving).
-        namespace Layers
+        // Object layers ARE collision profiles (UE ECollisionChannel + ECollisionResponse, project data):
+        // profile p is layer 2p for a static body and 2p+1 for one that moves, so the broad phase can still
+        // keep the static tree apart (two broad-phase layers, Jolt's recommended split) and static-static
+        // pairs never reach the pair filter. Which profiles meet is the register's answer, nothing here.
+        constexpr JPH::ObjectLayer LayerOf( CollisionProfileId profile, bool moving )
         {
-            static constexpr JPH::ObjectLayer NON_MOVING = 0;
-            static constexpr JPH::ObjectLayer MOVING     = 1;
-            static constexpr JPH::ObjectLayer NUM_LAYERS = 2;
-        } // namespace Layers
+            return static_cast<JPH::ObjectLayer>( ( profile << 1u ) | ( moving ? 1u : 0u ) );
+        }
+        constexpr CollisionProfileId ProfileOf( JPH::ObjectLayer layer )
+        {
+            return static_cast<CollisionProfileId>( layer >> 1u );
+        }
+        constexpr bool IsMovingLayer( JPH::ObjectLayer layer )
+        {
+            return ( layer & 1u ) != 0u;
+        }
+        static_assert( sizeof( JPH::ObjectLayer ) >= 2 && kMaxProfiles * 2u + 1u < 0xFFFFu,
+                       "every profile needs two object layers below Jolt's cObjectLayerInvalid" );
 
         namespace BroadPhaseLayers
         {
@@ -65,21 +76,14 @@ namespace Desert::Physics
         class BPLayerInterfaceImpl final : public JPH::BroadPhaseLayerInterface
         {
         public:
-            BPLayerInterfaceImpl()
-            {
-                m_ObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
-                m_ObjectToBroadPhase[Layers::MOVING]     = BroadPhaseLayers::MOVING;
-            }
             JPH::uint GetNumBroadPhaseLayers() const override { return BroadPhaseLayers::NUM_LAYERS; }
             JPH::BroadPhaseLayer GetBroadPhaseLayer( JPH::ObjectLayer inLayer ) const override
             {
-                return m_ObjectToBroadPhase[inLayer];
+                return IsMovingLayer( inLayer ) ? BroadPhaseLayers::MOVING : BroadPhaseLayers::NON_MOVING;
             }
 #if defined( JPH_EXTERNAL_PROFILE ) || defined( JPH_PROFILE_ENABLED )
             const char* GetBroadPhaseLayerName( JPH::BroadPhaseLayer ) const override { return "Layer"; }
 #endif
-        private:
-            JPH::BroadPhaseLayer m_ObjectToBroadPhase[Layers::NUM_LAYERS];
         };
 
         class ObjectVsBroadPhaseLayerFilterImpl final : public JPH::ObjectVsBroadPhaseLayerFilter
@@ -87,22 +91,74 @@ namespace Desert::Physics
         public:
             bool ShouldCollide( JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2 ) const override
             {
-                if ( inLayer1 == Layers::NON_MOVING )
-                    return inLayer2 == BroadPhaseLayers::MOVING;
-                return true; // MOVING collides with everything
+                // Coarse only: a static body never looks into the static tree. Profiles decide the rest.
+                return IsMovingLayer( inLayer1 ) || inLayer2 == BroadPhaseLayers::MOVING;
             }
         };
 
         class ObjectLayerPairFilterImpl final : public JPH::ObjectLayerPairFilter
         {
         public:
+            explicit ObjectLayerPairFilterImpl( const CollisionProfiles& profiles ) : m_Profiles( profiles )
+            {
+            }
+
             bool ShouldCollide( JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2 ) const override
             {
-                if ( inObject1 == Layers::NON_MOVING )
-                    return inObject2 == Layers::MOVING; // static only collides with moving
-                return true;                            // moving collides with everything
+                if ( !IsMovingLayer( inObject1 ) && !IsMovingLayer( inObject2 ) )
+                    return false;
+                return m_Profiles.PhysicsResponse( ProfileOf( inObject1 ), ProfileOf( inObject2 ) ) !=
+                       CollisionResponse::Ignore;
             }
+
+        private:
+            const CollisionProfiles& m_Profiles;
         };
+
+        // What a character capsule is stopped by: Block pairs only. An Overlap pair passes the pair filter
+        // (its contacts are wanted) but CharacterVirtual would treat every contact it is handed as solid.
+        class BlockingLayerFilter final : public JPH::ObjectLayerFilter
+        {
+        public:
+            BlockingLayerFilter( const CollisionProfiles& profiles, CollisionProfileId self )
+                 : m_Profiles( profiles ), m_Self( self )
+            {
+            }
+            [[nodiscard]] bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
+            {
+                return m_Profiles.PhysicsResponse( m_Self, ProfileOf( inLayer ) ) == CollisionResponse::Block;
+            }
+
+        private:
+            const CollisionProfiles& m_Profiles;
+            CollisionProfileId       m_Self;
+        };
+
+        // What a ray cast may find: the profiles that take part in queries.
+        class QueryableLayerFilter final : public JPH::ObjectLayerFilter
+        {
+        public:
+            explicit QueryableLayerFilter( const CollisionProfiles& profiles ) : m_Profiles( profiles )
+            {
+            }
+            [[nodiscard]] bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
+            {
+                return m_Profiles.IsQueryable( ProfileOf( inLayer ) );
+            }
+
+        private:
+            const CollisionProfiles& m_Profiles;
+        };
+
+        Common::BoolResultStr CheckProfile( const CollisionProfiles& profiles, CollisionProfileId profile,
+                                            std::string_view what )
+        {
+            if ( profile == kNoProfile || profile >= profiles.ProfileCount() )
+                return Common::MakeFormattedError<bool>(
+                     "{} carries no collision profile of this world's register ({} profiles)", what,
+                     profiles.ProfileCount() );
+            return Common::MakeSuccess( true );
+        }
 
         static void TraceImpl( const char* inFMT, ... )
         {
@@ -283,28 +339,41 @@ namespace Desert::Physics
         class ImpulseListener final : public JPH::ContactListener
         {
         public:
-            JPH::PhysicsSystem*         System = nullptr;
+            JPH::PhysicsSystem*         System   = nullptr;
+            const CollisionProfiles*    Profiles = nullptr;
             std::mutex                  Mutex;
             std::vector<ContactImpulse> Contacts;
 
             void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
                                  const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
             {
+                Respond( body1, body2, settings );
                 Record( body1, body2, manifold, settings );
             }
             void OnContactPersisted( const JPH::Body& body1, const JPH::Body& body2,
                                      const JPH::ContactManifold& manifold,
                                      JPH::ContactSettings&       settings ) override
             {
+                Respond( body1, body2, settings );
                 Record( body1, body2, manifold, settings );
             }
 
         private:
+            // An Overlap pair's contact is a sensor contact: Jolt finds it and does not solve it (UE: the
+            // bodies pass through each other; the overlap itself is reported by the event queue).
+            void Respond( const JPH::Body& body1, const JPH::Body& body2, JPH::ContactSettings& settings ) const
+            {
+                if ( Profiles->PhysicsResponse( ProfileOf( body1.GetObjectLayer() ),
+                                                ProfileOf( body2.GetObjectLayer() ) ) ==
+                     CollisionResponse::Overlap )
+                    settings.mIsSensor = true;
+            }
+
             void Record( const JPH::Body& body1, const JPH::Body& body2, const JPH::ContactManifold& manifold,
                          const JPH::ContactSettings& settings )
             {
                 if ( ( ( body1.GetUserData() | body2.GetUserData() ) & kReportImpulsesBit ) == 0u ||
-                     manifold.mRelativeContactPointsOn1.empty() )
+                     settings.mIsSensor || manifold.mRelativeContactPointsOn1.empty() )
                     return;
 
                 JPH::CollisionEstimationResult estimate;
@@ -335,7 +404,13 @@ namespace Desert::Physics
 
     struct PhysicsWorld::Impl
     {
+        explicit Impl( CollisionProfiles profiles )
+             : Profiles( std::move( profiles ) ), ObjectLayerPairFilter( Profiles )
+        {
+        }
+
         JPH::PhysicsSystem                  System;
+        CollisionProfiles                          Profiles; // before the filters that read it
         std::unique_ptr<JPH::TempAllocatorImpl>    TempAllocator;
         std::unique_ptr<JPH::JobSystemThreadPool>  JobSystem;
         BPLayerInterfaceImpl                BroadPhaseLayerInterface;
@@ -353,6 +428,7 @@ namespace Desert::Physics
 
         // Character controllers (CharacterVirtual). Handle = index into this vector (nulled on remove).
         std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
+        std::vector<CollisionProfileId>              CharacterProfiles; // parallel to Characters
 
         ImpulseListener              Impulses;
         std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
@@ -362,7 +438,7 @@ namespace Desert::Physics
     PhysicsWorld::PhysicsWorld()  = default;
     PhysicsWorld::~PhysicsWorld() { Shutdown(); }
 
-    bool PhysicsWorld::Init( float gravityCmPerS2 )
+    bool PhysicsWorld::Init( float gravityCmPerS2, CollisionProfiles profiles )
     {
         if ( m_Impl )
             return true;
@@ -375,7 +451,7 @@ namespace Desert::Physics
             JPH::RegisterTypes();
         }
 
-        m_Impl                = std::make_unique<Impl>();
+        m_Impl                = std::make_unique<Impl>( std::move( profiles ) );
         m_Impl->TempAllocator = std::make_unique<JPH::TempAllocatorImpl>( 16 * 1024 * 1024 );
 
         const int threads = std::max( 1u, std::thread::hardware_concurrency() - 1u );
@@ -392,9 +468,15 @@ namespace Desert::Physics
                              m_Impl->ObjectLayerPairFilter );
         SetGravity( gravityCmPerS2 );
         m_Impl->Bodies          = &m_Impl->System.GetBodyInterface();
-        m_Impl->Impulses.System = &m_Impl->System;
+        m_Impl->Impulses.System   = &m_Impl->System;
+        m_Impl->Impulses.Profiles = &m_Impl->Profiles;
         m_Impl->System.SetContactListener( &m_Impl->Impulses );
         return true;
+    }
+
+    const CollisionProfiles& PhysicsWorld::GetCollisionProfiles() const
+    {
+        return m_Impl->Profiles;
     }
 
     void PhysicsWorld::SetGravity( float gravityCmPerS2 )
@@ -459,6 +541,8 @@ namespace Desert::Physics
     {
         if ( !m_Impl )
             return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
+        if ( auto profiled = CheckProfile( m_Impl->Profiles, desc.Profile, "the compound body" ); !profiled )
+            return Common::MakeError<BodyHandle>( profiled.GetError() );
         if ( desc.Parts.empty() )
             return Common::MakeError<BodyHandle>( "a compound body needs at least one part" );
 
@@ -500,7 +584,7 @@ namespace Desert::Physics
                 return JPH::EMotionType::Kinematic;
             return JPH::EMotionType::Static;
         }();
-        const JPH::ObjectLayer    layer = desc.Type == BodyType::Static ? Layers::NON_MOVING : Layers::MOVING;
+        const JPH::ObjectLayer    layer = LayerOf( desc.Profile, desc.Type != BodyType::Static );
         JPH::BodyCreationSettings settings( result.Get(),
                                             JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
                                             ToJolt( desc.Rotation ), motion, layer );
@@ -535,6 +619,8 @@ namespace Desert::Physics
     {
         if ( !m_Impl )
             return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
+        if ( auto profiled = CheckProfile( m_Impl->Profiles, desc.Profile, "the body" ); !profiled )
+            return Common::MakeError<BodyHandle>( profiled.GetError() );
 
         JPH::ShapeRefC shape;
         switch ( desc.Shape )
@@ -601,7 +687,7 @@ namespace Desert::Physics
         const auto motion       = desc.Type == BodyType::Dynamic     ? JPH::EMotionType::Dynamic
                                   : desc.Type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
                                                                      : JPH::EMotionType::Static;
-        const JPH::ObjectLayer layer = isStatic ? Layers::NON_MOVING : Layers::MOVING;
+        const JPH::ObjectLayer layer        = LayerOf( desc.Profile, !isStatic );
 
         JPH::BodyCreationSettings settings( shape, JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
                                             ToJolt( desc.Rotation ), motion, layer );
@@ -646,13 +732,15 @@ namespace Desert::Physics
     {
         if ( !m_Impl )
             return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
+        if ( auto profiled = CheckProfile( m_Impl->Profiles, desc.Profile, "the heightfield" ); !profiled )
+            return Common::MakeError<BodyHandle>( profiled.GetError() );
         auto shape = BuildHeightField( desc );
         if ( !shape.IsSuccess() )
             return Common::MakeError<BodyHandle>( shape.GetError() );
 
-        JPH::BodyCreationSettings settings( shape.GetValue(),
-                                            JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
-                                            JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING );
+        JPH::BodyCreationSettings settings(
+             shape.GetValue(), JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
+             JPH::Quat::sIdentity(), JPH::EMotionType::Static, LayerOf( desc.Profile, false ) );
         settings.mFriction   = desc.Friction;
         const JPH::BodyID id = m_Impl->Bodies->CreateAndAddBody( settings, JPH::EActivation::DontActivate );
         if ( id.IsInvalid() )
@@ -744,8 +832,9 @@ namespace Desert::Physics
             return std::nullopt;
         const glm::vec3     dir = glm::normalize( direction );
         const JPH::RRayCast ray( JPH::RVec3( origin.x, origin.y, origin.z ), ToJolt( dir * maxDistance ) );
-        JPH::RayCastResult  result;
-        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result ) )
+        JPH::RayCastResult         result;
+        const QueryableLayerFilter queryable( m_Impl->Profiles );
+        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, queryable ) )
             return std::nullopt;
 
         RayHit hit;
@@ -841,10 +930,12 @@ namespace Desert::Physics
 
     // ---- Character controller ----
 
-    CharacterHandle PhysicsWorld::CreateCharacter( const CharacterDesc& desc )
+    Common::ResultStr<CharacterHandle> PhysicsWorld::CreateCharacter( const CharacterDesc& desc )
     {
         if ( !m_Impl )
-            return kInvalidCharacter;
+            return Common::MakeError<CharacterHandle>( "the physics world is not initialised" );
+        if ( auto profiled = CheckProfile( m_Impl->Profiles, desc.Profile, "the character" ); !profiled )
+            return Common::MakeError<CharacterHandle>( profiled.GetError() );
 
         JPH::CharacterVirtualSettings settings;
         settings.mShape =
@@ -865,11 +956,14 @@ namespace Desert::Physics
         auto& slots = m_Impl->Characters;
         if ( const auto freeSlot = std::find( slots.begin(), slots.end(), nullptr ); freeSlot != slots.end() )
         {
-            *freeSlot = character;
-            return static_cast<CharacterHandle>( freeSlot - slots.begin() );
+            *freeSlot                         = character;
+            const auto handle                 = static_cast<CharacterHandle>( freeSlot - slots.begin() );
+            m_Impl->CharacterProfiles[handle] = desc.Profile;
+            return Common::MakeSuccess( handle );
         }
         slots.push_back( character );
-        return static_cast<CharacterHandle>( slots.size() - 1 );
+        m_Impl->CharacterProfiles.push_back( desc.Profile );
+        return Common::MakeSuccess( static_cast<CharacterHandle>( slots.size() - 1 ) );
     }
 
     void PhysicsWorld::RemoveCharacter( CharacterHandle handle )
@@ -884,12 +978,13 @@ namespace Desert::Physics
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] || dt <= 0.0f )
             return;
 
-        auto& character = m_Impl->Characters[handle];
+        auto&                     character = m_Impl->Characters[handle];
+        const CollisionProfileId  profile   = m_Impl->CharacterProfiles[handle];
+        const BlockingLayerFilter blockedBy( m_Impl->Profiles, profile );
         character->SetLinearVelocity( ToJolt( velocity ) );
         character->Update( dt, m_Impl->System.GetGravity(),
-                           m_Impl->System.GetDefaultBroadPhaseLayerFilter( Layers::MOVING ),
-                           m_Impl->System.GetDefaultLayerFilter( Layers::MOVING ), {}, {},
-                           *m_Impl->TempAllocator );
+                           m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ), blockedBy,
+                           {}, {}, *m_Impl->TempAllocator );
     }
 
     glm::vec3 PhysicsWorld::GetCharacterPosition( CharacterHandle handle ) const

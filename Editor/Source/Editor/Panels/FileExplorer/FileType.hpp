@@ -91,12 +91,16 @@ namespace Desert::Editor
         /// no row of kFileExtensions: FileTypeOfContent types it. Its own kind because its picture is its own
         /// — the sky drawn under the dome camera (ThumbnailProducers::Producer::RenderedSky), not the decoded
         /// strip a texture shows.
-        Skybox
+        Skybox,
+
+        /// A water wave set (`.dwaves`, UE UWaterWavesAsset): its own type so the browser can colour it, give it
+        /// an icon and filter by it; its picture is the class icon, as UE's is.
+        WaterWaves
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::Skybox;
+    inline constexpr FileType kLastFileType = FileType::WaterWaves;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -158,6 +162,7 @@ namespace Desert::Editor
          { "dseq", FileType::LevelSequence },
          { "dfx", FileType::VFXSystem },
          { "dfrac", FileType::Fracture },
+         { "dwaves", FileType::WaterWaves },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

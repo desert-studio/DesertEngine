@@ -1040,7 +1040,7 @@ namespace Desert::Editor
                                          .c_str() );
                 return;
             }
-            if ( c.Data.Source == ::Desert::ECS::UIStyleSource::Local )
+            if ( c.Data.Source == ::Desert::UI::UIStyleSource::Local )
             {
                 ImGui::TextDisabled( "Source is Local, so the theme is not consulted: every slot below is "
                                      "this element\'s own value." );
@@ -1103,7 +1103,7 @@ namespace Desert::Editor
                 if ( !ElementHasPrefix( prefix ) )
                     continue;
 
-                const bool themed = c.Data.Source == ::Desert::ECS::UIStyleSource::Theme && style.IsThemed( slot );
+                const bool themed = c.Data.Source == ::Desert::UI::UIStyleSource::Theme && style.IsThemed( slot );
 
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();

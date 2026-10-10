@@ -186,6 +186,62 @@ TEST( TextureUploadBudget, WorkersPushWhileTheFrameTakes )
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// SHOT-SETTLE-c: the admission gate bounds the cooks holding decoded pixels, whatever the scene asks for.
+
+using Admission = Desert::Runtime::CookAdmission<uint64_t>;
+
+TEST( TextureCookAdmission, NeverRunsMoreThanTheCapacityHoweverManyAreAsked )
+{
+    Admission   gate( 8 );
+    std::size_t admitted = 0;
+    for ( uint64_t handle = 0; handle < 400; ++handle )
+        admitted += gate.TryAdmit( handle ) ? 1u : 0u;
+    EXPECT_EQ( admitted, 8u ) << "Bistro asked for ~400 at once; every admitted cook holds a decoded texture";
+    EXPECT_EQ( gate.Running(), 8u );
+    EXPECT_EQ( gate.Waiting(), 392u );
+    EXPECT_FALSE( gate.NextToStart().has_value() ) << "no slot is free until a result is taken";
+}
+
+TEST( TextureCookAdmission, EveryWaitingKeyStartsInOrderAsSlotsFree )
+{
+    Admission gate( 2 );
+    for ( uint64_t handle = 0; handle < 5; ++handle )
+        (void)gate.TryAdmit( handle );
+    std::vector<uint64_t> started;
+    while ( gate.Running() > 0 )
+    {
+        gate.Release();
+        while ( const auto next = gate.NextToStart() )
+        {
+            started.push_back( *next );
+            EXPECT_LE( gate.Running(), 2u );
+        }
+    }
+    EXPECT_EQ( started, ( std::vector<uint64_t>{ 2, 3, 4 } ) ) << "a waiting key is never lost or reordered";
+    EXPECT_EQ( gate.Waiting(), 0u );
+}
+
+TEST( TextureCookAdmission, ZeroCapacityAdmitsNothing )
+{
+    Admission gate( 0 );
+    EXPECT_FALSE( gate.TryAdmit( 1 ) );
+    gate.Release();
+    EXPECT_FALSE( gate.NextToStart().has_value() );
+    EXPECT_EQ( gate.Running(), 0u ) << "a release with nothing running does not mint a slot";
+}
+
+TEST( TextureCookAdmission, DroppingTheWaitingKeepsTheRunningSlots )
+{
+    Admission gate( 1 );
+    EXPECT_TRUE( gate.TryAdmit( 1 ) );
+    EXPECT_FALSE( gate.TryAdmit( 2 ) );
+    gate.DropWaiting();
+    EXPECT_EQ( gate.Running(), 1u ) << "the cook on a worker still pushes a result; its slot frees when taken";
+    gate.Release();
+    EXPECT_FALSE( gate.NextToStart().has_value() ) << "a cleared key must not start";
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // The census: no cook and no platform-data read on the main-thread load path.
 
 TEST( TextureUploadBudgetCensus, TheServiceNeverReadsPlatformDataOnTheMainThread )
@@ -200,13 +256,20 @@ TEST( TextureUploadBudgetCensus, TheServiceNeverReadsPlatformDataOnTheMainThread
         EXPECT_EQ( Count( service, door ), 0u )
              << kService << " calls " << door << " -- a DDC read (and on a miss, a cook) on the main thread";
 
-    // The one read there is lives in the job BeginCook submits, and nowhere else in the file.
-    const std::string beginCook = Body( service, "TextureService::BeginCook" );
-    ASSERT_FALSE( beginCook.empty() ) << "TextureService::BeginCook is gone; the census lost its anchor";
+    // The one read there is lives in the job SubmitCook submits, and nowhere else in the file.
+    const std::string beginCook = Body( service, "TextureService::SubmitCook" );
+    ASSERT_FALSE( beginCook.empty() ) << "TextureService::SubmitCook is gone; the census lost its anchor";
     const auto submit = beginCook.find( "JobSystem::Get().Submit(" );
-    ASSERT_NE( submit, std::string::npos ) << "BeginCook no longer hands the cook to a worker";
-    EXPECT_EQ( Count( service, "ReadCooked" ), 1u ) << "ReadCooked is called outside BeginCook's job";
+    ASSERT_NE( submit, std::string::npos ) << "SubmitCook no longer hands the cook to a worker";
+    EXPECT_EQ( Count( service, "ReadCooked" ), 1u ) << "ReadCooked is called outside SubmitCook's job";
     EXPECT_GT( beginCook.find( "ReadCooked" ), submit ) << "ReadCooked runs before the job is submitted";
+
+    // SHOT-SETTLE-c: a cook reaches a worker only through the admission gate, and the pump returns the slots.
+    EXPECT_NE( Body( service, "TextureService::BeginCook" ).find( "m_CookAdmission.TryAdmit" ), std::string::npos )
+         << "BeginCook submits without the admission gate: decoded textures pile up unbounded behind a long frame";
+    EXPECT_NE( Body( service, "TextureService::PumpUploads" ).find( "m_CookAdmission.Release" ),
+               std::string::npos )
+         << "the pump never frees an admission slot: after CooksInFlight cooks nothing would start again";
 
     // The GPU half runs from the budgeted pump only, and the eager Create2D stays in Register (import-made
     // assets whose DDC entry the importer has just written).

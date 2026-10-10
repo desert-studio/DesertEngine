@@ -789,7 +789,11 @@ namespace Desert::Editor::ShaderGraph
                 else if ( node.Kind == "Sine" )
                     decl = std::format( "float {} = sin( {} );", var, EmitInput( node, 0, "0.0" ) );
                 else if ( node.Kind == "Time" )
-                    decl = std::format( "float {} = timeUB.TimeData.x;", var );
+                    // A surface reads the view block's clock through its input (SurfaceInput.Time, UE's
+                    // View.GameTime); a post-process program has no view block and declares TimeUB.
+                    decl = doc.DomainEnum() == Domain::Surface
+                                ? std::format( "float {} = i.Time;", var )
+                                : std::format( "float {} = timeUB.TimeData.x;", var );
                 else
                 {
                     // ValidateGraph has already rejected kinds that are not in the catalogue, so
@@ -1394,8 +1398,6 @@ namespace Desert::Editor::ShaderGraph
         out << ( doc.Lit ? "    ShadingModel DefaultLit\n\n" : "    ShadingModel Unlit\n\n" );
 
         out << "    Surface\n    {\n";
-        if ( usesTime )
-            out << "        #include <Common/TimeUB.glslh>\n\n";
         out << "        SurfaceOutput EvaluateSurface( SurfaceInput i )\n        {\n";
         // The graph's nodes read the mesh UV under the name every node emitter uses.
         out << "            const vec2 v_UV = i.UV0;\n";

@@ -154,27 +154,26 @@ namespace Desert::Editor
         L.AnchorMax            = { 0.0f, 0.0f };
         L.OffsetMin            = min;
         L.OffsetMax            = max;
-        L.HitTest              = ECS::UIHitTest::None; // a label never takes a click from the item under it
+        L.HitTest = ::Desert::UI::UIHitTest::None; // a label never takes a click from the item under it
         auto& T                = reg.get<ECS::UITextComponent2D>( h ).Data;
         T.Text                 = text;
         T.FontSize             = fontSize;
-        T.VerticalAlign        = ECS::UITextVAlign::Middle;
+        T.VerticalAlign        = ::Desert::UI::UITextVAlign::Middle;
         if ( bindKey != nullptr )
         {
             auto& B  = reg.emplace<ECS::UIBindingComponent>( h ).Data;
             B.Key    = bindKey;
-            B.Target = ECS::UIBindTarget::Text;
+            B.Target = ::Desert::UI::UIBindTarget::Text;
         }
         return h;
     }
 
     // One context-menu row: a button, its label, and the accelerator it displays on the right.
     //
-    // THE ACCELERATOR IS A LABEL AND NOT A BINDING, and that is a limit of the input layer rather than a
-    // shortcut taken here: UI::UIInput carries typed text, Backspace, Tab, Enter and Escape and no key
-    // codes at all, so nothing in this engine can express "Ctrl+S happened" for a menu item to answer.
+    // THE ACCELERATOR IS A LABEL AND NOT A BINDING. UI::UIInput carries every key press with its modifiers
+    // (UIKeyEvent), so "Ctrl+S happened" is expressible, but nothing routes a chord to a menu item yet.
     // Displaying the accelerator is what a context menu owes the reader; making it fire belongs to the task
-    // that gives the input layer key chords.
+    // that adds accelerator routing.
     inline entt::entity AddMenuItem( ::Desert::Core::Scene& scene, entt::entity parent, const char* label,
                                      const char* accelerator, bool disabled )
     {
@@ -196,28 +195,28 @@ namespace Desert::Editor
             const entt::entity a = AddOverlayText( scene, h, "Accelerator", accelerator, { 150.0f, 0.0f },
                                                    { 230.0f, 26.0f }, 13.0f );
             auto&              t = reg.get<ECS::UITextComponent2D>( a ).Data;
-            t.Align              = ECS::UITextAlign::Right;
+            t.Align              = ::Desert::UI::UITextAlign::Right;
             t.Color              = { 0.55f, 0.57f, 0.62f };
         }
         return h;
     }
 
     // Create an overlay canvas of @p kind, with a working example of its chrome, and return the canvas.
-    inline entt::entity CreateUIOverlay( ::Desert::Core::Scene& scene, ECS::UIOverlayKind kind )
+    inline entt::entity CreateUIOverlay( ::Desert::Core::Scene& scene, ::Desert::UI::UIOverlayKind kind )
     {
         const char* canvasName = "UI Overlay";
         switch ( kind )
         {
-            case ECS::UIOverlayKind::Tooltip:
+            case ::Desert::UI::UIOverlayKind::Tooltip:
                 canvasName = "Tooltip";
                 break;
-            case ECS::UIOverlayKind::ContextMenu:
+            case ::Desert::UI::UIOverlayKind::ContextMenu:
                 canvasName = "Context Menu";
                 break;
-            case ECS::UIOverlayKind::Modal:
+            case ::Desert::UI::UIOverlayKind::Modal:
                 canvasName = "Modal";
                 break;
-            case ECS::UIOverlayKind::Toast:
+            case ::Desert::UI::UIOverlayKind::Toast:
                 canvasName = "Toasts";
                 break;
         }
@@ -239,16 +238,16 @@ namespace Desert::Editor
         // above the HUD. These are defaults, not rules — Sort Order is one field in Details.
         switch ( kind )
         {
-            case ECS::UIOverlayKind::Tooltip:
+            case ::Desert::UI::UIOverlayKind::Tooltip:
                 cd.SortOrder = 400;
                 break;
-            case ECS::UIOverlayKind::ContextMenu:
+            case ::Desert::UI::UIOverlayKind::ContextMenu:
                 cd.SortOrder = 300;
                 break;
-            case ECS::UIOverlayKind::Modal:
+            case ::Desert::UI::UIOverlayKind::Modal:
                 cd.SortOrder = 200;
                 break;
-            case ECS::UIOverlayKind::Toast:
+            case ::Desert::UI::UIOverlayKind::Toast:
                 cd.SortOrder = 100;
                 break;
         }
@@ -270,7 +269,7 @@ namespace Desert::Editor
 
         switch ( kind )
         {
-            case ECS::UIOverlayKind::Tooltip:
+            case ::Desert::UI::UIOverlayKind::Tooltip:
             {
                 od.FollowPointer = true;
                 od.OpenDelay     = 0.4f;
@@ -282,12 +281,12 @@ namespace Desert::Editor
                                 ::Desert::UI::kOverlayTextKey );
                 break;
             }
-            case ECS::UIOverlayKind::ContextMenu:
+            case ::Desert::UI::UIOverlayKind::ContextMenu:
             {
                 const entt::entity p =
                      panel( canvas, "Menu", { 0.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f }, { 240.0f, 96.0f } );
                 auto& g   = reg.emplace<ECS::UILayoutGroupComponent>( p ).Data;
-                g.Type    = ECS::UILayoutType::Vertical;
+                g.Type    = ::Desert::UI::UILayoutType::Vertical;
                 g.Padding = glm::vec4( 4.0f );
                 g.Spacing = 2.0f;
                 reg.get<ECS::UILayoutComponent>( p ).Data.FitHeight = true;
@@ -296,7 +295,7 @@ namespace Desert::Editor
                 AddMenuItem( scene, p, "More", "", /*disabled=*/false );
                 break;
             }
-            case ECS::UIOverlayKind::Modal:
+            case ::Desert::UI::UIOverlayKind::Modal:
             {
                 const entt::entity p = panel( canvas, "Dialog", { 0.5f, 0.5f }, { 0.5f, 0.5f },
                                               { -200.0f, -90.0f }, { 200.0f, 90.0f } );
@@ -317,17 +316,17 @@ namespace Desert::Editor
                 AddOverlayText( scene, cancel, "Label", "Cancel", { 8.0f, 0.0f }, { 62.0f, 32.0f }, 14.0f );
                 break;
             }
-            case ECS::UIOverlayKind::Toast:
+            case ::Desert::UI::UIOverlayKind::Toast:
             {
                 const entt::entity stack = AddUIChild<ECS::UIPanelComponent>( scene, canvas, "Stack" );
                 auto&              L     = reg.get<ECS::UILayoutComponent>( stack ).Data;
                 L.AnchorMin = L.AnchorMax                            = { 1.0f, 1.0f };
                 L.OffsetMin                                          = { -320.0f, -220.0f };
                 L.OffsetMax                                          = { -20.0f, -20.0f };
-                L.HitTest                                            = ECS::UIHitTest::None;
+                L.HitTest                                            = ::Desert::UI::UIHitTest::None;
                 reg.get<ECS::UIPanelComponent>( stack ).Data.Opacity = 0.0f; // a container, not a surface
                 auto& g   = reg.emplace<ECS::UILayoutGroupComponent>( stack ).Data;
-                g.Type    = ECS::UILayoutType::Vertical;
+                g.Type    = ::Desert::UI::UILayoutType::Vertical;
                 g.Spacing = 8.0f;
 
                 // One slot per authored ToastSlots. A slot that is not filled this frame is COLLAPSED by its
@@ -340,10 +339,10 @@ namespace Desert::Editor
                          panel( stack, ( "Slot " + std::to_string( i ) ).c_str(), { 0.0f, 0.0f }, { 0.0f, 0.0f },
                                 { 0.0f, 0.0f }, { 300.0f, 52.0f } );
                     auto& sl    = reg.get<ECS::UILayoutComponent>( slot ).Data;
-                    sl.HitTest  = ECS::UIHitTest::None;
+                    sl.HitTest  = ::Desert::UI::UIHitTest::None;
                     auto& bind  = reg.emplace<ECS::UIBindingComponent>( slot ).Data;
                     bind.Key    = ::Desert::UI::OverlayToastVisibleKey( i );
-                    bind.Target = ECS::UIBindTarget::Visible;
+                    bind.Target = ::Desert::UI::UIBindTarget::Visible;
                     AddOverlayText( scene, slot, "Text", "", { 12.0f, 0.0f }, { 290.0f, 52.0f }, 14.0f,
                                     ::Desert::UI::OverlayToastTextKey( i ).c_str() );
                 }

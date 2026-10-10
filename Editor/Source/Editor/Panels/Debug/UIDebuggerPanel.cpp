@@ -81,17 +81,17 @@ namespace Desert::Editor
             return buf;
         }
 
-        const char* HitTestName( ECS::UIHitTest h )
+        const char* HitTestName( ::Desert::UI::UIHitTest h )
         {
             switch ( h )
             {
-                case ECS::UIHitTest::All:
+                case ::Desert::UI::UIHitTest::All:
                     return "All";
-                case ECS::UIHitTest::ChildrenOnly:
+                case ::Desert::UI::UIHitTest::ChildrenOnly:
                     return "ChildrenOnly";
-                case ECS::UIHitTest::Blocking:
+                case ::Desert::UI::UIHitTest::Blocking:
                     return "Blocking";
-                case ECS::UIHitTest::None:
+                case ::Desert::UI::UIHitTest::None:
                     return "None";
             }
             return "?";
@@ -292,9 +292,9 @@ namespace Desert::Editor
         }
         const entt::entity handle = found->get().GetHandle();
 
-        const auto node =
-             std::find_if( probe.Elements.begin(), probe.Elements.end(),
-                           [handle]( const ::Desert::UI::UIElementNode& n ) { return n.Entity == handle; } );
+        const auto node = std::find_if( probe.Elements.begin(), probe.Elements.end(),
+                                        [handle]( const ::Desert::UI::UIElementNode& n )
+                                        { return ::Desert::UI::ToEntity( n.Entity ) == handle; } );
         if ( node == probe.Elements.end() )
         {
             ImGui::TextDisabled( "The selected entity is not under this canvas." );

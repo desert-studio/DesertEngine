@@ -5,13 +5,17 @@
 #include "Editor/Core/ShotOptions.hpp"
 #include "Editor/Core/ViewportCameraProperties.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
+#include "Editor/LevelEditor/SceneMeshBounds.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
@@ -100,7 +104,8 @@ namespace Desert::Editor
                 }
             }
             LOG_INFO( "[Shot] recording from this frame on at {}x{}: the splash is gone, the content has settled "
-                      "and the viewport held its size {} frame(s); temporal history reset on {} view(s)",
+                      "(no texture read, cook or upload in flight) and the viewport held its size {} frame(s); "
+                      "temporal history reset on {} view(s)",
                       m_Gate.RecordWidth(), m_Gate.RecordHeight(), ShotRecordGate::kStableFrames, views );
         }
         return recorded;
@@ -199,6 +204,59 @@ namespace Desert::Editor
             }
             m_ShotCameraPlaced = true;
         }
+        else if ( shot.Active() && !shot.HasCamera && !shot.FlightRoute && !m_ShotCameraPlaced &&
+                  m_Gate.Recording() )
+        {
+            FrameScene();
+            m_ShotCameraPlaced = true;
+        }
+    }
+
+    void ShotDirector::FrameScene()
+    {
+        // NO --camera / --look: THE SHOT FRAMES THE SCENE, as F does on a selection (UE FocusViewportOnBox).
+        // Taken on the FIRST RECORDED frame and not earlier, because the gate admits that frame only once
+        // the scene load, the background cook and the content stream have settled — so every mesh the
+        // picture will show is parsed and measured, and the record size (the aspect) is final. The view
+        // direction is FIXED, not the camera's own: --look when given, else UE's default perspective view
+        // (DefaultPerspectiveViewForward) — the camera's own pointed up and framed from under the ground.
+        const auto&                   scene = m_Workspace.ActiveScene();
+        ::Desert::Core::EditorCamera* cam   = m_Workspace.ActiveEditorCamera();
+        if ( !scene || cam == nullptr )
+        {
+            LOG_ERROR(
+                 "[Shot] no --camera/--look and no active scene view to frame: the camera stays where it is" );
+            return;
+        }
+        if ( cam->GetProjectionType() != ::Desert::Core::ProjectionType::Perspective )
+        {
+            LOG_ERROR( "[Shot] no --camera/--look: framing the scene needs a perspective viewport, this one is "
+                       "orthographic; the camera stays where it is" );
+            return;
+        }
+        const SceneMeshBounds bounds = MeasureSceneMeshes( scene->GetRegistry(), &SharedPrimitiveSubmeshes );
+        if ( bounds.Missing > 0 )
+            LOG_WARN( "[Shot] framing: {} mesh(es) not parsed yet are outside the measured bounds",
+                      bounds.Missing );
+        if ( Geometry::IsEmpty( bounds.Box ) )
+        {
+            LOG_ERROR( "[Shot] no --camera/--look and the scene has no measurable mesh to frame: the camera "
+                       "stays where it is" );
+            return;
+        }
+        const float aspect =
+             static_cast<float>( m_Gate.RecordWidth() ) / static_cast<float>( m_Gate.RecordHeight() );
+        const auto&      shot    = ShotOptions::Get();
+        const glm::vec3  forward = shot.HasLook ? shot.Forward : DefaultPerspectiveViewForward();
+        const FramedView view    = FrameBox( bounds.Box, forward, cam->GetFOV(), aspect );
+        cam->SetNear( view.Near );
+        cam->SetFar( view.Far );
+        PlaceEditorCamera( *cam, view.Position, view.Forward );
+        cam->SetInputEnabled( false );
+        LOG_INFO( "[Shot] framed {} mesh(es): box ({}, {}, {})..({}, {}, {}), camera ({}, {}, {}), near {} far {}",
+                  bounds.Meshes, bounds.Box.Min.x, bounds.Box.Min.y, bounds.Box.Min.z, bounds.Box.Max.x,
+                  bounds.Box.Max.y, bounds.Box.Max.z, view.Position.x, view.Position.y, view.Position.z, view.Near,
+                  view.Far );
     }
 
     bool ShotDirector::CountRenderedFrame( const bool recordedFrame )
@@ -267,5 +325,20 @@ namespace Desert::Editor
         // A capture that wrote no PNG must not leave a zero exit status behind: the whole value of
         // an exit code is that a script can trust it, and this one used to say "fine" either way.
         return m_ShotFailed ? 1 : 0;
+    }
+    std::optional<int32_t> ShotDirector::EndFrame( bool recordedFrame, bool startupLoading, bool contentSettling,
+                                                   ProfilerWindow& profiler )
+    {
+        const auto& shot = ShotOptions::Get();
+        if ( shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() && !startupLoading &&
+             m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
+            profiler.RecordFlightFrame( !contentSettling );
+        if ( !CountRenderedFrame( recordedFrame ) )
+            return std::nullopt;
+        if ( shot.GpuProfile )
+            ProfilerWindow::DumpProfilerToLog();
+        if ( shot.FlightRoute && !profiler.FinishFlight() )
+            MarkFailed();
+        return Finish();
     }
 } // namespace Desert::Editor

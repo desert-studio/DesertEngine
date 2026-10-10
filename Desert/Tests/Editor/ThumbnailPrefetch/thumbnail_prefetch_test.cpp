@@ -9,6 +9,7 @@
 
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailOutdated.hpp>
+#include <Editor/Widgets/ThumbnailPool.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
 #include <gtest/gtest.h>
@@ -301,7 +302,7 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
     EXPECT_FALSE( fs::exists( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailScan.cpp", root ) ) );
 
     const std::string panel =
-         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp", root ) );
     ASSERT_FALSE( panel.empty() );
     EXPECT_EQ( panel.find( "Sweep" ), std::string::npos ) << "the Content Browser drives a sweep again";
     EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().Request(" ), std::string::npos )
@@ -310,90 +311,66 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
     const std::string layer =
          ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
-    EXPECT_NE(
-         layer.find(
-              "if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )\n"
-              "            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );" ),
-         std::string::npos )
+    EXPECT_NE( layer.find( "if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )\n"
+                           "            ThumbnailService::Get().TickCapture();" ),
+               std::string::npos )
          << "the capture half of the thumbnail pump is not behind the capture gate";
-    // THUMB3: the only capture before the hand-over is the scene's, behind its own gate and scope.
-    EXPECT_NE(
-         layer.find(
-              "else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&\n"
-              "                  ThumbnailService::Get().SceneWarmPending() > 0 )\n"
-              "            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::SceneWarmOnly );" ),
-         std::string::npos )
-         << "a capture on the splash is not limited to the scene's warm list";
 }
 
-// THUMB2. The splash uploads the opening folder's pictures before the hand-over, and it reads where they stand
-// through SurveyOf: a picture still with a worker holds the hand-over (within its budget), a finished one is
-// uploaded, and a MISSING one is neither — it is a capture, and a capture waits for the window.
-TEST( ThumbnailPrefetch, TheSplashSurveySeesWhatIsReadyAndNeverWaitsForACapture )
-{
-    const Fixture f;
-    f.WriteFreshPng();
-    const fs::path missingSource = f.Dir / "M_NoPicture.demat";
-    const fs::path missingPng    = f.Dir / "M_NoPicture.png";
-    std::ofstream( missingSource ) << R"({ "material": 2 })";
-
-    const std::vector<ThumbnailPrefetch::Item> folder = { { f.Png.string(), f.Source.string() },
-                                                          { missingPng.string(), missingSource.string() } };
-    ThumbnailPrefetch::Get().Request( folder );
-
-    const ThumbnailPrefetch::Survey before = ThumbnailPrefetch::Get().SurveyOf( folder );
-    EXPECT_TRUE( before.Ready.empty() );
-    EXPECT_EQ( before.Pending, 2u ) << "the requested pictures must hold the hand-over while a worker has them";
-
-    ThumbnailPrefetch::Get().Drain();
-    const ThumbnailPrefetch::Survey after = ThumbnailPrefetch::Get().SurveyOf( folder );
-    ASSERT_EQ( after.Ready.size(), 1u ) << "the decoded cached picture is not offered to the splash upload";
-    EXPECT_EQ( after.Ready.front(), f.Png.string() );
-    EXPECT_EQ( after.Pending, 0u ) << "a picture with no PNG on disk held the splash: that is a capture's wait";
-    EXPECT_FALSE( fs::exists( missingPng ) )
-         << "the splash pass produced a thumbnail: captures wait for the window";
-
-    // Uploaded (the cache took it): it neither holds the hand-over nor is offered again.
-    ASSERT_TRUE( ThumbnailPrefetch::Get().Take( f.Png.string(), fs::last_write_time( f.Png ) ).has_value() );
-    const ThumbnailPrefetch::Survey uploaded = ThumbnailPrefetch::Get().SurveyOf( folder );
-    EXPECT_TRUE( uploaded.Ready.empty() );
-    EXPECT_EQ( uploaded.Pending, 0u ) << "an uploaded picture kept holding the hand-over to its budget";
-}
-
-// The wiring the suite cannot link (EditorLayer, the panel): the panel's constructor prefetches the folder it
-// opens on, the splash pass uploads exactly that list, the stages tick the decode, and the capture stays gated.
-TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
+// THUMB-LAZY (GI-BISTRO3: a --shot sat > 8 min in "Loading scene content" while the splash photographed 1297
+// meshes). Neither the start-up nor a scene load asks for a single picture: no warm list, no upload pass,
+// no request from the start-up or the scene-file code. A picture is asked for by the shower that draws it.
+TEST( ThumbnailPrefetch, LoadingASceneAsksForNoThumbnail )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
+    EXPECT_FALSE( fs::exists( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailWarmup.hpp", root ) ) )
+         << "the splash warm-up list is back";
+    for ( const char* file : { "Editor/Source/Editor/LevelEditor/EditorStartup.cpp",
+                               "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" } )
+    {
+        const std::string text = ReadFile( std::format( "{}{}", root, file ) );
+        ASSERT_FALSE( text.empty() ) << file;
+        for ( const char* asks :
+              { "ThumbnailService::Get().Request", "ThumbnailService::Get().Warm", "WarmProjectThumbnails",
+                "UploadPrefetchedThumbnails", "ThumbnailPrefetch::Get()" } )
+            EXPECT_EQ( text.find( asks ), std::string::npos ) << file << " asks for a picture: " << asks;
+    }
+    const std::string gate = ReadFile( std::format( "{}Editor/Source/Editor/Splash/RevealGate.hpp", root ) );
+    ASSERT_FALSE( gate.empty() );
+    // The hand-over is RevealState and MayReveal; the two thumbnail predicates after them gate the thumbnail
+    // pump, not the reveal (their comments name ThumbnailPrefetch, so the whole file cannot be searched).
+    const std::size_t from = gate.find( "struct RevealState" );
+    const std::size_t call = gate.find( "MayReveal(" );
+    ASSERT_NE( from, std::string::npos );
+    ASSERT_NE( call, std::string::npos );
+    const std::size_t to = gate.find( "\n    }", call );
+    ASSERT_NE( to, std::string::npos );
+    EXPECT_EQ( gate.substr( from, to - from ).find( "Thumbnail" ), std::string::npos )
+         << "a thumbnail condition is part of the hand-over again";
+}
 
+// The wiring the suite cannot link (EditorStartup, the panel): the panel prefetches the folder it shows, the
+// stages tick the decode, and nothing uploads or waits ahead of the tiles (THUMB-LAZY).
+TEST( ThumbnailPrefetch, TheBrowserDecodesTheFolderItShowsAndNothingWaitsForIt )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
     const std::string panel =
          ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
     ASSERT_FALSE( panel.empty() );
-    EXPECT_NE( panel.find( "m_PrefetchItems = items;\n" ), std::string::npos )
-         << "the splash upload no longer reads the list the browser prefetched";
-    // THM1n-13: the folder's list AND the project's — every picture of the project is uploaded on the splash.
-    EXPECT_NE(
-         panel.find(
-              "items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );\n"
-              "        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( items );" ),
-         std::string::npos )
-         << "the splash upload no longer reads the project's pictures with the folder's";
-    EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
-         << "the splash upload does not go through the cache the tiles draw from";
-
+    EXPECT_NE( panel.find( "void FileExplorerPanel::PrefetchCurrentFolderThumbnails()" ), std::string::npos );
+    const std::string pool =
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp", root ) );
+    ASSERT_FALSE( pool.empty() );
+    EXPECT_EQ( pool.find( "m_ProjectPrefetchItems" ), std::string::npos ) << "the project is prefetched again";
     const std::string layer =
          ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
-    EXPECT_NE(
-         layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
-         std::string::npos )
-         << "the per-frame thumbnail pump no longer runs the splash upload pass";
-    EXPECT_NE( layer.find( "m_FileExplorer->UploadPrefetchedThumbnails()" ), std::string::npos );
     EXPECT_NE( layer.find( "            ThumbnailService::TickDiskAndDecode();\n        return true;\n" ),
                std::string::npos )
          << "the startup stages no longer tick the worker decode";
-    EXPECT_NE( layer.find( "state.ThumbnailsUploading = m_ThumbnailsHoldReveal;" ), std::string::npos );
+    EXPECT_EQ( layer.find( "ThumbnailsUploading" ), std::string::npos ) << "thumbnails hold the hand-over again";
 }
 
 // The byte budget is asked as Background work: a UserSurface entitlement would let a queue of thumbnails
@@ -486,7 +463,7 @@ TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string panel =
-         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/AssetThumbnailPool.cpp", root ) );
     std::size_t requests = 0;
     std::size_t filtered = 0;
     for ( std::size_t at = panel.find( "ThumbnailPrefetch::Get().Request(" ); at != std::string::npos;
@@ -506,4 +483,56 @@ TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
     EXPECT_EQ( cache.find( "kMaxEntries" ), std::string::npos ) << "the thumbnail cache is capped again";
     EXPECT_EQ( panel.find( "m_Thumbnails->Clear()" ), std::string::npos )
          << "the browser wipes its resident pictures again (a rescan)";
+}
+
+// THUMB-POOL (UE FAssetThumbnailPool): a project with more pictures than the pool holds keeps at most the
+// limit as textures, the least recently drawn leave first, a picture drawn this frame is never the one
+// released, and a released one comes back as a fresh admission (ThumbnailCache decodes it from disk).
+TEST( ThumbnailPool, ResidentPicturesStayWithinTheLimit )
+{
+    using Desert::Editor::ThumbnailPool;
+    constexpr std::size_t    kLimit = 16;
+    ThumbnailPool            pool( kLimit );
+    std::vector<std::string> released;
+    // 100 tiles scrolled past, four per frame.
+    for ( std::size_t i = 0; i < 100; ++i )
+    {
+        for ( std::string& key : pool.Admit( std::format( "tile{}", i ), i / 4 ) )
+            released.push_back( std::move( key ) );
+        EXPECT_LE( pool.Size(), kLimit ) << "after tile " << i;
+    }
+    EXPECT_EQ( pool.Size(), kLimit );
+    EXPECT_EQ( released.size(), 100 - kLimit );
+    EXPECT_EQ( released.front(), "tile0" ) << "the least recently drawn picture leaves first";
+    EXPECT_TRUE( pool.Contains( "tile99" ) );
+    EXPECT_FALSE( pool.Contains( "tile0" ) );
+
+    // A picture drawn again moves to the back: the next admission releases another.
+    pool.Touch( "tile84", 30 );
+    const auto next = pool.Admit( "tile100", 30 );
+    ASSERT_EQ( next.size(), 1u );
+    EXPECT_EQ( next.front(), "tile85" );
+    EXPECT_TRUE( pool.Contains( "tile84" ) );
+
+    // Shown again after it left: an ordinary admission.
+    EXPECT_EQ( pool.Admit( "tile0", 31 ).size(), 1u );
+    EXPECT_TRUE( pool.Contains( "tile0" ) );
+    EXPECT_EQ( pool.Size(), kLimit );
+}
+
+TEST( ThumbnailPool, APictureDrawnThisFrameIsNeverReleased )
+{
+    Desert::Editor::ThumbnailPool pool( 4 );
+    for ( int i = 0; i < 6; ++i )
+        EXPECT_TRUE( pool.Admit( std::format( "shown{}", i ), 7 ).empty() ) << "all six are on screen in frame 7";
+    EXPECT_EQ( pool.Size(), 6u );
+    // The next frame draws only one new tile: the four oldest of frame 7 leave together, down to the limit.
+    EXPECT_EQ( pool.Admit( "later", 8 ).size(), 3u );
+    EXPECT_EQ( pool.Size(), 4u );
+    // Lowering the limit releases at once; zero is not a pool.
+    EXPECT_EQ( pool.SetLimit( 2, 9 ).size(), 2u );
+    EXPECT_EQ( pool.SetLimit( 0, 9 ).size(), 1u );
+    EXPECT_EQ( pool.Limit(), 1u );
+    pool.Forget( "later" );
+    EXPECT_EQ( pool.Size(), 0u );
 }

@@ -15,6 +15,7 @@
 // batch key and not to the classifier, two adjacent commands will classify as "could have merged" while
 // the draw list plainly did not merge them — and that is a failure here rather than a wrong column.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UIIntrospection.hpp>
@@ -92,7 +93,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
             Registry.emplace<ECS::RelationshipComponent>( Canvas );
@@ -115,7 +116,7 @@ namespace
             return e;
         }
 
-        ECS::UILayoutData& Layout( entt::entity e )
+        UI::UILayoutData& Layout( entt::entity e )
         {
             return Registry.get<ECS::UILayoutComponent>( e ).Data;
         }
@@ -154,7 +155,7 @@ namespace
     const UIElementNode* NodeFor( const UIFrameProbe& probe, entt::entity e )
     {
         for ( const UIElementNode& n : probe.Elements )
-            if ( n.Entity == e )
+            if ( UI::ToEntity( n.Entity ) == e )
                 return &n;
         return nullptr;
     }
@@ -272,7 +273,7 @@ TEST( UIIntrospectionBatches, NoTwoAdjacentBatchesCouldHaveMerged )
 TEST( UIIntrospectionWalk, CountsAddUp )
 {
     Scene scene;
-    scene.Layout( scene.Panels[1] ).Visibility = ECS::UIVisibility::Hidden;
+    scene.Layout( scene.Panels[1] ).Visibility = UI::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
     UIViewContext   ctx{ s_Resources };
@@ -295,7 +296,7 @@ TEST( UIIntrospectionWalk, OwnAndInheritedAreDifferentAnswers )
     Scene              scene( 1 );
     const entt::entity child                   = scene.AddPanel( scene.Panels[0], 0.0f, 0.0f, 20.0f, 20.0f );
     const entt::entity grandchild              = scene.AddPanel( child, 0.0f, 0.0f, 10.0f, 10.0f );
-    scene.Layout( scene.Panels[0] ).Visibility = ECS::UIVisibility::Hidden;
+    scene.Layout( scene.Panels[0] ).Visibility = UI::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
     UIViewContext   ctx{ s_Resources };
@@ -311,11 +312,12 @@ TEST( UIIntrospectionWalk, OwnAndInheritedAreDifferentAnswers )
     ASSERT_NE( leaf, nullptr );
 
     EXPECT_EQ( root->Cause, UISkipCause::SelfHidden );
-    EXPECT_EQ( root->CauseBy, scene.Panels[0] );
+    EXPECT_EQ( UI::ToEntity( root->CauseBy ), scene.Panels[0] );
     EXPECT_EQ( mid->Cause, UISkipCause::AncestorSkipped );
-    EXPECT_EQ( mid->CauseBy, scene.Panels[0] ) << "the blame must name the ancestor that stopped, not the parent";
+    EXPECT_EQ( UI::ToEntity( mid->CauseBy ), scene.Panels[0] )
+         << "the blame must name the ancestor that stopped, not the parent";
     EXPECT_EQ( leaf->Cause, UISkipCause::AncestorSkipped );
-    EXPECT_EQ( leaf->CauseBy, scene.Panels[0] );
+    EXPECT_EQ( UI::ToEntity( leaf->CauseBy ), scene.Panels[0] );
 }
 
 TEST( UIIntrospectionWalk, ABindingThatSaysHiddenIsItsOwnReason )
@@ -323,7 +325,7 @@ TEST( UIIntrospectionWalk, ABindingThatSaysHiddenIsItsOwnReason )
     Scene scene( 2 );
     auto& b  = scene.Registry.emplace<ECS::UIBindingComponent>( scene.Panels[1] ).Data;
     b.Key    = "hud.visible";
-    b.Target = ECS::UIBindTarget::Visible;
+    b.Target = UI::UIBindTarget::Visible;
     UI::UIDataStore::Get().Set( "hud.visible", false );
 
     R2D::DrawList2D dl;
@@ -370,8 +372,8 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
     // single byte, so hiding it must leave the draw list byte-identical.
     Scene              scene( 3 );
     const entt::entity underHidden             = scene.AddPanel( scene.Panels[0], 0.0f, 0.0f, 20.0f, 20.0f );
-    scene.Layout( scene.Panels[0] ).Visibility = ECS::UIVisibility::Hidden;
-    scene.Layout( scene.Panels[2] ).Visibility = ECS::UIVisibility::Collapsed;
+    scene.Layout( scene.Panels[0] ).Visibility = UI::UIVisibility::Hidden;
+    scene.Layout( scene.Panels[2] ).Visibility = UI::UIVisibility::Collapsed;
     (void)underHidden;
 
     R2D::DrawList2D dl;
@@ -386,11 +388,11 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
     std::uint32_t checked = 0;
     for ( const UIElementNode& n : probe.Elements )
     {
-        if ( n.Drawn || !scene.Registry.has<ECS::UILayoutComponent>( n.Entity ) )
+        if ( n.Drawn || !scene.Registry.has<ECS::UILayoutComponent>( UI::ToEntity( n.Entity ) ) )
             continue;
-        auto&                   field = scene.Layout( n.Entity ).Visibility;
-        const ECS::UIVisibility prev  = field;
-        field                         = ECS::UIVisibility::Hidden;
+        auto&                  field = scene.Layout( UI::ToEntity( n.Entity ) ).Visibility;
+        const UI::UIVisibility prev  = field;
+        field                        = UI::UIVisibility::Hidden;
 
         R2D::DrawList2D again;
         UIViewContext   ctx2{ s_Resources };
@@ -590,7 +592,7 @@ TEST( UIIntrospectionCost, AnElementBetweenTwoTexturesIsTheOneThatOpensABatch )
     EXPECT_GT( cost.Vertices, 0u );
 
     // The scene is left exactly as it was found: the measurement hides the element and restores it.
-    EXPECT_EQ( scene.Layout( scene.Panels[1] ).Visibility, ECS::UIVisibility::Visible );
+    EXPECT_EQ( scene.Layout( scene.Panels[1] ).Visibility, UI::UIVisibility::Visible );
 }
 
 TEST( UIIntrospectionCost, AFlatPanelBetweenFlatPanelsOpensNothing )
@@ -670,4 +672,52 @@ TEST( UIIntrospectionBatches, ACanvasWithNoMaterialReportsNoneOfIt )
     EXPECT_EQ( probe.Batches[0].Material, nullptr );
     EXPECT_EQ( probe.Stats.UniqueMaterials, 0u );
     EXPECT_EQ( probe.Stats.PipelineSwitches, 0u );
+}
+
+// UI-FW1: the framework walks an IUITree, and the ECS adapter is the only thing that knows the registry.
+// Invariants of the adapter itself: ids round-trip bit for bit, the hierarchy and the arguments read back
+// what the registry holds, FindState opens only the value-carrying kinds, and Roots answers in authored
+// (creation) order even though entt's pool hands canvases out in reverse.
+TEST( UITreeEcsAdapter, ReadsTheRegistryAndOnlyTheRegistry )
+{
+    entt::registry     reg;
+    const entt::entity a = reg.create();
+    const entt::entity b = reg.create();
+    const entt::entity c = reg.create();
+    reg.emplace<ECS::UICanvasComponent>( a );
+    reg.emplace<ECS::UICanvasComponent>( b );
+    reg.emplace<ECS::TagComponent>( c ).Tag                = "Row";
+    reg.emplace<ECS::RelationshipComponent>( a ).Children  = { c };
+    reg.emplace<ECS::RelationshipComponent>( c ).Parent    = a;
+    reg.emplace<ECS::UILayoutComponent>( c ).Data.FlexGrow = 3.0f;
+    reg.emplace<ECS::UIToggleComponent>( c );
+
+    UI::EcsUITree    tree( reg );
+    const UI::NodeId na = UI::ToNode( a );
+    const UI::NodeId nc = UI::ToNode( c );
+
+    EXPECT_EQ( UI::ToEntity( nc ), c );
+    EXPECT_EQ( UI::ToNode( entt::entity( entt::null ) ), UI::NodeId::Null );
+    EXPECT_FALSE( tree.Valid( UI::NodeId::Null ) );
+
+    ASSERT_EQ( tree.ChildCount( na ), 1u );
+    EXPECT_EQ( tree.ChildAt( na, 0 ), nc );
+    EXPECT_EQ( tree.ChildAt( na, 1 ), UI::NodeId::Null );
+    EXPECT_EQ( tree.Parent( nc ), na );
+    EXPECT_EQ( tree.Name( nc ), "Row" );
+
+    ASSERT_NE( tree.Get<UI::UILayoutData>( nc ), nullptr );
+    EXPECT_EQ( tree.Get<UI::UILayoutData>( nc ), &reg.get<ECS::UILayoutComponent>( c ).Data );
+    EXPECT_EQ( tree.Get<UI::UIPanelData>( nc ), nullptr );
+
+    EXPECT_EQ( tree.GetState<UI::UIToggleData>( nc ), &reg.get<ECS::UIToggleComponent>( c ).Data );
+    EXPECT_EQ( tree.FindState( nc, UI::ArgKind::Layout ), nullptr ) << "layout is not a control's value";
+
+    std::vector<UI::NodeId> canvases;
+    tree.Roots( UI::ArgKind::Canvas, canvases );
+    ASSERT_EQ( canvases.size(), 2u );
+    EXPECT_EQ( canvases[0], na );
+    EXPECT_EQ( canvases[1], UI::ToNode( b ) );
+
+    EXPECT_EQ( UI::CanvasOf( tree, nc ), na );
 }

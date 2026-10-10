@@ -17,6 +17,8 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/NodeActors.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Common/Content/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
@@ -58,6 +60,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <utility>
 #include <limits>
 #include <random>
 
@@ -367,6 +370,11 @@ namespace Desert::Editor
                 m_PendingDrops.erase( pending );
             }
             const auto resolved = MeshDnD::ResolveOrImportMesh( mgr, done.SourcePath );
+            if ( !resolved.Nodes.empty() )
+            {
+                PlaceSplitSource( done.UserData, done.SourcePath, resolved.Nodes, dropTarget );
+                continue;
+            }
             if ( resolved.Handle.IsNull() )
                 continue;
             // The mesh and its registry closure (its materials, their textures) are read by the loader's
@@ -1047,11 +1055,11 @@ namespace Desert::Editor
                     ImGui::Separator();
                     if ( ImGui::BeginMenu( ICON_MDI_LAYERS_OUTLINE "  Overlay" ) )
                     {
-                        const std::array<std::pair<const char*, ECS::UIOverlayKind>, 4> kinds{ {
-                             { ICON_MDI_TOOLTIP_TEXT_OUTLINE "  Tooltip", ECS::UIOverlayKind::Tooltip },
-                             { ICON_MDI_MENU "  Context Menu", ECS::UIOverlayKind::ContextMenu },
-                             { ICON_MDI_WINDOW_MAXIMIZE "  Modal Dialog", ECS::UIOverlayKind::Modal },
-                             { ICON_MDI_BELL_OUTLINE "  Toast Stack", ECS::UIOverlayKind::Toast },
+                        const std::array<std::pair<const char*, ::Desert::UI::UIOverlayKind>, 4> kinds{ {
+                             { ICON_MDI_TOOLTIP_TEXT_OUTLINE "  Tooltip", ::Desert::UI::UIOverlayKind::Tooltip },
+                             { ICON_MDI_MENU "  Context Menu", ::Desert::UI::UIOverlayKind::ContextMenu },
+                             { ICON_MDI_WINDOW_MAXIMIZE "  Modal Dialog", ::Desert::UI::UIOverlayKind::Modal },
+                             { ICON_MDI_BELL_OUTLINE "  Toast Stack", ::Desert::UI::UIOverlayKind::Toast },
                         } };
                         for ( const auto& [label, kind] : kinds )
                             if ( ImGui::MenuItem( label ) )
@@ -1600,19 +1608,43 @@ namespace Desert::Editor
                 pv.Released     = pv.Down && !down; // down->up edge
                 pv.Down         = down;
                 pv.RightDown    = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Right );
-                pv.Escape       = ImGui::IsKeyPressed( ImGuiKey_Escape, false );
                 pv.Scroll       = m_ViewportData.IsHovered ? ImGui::GetIO().MouseWheel : 0.0f;
-                pv.Tab          = ImGui::IsKeyPressed( ImGuiKey_Tab, false );
-                pv.Submit       = ImGui::IsKeyPressed( ImGuiKey_Enter, false );
-                // Down/S wins over Up/W when both are pressed on one frame.
-                if ( ImGui::IsKeyPressed( ImGuiKey_DownArrow, false ) || ImGui::IsKeyPressed( ImGuiKey_S, false ) )
-                    pv.Navigate = 1;
-                else if ( ImGui::IsKeyPressed( ImGuiKey_UpArrow, false ) ||
-                          ImGui::IsKeyPressed( ImGuiKey_W, false ) )
-                    pv.Navigate = -1;
-                else
-                    pv.Navigate = 0;
-                pv.Backspace    = ImGui::IsKeyPressed( ImGuiKey_Backspace, false );
+                // The keys the UI listens to, as events (UIInput::Keys). Fresh presses only — the same edge
+                // ImGui::IsKeyPressed( key, false ) gave the old per-meaning flags. Down/S come after Up/W, so
+                // when both arrive on one frame the last-event-wins rule (UI NavigateStep) picks Down/S, as
+                // before.
+                pv.Keys.clear();
+                {
+                    const ImGuiIO&          io   = ImGui::GetIO();
+                    ::Desert::UI::UIKeyMods mods = ::Desert::UI::UIKeyMods::None;
+                    if ( io.KeyShift )
+                        mods = mods | ::Desert::UI::UIKeyMods::Shift;
+                    if ( io.KeyCtrl )
+                        mods = mods | ::Desert::UI::UIKeyMods::Ctrl;
+                    if ( io.KeyAlt )
+                        mods = mods | ::Desert::UI::UIKeyMods::Alt;
+                    if ( io.KeySuper )
+                        mods = mods | ::Desert::UI::UIKeyMods::Super;
+                    using Common::KeyCode;
+                    static constexpr std::pair<ImGuiKey, KeyCode> kUIKeys[] = {
+                         { ImGuiKey_Tab, KeyCode::Tab },
+                         { ImGuiKey_Enter, KeyCode::Enter },
+                         { ImGuiKey_Escape, KeyCode::Escape },
+                         { ImGuiKey_Backspace, KeyCode::Backspace },
+                         { ImGuiKey_Delete, KeyCode::Delete },
+                         { ImGuiKey_Home, KeyCode::Home },
+                         { ImGuiKey_End, KeyCode::End },
+                         { ImGuiKey_LeftArrow, KeyCode::Left },
+                         { ImGuiKey_RightArrow, KeyCode::Right },
+                         { ImGuiKey_UpArrow, KeyCode::Up },
+                         { ImGuiKey_W, KeyCode::W },
+                         { ImGuiKey_DownArrow, KeyCode::Down },
+                         { ImGuiKey_S, KeyCode::S },
+                    };
+                    for ( const auto& [imguiKey, key] : kUIKeys )
+                        if ( ImGui::IsKeyPressed( imguiKey, false ) )
+                            pv.Keys.push_back( { key, mods, false } );
+                }
                 pv.TypedText.clear();
                 for ( ImWchar c : ImGui::GetIO().InputQueueCharacters )
                     if ( c >= 32 && c < 128 ) // ASCII typed chars (matches the default font atlas)
@@ -2562,6 +2594,43 @@ namespace Desert::Editor
                 break;
         }
         return false;
+    }
+
+    void ViewportPanel::PlaceSplitSource( const uint64_t rootId, const std::string& sourcePath,
+                                          std::span<const PlacedNodeMesh>         nodes,
+                                          const std::optional<ActorDrop::Target>& dropTarget )
+    {
+        auto ref = m_Scene->FindEntityByID( Common::UUID( rootId ) );
+        if ( !ref )
+            return; // the pending root was undone before the import finished
+        const ECS::Entity root = ref->get();
+        // The root is the source (UE: the scene import's root actor); it draws nothing itself.
+        if ( root.HasComponent<ECS::StaticMeshComponent>() )
+            root.RemoveComponent<ECS::StaticMeshComponent>();
+        for ( ECS::Entity child : PlaceNodeActors( *m_Scene, root, nodes ) )
+        {
+            (void)Runtime::AwaitAssetClosure( child.GetComponent<ECS::StaticMeshComponent>().MeshHandle,
+                                              Common::Content::ContentKind::StaticMesh );
+            ApplySidecarMaterial( child, sourcePath );
+        }
+        // THE SOURCE'S BOX RESTS ON THE SURFACE (UE FActorPositioning), the box its record states - every node at
+        // its placement, in the engine's space (ImportRecord.hpp `Bounds`). A root the user already moved keeps
+        // where they put it.
+        auto& transform = root.GetComponent<ECS::TransformComponent>();
+        if ( !dropTarget || transform.Translation != dropTarget->Point )
+            return;
+        const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
+        if ( !record )
+            return;
+        const auto& recordValue = record.GetValue();
+        if ( !recordValue.has_value() || !recordValue->Bounds.has_value() )
+            return;
+        const auto& box = *recordValue->Bounds;
+        transform.Translation =
+             ActorDrop::PlacedOrigin( *dropTarget,
+                                      ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
+                                                            glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
+                                      transform.Scale );
     }
 
     void ViewportPanel::ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath )

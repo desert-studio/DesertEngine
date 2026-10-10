@@ -17,6 +17,8 @@
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <Common/Core/GlslAsCpp.hpp>
 
 #include <glm/geometric.hpp>
@@ -400,7 +402,7 @@ namespace
 
         explicit JoltLandscape( const Landscape2x2& land )
         {
-            EXPECT_TRUE( World.Init( 981.0f ) );
+            EXPECT_TRUE( World.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
             Collision = std::make_unique<ECS::LandscapeCollision>( World );
             Collision->Attach( Registry );
             for ( size_t i = 0; i < 4; ++i )
@@ -511,6 +513,7 @@ TEST( LandscapeCollision, ABallRollsAcrossTheSeamsWithoutSinkingOrHopping )
     ball.Mass        = 10.0f;
     ball.Restitution = 0.0f;
     ball.Position    = glm::vec3( startX, startY, startZ );
+    ball.Profile       = TestSupport::ProfileId( jolt.World, "PhysicsActor" );
     const auto created = jolt.World.CreateBody( ball );
     const auto body    = created.GetValue();
     ASSERT_NE( body, Physics::kInvalidBody );
@@ -560,6 +563,7 @@ TEST( LandscapeCollision, ABallOverTheFourTileCornerOfHillsStaysAbove )
     ball.Type   = Physics::BodyType::Dynamic;
     ball.Position =
          glm::vec3( seamX - 500.0f, *land.Height( seamX - 500.0f, seamZ - 450.0f ) + 200.0f, seamZ - 450.0f );
+    ball.Profile       = TestSupport::ProfileId( jolt.World, "PhysicsActor" );
     const auto created = jolt.World.CreateBody( ball );
     const auto body    = created.GetValue();
     jolt.World.SetLinearVelocity( body, glm::vec3( 400.0f, 0.0f, 360.0f ) );
@@ -977,6 +981,7 @@ TEST( LandscapeCollision, ABallDroppedIntoAPaintedHoleFallsThroughAndTheRimStill
     ball.Type     = Physics::BodyType::Dynamic;
     ball.Mass     = 10.0f;
     ball.Position = glm::vec3( x( 16.0f ), ground + 200.0f, z( 16.0f ) );
+    ball.Profile       = TestSupport::ProfileId( jolt.World, "PhysicsActor" );
     const auto created = jolt.World.CreateBody( ball );
     ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
     const auto id = created.GetValue();

@@ -74,9 +74,9 @@ TEST( StoredAssetForm, EveryAssetTypeTheEngineSerializesHasAForm )
     EXPECT_EQ( StoredFormFor( "UIThemeAsset" ), StoredAssetForm::AssetsRelative );
     EXPECT_EQ( StoredFormFor( "PrefabAsset" ), StoredAssetForm::AssetsRelative ); // SceneSettings::DefaultPawn
 
-    EXPECT_EQ( StoredFormFor( "StaticMeshAsset" ), StoredAssetForm::MachinePath );
-    EXPECT_EQ( StoredFormFor( "SkinnedMeshAsset" ), StoredAssetForm::MachinePath );
-    EXPECT_EQ( StoredFormFor( "MeshAsset" ), StoredAssetForm::MachinePath );
+    EXPECT_EQ( StoredFormFor( "StaticMeshAsset" ), StoredAssetForm::StableKey );  // BISTRO-OPEN
+    EXPECT_EQ( StoredFormFor( "SkinnedMeshAsset" ), StoredAssetForm::StableKey ); // BISTRO-OPEN
+    EXPECT_EQ( StoredFormFor( "MeshAsset" ), StoredAssetForm::StableKey );        // BISTRO-OPEN
     EXPECT_EQ( StoredFormFor( "SkyboxAsset" ), StoredAssetForm::ProjectKey );
 }
 
@@ -153,46 +153,34 @@ TEST( StoredAssetForm, AFileOutsideTheAssetsRootKeepsItsOwnSpellingInsteadOfEsca
     EXPECT_EQ( outside, "/elsewhere/X.demat" );
 }
 
-TEST( StoredAssetForm, AMachinePathIsTheFileAsThisMachineSpellsIt )
+TEST( StoredAssetForm, AMeshIsStoredAsItsStableKeyAndCarriesNoCheckoutDirectory )
 {
+    // BISTRO-OPEN fixed the defect this file used to record here: meshes wrote `GetMetadata().Filepath`,
+    // the machine path, which put a developer's home directory into every scene holding an imported mesh
+    // (1296 of them in GI_Bistro_Day). They now store the tagged stable key, as a texture does, because a
+    // mesh can live under either content root (the probe meshes are under RESOURCE_PATH). The loader
+    // expands that key with `PathForStableKey`, so the round trip is asserted rather than assumed.
     const OpenProject open( kProject );
 
-    // Meshes and skyboxes. This is what `GetMetadata().Filepath.string()` gave, and the equality is
-    // asserted through the round trip rather than assumed: the preloader creates a mesh shell at
-    // exactly `PathForStableKey( row.Key )`, so the two must be the same string.
     const std::filesystem::path mesh =
          ( Common::Constants::Path::ASSETS_PATH / "Meshes/Skinned/Probe.skmesh" ).lexically_normal();
     const std::string key = Common::AssetHandle::StableKeyForPath( mesh );
     ASSERT_EQ( key, "assets:Meshes/Skinned/Probe.skmesh" );
 
-    EXPECT_EQ( RenderStoredForm( StoredAssetForm::MachinePath, key ), mesh.string() );
-}
+    const auto form = StoredFormFor( "SkinnedMeshAsset" );
+    if ( !form.has_value() )
+        FAIL() << "SkinnedMeshAsset has no stored form";
+    const std::string stored = RenderStoredForm( *form, key );
+    EXPECT_EQ( stored, key );
+    EXPECT_EQ( Common::AssetHandle::PathForStableKey( stored ).lexically_normal(), mesh );
 
-TEST( StoredAssetForm, TheMachinePathFormIsTheONEThatStillCarriesTheCheckoutDirectory )
-{
-    // A DEFECT RECORDED WHERE IT WILL BE FOUND, not fixed here. The material branch was repaired in
-    // I13 after 22 distinct `/Users/<somebody>/.../Materials/*.demat` were found in 42 of 51 scenes;
-    // the MESH and SKYBOX branches were never given the same treatment and still write the absolute
-    // path. Collapsing the twelve branches preserved that behaviour deliberately — changing it rewrites
-    // every scene that holds a mesh — so the property is asserted as it IS, and this test is the thing
-    // that will have to be edited by whoever fixes it.
-    const OpenProject open( kProject );
+    // BOTH SIDES NORMALISED: on Windows a rendered path mixes separators, so the checkout directory is
+    // searched for in the generic spelling of each.
+    EXPECT_EQ( std::filesystem::path( stored ).generic_string().find( kProject.generic_string() ),
+               std::string::npos )
+         << "a mesh reference names the checkout directory again: every scene would carry this machine";
 
-    // BOTH SIDES NORMALISED, because the rendered path is MIXED on Windows and neither pure spelling
-    // occurs in it. `path( "/tmp/x" ).string()` keeps the forward slashes it was given, while the `/`
-    // operator that appends the relative part inserts the PREFERRED separator — so the result reads
-    // `/tmp/desert-stored-form/checkout\Content\...`. Searching it for the all-forward spelling fails,
-    // and so does searching for the all-backward one; the first fix here swapped one for the other and
-    // was still wrong. What the test actually means is "this string contains the checkout directory",
-    // and that question only has an answer once both sides are spelled the same way.
-    const std::string machine = RenderStoredForm( StoredAssetForm::MachinePath, "assets:Meshes/Probe.stmesh" );
-    const std::string mesh    = std::filesystem::path( machine ).generic_string();
-    EXPECT_NE( mesh.find( kProject.generic_string() ), std::string::npos )
-         << "the mesh form no longer carries the checkout directory. That is an IMPROVEMENT and a "
-            "format change: every `.desce` holding a mesh or skybox reference has to be migrated in the "
-            "same commit, and this test updated to assert the new form.";
-
-    // While the two forms beside it do not.
+    // Nor do the two forms beside it.
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "assets:Textures/T.tex" ).find( kProject.string() ),
                std::string::npos );
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::AssetsRelative, "assets:Materials/M.demat" )

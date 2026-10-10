@@ -6,13 +6,8 @@
 #include <Engine/Desert.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <ImGui/imgui.h>
-#include "Editor/ImGuiIntegration/ImGuiLayer.hpp"
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 #include "Editor/Panels/IPanel.hpp"
-#include "Editor/Core/CommandPalette.hpp"
-#include "Editor/Core/Commands/CommandRegistry.hpp"
-#include "Editor/Core/Selection/EntityCommands.hpp"
-#include "Editor/Panels/FileExplorer/AssetCommands.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
@@ -28,12 +23,15 @@
 #include "Editor/LevelEditor/LevelToolbar.hpp"
 #include "Editor/LevelEditor/StatusBar.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
+#include "Editor/LevelEditor/SessionRecovery.hpp"
+#include "Editor/LevelEditor/LevelEditorCommands.hpp"
 #include "Editor/LevelEditor/ControlService.hpp"
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/EditorStartup.hpp"
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/DockLayout.hpp"
-#include "Editor/Widgets/WindowChrome.hpp"
+#include "Editor/LevelEditor/EditorImGuiHost.hpp"
+#include "Editor/Panels/FileExplorer/AssetThumbnailPool.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
 #include <chrono>
@@ -82,31 +80,11 @@ namespace Desert::Editor
         void OnFramePresented() override;
 
     private:
-        void DrawMenuBar();
-
-        // The palette's and the control channel's list, built from m_Commands (see CommandRegistry.hpp).
-        [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
-        // The palette groups of modules not cut out yet (add shape, the palette's own door, scenes/views):
-        // registered in palette order between the subject-owned providers.
-        void        AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
-        void        AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
-        static void AppendSceneCommands( std::vector<PaletteCommand>& commands );
-        void        AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
-
-        // Ctrl+P "go to anything": draws the overlay over the dictionary above. No-op unless open.
-        void DrawCommandPalette();
-        // The palette asked for BY NAME, from its own dictionary — the only way an unattended run can put
-        // it on screen, since a keystroke is not available here. Deferred rather than opened in the
-        // closure: Draw() closes the palette on the line after it runs an entry, so opening it from inside
-        // itself would work over the socket and do nothing under a person's hand.
-        bool m_OpenPaletteRequested = false;
-
         // ===== Popups =====
-        void DrawPopups();
-        void FollowImGuiWithEvents();
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
         Common::BoolResultStr ShowFolderInBrowser( const std::string& folder );
+        Common::BoolResultStr SyncBrowserToAsset( const std::string& file );
         // Leaving the editor from its own frame's x or File > Exit: every dirty document asks first, and the
         // editor closes once the last one is answered. Cancel on any of them keeps the editor open. The
         // control channel's `quit` does not come here — an unattended run has nobody to answer.
@@ -118,8 +96,6 @@ namespace Desert::Editor
 
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.
-        Common::BoolResultStr UpdateSceneFrame( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
-                                                const Common::Timestep& ts );
 
         // Startup content is DATA, not code — these build entities into m_Workspace.ActiveScene() so the result
         // can be serialized to a .desce ONCE and loaded like any scene afterwards.
@@ -127,15 +103,11 @@ namespace Desert::Editor
     private:
         Engine::Application* m_Application;
 
-        // The window frame the OS no longer draws, because the editor asked for a window without one
-        // (Sandbox.hpp: ApplicationInfo::Decorated). Held as an optional rather than a value because it
-        // binds a reference to the Application's window, which does not exist at construction time — and
-        // it stays EMPTY when the window is decorated, which is what keeps "the editor draws the frame"
-        // and "the OS draws the frame" one code path with one condition instead of two builds.
-        std::optional<UI::WindowChrome> m_WindowChrome;
+        // The window frame, the close gate, the ImGui context and its backend (UE: FSlateApplication). BEFORE
+        // m_LevelCommands, which binds its window chrome slot. See Editor/LevelEditor/EditorImGuiHost.hpp.
+        EditorImGuiHost m_ImGuiHost;
         // The last title pushed to the window is NOT stored here: Window::GetTitle owns it, and
         // SyncWindowTitle compares against that. See Window.hpp.
-        void SyncWindowTitle();
 
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
         // The library the boot's "Indexing animation clips" stage fills (Assets::IndexAnimationClips).
@@ -144,6 +116,11 @@ namespace Desert::Editor
         // The mesh cook after the reveal and the .demat/.shader live reload (UE: FAssetCompilingManager). See
         // Editor/LevelEditor/AssetCompiling.hpp.
         AssetCompiling m_AssetCompiling{ m_AssetManager, m_AnimationLibrary, m_ImportManager };
+        // THE EDITOR'S THUMBNAIL POOL (UE: FAssetThumbnailPool belongs to the editor; the Content Browser only
+        // draws from it — AssetThumbnail.cpp). Built in OnAttach before the panels and released in OnDetach
+        // right after m_Panels.Clear(); declared BEFORE m_Panels, so even ~EditorLayer destroys the panel that
+        // draws from it first. EditorStartup drives it directly for the splash's warm-up and upload passes.
+        std::unique_ptr<AssetThumbnailPool> m_ThumbnailPool;
 
         FileExplorerPanel* m_FileExplorerPanel = nullptr; // non-owning (lives in m_Panels)
         // Non-owning (lives in m_Panels). Kept because the command palette offers the panel's Convert
@@ -170,7 +147,6 @@ namespace Desert::Editor
         DocumentHost m_Documents{ m_Workspace, m_AssetManager, m_Dock.FocusSlot(),
                                   [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } };
 
-        std::shared_ptr<ImGui::ImGuiLayer> m_ImGuiLayer;
         // THE TOOLS. A container that cannot hold a document — see Editor/Core/PanelRegistry.hpp. That is
         // what makes "the View menu lists exactly the tools" true by construction rather than by a predicate
         // the menu, the command palette and --open-panel would each have had to remember.
@@ -184,10 +160,6 @@ namespace Desert::Editor
         // dangling wholesale at `m_Panels.Clear()`. Removed with its five writes (A8-2), which is the same
         // decision this task took on `CloudNoiseService::GetGeneration` and `InstancesDirty`.
         // The focus slot this note once described lives in DockLayout (m_Dock.FocusSlot()).
-
-        CommandPalette m_CommandPalette;
-        // Every palette provider, in palette order; registered in OnAttach.
-        CommandRegistry m_Commands;
 
         // Edit ▸ Preferences... and the toolbar's gear (UE: SSettingsEditor). See
         // Editor/LevelEditor/PreferencesWindow.hpp.
@@ -220,10 +192,31 @@ namespace Desert::Editor
         // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
         // Editor/LevelEditor/ShotDirector.hpp.
         ShotDirector m_Shots{ m_Workspace, m_SceneFiles, m_Play, m_Capture };
+        // Autosave, the crash lock and its recovery pop-up, the device-lost save (UE: FPackageAutoSaver). See
+        // Editor/LevelEditor/SessionRecovery.hpp.
+        SessionRecovery m_Recovery{ m_Workspace, m_SceneFiles, m_Play, m_AssetManager };
+        // The palette's dictionary, the Ctrl+P overlay and the level's global shortcuts (UE:
+        // FLevelEditorCommands), after every module whose commands it lists. See
+        // Editor/LevelEditor/LevelEditorCommands.hpp.
+        LevelEditorCommands m_LevelCommands{
+             { .Workspace      = m_Workspace,
+               .Files          = m_SceneFiles,
+               .Play           = m_Play,
+               .Documents      = m_Documents,
+               .Dock           = m_Dock,
+               .Menu           = m_MainMenu,
+               .Compiling      = m_AssetCompiling,
+               .Panels         = m_Panels,
+               .AssetsSlot     = m_AssetManager,
+               .FileExplorer   = m_FileExplorerPanel,
+               .WorldPartition = m_WorldPartitionPanel,
+               .App            = m_Application,
+               .Chrome         = m_ImGuiHost.Chrome(),
+               .ShowFolder     = [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } } };
         // The control channel (UE: Remote Control), after every module it reads. See
         // Editor/LevelEditor/ControlService.hpp.
-        ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
-                                  m_Capture,   m_Panels,     m_Commands };
+        ControlService m_Control{
+             m_Workspace, m_SceneFiles, m_Play, m_Documents, m_Capture, m_Panels, m_LevelCommands.Registry() };
 
         // QualityBoot::Start's answer, taken in the constructor (before the workspace's first renderer) and
         // returned by OnAttach.
@@ -234,11 +227,5 @@ namespace Desert::Editor
         // every module it reads; built in the constructor, which receives the splash. See
         // Editor/LevelEditor/EditorStartup.hpp.
         EditorStartup m_Startup;
-
-        // The palette providers that hold state or several slots (EDL-2b). Declared after every slot they point
-        // at; the census is taken once per build (m_Commands.OnBuildBegin) and read by Assets, Foliage and Open.
-        AssetFileCensus                 m_PaletteAssetFiles;
-        std::unique_ptr<EntityCommands> m_EntityCommands;
-        std::unique_ptr<AssetCommands>  m_AssetCommands;
     };
 } // namespace Desert::Editor

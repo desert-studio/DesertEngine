@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string_view>
 
 namespace Desert::Editor::ImportUnits
@@ -25,6 +26,7 @@ namespace Desert::Editor::ImportUnits
         FixedByFormat,      // the format defines one for every file (glTF 2.0 §3.5: metres)
         AssumedCentimetres, // neither the file nor the format says anything (OBJ) — assumed, and logged
         StatedButUnusable,  // the file stated a unit that cannot be a scale (zero, negative, not finite)
+        StatedBySettings,   // the source's import settings name the unit (SourceImportSettings::FileUnit)
     };
 
     struct Scale
@@ -44,7 +46,12 @@ namespace Desert::Editor::ImportUnits
     // one per file, so the two never both apply, and if that ever changes the file is the better
     // authority. An unusable stated value does NOT silently become the default — it comes back as
     // StatedButUnusable so the caller can log the number it refused.
-    Scale Resolve( std::string_view extension, bool fileStatedUnit, float statedCentimetresPerUnit );
+    //
+    // @p settingsCentimetresPerUnit is the unit the user stated in the import settings (MeshFileUnitCentimetres
+    // of SourceImportSettings::FileUnit); when present it wins over the file and the format - the user's
+    // statement is the one an OBJ needs and the one that corrects a file exported with the wrong unit.
+    Scale Resolve( std::string_view extension, bool fileStatedUnit, float statedCentimetresPerUnit,
+                   std::optional<float> settingsCentimetresPerUnit = std::nullopt );
 
     // THE FACTOR TO HAND assimp's aiProcess_GlobalScale so that the geometry lands in centimetres.
     //

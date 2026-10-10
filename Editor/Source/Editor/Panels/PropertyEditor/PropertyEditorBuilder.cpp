@@ -749,7 +749,7 @@ namespace Desert::Editor
                             const ImVec2 p0( c.x - w * 0.5f, c.y - h * 0.5f );
                             const ImVec2 p1( c.x + w * 0.5f, c.y + h * 0.5f );
                             if ( const void* tex = uiHelper->GetTextureID( is->Atlas() ) )
-                                for ( const Runtime::IconLayer& l : icon->Layers )
+                                for ( const ::Desert::Text::IconLayer& l : icon->Layers )
                                     dl->AddImage( reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ), p0,
                                                   p1, ImVec2( l.U0, l.V0 ), ImVec2( l.U1, l.V1 ),
                                                   IM_COL32( ( l.RGBA >> 24 ) & 0xFF, ( l.RGBA >> 16 ) & 0xFF,

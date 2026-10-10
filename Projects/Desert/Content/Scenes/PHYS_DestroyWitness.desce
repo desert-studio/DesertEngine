@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "30c8bbe1dd7749a549426f8dcf1e0960",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 42,
             "UNIT": 1
         },
         "Dependencies": []
@@ -123,7 +123,8 @@
                 "Type": 0,
                 "Mass": 1.0,
                 "Friction": 0.5,
-                "Restitution": 0.10000000149011612
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "BlockAll"
             },
             "Script": {
                 "Scripts": [
@@ -166,7 +167,8 @@
                 "Type": 1,
                 "Mass": 1.0,
                 "Friction": 0.5,
-                "Restitution": 0.10000000149011612
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "PhysicsActor"
             }
         },
         {
@@ -193,7 +195,8 @@
                 "Type": 0,
                 "Mass": 1.0,
                 "Friction": 0.5,
-                "Restitution": 0.10000000149011612
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "BlockAll"
             }
         },
         {

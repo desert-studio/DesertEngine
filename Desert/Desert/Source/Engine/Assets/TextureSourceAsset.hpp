@@ -142,7 +142,8 @@ namespace Desert::Assets
 
     // The block encoder's own version -- an input of every texture key, so it lives beside the deriver and
     // not in the editor that runs the encoder: the runtime computes the same key to find the entry.
-    inline constexpr uint32_t kTextureBlockEncoderVersion = 1;
+    // 2: a DDS source keeps its blocks or is encoded by intent without the gates (IMP-DDS-BLOCKS).
+    inline constexpr uint32_t kTextureBlockEncoderVersion = 2;
 
     // What the runtime needs from a `.detex` to reach its platform data (UE: the package summary + the
     // FTextureSource id, not the bulk data). Read from IMPT in an editor asset, from PAYL in a cooked one;

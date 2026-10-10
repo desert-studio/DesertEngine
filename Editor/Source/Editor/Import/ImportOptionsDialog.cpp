@@ -96,10 +96,18 @@ namespace Desert::Editor::ImportOptions
         constexpr std::array<Assets::MeshLodPolicy, 2> kLods = { Assets::MeshLodPolicy::Generate,
                                                                  Assets::MeshLodPolicy::None };
         constexpr std::array<const char*, 2> kLodLabels = { "Generate (authored, else simplified)", "LOD 0 only" };
-        constexpr std::array<Assets::FbxSpecularMap, 2> kSpecularMaps = {
-             Assets::FbxSpecularMap::Specular, Assets::FbxSpecularMap::OcclusionRoughnessMetallic };
-        constexpr std::array<const char*, 2> kSpecularMapLabels = { "Specular (FBX's meaning)",
-                                                                    "Packed AO/Roughness/Metal (R/G/B)" };
+        constexpr std::array<Assets::FbxSpecularMap, 3> kSpecularMaps = {
+             Assets::FbxSpecularMap::Specular, Assets::FbxSpecularMap::OcclusionRoughnessMetallic,
+             Assets::FbxSpecularMap::RoughnessMetallic };
+        constexpr std::array<const char*, 3> kSpecularMapLabels = { "Specular (FBX's meaning)",
+                                                                    "Packed AO/Roughness/Metal (R/G/B)",
+                                                                    "Packed Roughness/Metal (G/B, R unused)" };
+
+        constexpr std::array<Assets::MeshFileUnit, 6> kFileUnits = {
+             Assets::MeshFileUnit::FromFile, Assets::MeshFileUnit::Millimetres, Assets::MeshFileUnit::Centimetres,
+             Assets::MeshFileUnit::Metres,   Assets::MeshFileUnit::Inches,      Assets::MeshFileUnit::Feet };
+        constexpr std::array<const char*, 6> kFileUnitLabels = {
+             "From File (OBJ: assumed cm)", "Millimetres", "Centimetres", "Metres", "Inches", "Feet" };
 
         // The window's title and its options section, by what the file holds (UE: Static Mesh / Skeletal Mesh /
         // Animation import).
@@ -377,7 +385,22 @@ namespace Desert::Editor::ImportOptions
             UI::EndPropertyRow();
         }
 
-        UI::BeginPropertyRow( "Uniform Scale", "Applied on import: source units to centimetres." );
+        UI::BeginPropertyRow( "File Unit",
+                              "What one length of the file is. From File: FBX states it, glTF is metres; an OBJ "
+                              "states nothing and is taken as centimetres. Any other choice wins over the file." );
+        int unit = 0;
+        for ( std::size_t i = 0; i < kFileUnits.size(); ++i )
+            if ( kFileUnits[i] == settings.FileUnit )
+                unit = static_cast<int>( i );
+        if ( ImGui::Combo( "##FileUnit", &unit, kFileUnitLabels.data(),
+                           static_cast<int>( kFileUnitLabels.size() ) ) )
+        {
+            settings.FileUnit = kFileUnits[static_cast<std::size_t>( unit )];
+            changed           = true;
+        }
+        UI::EndPropertyRow();
+
+        UI::BeginPropertyRow( "Uniform Scale", "Applied on import, after the file unit: a further factor." );
         float scale = settings.Mesh.UniformScale;
         if ( ImGui::DragFloat( "##UniformScale", &scale, 0.01f, 0.001f, 1000.0f, "%.3f" ) &&
              SetUniformScale( settings, scale ) )
@@ -407,12 +430,16 @@ namespace Desert::Editor::ImportOptions
         }
         UI::EndPropertyRow();
 
-        UI::BeginPropertyRow( "FBX Specular Map",
-                              "What the FBX Specular map holds. Specular: a specular-colour image, as FBX defines "
-                              "it (the surface template has no input for it; the import says so). Packed: AO in "
-                              "R, roughness in G, metalness in B (Lumberyard Bistro / ORCA). Written into new "
-                              "materials only: delete an imported .demat to re-make it." );
-        int specular = settings.SpecularMap == Assets::FbxSpecularMap::OcclusionRoughnessMetallic ? 1 : 0;
+        UI::BeginPropertyRow(
+             "FBX Specular Map",
+             "What the FBX Specular map holds. Specular: a specular-colour image, as FBX defines "
+             "it (the surface template has no input for it; the import says so). Packed AO/Roughness/"
+             "Metal: AO in R, roughness in G, metalness in B. Packed Roughness/Metal: roughness in "
+             "G, metalness in B, R holds no occlusion (Lumberyard Bistro / ORCA, Falcor's "
+             "metal-rough). Written into new materials only: delete an imported .demat to re-make "
+             "it." );
+        int specular =
+             static_cast<int>( std::ranges::find( kSpecularMaps, settings.SpecularMap ) - kSpecularMaps.begin() );
         if ( ImGui::Combo( "##SpecularMap", &specular, kSpecularMapLabels.data(),
                            static_cast<int>( kSpecularMapLabels.size() ) ) )
         {

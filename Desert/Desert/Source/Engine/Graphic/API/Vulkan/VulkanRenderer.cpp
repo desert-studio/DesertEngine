@@ -1125,7 +1125,8 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
                                                 { SetGraphRecordingTarget( commandBuffer ); } );
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
-            m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
+            m_RdgDescriptors =
+                 std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, EngineSamplerCache(), slots );
 
             // The compute queue is the graph's AsyncCompute pipe only when the catalog offers async compute
             // (CapabilityCatalog::AsyncCompute: a separate compute family, and not a portability device whose

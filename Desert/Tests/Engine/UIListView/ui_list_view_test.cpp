@@ -19,6 +19,7 @@
 // consumer that stops asking EN MASSE, so that test drives a counting stand-in for the backend and
 // requires the demand set to shrink to the window.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -99,7 +100,7 @@ namespace
         {
             Canvas                 = Registry.create();
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
             Registry.emplace<ECS::RelationshipComponent>( Canvas );
@@ -161,9 +162,9 @@ namespace
     // "calling this is also the demand".
     struct CountingRenderTextures final : UI::IUIRenderTextureSource
     {
-        std::unordered_set<entt::entity> Asked;
+        std::unordered_set<UI::NodeId> Asked;
 
-        const void* ResolveRenderTexture( entt::entity element, const UI::UIRenderTextureRequest& ) override
+        const void* ResolveRenderTexture( UI::NodeId element, const UI::UIRenderTextureRequest& ) override
         {
             Asked.insert( element );
             return nullptr; // no picture: the walk draws the magenta fill, which is not what is measured
@@ -229,7 +230,7 @@ namespace
     {
         std::vector<UIElementNode> nodes;
         const auto                 ok = UI::EnumerateCanvas( scene.Registry, scene.Canvas, kViewport, nodes,
-                                                             &ctx.CanvasState( scene.Canvas ) );
+                                                             &ctx.CanvasState( Desert::UI::ToNode( scene.Canvas ) ) );
         EXPECT_TRUE( static_cast<bool>( ok ) ) << ok.GetError();
         return nodes;
     }
@@ -331,7 +332,7 @@ TEST( ListViewWindow, ScrollingMovesTheWindowAndTheClampedEdgeIsOneRowSmaller )
     {
         for ( const UIElementNode& n : nodes )
         {
-            if ( n.Entity == e )
+            if ( UI::ToEntity( n.Entity ) == e )
             {
                 return &n;
             }
@@ -376,13 +377,13 @@ TEST( ListViewWindow, HidingARowOutsideTheWindowChangesNothingInTheFrame )
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     const std::uint64_t before = Fingerprint( dl );
 
-    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[1500] ).Data.Visibility = ECS::UIVisibility::Hidden;
+    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[1500] ).Data.Visibility = UI::UIVisibility::Hidden;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( Fingerprint( dl ), before );
 
     // The negative control, and it is not optional: without it this passes on a walk that draws nothing
     // at all. A row INSIDE the window must move the bytes.
-    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[3] ).Data.Visibility = ECS::UIVisibility::Hidden;
+    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[3] ).Data.Visibility = UI::UIVisibility::Hidden;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_NE( Fingerprint( dl ), before );
 }
@@ -413,16 +414,16 @@ TEST( ListViewRenderTexture, OnlyTheWindowsRowsAreAsked )
     // that refusal is the backend's to make. What matters here is that it is asked about SIXTEEN and not
     // about two thousand, because two thousand would mean 1984 captures built and destroyed every frame.
     EXPECT_EQ( source.Asked.size(), static_cast<std::size_t>( kRowsOnView + 1 ) );
-    EXPECT_EQ( source.Asked.count( scene.Rows[0] ), 1u );
-    EXPECT_EQ( source.Asked.count( scene.Rows[1000] ), 0u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[0] ) ), 1u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[1000] ) ), 0u );
 
     // Scrolled away, the row that held a slot is not asked again -- which is the DESTRUCTION, stated in
     // the only terms the backend can observe.
     source.Asked.clear();
     scene.Registry.get<ECS::UIListViewComponent>( scene.Container ).Data.ScrollY = 1000.0f * kRowHeight;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
-    EXPECT_EQ( source.Asked.count( scene.Rows[0] ), 0u );
-    EXPECT_EQ( source.Asked.count( scene.Rows[1000] ), 1u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[0] ) ), 0u );
+    EXPECT_EQ( source.Asked.count( UI::ToNode( scene.Rows[1000] ) ), 1u );
 }
 
 TEST( ListViewRenderTexture, TheScrollViewAsksAboutEveryRow )
@@ -455,8 +456,8 @@ TEST( ListViewContract, TheTwoScrollingContainersShareTheirThemeSlotsAndMustShar
     // only honest while the two components' own defaults agree: Desert_Dark binds those slots to
     // UIScrollViewData's values (Desert/Tests/Engine/UIStyle pins it), so a list with a different default
     // would change appearance the moment a theme was attached and match with none.
-    const ECS::UIScrollViewData scroll{};
-    const ECS::UIListViewData   list{};
+    const UI::UIScrollViewData scroll{};
+    const UI::UIListViewData   list{};
     EXPECT_EQ( list.Background, scroll.Background );
     EXPECT_EQ( list.ScrollbarColor, scroll.ScrollbarColor );
 }
@@ -475,7 +476,7 @@ TEST( ListViewContract, AHiddenRowLeavesItsSlotEmptyRatherThanClosingTheGap )
     {
         for ( const UIElementNode& n : Enumerate( scene, ctx ) )
         {
-            if ( n.Entity == e )
+            if ( UI::ToEntity( n.Entity ) == e )
             {
                 return n.RectPx;
             }
@@ -485,7 +486,7 @@ TEST( ListViewContract, AHiddenRowLeavesItsSlotEmptyRatherThanClosingTheGap )
     };
     const float row5Before = rectOf( scene.Rows[5] ).Y;
 
-    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[2] ).Data.Visibility = ECS::UIVisibility::Collapsed;
+    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[2] ).Data.Visibility = UI::UIVisibility::Collapsed;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     EXPECT_FLOAT_EQ( rectOf( scene.Rows[5] ).Y, row5Before ) << "a collapsed row moved its siblings";
@@ -717,11 +718,11 @@ namespace
         const entt::entity entry = s.AddChild( s.Container, 0.0f, 0.0f, kListW, kRowHeight - 2.0f );
         auto&              tint  = s.Registry.emplace<ECS::UIBindingComponent>( entry ).Data;
         tint.Key                 = "tint";
-        tint.Target              = ECS::UIBindTarget::Color;
+        tint.Target              = UI::UIBindTarget::Color;
         const entt::entity badge = s.AddChild( entry, 4.0f, 4.0f, 32.0f, 32.0f );
         auto&              shown = s.Registry.emplace<ECS::UIBindingComponent>( badge ).Data;
         shown.Key                = "shown";
-        shown.Target             = ECS::UIBindTarget::Visible;
+        shown.Target             = UI::UIBindTarget::Visible;
         s.Rows.push_back( entry );
         return s;
     }
@@ -901,7 +902,7 @@ TEST( ListViewBound, TheEnumerationNamesEachRowsRecordAndAgreesWithTheDrawAboutI
     int        rows  = 0;
     for ( const UIElementNode& n : nodes )
     {
-        if ( n.Entity != scene.Rows.front() )
+        if ( UI::ToEntity( n.Entity ) != scene.Rows.front() )
             continue;
         EXPECT_EQ( n.ListRow, rows ) << "rows are enumerated in record order";
         ++rows;

@@ -8,6 +8,8 @@
 
 #include <glm/glm.hpp>
 
+struct ImVec2;
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -72,10 +74,18 @@ namespace Desert::Editor
         // combo. The list follows the mesh's built chain.
         [[nodiscard]] std::vector<DocumentAction> Actions() override;
 
+        // The asset-editor toolbar's mesh entries (UE FStaticMeshEditor::ExtendToolBar): the LOD pick and the
+        // viewport's statistics overlay. Save / Browse are the frame's.
+        void                      ExtendToolbar( AssetEditorToolbar& toolbar ) override;
+        [[nodiscard]] std::string StatusText() const override;
+
     private:
         void EnsurePreview();
         void DrawStats() const;
-        void DrawLightAndLOD();
+        void DrawLight();
+        // UE StaticMeshEditorViewportClient::DrawCanvas: LOD, triangles, vertices, UV channels, approx size,
+        // top-left over the picture, from m_Stats (the built platform data).
+        void DrawViewportStats( const ImVec2& origin ) const;
 
         Assets::AssetManager*            m_Assets = nullptr;
         std::unique_ptr<PreviewViewport> m_Preview;
@@ -86,7 +96,8 @@ namespace Desert::Editor
         std::optional<StaticMeshStats>   m_Stats;
         std::optional<glm::vec2>         m_PendingOrbitDegrees;
 
-        int m_ForcedLOD = -1; // -1 = auto, as StaticMeshComponent::ForcedLOD
+        int  m_ForcedLOD = -1;   // -1 = auto, as StaticMeshComponent::ForcedLOD
+        bool m_ShowStats = true; // the viewport overlay; UE's Show > Stats, on by default
     };
 
     // The `.stmesh` path opener: find-or-create the StaticMeshAsset, load it (which derives its platform data),

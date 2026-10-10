@@ -78,9 +78,9 @@ namespace
            "the open-file dialog's display filter for a noise SLICE SHEET, and the save dialog's. The "
            "sheet is read whole by stbi and its pixels ARE the voxels, so no format outranks another "
            "here — the same membership-only case as CloudLayoutPanel one row up" },
-         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "the extension -> FileType icon map and the import dialog's display filter. Membership and "
-           "presentation; two same-stem files both simply appear in the tree" },
+         { "Editor/Source/Editor/Panels/FileExplorer/ContentBrowserImport.cpp",
+           "the content browser's import dialog display filter (EDL-C1 lifted it out of FileExplorerPanel). "
+           "Membership only: the chosen files go to the importer, which picks by TextureSourceFormats" },
     };
 
     // The checkout the build baked in (TestSupport::RepositoryRoot), with a trailing separator so the census

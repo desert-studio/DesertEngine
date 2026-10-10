@@ -91,6 +91,14 @@ namespace Desert::Editor
             ImGui::PopStyleColor();
 
             ImGui::Spacing();
+            ImGui::TextDisabled( "Content Browser" );
+            ImGui::Separator();
+            // Read by ThumbnailCache on its next upload; lowering it releases the least recently drawn ones then.
+            ImGui::DragInt( "Thumbnail Pool", &prefs.ThumbnailPoolSize, 8.0f, 64, 16384, "%d pictures" );
+            if ( ImGui::IsItemDeactivatedAfterEdit() )
+                EditorPreferences::Save();
+
+            ImGui::Spacing();
             ImGui::TextDisabled( "Selection Outline" );
             ImGui::Separator();
             ImGui::Checkbox( "Enable Outline", &prefs.EnableOutline );

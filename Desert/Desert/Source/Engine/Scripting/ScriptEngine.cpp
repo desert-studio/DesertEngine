@@ -5,14 +5,37 @@
 
 namespace Desert::Scripting
 {
+    namespace
+    {
+        // A game script is CONTENT: it arrives with a level, a mod or a download, and it runs with the
+        // player's rights. So it gets the language and the engine's own API, and nothing that reaches the
+        // machine around it: no `io` (never opened), no process/file half of `os` (execute, exit, getenv,
+        // remove, rename, tmpname, setlocale), and none of the base library's loaders (dofile, loadfile,
+        // load), which would turn any string or file into code past this boundary. What `os` keeps is
+        // time: clock, date, difftime, time. Code the engine runs comes in through RunString/LoadEntityScript,
+        // which compile on the C++ side and need none of these.
+        void OpenGameLibraries( sol::state& lua )
+        {
+            lua.open_libraries( sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table, sol::lib::os );
+
+            for ( const char* loader : { "dofile", "loadfile", "load" } )
+                lua[loader] = sol::lua_nil;
+
+            const sol::table fullOs = lua["os"];
+            sol::table       timeOs = lua.create_table();
+            for ( const char* name : { "clock", "date", "difftime", "time" } )
+                timeOs[name] = fullOs[name];
+            lua["os"] = timeOs;
+        }
+    } // namespace
+
     ScriptEngine::ScriptEngine( Core::Scene* scene, Assets::AssetManager* assetManager )
          : m_Impl( std::make_unique<Impl>() )
     {
         m_Impl->Scene  = scene;
         m_Impl->Assets = assetManager;
 
-        m_Impl->Lua.open_libraries( sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table,
-                                    sol::lib::os );
+        OpenGameLibraries( m_Impl->Lua );
 
         // Modular bindings: the core owns the VM; every domain registers its own API from its
         // own translation unit (see Internal/ScriptRuntime.hpp for the architecture note).

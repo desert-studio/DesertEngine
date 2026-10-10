@@ -58,10 +58,13 @@ namespace Desert::Graphic
         // direction — UE's GetTransmittanceAtGroundLevel, evaluated on the CPU from the same medium the
         // transmittance LUT marches (Graphic::SunTransmittanceAtGround, which compiles SkyMedium.glslh).
         //
-        // EXACTLY (1,1,1) when the coupling does not apply: the artistic-gradient model, where sky
-        // radiance and surface illuminance are documented as independent, or an atmosphere sun whose
-        // "Affected By Atmosphere Transmittance" is off. A consumer therefore multiplies by it
-        // unconditionally and never asks which model is running.
+        // The PLANET is part of that path in both models (Graphic::SunLightFactorAtGround): a sun below
+        // the horizon gives exactly zero — fading across the sky's terminator band (physical) or across
+        // the solar disk (artistic). The atmosphere term dims and reddens it in both models (the LUT in
+        // the physical one, the same coefficients by air mass in the artistic one); it is EXACTLY
+        // (1,1,1) above the horizon only for an atmosphere sun whose "Affected By Atmosphere
+        // Transmittance" is off. A consumer therefore multiplies by it unconditionally and never asks
+        // which model is running.
         //
         // Its consumer is the directional light's colour (SceneRenderer::OnUpdate): in
         // SkyModel::PhysicalAtmosphere the sun that lights geometry reddens and dims by the same law

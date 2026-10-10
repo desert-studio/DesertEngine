@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>

@@ -220,6 +220,10 @@ namespace
          //      factory that seven allocation sites bypass, so it was blind to 2.79 GB of what it exists
          //      to count.
          { "VulkanAllocator.cpp", "vmaGetAllocationInfo", 2, "void" },
+         // SHOT-SETTLE: the once-a-second memory census line (LogCensusIfDue) reads the heap count and each
+         // heap's budget through the out parameters; both queries return void.
+         { "VulkanAllocator.cpp", "vmaGetMemoryProperties", 1, "void" },
+         { "VulkanAllocator.cpp", "vmaGetHeapBudgets", 1, "void" },
          // ONE SITE: AF7's PipelineCacheKey — the GPU/driver identity that keys the pipeline-cache DDC
          // entry. Device selection, features, extensions, queue families and memory properties are read by
          // vk-bootstrap now (VKF1), through DeviceCapsProbe.

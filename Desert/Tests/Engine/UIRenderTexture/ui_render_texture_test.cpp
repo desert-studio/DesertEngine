@@ -28,6 +28,7 @@
 // purity UIRenderTextureSource.hpp exists to protect — naming the concrete Render2D cache here would drag
 // a Vulkan device, a Core::Scene and a SceneRenderer into a test about six comparisons.
 
+#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -51,6 +52,7 @@ namespace
 // view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 namespace ECS = Desert::ECS;
+namespace UI  = Desert::UI;
 namespace R2D = Desert::Graphic::Render2D;
 
 using Desert::UI::Rect;
@@ -76,7 +78,7 @@ namespace
     // because the question is where the element's size and its ResolutionScale meet.
     struct Ask
     {
-        entt::entity Element = entt::null;
+        UI::NodeId   Element = UI::NodeId::Null;
         std::string  ScenePath;
         uint32_t     Width  = 0;
         uint32_t     Height = 0;
@@ -90,7 +92,7 @@ namespace
         {
         }
 
-        const void* ResolveRenderTexture( entt::entity element, const UIRenderTextureRequest& request ) override
+        const void* ResolveRenderTexture( UI::NodeId element, const UIRenderTextureRequest& request ) override
         {
             Asks.push_back( Ask{ .Element   = element,
                                  .ScenePath = std::string( request.ScenePath ),
@@ -118,7 +120,7 @@ namespace
         explicit Fixture( const char* scenePath = "Resources/Assets/Scenes/W.desce" )
         {
             auto& canvas           = Registry.emplace<ECS::UICanvasComponent>( Canvas ).Data;
-            canvas.ScaleMode       = ECS::UICanvasScaleMode::Stretch;
+            canvas.ScaleMode       = UI::UICanvasScaleMode::Stretch;
             canvas.ReferenceWidth  = kSide;
             canvas.ReferenceHeight = kSide;
 
@@ -135,11 +137,11 @@ namespace
             Registry.emplace<ECS::RelationshipComponent>( Element ).Parent = Canvas;
         }
 
-        ECS::UIRenderTextureData& Data()
+        UI::UIRenderTextureData& Data()
         {
             return Registry.get<ECS::UIRenderTextureComponent>( Element ).Data;
         }
-        ECS::UILayoutData& Layout()
+        UI::UILayoutData& Layout()
         {
             return Registry.get<ECS::UILayoutComponent>( Element ).Data;
         }
@@ -252,7 +254,7 @@ TEST( UIRenderTexture, AVisibleElementIsAskedAboutOncePerFrame )
     Draw( ctx, f, dl );
 
     ASSERT_EQ( source.Asks.size(), 1u ) << "an on-screen element must be asked about exactly once a frame";
-    EXPECT_EQ( source.Asks.front().Element, f.Element );
+    EXPECT_EQ( source.Asks.front().Element, UI::ToNode( f.Element ) );
     EXPECT_EQ( source.Asks.front().ScenePath, "Resources/Assets/Scenes/W.desce" );
 }
 
@@ -270,7 +272,7 @@ TEST( UIRenderTexture, AHiddenElementIsNotAskedAboutAtAllAndThatIsHowItsSlotCome
     UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
-    f.Layout().Visibility = ECS::UIVisibility::Hidden;
+    f.Layout().Visibility = UI::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
     Draw( ctx, f, dl );
@@ -295,12 +297,12 @@ TEST( UIRenderTexture, ShowingAndHidingTheSameElementTogglesTheDemand )
     Draw( ctx, f, visible );
     const std::size_t afterShown = source.Asks.size();
 
-    f.Layout().Visibility = ECS::UIVisibility::Hidden;
+    f.Layout().Visibility = UI::UIVisibility::Hidden;
     R2D::DrawList2D hidden;
     Draw( ctx, f, hidden );
     const std::size_t afterHidden = source.Asks.size();
 
-    f.Layout().Visibility = ECS::UIVisibility::Visible;
+    f.Layout().Visibility = UI::UIVisibility::Visible;
     R2D::DrawList2D shownAgain;
     Draw( ctx, f, shownAgain );
     const std::size_t afterReshown = source.Asks.size();

@@ -14,8 +14,10 @@
 #include "Editor/Splash/SplashScreen.hpp"
 
 #include <Engine/Assets/ContentGate.hpp>
+#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/ItemProgress.hpp>
 #include <Engine/Core/BootTimeline.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -44,10 +46,11 @@ namespace Desert::Engine
 namespace Desert::Editor
 {
     class AssetCompiling;
-    class FileExplorerPanel;
+    class AssetThumbnailPool;
     class ImportManager;
     class SceneFiles;
     class SceneWorkspace;
+    class ShotDirector;
 
     class EditorStartup
     {
@@ -62,11 +65,12 @@ namespace Desert::Editor
                        SceneFiles& sceneFiles, AssetCompiling& assetCompiling, const bool& realFrameDrawn,
                        std::unique_ptr<Splash::SplashScreen> splash );
 
-        // The asset browser the hand-over's thumbnails go through; null until OnAttach builds it and after
-        // OnDetach.
-        void AttachFileExplorer( FileExplorerPanel* fileExplorer )
+        // The editor's thumbnail pool the hand-over's pictures go through (UE: the editor's
+        // FAssetThumbnailPool, which the Content Browser only draws from); null until OnAttach builds it and
+        // after OnDetach releases it.
+        void AttachThumbnailPool( AssetThumbnailPool* thumbnailPool )
         {
-            m_FileExplorer = fileExplorer;
+            m_ThumbnailPool = thumbnailPool;
         }
 
         [[nodiscard]] bool StartupLoading() const
@@ -95,6 +99,14 @@ namespace Desert::Editor
         // OnAttach: the splash plan, made once the cooked registry is read, and the engine shader compile's stage
         // begun — the longest single wait of the start, and one call (not a stage: the render systems resolve
         // their shaders in their constructors).
+        // THE FIRST LEVEL (UE: UEditorEngine::InitEditor's EditorStartupMap). Screenshot mode names its own scene;
+        // a project queues its DefaultScene (missing on disk = an error naming it, never a scene built in code);
+        // with nothing queued the Basic level template opens as an untitled scene. A capture whose scene is
+        // refused closes the application with its status.
+        void ChooseInitialLevel( ShotDirector& shots );
+        // THE CONTENT THE FIRST FRAME NEEDS (UE: FLevelEditorModule::StartupModule): the cooked asset registry,
+        // the engine shaders and their import templates, then the primary scene's systems. A refusal ends the run.
+        [[nodiscard]] Common::BoolResultStr BootContent();
         void BeginShaderStage();
         // The item line of the stage running now, for an engine call that works through a list.
         Assets::ItemProgress SplashItems();
@@ -104,7 +116,19 @@ namespace Desert::Editor
         [[nodiscard]] bool RunStartupFrame();
 
         /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
-        void BeginContentSettle();
+        /// @p finishedBefore is `AsyncAssetLoader::Progress().Finished` taken before the load asked for anything.
+        void BeginContentSettle( uint64_t finishedBefore );
+        /// What a scene load that BLOCKS reports while it waits for its reads (LOAD-SHOW-b, UE's
+        /// FScopedSlowTask shape): installed around the load with Assets::ScopedWaitFeedback, it turns each read
+        /// landing inside AsyncAssetLoader::AwaitOne into the settle's line, counted since @p finishedBefore —
+        /// the splash draws it on its own thread while the main thread is held.
+        [[nodiscard]] Assets::AsyncAssetLoader::WaitFeedback SceneLoadFeedback( uint64_t finishedBefore );
+        /// What the settle is reading now and how far it is (Engine/Assets/ContentWork.hpp), for the overlay
+        /// the editor draws while a scene opened after the reveal loads.
+        [[nodiscard]] const Assets::ContentProgressLine& ContentProgress() const
+        {
+            return m_ContentProgress;
+        }
         /// One tick of the wait: decides whether the frame just rendered closed the chain.
         void UpdateContentSettling();
 
@@ -141,14 +165,12 @@ namespace Desert::Editor
         void MakeSplashPlan();
         void BeginSplashStage( std::size_t stage, std::optional<std::size_t> items = std::nullopt );
         void PushSplash();
+        // The settle's line (m_ContentProgress) as the splash's item; pushed when it differs from what was shown.
+        void ShowContentLine( const Assets::ContentProgressLine& line );
         // Every condition the splash hand-over depends on, for Splash::MayReveal.
         [[nodiscard]] Splash::RevealState CurrentRevealState() const;
-        // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
-        // them, and hold the hand-over until they are all up (no time bound, THM1n).
-        void UploadSplashThumbnails();
-        // THUMB3: the open scene's materials — their cached pictures decoded, the missing ones captured on the
-        // splash (Splash::SceneThumbnailCaptureAllowed) within Splash::kSceneCaptureBudgetMs.
-        void WarmSplashScene();
+        // THM-FIXB: the kinds of the project that get no picture, said once when the window is shown.
+        static void ReportUnproducedThumbnailKinds();
 
         Engine::Application*                          m_Application;
         std::shared_ptr<Assets::AssetManager>&        m_AssetManager;
@@ -158,7 +180,7 @@ namespace Desert::Editor
         SceneFiles&                                   m_SceneFiles;
         AssetCompiling&                               m_AssetCompiling;
         const bool&                                   m_RealFrameDrawn;
-        FileExplorerPanel*                            m_FileExplorer = nullptr; // non-owning (lives in the panels)
+        AssetThumbnailPool* m_ThumbnailPool = nullptr; // non-owning (EditorLayer owns it)
 
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext = 0;
@@ -167,22 +189,14 @@ namespace Desert::Editor
         std::chrono::steady_clock::time_point m_ProgressEpoch = std::chrono::steady_clock::now();
         std::size_t                           m_ShaderStage   = 0;
         std::size_t                           m_SettleStage   = 0;
-        // Scene loads already finished when the settle began: the settle counts only the rest.
-        std::size_t m_SettleBase           = 0;
-        bool        m_ThumbnailsHoldReveal = false;
-        bool        m_SplashWarmStarted    = false;
-        std::size_t m_SplashWarmTotal      = 0;     // captures queued when the warm-up started
-        std::size_t m_SplashWarmShown      = 0;     // what the splash line last said was left
-        bool m_SplashPicturesReasked       = false; // the captures landed and their PNGs were asked for (THM1n-13)
-        // When every other reveal condition first held: the start of the thumbnails' budget.
-        std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
+        // Reads the loader had finished when the scene load began: the settle counts only the rest.
+        uint64_t                    m_SettleBase = 0;
+        Assets::ContentProgressLine m_ContentProgress; // the line the settle shows now
         // KEPT after it is closed, until the layer goes: Close() only starts the crossfade, and the
         // object's destructor is what waits for its window and thread — at teardown, not on the frame
         // the editor has just appeared on.
         std::unique_ptr<Splash::SplashScreen> m_Splash;
         bool                                  m_Revealed = false;
-        // The pending count the splash last showed during the settle, so the label is pushed on change only.
-        size_t m_SplashOutstandingShown = SIZE_MAX;
         // The splash's close was acted on (Application::Close asked once, not every frame until it lands).
         bool m_QuitFromSplash = false;
         // WHERE THE ELAPSED TOTAL LIVES: `Core::BootTimeline` (sum of the stages, NOT wall clock between the first

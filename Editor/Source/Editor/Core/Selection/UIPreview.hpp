@@ -1,9 +1,12 @@
 #pragma once
 
+#include <Engine/UI/UICanvasRenderer2D.hpp>
+
 #include <glm/glm.hpp>
 #include <entt/entt.hpp>
 
 #include <string>
+#include <vector>
 
 namespace Desert::Editor::Core
 {
@@ -29,13 +32,9 @@ namespace Desert::Editor::Core
         // UIViewContext::PrevRightDown, exactly as the left button's is; reporting the edge here as well
         // would be a second place computing the same fact, and the two would eventually disagree about
         // which frame the click was in.
-        bool        RightDown = false;
-        bool        Escape    = false; // closes the innermost open context menu / modal
+        bool                                  RightDown = false;
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
-        bool        Tab       = false; // advance keyboard focus
-        bool        Submit    = false; // Enter — activate the focused control
-        int         Navigate  = 0;     // Up/W = -1, Down/S = +1 (UIInput::Navigate)
-        bool        Backspace = false;
+        std::vector<::Desert::UI::UIKeyEvent> Keys; // key presses this frame, in order (UIInput::Keys)
         std::string TypedText; // UTF-8 chars typed this frame (drives the focused InputField)
 
         entt::entity Focused = entt::null; // persisted keyboard focus across frames

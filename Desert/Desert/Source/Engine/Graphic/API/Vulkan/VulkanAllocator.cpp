@@ -6,6 +6,9 @@
 #include <Engine/Core/FrameManager.hpp>
 
 #include <cstdlib>
+#include <format>
+#include <string>
+#include <vector>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -183,12 +186,56 @@ namespace Desert::Graphic::API::Vulkan
         m_BufferDeletionQueue.push_back( { buffer, allocation, frameIndex } );
     }
 
+    void VulkanAllocator::RT_ReleaseStaging( VkBuffer buffer, VmaAllocation allocation,
+                                             const Common::ResultStr<VkResult>& flushed )
+    {
+        if ( buffer == VK_NULL_HANDLE || allocation == VK_NULL_HANDLE )
+            return;
+        if ( !flushed.IsSuccess() || flushed.GetValue() != VK_SUCCESS || s_VmaAllocator == VK_NULL_HANDLE )
+        {
+            RT_DestroyBuffer( buffer, allocation );
+            return;
+        }
+        vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
+        m_Ledger.Release( LedgerKey( allocation ) );
+    }
+
+    void VulkanAllocator::LogCensusIfDue()
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if ( s_VmaAllocator == VK_NULL_HANDLE || now - m_LastCensus < std::chrono::seconds( 1 ) )
+            return;
+        m_LastCensus                               = now;
+        constexpr double                        MB = 1024.0 * 1024.0;
+        std::string                             heaps;
+        const VkPhysicalDeviceMemoryProperties* props = nullptr;
+        vmaGetMemoryProperties( s_VmaAllocator, &props );
+        std::vector<VmaBudget> budgets( props != nullptr ? props->memoryHeapCount : 0 );
+        if ( !budgets.empty() )
+            vmaGetHeapBudgets( s_VmaAllocator, budgets.data() );
+        for ( std::size_t heap = 0; heap < budgets.size(); ++heap )
+            heaps += std::format( " heap{}: blocks {:.1f} MB, allocations {:.1f} MB, driver usage {:.1f} MB;",
+                                  heap, static_cast<double>( budgets[heap].statistics.blockBytes ) / MB,
+                                  static_cast<double>( budgets[heap].statistics.allocationBytes ) / MB,
+                                  static_cast<double>( budgets[heap].usage ) / MB );
+        std::string tags;
+        const auto  byTag = m_Ledger.ByTag();
+        for ( std::size_t i = 0; i < byTag.size() && i < 6; ++i )
+            tags += std::format( " {} x{} {:.1f} MB;", byTag[i].Tag, byTag[i].Count,
+                                 static_cast<double>( byTag[i].Bytes ) / MB );
+        LOG_DEBUG(
+             "[VulkanAllocator] census: {} owed deletion(s) ({} buffer(s), {} image(s)); ledger {} object(s) "
+             "{:.1f} MB;{} largest:{}",
+             QueuedCount(), m_BufferDeletionQueue.size(), m_ImageDeletionQueue.size(), m_Ledger.LiveCount(),
+             static_cast<double>( m_Ledger.LiveBytes() ) / MB, heaps, tags );
+    }
+
     void VulkanAllocator::RT_DestroyImage( VkImage image, VmaAllocation allocation, VkImageView imageView,
-                                           VkSampler sampler, const std::vector<VkImageView>& mipImageViews )
+                                           const std::vector<VkImageView>& mipImageViews )
     {
         if ( !image || !allocation ) return;
         uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-        m_ImageDeletionQueue.push_back( { image, allocation, imageView, sampler, mipImageViews, frameIndex } );
+        m_ImageDeletionQueue.push_back( { image, allocation, imageView, mipImageViews, frameIndex } );
     }
 
     void VulkanAllocator::RT_DestroyFramebuffer( VkFramebuffer framebuffer )
@@ -280,6 +327,7 @@ namespace Desert::Graphic::API::Vulkan
         // round to f, which is the point at which the GPU has demonstrably finished with it.
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
         (void)DestroyQueued( [frameIndex]( uint32_t queued ) { return queued == frameIndex; } );
+        LogCensusIfDue();
     }
 
     std::size_t VulkanAllocator::DrainDeletionQueue()
@@ -325,8 +373,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             if ( takeFrame( it->FrameIndex ) )
             {
-                if ( it->ImageView != VK_NULL_HANDLE ) vkDestroyImageView( device, it->ImageView, nullptr );
-                if ( it->Sampler != VK_NULL_HANDLE )   vkDestroySampler( device, it->Sampler, nullptr );
+                if ( it->ImageView != VK_NULL_HANDLE )
+                    vkDestroyImageView( device, it->ImageView, nullptr );
                 for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
 
                 vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );

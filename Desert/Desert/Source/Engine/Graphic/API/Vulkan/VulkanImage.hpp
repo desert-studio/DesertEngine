@@ -377,9 +377,7 @@ namespace Desert::Graphic::API::Vulkan
     };
 
     /// The one VkSampler for a material slot's sampling state (MAT1s) under the current global texture
-    /// filter; created on first ask, shared by every slot with that state, destroyed by ReleaseSlotSamplers.
+    /// filter, from the device's VulkanSamplerCache (shared by every slot and image with that state).
     [[nodiscard]] VkSampler AcquireSlotSampler( const Core::Formats::SamplerState& state );
-    /// Device teardown: destroys every slot sampler. Called before the logical device goes.
-    void ReleaseSlotSamplers();
 
 } // namespace Desert::Graphic::API::Vulkan

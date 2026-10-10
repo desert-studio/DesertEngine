@@ -344,6 +344,121 @@ namespace Desert::Editor
         {
             uint32_t R = 0, G = 0, B = 0, A = 0;
         };
+
+        /// THE HEADER, READ ONCE for both questions this file answers (the decoded top mip and the chain of
+        /// blocks as stored). Every refusal names the format the file spelled; the top mip is checked to be
+        /// present, the levels below it are checked by the one reader that needs them.
+        struct Parsed
+        {
+            Recognised  Format{ Layout::RGBA8, {} };
+            uint32_t    Width    = 0;
+            uint32_t    Height   = 0;
+            uint32_t    MipCount = 1;
+            std::size_t DataAt   = 0;
+            uint32_t    PfFlags  = 0;
+            Masks       ChannelMasks;
+        };
+
+        Common::ResultStr<Parsed> ParseHeader( const unsigned char* bytes, std::size_t size )
+        {
+
+            if ( size < kMagicSize + kHeaderSize || std::memcmp( bytes, "DDS ", 4 ) != 0 )
+                return Common::MakeError<Parsed>(
+                     std::format( "not a DDS file: {} bytes, no 'DDS ' magic and 124-byte header", size ) );
+            const unsigned char* header = bytes + kMagicSize;
+            if ( ReadU32( header ) != kHeaderSize || ReadU32( bytes + kPixelFormatAt ) != 32 )
+                return Common::MakeError<Parsed>(
+                     std::format( "DDS header is malformed (dwSize {}, pixel format size {}; 124 and 32 expected)",
+                                  ReadU32( header ), ReadU32( bytes + kPixelFormatAt ) ) );
+
+            const uint32_t height  = ReadU32( header + 8 );
+            const uint32_t width   = ReadU32( header + 12 );
+            const uint32_t depth   = ReadU32( header + 20 );
+            const uint32_t pfFlags = ReadU32( bytes + kPixelFormatAt + 4 );
+            const uint32_t fourCC  = ReadU32( bytes + kPixelFormatAt + 8 );
+            const uint32_t bpp     = ReadU32( bytes + kPixelFormatAt + 12 );
+            const Masks    masks{ ReadU32( bytes + kPixelFormatAt + 16 ), ReadU32( bytes + kPixelFormatAt + 20 ),
+                               ReadU32( bytes + kPixelFormatAt + 24 ), ReadU32( bytes + kPixelFormatAt + 28 ) };
+            const uint32_t caps2 = ReadU32( header + 108 );
+            // dwMipMapCount: writers leave it 0 for "one level" as often as they clear DDSD_MIPMAPCOUNT, so 0 is 1
+            // (DirectXTex DDSTextureLoader reads it the same way).
+            const uint32_t mipCount = std::max( ReadU32( header + 24 ), 1u );
+
+            std::size_t               dataAt = kMagicSize + kHeaderSize;
+            std::optional<Recognised> format;
+            bool                      isVolume = ( caps2 & kCaps2Volume ) != 0 && depth > 1;
+
+            if ( ( pfFlags & kPixelFormatFourCC ) != 0 && fourCC == FourCC( 'D', 'X', '1', '0' ) )
+            {
+                if ( size < dataAt + kDx10HeaderSize )
+                    return Common::MakeError<Parsed>( "DDS declares a DX10 header but the file ends before it" );
+                const uint32_t dxgi      = ReadU32( bytes + dataAt );
+                const uint32_t dimension = ReadU32( bytes + dataAt + 4 );
+                dataAt += kDx10HeaderSize;
+                isVolume = isVolume || dimension == kDx10Texture3D;
+                format   = FromDxgi( dxgi );
+                if ( !format )
+                    return Common::MakeError<Parsed>( std::format(
+                         "DDS pixel format DXGI_FORMAT {} (DX10) is not a supported texture source "
+                         "(BC1-BC7, R8G8B8A8/B8G8R8A8/B8G8R8X8, R16G16B16A16 UNORM/FLOAT, R32G32B32A32_FLOAT)",
+                         dxgi ) );
+                format->Name += " (DX10)";
+            }
+            else if ( ( pfFlags & kPixelFormatFourCC ) != 0 )
+            {
+                format = FromFourCC( fourCC );
+                if ( !format )
+                    return Common::MakeError<Parsed>( std::format(
+                         "DDS pixel format {} is not a supported texture source", DescribeFourCC( fourCC ) ) );
+            }
+            else if ( ( pfFlags & kPixelFormatRGB ) != 0 && bpp == 32 && IsByteMask( masks.R ) &&
+                      IsByteMask( masks.G ) && IsByteMask( masks.B ) && IsByteMask( masks.A ) && masks.R != 0 )
+            {
+                format = Recognised{ Layout::Masked32,
+                                     std::format( "32-bit RGB masks R={:#010x} G={:#010x} B={:#010x} A={:#010x}",
+                                                  masks.R, masks.G, masks.B,
+                                                  ( pfFlags & kPixelFormatAlphaPixels ) != 0 ? masks.A : 0u ) };
+            }
+            else
+            {
+                return Common::MakeError<Parsed>( std::format(
+                     "DDS legacy pixel format (flags {:#x}, {} bits, masks R={:#010x} G={:#010x} B={:#010x} "
+                     "A={:#010x}) is not a supported texture source — only 32-bit RGB(A) with 8-bit channels is",
+                     pfFlags, bpp, masks.R, masks.G, masks.B, masks.A ) );
+            }
+
+            if ( !format.has_value() )
+                return Common::MakeError<Parsed>( "DDS pixel format was not recognised" );
+            const Recognised& recognised = *format;
+
+            if ( isVolume )
+                return Common::MakeError<Parsed>( std::format(
+                     "DDS {} is a volume texture; a texture source is one 2D image", recognised.Name ) );
+            if ( width == 0 || height == 0 || width > 16384 || height > 16384 )
+                return Common::MakeError<Parsed>( std::format(
+                     "DDS {} has extent {}x{}; 1..16384 per side is accepted", recognised.Name, width, height ) );
+
+            const Layout      kind    = recognised.Kind;
+            const std::size_t texels  = static_cast<std::size_t>( width ) * height;
+            const std::size_t blocksX = ( width + 3u ) / 4u;
+            const std::size_t blocksY = ( height + 3u ) / 4u;
+            const std::size_t topMipLen =
+                 IsBlock( kind ) ? blocksX * blocksY * BlockBytes( kind ) : texels * TexelBytes( kind );
+            if ( size - dataAt < topMipLen )
+                return Common::MakeError<Parsed>(
+                     std::format( "DDS {} {}x{} is truncated: the top mip needs {} bytes, the file holds {}",
+                                  recognised.Name, width, height, topMipLen, size - dataAt ) );
+
+            Parsed parsed;
+            parsed.Format       = recognised;
+            parsed.Width        = width;
+            parsed.Height       = height;
+            parsed.MipCount     = mipCount;
+            parsed.DataAt       = dataAt;
+            parsed.PfFlags      = pfFlags;
+            parsed.ChannelMasks = masks;
+            return Common::MakeSuccess( std::move( parsed ) );
+        }
     } // namespace
 
     bool IsDdsSource( std::string_view bytes, std::string_view sourceKey )
@@ -358,96 +473,24 @@ namespace Desert::Editor
 
     Common::ResultStr<DdsSourceImage> DecodeDdsSource( const unsigned char* bytes, std::size_t size )
     {
-
-        if ( size < kMagicSize + kHeaderSize || std::memcmp( bytes, "DDS ", 4 ) != 0 )
-            return Common::MakeError<DdsSourceImage>(
-                 std::format( "not a DDS file: {} bytes, no 'DDS ' magic and 124-byte header", size ) );
-        const unsigned char* header = bytes + kMagicSize;
-        if ( ReadU32( header ) != kHeaderSize || ReadU32( bytes + kPixelFormatAt ) != 32 )
-            return Common::MakeError<DdsSourceImage>(
-                 std::format( "DDS header is malformed (dwSize {}, pixel format size {}; 124 and 32 expected)",
-                              ReadU32( header ), ReadU32( bytes + kPixelFormatAt ) ) );
-
-        const uint32_t height  = ReadU32( header + 8 );
-        const uint32_t width   = ReadU32( header + 12 );
-        const uint32_t depth   = ReadU32( header + 20 );
-        const uint32_t pfFlags = ReadU32( bytes + kPixelFormatAt + 4 );
-        const uint32_t fourCC  = ReadU32( bytes + kPixelFormatAt + 8 );
-        const uint32_t bpp     = ReadU32( bytes + kPixelFormatAt + 12 );
-        const Masks    masks{ ReadU32( bytes + kPixelFormatAt + 16 ), ReadU32( bytes + kPixelFormatAt + 20 ),
-                           ReadU32( bytes + kPixelFormatAt + 24 ), ReadU32( bytes + kPixelFormatAt + 28 ) };
-        const uint32_t caps2 = ReadU32( header + 108 );
-
-        std::size_t               dataAt = kMagicSize + kHeaderSize;
-        std::optional<Recognised> format;
-        bool                      isVolume = ( caps2 & kCaps2Volume ) != 0 && depth > 1;
-
-        if ( ( pfFlags & kPixelFormatFourCC ) != 0 && fourCC == FourCC( 'D', 'X', '1', '0' ) )
-        {
-            if ( size < dataAt + kDx10HeaderSize )
-                return Common::MakeError<DdsSourceImage>(
-                     "DDS declares a DX10 header but the file ends before it" );
-            const uint32_t dxgi      = ReadU32( bytes + dataAt );
-            const uint32_t dimension = ReadU32( bytes + dataAt + 4 );
-            dataAt += kDx10HeaderSize;
-            isVolume = isVolume || dimension == kDx10Texture3D;
-            format   = FromDxgi( dxgi );
-            if ( !format )
-                return Common::MakeError<DdsSourceImage>( std::format(
-                     "DDS pixel format DXGI_FORMAT {} (DX10) is not a supported texture source "
-                     "(BC1-BC7, R8G8B8A8/B8G8R8A8/B8G8R8X8, R16G16B16A16 UNORM/FLOAT, R32G32B32A32_FLOAT)",
-                     dxgi ) );
-            format->Name += " (DX10)";
-        }
-        else if ( ( pfFlags & kPixelFormatFourCC ) != 0 )
-        {
-            format = FromFourCC( fourCC );
-            if ( !format )
-                return Common::MakeError<DdsSourceImage>( std::format(
-                     "DDS pixel format {} is not a supported texture source", DescribeFourCC( fourCC ) ) );
-        }
-        else if ( ( pfFlags & kPixelFormatRGB ) != 0 && bpp == 32 && IsByteMask( masks.R ) &&
-                  IsByteMask( masks.G ) && IsByteMask( masks.B ) && IsByteMask( masks.A ) && masks.R != 0 )
-        {
-            format = Recognised{ Layout::Masked32,
-                                 std::format( "32-bit RGB masks R={:#010x} G={:#010x} B={:#010x} A={:#010x}",
-                                              masks.R, masks.G, masks.B,
-                                              ( pfFlags & kPixelFormatAlphaPixels ) != 0 ? masks.A : 0u ) };
-        }
-        else
-        {
-            return Common::MakeError<DdsSourceImage>( std::format(
-                 "DDS legacy pixel format (flags {:#x}, {} bits, masks R={:#010x} G={:#010x} B={:#010x} "
-                 "A={:#010x}) is not a supported texture source — only 32-bit RGB(A) with 8-bit channels is",
-                 pfFlags, bpp, masks.R, masks.G, masks.B, masks.A ) );
-        }
-
-        if ( !format.has_value() )
-            return Common::MakeError<DdsSourceImage>( "DDS pixel format was not recognised" );
-        const Recognised& recognised = *format;
-
-        if ( isVolume )
-            return Common::MakeError<DdsSourceImage>(
-                 std::format( "DDS {} is a volume texture; a texture source is one 2D image", recognised.Name ) );
-        if ( width == 0 || height == 0 || width > 16384 || height > 16384 )
-            return Common::MakeError<DdsSourceImage>( std::format(
-                 "DDS {} has extent {}x{}; 1..16384 per side is accepted", recognised.Name, width, height ) );
-
-        const Layout      kind    = recognised.Kind;
+        auto header = ParseHeader( bytes, size );
+        if ( !header.IsSuccess() )
+            return Common::MakeError<DdsSourceImage>( header.GetError() );
+        const Parsed&     parsed  = header.GetValue();
+        const Layout      kind    = parsed.Format.Kind;
+        const uint32_t    width   = parsed.Width;
+        const uint32_t    height  = parsed.Height;
+        const uint32_t    pfFlags = parsed.PfFlags;
+        const Masks&      masks   = parsed.ChannelMasks;
+        const std::size_t dataAt  = parsed.DataAt;
         const std::size_t texels  = static_cast<std::size_t>( width ) * height;
         const std::size_t blocksX = ( width + 3u ) / 4u;
         const std::size_t blocksY = ( height + 3u ) / 4u;
-        const std::size_t topMipLen =
-             IsBlock( kind ) ? blocksX * blocksY * BlockBytes( kind ) : texels * TexelBytes( kind );
-        if ( size - dataAt < topMipLen )
-            return Common::MakeError<DdsSourceImage>(
-                 std::format( "DDS {} {}x{} is truncated: the top mip needs {} bytes, the file holds {}",
-                              recognised.Name, width, height, topMipLen, size - dataAt ) );
 
         DdsSourceImage out;
         out.Width  = width;
         out.Height = height;
-        out.Format = recognised.Name;
+        out.Format = parsed.Format.Name;
         out.IsFloat =
              kind == Layout::BC6HU || kind == Layout::BC6HS || kind == Layout::RGBA16F || kind == Layout::RGBA32F;
         if ( out.IsFloat )
@@ -531,5 +574,71 @@ namespace Desert::Editor
             }
         }
         return Common::MakeSuccess( std::move( out ) );
+    }
+    Common::ResultStr<DdsBlockChain> ReadDdsBlockChain( const unsigned char* bytes, std::size_t size )
+    {
+        namespace Fmt = ::Desert::Core::Formats;
+        auto header   = ParseHeader( bytes, size );
+        if ( !header.IsSuccess() )
+            return Common::MakeError<DdsBlockChain>( header.GetError() );
+        const Parsed& parsed = header.GetValue();
+        const Layout  kind   = parsed.Format.Kind;
+
+        DdsBlockChain chain;
+        chain.Width      = parsed.Width;
+        chain.Height     = parsed.Height;
+        chain.LevelCount = parsed.MipCount;
+        chain.SourceName = parsed.Format.Name;
+        // The engine's twin is the format whose blocks are the SAME BYTES (`ImageFormat.hpp`: BC4/BC5/BC7 UNORM,
+        // BC6H UFLOAT). The sRGB spellings are twins too: colour space is the asset's intent, not the block's.
+        // The nearest is what an UNSPECIFIED intent re-encodes to: the signed BC4/BC5 keep their channel count,
+        // the DX9 colour blocks become BC7; a float source has none (the cook keeps floats uncompressed).
+        switch ( kind )
+        {
+            case Layout::BC7:
+                chain.Twin = chain.Nearest = Fmt::ImageFormat::BC7_UNORM;
+                break;
+            case Layout::BC5U:
+                chain.Twin = chain.Nearest = Fmt::ImageFormat::BC5_UNORM;
+                break;
+            case Layout::BC4U:
+                chain.Twin = chain.Nearest = Fmt::ImageFormat::BC4_UNORM;
+                break;
+            case Layout::BC6HU:
+                chain.Twin = Fmt::ImageFormat::BC6H_UFLOAT;
+                break;
+            case Layout::BC5S:
+                chain.Nearest = Fmt::ImageFormat::BC5_UNORM;
+                break;
+            case Layout::BC4S:
+                chain.Nearest = Fmt::ImageFormat::BC4_UNORM;
+                break;
+            case Layout::BC1:
+            case Layout::BC2:
+            case Layout::BC3:
+                chain.Nearest = Fmt::ImageFormat::BC7_UNORM;
+                break;
+            default:
+                break;
+        }
+        if ( chain.Twin == Fmt::ImageFormat::Count )
+            return Common::MakeSuccess( std::move( chain ) );
+
+        // THE FIRST SLICE'S LEVELS ARE CONTIGUOUS (array slices and cube faces are stored slice-major, each with
+        // its whole chain), and every level is whole blocks — a 1x1 level is one block — which is the layout
+        // `TextureBinary::BuildLevelTable` takes, so the bytes are copied and never re-arranged.
+        std::size_t total = 0;
+        for ( uint32_t level = 0; level < chain.LevelCount; ++level )
+        {
+            const std::size_t w = std::max( chain.Width >> level, 1u );
+            const std::size_t h = std::max( chain.Height >> level, 1u );
+            total += ( ( w + 3u ) / 4u ) * ( ( h + 3u ) / 4u ) * BlockBytes( kind );
+        }
+        if ( size - parsed.DataAt < total )
+            return Common::MakeError<DdsBlockChain>( std::format(
+                 "DDS {} {}x{} declares {} mip levels ({} bytes) but the file holds {}", parsed.Format.Name,
+                 chain.Width, chain.Height, chain.LevelCount, total, size - parsed.DataAt ) );
+        chain.Images.assign( bytes + parsed.DataAt, bytes + parsed.DataAt + total );
+        return Common::MakeSuccess( std::move( chain ) );
     }
 } // namespace Desert::Editor

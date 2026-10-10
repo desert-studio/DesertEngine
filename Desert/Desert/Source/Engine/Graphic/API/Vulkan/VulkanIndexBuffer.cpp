@@ -174,9 +174,8 @@ namespace Desert::Graphic::API::Vulkan
 
             vkCmdCopyBuffer( copyCmdVal, stagingBuffer, m_VulkanBuffer, 1, &copyRegion );
 
-            CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( copyCmdVal );
-
-            allocator->RT_DestroyBuffer( stagingBuffer, stagingBufferAllocationVAL );
+            const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( copyCmdVal );
+            allocator->RT_ReleaseStaging( stagingBuffer, stagingBufferAllocationVAL, flushed );
         }
         return Common::MakeSuccess( true );
     }

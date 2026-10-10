@@ -26,11 +26,6 @@ namespace Desert::Core::Serialize
         // spelling, exactly as the branches this replaces said in the same situation ("outside the
         // project — say so plainly").
         AssetsRelative,
-        // The path as this machine spells it. Meshes and skyboxes, and it is what their branches did:
-        // `GetMetadata().Filepath.string()`, ABSOLUTE with a project open. That is the same defect the
-        // material branch was fixed for and it is still live for these two — named here rather than
-        // changed, because changing it rewrites every scene that holds a mesh or a skybox.
-        MachinePath,
         // `assets:Textures/HDR/Sky.detex` — the tagged key and NOTHING ELSE: a file outside every content
         // root renders as "" (the resolver names it), so this form can never carry a machine path. Skyboxes
         // (SCNE 29), whose path is only the locator beside the header GUID.

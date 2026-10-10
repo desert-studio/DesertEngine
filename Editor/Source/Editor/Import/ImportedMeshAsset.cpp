@@ -226,14 +226,15 @@ namespace Desert::Editor
         // A SPLIT IMPORT'S "UP TO DATE" (THM1j): every node mesh the record names is on disk, states the
         // source's current bytes, and every material it slots has its .demat. There is no combined envelope to
         // ask: a split import writes none. A deleted node mesh re-imports the source, as a deleted .demat does.
-        bool SplitImportIsCurrent( const std::filesystem::path& source, const std::vector<std::string>& nodes )
+        bool SplitImportIsCurrent( const std::filesystem::path&                                source,
+                                   const std::vector<Assets::Serialization::ImportRecordNode>& nodes )
         {
             const auto hash = Assets::HashMeshSourceFile( source );
             if ( !hash )
                 return false;
-            for ( const std::string& node : nodes )
+            for ( const auto& node : nodes )
             {
-                const std::filesystem::path path  = NodeMeshAssetPath( source, node );
+                const std::filesystem::path path  = NodeMeshAssetPath( source, node.Name );
                 const auto                  asset = Assets::LoadMeshSourceAsset( path );
                 if ( !asset )
                 {
@@ -324,8 +325,8 @@ namespace Desert::Editor
             const auto& stated = record.GetValue();
             if ( !stated || !stated->Nodes )
                 continue;
-            for ( const std::string& node : *stated->Nodes )
-                if ( NodeMeshAssetPath( source, node ).filename() == meshFile.filename() )
+            for ( const auto& node : *stated->Nodes )
+                if ( NodeMeshAssetPath( source, node.Name ).filename() == meshFile.filename() )
                 {
                     const std::lock_guard lock( mutex );
                     found[key] = source;

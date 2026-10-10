@@ -1172,6 +1172,175 @@ TEST_F( TextureImport, ABrokenExrCooksNothingAndSaysWhereAndWhy )
     EXPECT_EQ( text.find( "stbi_load" ), std::string::npos ) << "an EXR must never reach stb\n" << text;
 }
 
+// IMP-DDS-BLOCKS. A DDS's blocks are already lossy: when they are the format the intent asks for they are stored
+// byte for byte with the file's own mips (UE takes a DDS's mips as the source's); otherwise they are decoded and
+// encoded into the intent's format WITHOUT the measurement's gates. Every file is built here from the DDS layout.
+// Mutation: TextureImporter.cpp `ddsTarget == chain.Twin` -> `false` => red in the two "keeps" tests.
+namespace
+{
+    void PutAt( std::vector<unsigned char>& out, std::size_t at, uint32_t v )
+    {
+        for ( int i = 0; i < 4; ++i )
+            out[at + i] = static_cast<unsigned char>( v >> ( 8 * i ) );
+    }
+
+    /// A DDS of `width` x `height` with `mips` levels whose payload is `blocks`. `dxgi` >= 0 writes the DX10
+    /// header with that DXGI_FORMAT; otherwise `fourCC` names the DX9 format.
+    void WriteDds( const fs::path& path, uint32_t width, uint32_t height, uint32_t mips, int64_t dxgi,
+                   const char* fourCC, const std::vector<unsigned char>& blocks )
+    {
+        std::vector<unsigned char> file( 128 + ( dxgi >= 0 ? 20 : 0 ), 0 );
+        std::memcpy( file.data(), "DDS ", 4 );
+        PutAt( file, 4, 124 );
+        PutAt( file, 8, 0x1007 | 0x20000 ); // CAPS | HEIGHT | WIDTH | PIXELFORMAT | MIPMAPCOUNT
+        PutAt( file, 12, height );
+        PutAt( file, 16, width );
+        PutAt( file, 28, mips );
+        PutAt( file, 76, 32 );
+        PutAt( file, 80, 0x4 ); // DDPF_FOURCC
+        std::memcpy( file.data() + 84, dxgi >= 0 ? "DX10" : fourCC, 4 );
+        PutAt( file, 108, 0x1000 ); // DDSCAPS_TEXTURE
+        if ( dxgi >= 0 )
+        {
+            PutAt( file, 128, static_cast<uint32_t>( dxgi ) );
+            PutAt( file, 132, 3 ); // TEXTURE2D
+            PutAt( file, 140, 1 ); // arraySize
+        }
+        file.insert( file.end(), blocks.begin(), blocks.end() );
+        fs::create_directories( path.parent_path() );
+        std::ofstream     out( path, std::ios::binary );
+        const std::string bytes( file.begin(), file.end() );
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+    }
+
+    /// One 16-byte block per block of an 8x8 four-level chain (4 + 1 + 1 + 1), every byte different from its
+    /// neighbours so a reordered, dropped or re-encoded level changes the bytes. `firstByte` leads each block
+    /// (0x40 = BC7 mode 6, so the blocks are BC7 a decoder accepts).
+    std::vector<std::vector<unsigned char>> DistinctChain( unsigned char firstByte )
+    {
+        std::vector<std::vector<unsigned char>> levels;
+        unsigned                                seed = 11;
+        for ( const int blocks : { 4, 1, 1, 1 } )
+        {
+            std::vector<unsigned char> level;
+            for ( int b = 0; b < blocks; ++b )
+                for ( int i = 0; i < 16; ++i )
+                {
+                    seed = seed * 1103515245u + 12345u;
+                    level.push_back( i == 0 ? firstByte : static_cast<unsigned char>( seed >> 16 ) );
+                }
+            levels.push_back( std::move( level ) );
+        }
+        return levels;
+    }
+
+    std::vector<unsigned char> Concat( const std::vector<std::vector<unsigned char>>& levels )
+    {
+        std::vector<unsigned char> out;
+        for ( const auto& l : levels )
+            out.insert( out.end(), l.begin(), l.end() );
+        return out;
+    }
+
+    void ExpectLevelsAreTheBlocks( const Desert::Assets::Serialization::TextureAssetData& data,
+                                   const std::vector<std::vector<unsigned char>>&         levels )
+    {
+        ASSERT_EQ( data.Levels.size(), levels.size() );
+        for ( std::size_t i = 0; i < levels.size(); ++i )
+        {
+            const auto& l = data.Levels[i];
+            ASSERT_LE( l.ByteOffset + l.ByteSize, data.Pixels.size() ) << "level " << i;
+            const std::vector<unsigned char> cooked(
+                 data.Pixels.begin() + static_cast<std::ptrdiff_t>( l.ByteOffset ),
+                 data.Pixels.begin() + static_cast<std::ptrdiff_t>( l.ByteOffset + l.ByteSize ) );
+            EXPECT_EQ( cooked, levels[i] ) << "level " << i << " is not the DDS's own blocks";
+        }
+    }
+} // namespace
+
+TEST_F( TextureImport, ABc7DdsAuthoredAsColourKeepsItsBlocksAndItsMipsByteForByte )
+{
+    const fs::path source = TexturesDir() / "T_Bc7.dds";
+    const auto     levels = DistinctChain( 0x40 );
+    WriteDds( source, 8, 8, 4, 98, nullptr, Concat( levels ) ); // DXGI_FORMAT_BC7_UNORM
+    WriteIntent( source, "Colour" );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto data = CookedData( source );
+    EXPECT_EQ( data.Intent, Fmt::TextureIntent::Colour );
+    ASSERT_EQ( data.Format, Fmt::ImageFormat::BC7_UNORM );
+    ExpectLevelsAreTheBlocks( data, levels );
+}
+
+TEST_F( TextureImport, ABc5DdsAuthoredAsANormalMapKeepsItsBlocksAndItsMipsByteForByte )
+{
+    const fs::path source = TexturesDir() / "T_Bc5_nrm.dds";
+    const auto     levels = DistinctChain( 0x9D );
+    WriteDds( source, 8, 8, 4, 83, nullptr, Concat( levels ) ); // DXGI_FORMAT_BC5_UNORM
+    WriteIntent( source, "NormalMap" );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto data = CookedData( source );
+    EXPECT_EQ( data.Intent, Fmt::TextureIntent::NormalMap );
+    ASSERT_EQ( data.Format, Fmt::ImageFormat::BC5_UNORM );
+    ExpectLevelsAreTheBlocks( data, levels );
+}
+
+TEST_F( TextureImport, ABc1DdsAuthoredAsANormalMapIsEncodedToBC5WithoutTheGates )
+{
+    // BC1 has no engine twin, so its blocks are decoded and encoded to the intent's format. The gates are NOT
+    // asked: they grade the re-encode against an image already decoded from blocks and refused 13 of 34 Bistro
+    // textures into four times the bytes.
+    const fs::path                   source = TexturesDir() / "T_Bc1_nrm.dds";
+    const std::vector<unsigned char> red    = { 0x00, 0xF8, 0x1F, 0x00, 0, 0, 0, 0 };
+    std::vector<unsigned char>       blocks;
+    for ( int b = 0; b < 4 + 1 + 1 + 1; ++b )
+        blocks.insert( blocks.end(), red.begin(), red.end() );
+    WriteDds( source, 8, 8, 4, -1, "DXT1", blocks );
+    WriteIntent( source, "NormalMap" );
+
+    TextureImporter  importer;
+    const LogCapture log;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto data = CookedData( source );
+    EXPECT_EQ( data.Intent, Fmt::TextureIntent::NormalMap );
+    EXPECT_EQ( data.Format, Fmt::ImageFormat::BC5_UNORM ) << log.Text();
+    EXPECT_EQ( data.Levels.size(), 4u );
+    EXPECT_EQ( log.Text().find( "kept uncompressed" ), std::string::npos ) << log.Text();
+}
+
+TEST_F( TextureImport, ADdsWithoutItsMipsIsEncodedIntoAWholeChainNotStoredShort )
+{
+    // A BC7 file of ONE level is the intent's format but not a whole chain: it is decoded and encoded with the
+    // chain the cook builds, never stored as a one-level texture. Mode 6, every endpoint 255, indices zero:
+    // opaque white, which the decoder must read.
+    const fs::path             source = TexturesDir() / "T_Bc7_nomips.dds";
+    std::vector<unsigned char> white( 16, 0 );
+    white[0] = 0xC0;
+    for ( int i = 1; i < 8; ++i )
+        white[i] = 0xFF;
+    white[8] = 0x01;
+    std::vector<unsigned char> blocks;
+    for ( int b = 0; b < 4; ++b )
+        blocks.insert( blocks.end(), white.begin(), white.end() );
+    WriteDds( source, 8, 8, 1, 98, nullptr, blocks );
+    WriteIntent( source, "Colour" );
+
+    TextureImporter  importer;
+    const LogCapture log;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto data = CookedData( source );
+    EXPECT_EQ( data.Format, Fmt::ImageFormat::BC7_UNORM ) << log.Text();
+    EXPECT_EQ( data.Levels.size(), 4u ) << "a one-level source still cooks the whole chain";
+    EXPECT_EQ( log.Text().find( "keeps its DDS blocks" ), std::string::npos ) << log.Text();
+}
+
 namespace
 {
     // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
