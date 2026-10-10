@@ -142,8 +142,10 @@ namespace Desert::Input
                 if ( ok )
                     ok = AddLoadedContext( name, context->GetData(), actions, priority );
                 if ( !ok )
+                {
                     LOG_ERROR( "[Input] mapping context '{}' was not added: {}",
                                context->GetMetadata().Filepath.string(), ok.GetError() );
+                }
                 else if ( added != nullptr )
                     added->push_back( name );
             }
@@ -218,7 +220,8 @@ namespace Desert::Input
         }
         if ( auto added = m_Subsystem.AddMappingContext( context, priority ); !added )
             return added;
-        m_ContextNames[name] = Common::Content::AssetGuidFromText( context.Header->Guid ).GetValue();
+        const auto contextGuid = Common::Content::AssetGuidFromText( context.Header->Guid );
+        m_ContextNames[name]   = contextGuid.GetValue();
         return BOOLSUCCESS;
     }
 

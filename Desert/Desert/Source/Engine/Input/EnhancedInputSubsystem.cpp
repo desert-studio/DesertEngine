@@ -196,8 +196,9 @@ namespace Desert::Input
             std::vector<InputKey> consumedHere;
             for ( const InputKeyMappingData& mapping : context->Data.Mappings )
             {
-                const std::string actionKey = Common::Content::AssetGuidToText(
-                     Common::Content::AssetGuidFromText( mapping.Action.Guid ).GetValue() );
+                // AddMappingContext validated every action GUID, so the parse succeeds.
+                const auto        actionGuid = Common::Content::AssetGuidFromText( mapping.Action.Guid );
+                const std::string actionKey  = Common::Content::AssetGuidToText( actionGuid.GetValue() );
                 // The player's key for this mapping when it has one (validated on the way in), else the asset's.
                 std::string keyName = mapping.Key;
                 for ( const UserKeyOverride& o : m_UserKeys.Overrides )

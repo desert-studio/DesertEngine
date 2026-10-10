@@ -61,7 +61,7 @@ namespace Desert::Core
         const auto&                       reg = scene.GetRegistry();
         std::vector<entt::entity>         entities;
         std::vector<PlayerStartCandidate> starts;
-        for ( const auto entity : reg.view<ECS::PlayerStartComponent, ECS::TransformComponent>() )
+        for ( const auto entity : reg.view<const ECS::PlayerStartComponent, const ECS::TransformComponent>() )
         {
             entities.push_back( entity );
             starts.push_back(
