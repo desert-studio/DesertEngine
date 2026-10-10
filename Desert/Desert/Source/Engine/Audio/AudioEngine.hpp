@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Core.hpp>
+#include <Engine/Audio/AudioMix.hpp>
 
 #include <glm/glm.hpp>
 
@@ -9,6 +10,7 @@
 #include <string>
 
 struct ma_engine;
+struct ma_sound; // ma_sound_group is a ma_sound
 
 namespace Desert::Audio
 {
@@ -34,10 +36,12 @@ namespace Desert::Audio
         void SetListener( const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up );
 
         // Fire-and-forget playback (2D, non-spatial). Path resolution: as-given, then Assets-relative.
-        void PlayOneShot( const std::string& clipPath, float volume = 1.0f );
+        // Every sound plays in one SoundClass, whose AudioMix volume scales it.
+        void PlayOneShot( const std::string& clipPath, SoundClass soundClass, float volume = 1.0f );
 
         // Managed sources (AudioECSSystem). 0 is the invalid id.
-        uint32_t CreateSource( const std::string& clipPath, bool loop, bool spatial, float volume );
+        uint32_t CreateSource( const std::string& clipPath, SoundClass soundClass, bool loop, bool spatial,
+                               float volume );
         void     DestroySource( uint32_t id );
         void     StartSource( uint32_t id );
         void     StopSource( uint32_t id );
@@ -54,6 +58,9 @@ namespace Desert::Audio
         // The miniaudio engine itself, for a producer that streams its own PCM into the mix (Media's
         // MediaAudioOutput). Initializes the device on first use; nullptr when there is no audio device.
         ma_engine* GetNativeEngine();
+        // The sound group of @p soundClass, for such a producer to play inside its class. nullptr when there is
+        // no audio device.
+        ma_sound* GetClassGroup( SoundClass soundClass );
 
         // Per-frame housekeeping: reclaims finished one-shots.
         void Update();

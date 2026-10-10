@@ -79,8 +79,10 @@ namespace Desert::ECS
                         m_Sources.emplace( entity, 0 ); // one line, no retry every frame
                         continue;
                     }
-                    const uint32_t id = audio.CreateSource( file.GetValue().string(), source.Loop, source.Spatial,
-                                                            source.Volume );
+                    // Effects until AudioSourceData carries its own class (UE: USoundBase::SoundClass) —
+                    // a serialized field, so a migrator step of its own.
+                    const uint32_t id = audio.CreateSource( file.GetValue().string(), Audio::SoundClass::Effects,
+                                                            source.Loop, source.Spatial, source.Volume );
                     if ( id == 0 )
                     {
                         m_Sources.emplace( entity, 0 ); // failed clip: don't retry every frame
