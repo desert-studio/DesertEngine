@@ -62,13 +62,18 @@ namespace
         bool IsDecorated() const override { return true; }
         bool HasDrawableArea() const override { return true; }
         void Show() override {}
-        void SetDisplay( const Common::Scalability::DisplaySettings& display ) override
+        void       SetDisplay( const Common::Scalability::DisplaySettings& display ) override
         {
             ++VSyncCalls;
             VSync = display.VSync;
         }
-        std::string GetClipboardText() const override { return {}; }
-        void SetClipboardText( const std::string& ) override {}
+        std::string GetClipboardText() const override
+        {
+            return {};
+        }
+        void SetClipboardText( const std::string& ) override
+        {
+        }
         uint32_t GetWidth() const override { return Width; }
         uint32_t GetHeight() const override { return Height; }
         const void* GetNativeWindow() const override { return nullptr; }

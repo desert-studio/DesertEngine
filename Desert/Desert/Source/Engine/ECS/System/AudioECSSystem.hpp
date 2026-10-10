@@ -153,8 +153,9 @@ namespace Desert::ECS
                             break; // the diff still holds the voice: one line, no retry spam
                         }
                         // Effects, as the AudioSource path above, until the sound carries its own class.
-                        const uint32_t id = audio.CreateSource( file.GetValue().string(), Audio::SoundClass::Effects,
-                                                                false, false, command.Gain ); // 2D, as UE's master track
+                        const uint32_t id =
+                             audio.CreateSource( file.GetValue().string(), Audio::SoundClass::Effects, false,
+                                                 false, command.Gain ); // 2D, as UE's master track
                         if ( id == 0 )
                             break; // CreateSource logged the path; the diff still holds the voice, no retry spam
                         audio.SeekSource( id, command.Seconds );

@@ -134,7 +134,8 @@ namespace Desert::Settings
         // VSync goes through the swapchain's present pacing (Window::SetDisplay rebuilds it only on a change);
         // the rest of that pacing is kept as it is.
         const std::shared_ptr<Graphic::SwapChain> swapChain = window.GetWindowSwapChain();
-        Common::Scalability::DisplaySettings pacing = swapChain ? swapChain->Display() : Common::Scalability::DisplaySettings{};
+        Common::Scalability::DisplaySettings      pacing =
+             swapChain ? swapChain->Display() : Common::Scalability::DisplaySettings{};
         pacing.VSync = display.VSync;
         window.SetDisplay( pacing );
         pacer.SetLimit( display.FrameRateLimit );
