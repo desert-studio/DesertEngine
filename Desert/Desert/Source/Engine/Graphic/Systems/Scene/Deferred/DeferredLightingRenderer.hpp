@@ -95,8 +95,8 @@ namespace Desert::Graphic::System
         {
             const auto upload = [&graph]( const auto& lights, std::string_view name )
             {
-                const std::span<const std::byte> bytes  = ShaderProtocols::LightPayloadBytes( lights );
-                const RDG::BufferRef             buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
+                const std::span<const std::byte> bytes = ShaderProtocols::LightPayloadBytes( lights );
+                const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
                 graph.QueueBufferUpload( buffer, bytes );
                 return buffer;
             };
