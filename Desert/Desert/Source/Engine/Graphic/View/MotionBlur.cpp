@@ -1,6 +1,5 @@
 #include "MotionBlur.hpp"
 
-#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -309,7 +308,7 @@ namespace Desert::Graphic
             error = std::format( "MotionBlur: no shader service to compile '{}'", name );
             return nullptr;
         }
-        const std::shared_ptr<Shader> shader = service->AcquireVariant( name, Core::ShaderVariant{} );
+        const std::shared_ptr<Shader> shader = service->GetByName( name );
         if ( !shader )
         {
             error = std::format( "MotionBlur: the shader '{}' did not compile — expected "

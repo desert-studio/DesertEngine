@@ -460,6 +460,11 @@ namespace Desert::Graphic::RDG
                     existing.AccessMask   = mask;
                     continue;
                 }
+                // The rule is the subresource's state, not the entry count: one shader-resource access stated by
+                // several binding blocks of the pass (the particle nodes' one block per emitter over the scene's
+                // pool) is one use. An attachment is one slot of the render pass and is never stated twice.
+                if ( use.Attachment < 0 && existing.FirstAccess == use.Usage && existing.State == state )
+                    continue;
                 if ( !existing.State.IsReadOnly() || !state.IsReadOnly() || existing.State.Layout != state.Layout )
                 {
                     error = fmt::format( "graph '{}' pass '{}' declares {} as both {} and {}; one pass may hold a "
