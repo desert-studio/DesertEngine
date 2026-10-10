@@ -308,7 +308,8 @@ TEST( LevelSequenceSubsequenceEdit, EachEditIsOneUndoStep )
     }
     ASSERT_EQ( history.UndoStack().size(), 2U );
     ASSERT_TRUE( history.Undo() );
-    EXPECT_EQ( KeyOn( DoorPose( sequence ).Translation.X, 100 ).Interp, A::KeyInterp::Linear );
+    EXPECT_EQ( KeyOn( DoorPose( sequence ).Translation.X, 100 ).Interp, A::KeyInterp::Cubic )
+         << "back to the shape a fresh key gets: Cubic, as UE's Sequencer";
     EXPECT_EQ( ECS::SubsequenceSections( sequence ).size(), 1U ) << "the undo took back only the key shape";
     ASSERT_TRUE( history.Undo() );
     EXPECT_TRUE( ECS::SubsequenceSections( sequence ).empty() );

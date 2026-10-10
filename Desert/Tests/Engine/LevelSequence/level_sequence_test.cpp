@@ -788,7 +788,12 @@ TEST( LevelSequenceAsset, ATransformTrackKeepsEveryInterpolationAndTangentThroug
 
 TEST( LevelSequencePlayer, AdvancesAtThePlayRateAndLoopsTheBoundEntity )
 {
-    const T::Sequence           sequence = AuthoredDoor(); // door X = tick on 0..100
+    T::Sequence sequence = AuthoredDoor();
+    // A fresh key is Cubic (UE's Sequencer); made Linear here so that door X = tick on 0..100.
+    ASSERT_TRUE( ECS::SetEntityTransformKeyShape( sequence, sequence.Bindings.front().Guid,
+                                                  { A::FrameNumber{ 0 }, A::FrameNumber{ 100 } },
+                                                  A::KeyInterp::Linear, A::TangentMode::Auto )
+                      .IsSuccess() );
     World                       world;
     ECS::LevelSequenceComponent component;
     component.Loop     = T::LoopMode::Loop;
@@ -1141,7 +1146,8 @@ TEST( LevelSequencePlayback, ASubsequenceMovesItsActorsAndFiresItsEventsAtTheMap
     inner.Tracks.push_back( std::move( events ) );
 
     const AssetGuid   innerGuid{ 9, 1 };
-    const T::Sequence outer  = Playing( innerGuid, 20, 80 ); // 60 ticks/s: inner tick = (parent - 20) / 2
+    T::Sequence       outer  = Playing( innerGuid, 20, 80 );
+    outer.TickRate           = A::FrameRate{ 60, 1 }; // 60 ticks/s: inner tick = (parent - 20) / 2
     const auto        source = SourceOf( { { "Inner", &inner } }, { { "Inner", innerGuid } } );
 
     World                             world;
@@ -1218,7 +1224,8 @@ TEST( LevelSequenceKeys, KeyShapeSetsEveryLaneOfTheKeyAndRotationStaysASlerp )
     EXPECT_EQ( KeyOn( pose.Scale.Z, 100 ).Interp, A::KeyInterp::Cubic );
     EXPECT_EQ( KeyOn( pose.Translation.Y, 100 ).Mode, A::TangentMode::User );
     EXPECT_EQ( KeyOn( pose.Rotation.W, 100 ).Interp, A::KeyInterp::Linear ) << "a quaternion lane is never Cubic";
-    EXPECT_EQ( KeyOn( pose.Translation.X, 0 ).Interp, A::KeyInterp::Linear ) << "only the named key changed";
+    EXPECT_EQ( KeyOn( pose.Translation.X, 0 ).Interp, A::KeyInterp::Cubic )
+         << "only the named key changed; the other keeps a fresh key's Cubic";
 
     // A tick with no key refuses the whole edit.
     const T::Sequence before = sequence;
@@ -1226,7 +1233,7 @@ TEST( LevelSequenceKeys, KeyShapeSetsEveryLaneOfTheKeyAndRotationStaysASlerp )
                                                    A::KeyInterp::Constant, A::TangentMode::Auto )
                        .IsSuccess() );
     EXPECT_EQ( sequence.Revision, before.Revision );
-    EXPECT_EQ( KeyOn( DoorPose( sequence ).Translation.X, 0 ).Interp, A::KeyInterp::Linear );
+    EXPECT_EQ( KeyOn( DoorPose( sequence ).Translation.X, 0 ).Interp, A::KeyInterp::Cubic );
 }
 
 TEST( LevelSequenceKeys, AnEaseInOutOnLocationInsertsTheMiddleKeyAndRefusesRotationAndTheFirstKey )

@@ -589,7 +589,9 @@ TEST( EnhancedInputPlayer, LuaInputTableNamesActionsContextsAndRebinding )
     for ( const char* name :
           { "isKeyDown", "wasPressed", "actionValue", "actionTriggered", "actionStarted", "actionOngoing",
             "actionCompleted", "actionCanceled", "actionSeconds", "addContext", "removeContext", "rebindKey" } )
-        EXPECT_NE( lua.find( std::string( "input[\"" ) + name + "\"]" ), std::string::npos ) << name;
+        EXPECT_NE( lua.find( std::string( "{ \"" ) + name + "\", &" ), std::string::npos ) << name;
+    EXPECT_NE( lua.find( "luaL_register( L, \"Input\", kInput )" ), std::string::npos )
+         << "the entries are the global Input table's";
 }
 
 namespace
