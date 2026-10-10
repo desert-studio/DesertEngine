@@ -7,7 +7,9 @@
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <span>
 
@@ -100,12 +102,42 @@ namespace Desert::Animation::Graph
         std::vector<Transition> Transitions;
     };
 
+    /**
+     * @brief A comment box on a graph canvas (UE: UEdGraphNode_Comment - NodeComment, NodePosX/Y,
+     *        NodeWidth/Height): a titled frame the author draws around nodes (key C) and drags them with.
+     *        It belongs to ONE canvas - the pose graph, a layer graph or a state machine - and is stored with
+     *        that canvas's nodes. Editor-only data: persisted, never read at runtime.
+     */
+    struct GraphComment
+    {
+        /// Identity within its canvas (UE: NodeGuid), issued by `AddComment` and never reused while the
+        /// comment lives: the canvas keys the box by it, so deleting one box cannot hand its place to another.
+        uint32_t    Id = 0;
+        std::string Text;
+        float       X      = 0.0f; // the box's top-left on the canvas (title included)
+        float       Y      = 0.0f;
+        float       Width  = 0.0f; // the framed area under the title
+        float       Height = 0.0f;
+    };
+
+    /// Appends a comment to `comments` with an id none of them carries, and returns it.
+    inline GraphComment& AddComment( std::vector<GraphComment>& comments, std::string text, float x, float y,
+                                     float width, float height )
+    {
+        uint32_t next = 1;
+        for ( const GraphComment& existing : comments )
+            next = std::max( next, existing.Id + 1 );
+        comments.push_back( GraphComment{ next, std::move( text ), x, y, width, height } );
+        return comments.back();
+    }
+
     /// A state machine: the payload of a StateMachine pose node (UE: FAnimNode_StateMachine). Its states
     /// play clips; its output pose is the running state's.
     struct StateMachine
     {
         std::string        Entry; // entry state name (defaults to the first state if empty)
         std::vector<State> States;
+        std::vector<GraphComment> Comments; // the machine canvas's comment boxes
     };
 
     /// What a pose node IS. Append only (stored as int). Each kind states its pins in `PinsOf`.
@@ -241,6 +273,7 @@ namespace Desert::Animation::Graph
         std::string           OutputPose;
         float                 OutputPoseX = 0.0f; // the Output Pose node's canvas position (as PoseNode X/Y)
         float                 OutputPoseY = 0.0f;
+        std::vector<GraphComment> Comments; // the layer graph canvas's comment boxes
     };
 
     /// The linked-layer half of a graph: the interfaces it declares (to call or to implement) and the layer
@@ -279,6 +312,8 @@ namespace Desert::Animation::Graph
         /// Declared layer interfaces and implemented layer graphs; absent = the graph neither calls nor
         /// implements a linked layer (the files written before ANIM-I14 are exactly that).
         std::optional<AnimGraphLayers> Layers;
+        /// The pose graph canvas's comment boxes (a layer graph and a state machine carry their own).
+        std::vector<GraphComment> Comments;
     };
 
     /// The interface `name` the graph declares, or nullptr.

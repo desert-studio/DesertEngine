@@ -2,6 +2,7 @@
 
 #include "../IPanel.hpp"
 #include "LevelMaterialProperties.hpp"
+#include "OutlinerColumn.hpp"
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
@@ -29,6 +30,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Desert::Core
 {
@@ -294,6 +296,15 @@ namespace Desert::Editor
         /// The Event track row of @p binding (UE: the Event Track): "+ Key" at the playhead, each key a marker
         /// with its name; click selects, a drag retimes it on the display grid (one undo step on release), the
         /// selected key's name is edited in the row (one undo step per committed edit), Delete removes it.
+        /// A row's name in the Outliner's names column at (@p x, the cursor's line): fitted with "…" to the
+        /// column's right edge (`m_LevelNameWidth` from @p contentX0), the full name in its tooltip when cut.
+        void DrawLevelRowLabel( std::string_view label, float contentX0, float x );
+        /// The cursor to the controls column on the line of the item just drawn (UE: a row's buttons sit
+        /// after the names column, wherever its splitter is).
+        void SameLineAtLevelControls( float contentX0 ) const;
+        /// The splitter at the names column's right edge over [@p yTop, @p yBottom]: a drag sets
+        /// `m_LevelNameWidth`; the cursor is left where it was.
+        void DrawLevelNameSplitter( float contentX0, float yTop, float yBottom, float panelWidth );
         void DrawLevelEventRow( Animation::Timeline::Sequence&          sequence,
                                 const Animation::Timeline::BindingGuid& binding, const char* label,
                                 float contentX0, float laneX0, float laneW );
@@ -324,6 +335,8 @@ namespace Desert::Editor
         char                         m_LevelEventName[128] = {}; ///< the row's name field for the selected event
         bool                         m_LevelEventNameEditing =
              false; ///< the field holds a typed, uncommitted name (else it mirrors the key)
+        /// The Outliner's names column width (UE: the Sequencer's splitter between the tree and the lanes).
+        float                                      m_LevelNameWidth = Sequencer::OutlinerColumn::kDefaultNameWidth;
         std::optional<Animation::Timeline::Player> m_LevelPlayer;
         Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
         Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };

@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -52,13 +54,17 @@ namespace Desert::Editor::Graph
         Node = 0,
         Pin  = 1,
         Link = 2,
+        /// A comment box (UE: UEdGraphNode_Comment). A NODE to `imgui-node-editor`, but issued from its own
+        /// range so its key can never meet a state or node name of the same spelling.
+        Comment = 3,
     };
 
     inline constexpr uint64_t kKindSpan = 0x2000'0000ULL;
     inline constexpr uint64_t kNodeBase = 1ULL;             // 0 is Invalid, so the node range starts at 1
     inline constexpr uint64_t kPinBase  = kKindSpan;        // 0x2000'0000
-    inline constexpr uint64_t kLinkBase = kKindSpan * 2ULL; // 0x4000'0000
-    inline constexpr uint64_t kEndOfIds = kKindSpan * 3ULL; // one past the last id any kind may take
+    inline constexpr uint64_t kLinkBase    = kKindSpan * 2ULL; // 0x4000'0000
+    inline constexpr uint64_t kCommentBase = kKindSpan * 3ULL; // 0x6000'0000
+    inline constexpr uint64_t kEndOfIds    = kKindSpan * 4ULL; // one past the last id any kind may take
 
     /// The range an id belongs to. An id outside every range answers `Node`, which is what the shader
     /// graph's own small ids are — it is a RANGE question and not a claim about a particular document.
@@ -147,7 +153,7 @@ namespace Desert::Editor::Graph
         ElementLedger                             m_Ledger;
         std::unordered_map<std::string, uint64_t> m_ByKey;  // kind+key -> id
         std::unordered_map<uint64_t, std::string> m_ById;   // id -> document key (no kind prefix)
-        std::array<uint64_t, 3>                   m_Next{}; // next free offset within each kind's range
+        std::array<uint64_t, 4>                   m_Next{}; // next free offset within each kind's range
     };
 
     // ── WHAT A CANVAS IS ASKED TO DRAW, AS DATA ───────────────────────────────────────────────────────
@@ -222,6 +228,26 @@ namespace Desert::Editor::Graph
         float m_LastWidth    = 0.0f;
         float m_LastHeight   = 0.0f;
     };
+
+    // ── COMMENT BOXES AND FIND, THE PARTS THAT NEED NO UI CONTEXT ────────────────────────────────────
+
+    /// A rectangle in canvas space.
+    struct CanvasRect
+    {
+        float X      = 0.0f;
+        float Y      = 0.0f;
+        float Width  = 0.0f;
+        float Height = 0.0f;
+    };
+
+    /// The area a comment box made by `C` frames: the union of @p rects grown by @p padding on every side
+    /// (UE: FEdGraphSchemaAction_NewComment over the selection's bounds). Nothing when @p rects is empty -
+    /// the caller then places a default-sized box at the cursor instead.
+    [[nodiscard]] std::optional<CanvasRect> EncloseRects( std::span<const CanvasRect> rects, float padding );
+
+    /// Find… : the indices of @p names containing @p query, case-insensitively, in their own order. An
+    /// empty query matches every name, so an opened search lists the whole canvas before a key is typed.
+    [[nodiscard]] std::vector<size_t> FindMatches( std::span<const std::string> names, std::string_view query );
 
     /// FNV-1a over everything a frame would submit. Positions are hashed as their exact bit pattern, so
     /// a layout that shifted by one pixel moves the number.
