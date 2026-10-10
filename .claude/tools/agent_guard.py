@@ -91,6 +91,16 @@ def brief_size_denial(prompt):
         return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
                 f"(предел {MAX_BRIEF_ITEMS} / {MAX_BRIEF_DO_CHARS}). 10-05: 3 из 4 агентов с 4–6 пунктами упёрлись в 60 вызовов. "
                 "Режь на задачи с ОДНИМ результатом, остальное — отдельными брифами в очередь.")
+    # Owner 10-10: «опять пишет тесты не проверив, что работает фича — тесты в самом конце, чтобы 100 раз им не уделять
+    # внимание». A code brief asks for code + build only; tests/suites/mutations are their own brief, written once the
+    # feature was seen working, and that brief names the proof in a «Фича принята:» line.
+    # Target names (EditorTests) and clauses handing suites to the lead («Сюиты/CI — тимлид») are not asks.
+    asks_tests = re.search(r"(?i)мутац\w*|\bтест\w*|\bсюит\w*|\bsuites?\b|\btests?\b",
+                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|\w*Tests\b", "", body))
+    if asks_tests and "Фича принята:" not in text:
+        return (f"[agent_guard] Тимлид: бриф {found.group(0)} просит тесты/мутации вместе с кодом («{asks_tests.group(0)}»). "
+                "Владелец 10-10: тесты — в самом конце. Порядок: код + сборка → тимлид проверяет фичу вживую → отдельный "
+                "бриф на тесты со строкой «Фича принята: <кадр/MCP-проверка>».")
     return None
 
 
@@ -370,6 +380,14 @@ def self_check():
         cases["lead launches a fat brief"] = None
         if '"deny"' not in out.stdout:
             failed.append("lead launches a fat brief")
+        with open(fat, "w", encoding="utf-8") as f:
+            f.write("## Сделать\n1. Код фичи, собрать Editor EditorTests.\n2. Написать новую сюиту FooBar + мутация.\n")
+        out = subprocess.run([sys.executable, __file__], input=json.dumps({
+            "tool_name": "Agent", "hook_event_name": "PreToolUse",
+            "tool_input": {"subagent_type": "general-purpose", "prompt": f"brief {fat}"}}), capture_output=True, text=True)
+        cases["tests before the feature works"] = None
+        if '"deny"' not in out.stdout:
+            failed.append("tests before the feature works")
     finally:
         try:
             os.remove(fat)
