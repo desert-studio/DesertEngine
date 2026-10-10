@@ -95,12 +95,16 @@ namespace Desert::Editor
 
         /// A water wave set (`.dwaves`, UE UWaterWavesAsset): its own type so the browser can colour it, give it
         /// an icon and filter by it; its picture is the class icon, as UE's is.
-        WaterWaves
+        WaterWaves,
+
+        /// A VFX data channel (`.dfxch`, UE UNiagaraDataChannel): its own type so the browser can colour it, give
+        /// it an icon and filter by it; a layout of fields has no picture, so it shows the class icon as UE does.
+        VFXDataChannel
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::WaterWaves;
+    inline constexpr FileType kLastFileType = FileType::VFXDataChannel;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -163,6 +167,7 @@ namespace Desert::Editor
          { "dfx", FileType::VFXSystem },
          { "dfrac", FileType::Fracture },
          { "dwaves", FileType::WaterWaves },
+         { "dfxch", FileType::VFXDataChannel },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

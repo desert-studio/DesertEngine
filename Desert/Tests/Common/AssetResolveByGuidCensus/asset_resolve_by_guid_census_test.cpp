@@ -95,6 +95,9 @@ namespace
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
          PathOnlyRow{ ContentKind::VFXSystem,
                       "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
+         PathOnlyRow{
+              ContentKind::VFXDataChannel,
+              "header states a GUID but a module names its channel by file stem (DataChannel.<stem>, VFX-10)" },
          PathOnlyRow{ ContentKind::Fracture,
                       "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
          PathOnlyRow{ ContentKind::WaterWaves,
@@ -285,6 +288,15 @@ namespace
                 // No system ships with the corpus yet; the least `.dfx` header the scan reads.
                 const std::string text = std::format(
                      R"({{"Header":{{"Kind":"VFXSystem","Guid":"{}","Versions":{{"VFXS":1}},"Dependencies":[]}}}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::VFXDataChannel:
+            {
+                // No channel ships with the corpus yet; the least `.dfxch` header the scan reads.
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"VFXDataChannel","Guid":"{}","Versions":{{"VFXD":1}},"Dependencies":[]}}}})"
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };

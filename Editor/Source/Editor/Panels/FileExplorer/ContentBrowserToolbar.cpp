@@ -45,6 +45,7 @@ namespace Desert::Editor
              { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
              { "Fractures", static_cast<int>( FileType::Fracture ) },
              { "Water Waves", static_cast<int>( FileType::WaterWaves ) },
+             { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
         };
     } // namespace
 

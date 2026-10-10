@@ -30,6 +30,8 @@ Shader "ParticleSimulate"
             uint IdBase; // id of the first particle this step may spawn
             uint Seed;   // the emitter instance's seed (system xor entity xor emitter)
             uint Budget; // how many particles this step spawns
+            uint ChannelFirst; // VFX-10: spawn t < ChannelCount is Spawn from Channel particle ChannelFirst + t
+            uint ChannelCount;
         };
 
         ReadBuffer(1) StepTable
@@ -52,6 +54,21 @@ Shader "ParticleSimulate"
             ParticleDrawSlot u_Slots[];
         };
 
+        // VFX-10: this tick's Spawn from Channel particles, one record per particle (VFXWorld PlanEmitterSteps).
+        struct VFXChannelSpawn
+        {
+            vec4 Position;  // xyz world cm, w = 1 when the module binds a Position field
+            vec4 Direction; // xyz start velocity direction, w = 1 when bound
+            vec4 Color;     // linear rgba -> the particle's Tint when Scalars.z = 1
+            vec4 Scalars;   // x = lifetime seconds, y = base-size scale (1 when unbound), z = 1 when the colour is
+                            // bound, w = 1 when the lifetime is
+        };
+
+        ReadBuffer(5) ChannelSpawns
+        {
+            VFXChannelSpawn u_ChannelSpawns[];
+        };
+
         PushConstant PushConstants
         {
             vec4  u_EmitterPos; // xyz = emitter world pos, w = the fixed step length (seconds)
@@ -68,8 +85,8 @@ Shader "ParticleSimulate"
         {
             float t     = ( p.VelLife.w > 0.0 ) ? clamp( p.Age.x / p.VelLife.w, 0.0, 1.0 ) : 0.0;
             float st    = pow( t, u_Sizes.z > 0.0 ? u_Sizes.z : 1.0 ); // size-over-life ease curve
-            p.PosSize.w = mix( u_Sizes.x, u_Sizes.y, st );
-            p.Color     = mix( u_StartColor, u_EndColor, t );
+            p.PosSize.w = mix( u_Sizes.x, u_Sizes.y, st ) * p.SizeScale.x;
+            p.Color     = mix( u_StartColor, u_EndColor, t ) * p.Tint;
             if ( p.VelLife.w <= 0.0 )
                 p.Color.a = 0.0; // dead => invisible
             return p;
@@ -129,14 +146,38 @@ Shader "ParticleSimulate"
                 vec3 bitn = cross( axis, tang );
                 vec3 dir  = normalize( tang * local.x + bitn * local.y + axis * local.z );
 
+                // A channel particle takes its entry's bound payload: the direction here, the position below.
+                bool            fromChannel = t < u_Steps[step].ChannelCount;
+                VFXChannelSpawn channel;
+                channel.Position  = vec4( 0.0 );
+                channel.Direction = vec4( 0.0 );
+                channel.Color     = vec4( 1.0 );
+                channel.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );
+                if ( fromChannel )
+                    channel = u_ChannelSpawns[u_Steps[step].ChannelFirst + t];
+                if ( channel.Direction.w > 0.5 && dot( channel.Direction.xyz, channel.Direction.xyz ) > 1e-12 )
+                    dir = normalize( channel.Direction.xyz );
+
                 float speed = u_Params.x * ( 1.0 - u_Params.y * r.z );
                 float life  = u_Params.z * ( 1.0 - u_Params.w * r.w );
+                if ( channel.Scalars.w > 0.5 )
+                    life = channel.Scalars.x;
 
                 Particle p;
                 p.PosSize      = vec4( u_EmitterPos.xyz, u_Sizes.x );
                 p.VelLife      = vec4( dir * speed, max( life, 0.01 ) );
                 p.Age          = vec4( 0.0 );
                 p.Color        = vec4( 0.0 );
+                p.Tint         = channel.Scalars.z > 0.5 ? channel.Color : vec4( 1.0 );
+                p.SizeScale    = vec4( channel.Scalars.y, 0.0, 0.0, 0.0 );
+                p.PosSize.w    = u_Sizes.x * p.SizeScale.x;
+                if ( channel.Position.w > 0.5 )
+                {
+                    p.PosSize.xyz = channel.Position.xyz;
+                    // In local space the particle is its offset from the emitter (Age.yzw), not a world point.
+                    if ( u_Counts.w != 0u )
+                        p.Age.yzw = channel.Position.xyz - u_EmitterPos.xyz;
+                }
                 u_Particles[i] = Shade( p );
             }
         }

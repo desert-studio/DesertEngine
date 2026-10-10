@@ -80,6 +80,7 @@ namespace Common::Content
         VFXSystem,
         Fracture,
         WaterWaves,
+        VFXDataChannel,
         COUNT,
     };
 
@@ -171,6 +172,9 @@ namespace Common::Content
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
              // UE's UWaterWavesAsset: a seeded Gerstner generator (Engine/Assets/Serialization/WaterWaves.hpp).
              /* WaterWaves           */ { "WaterWaves", ".dwaves", &P::WATER_WAVES_PATH },
+             // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
+             // (Engine/Assets/Serialization/VFXDataChannel.hpp).
+             /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
         } };
     }
 

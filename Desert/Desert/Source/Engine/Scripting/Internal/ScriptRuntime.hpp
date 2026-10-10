@@ -189,6 +189,7 @@ namespace Desert::Scripting
     void RegisterTimerBindings( lua_State* L );        // Timer.after scheduler
     void RegisterWorldBindings( lua_State* L );        // World table (find/spawn/raycast/vars)
     void RegisterAudioBindings( lua_State* L );        // Audio.play / Audio.stopAll
+    void RegisterVFXBindings( lua_State* L );          // VFX.useChannel / VFX.writeChannel
     void RegisterProjectBindings( lua_State* L );      // project.name/company
     void RegisterLevelBindings( lua_State* L );        // level.open (Core::OpenLevel)
     void RegisterAnimationBindings( lua_State* L );    // entity:setAnimParam/getAnimCurve/linkAnimLayers/...

@@ -70,6 +70,8 @@ namespace Desert::Editor::ThumbnailProducers
               "the class icon until DST-02 photographs the pieces (UE renders the geometry collection)" },
          Row{ FileType::WaterWaves, Producer::TypeIcon,
               "UE (UWaterWavesAsset): the class icon; a wave generator has no still of its own" },
+         Row{ FileType::VFXDataChannel, Producer::TypeIcon,
+              "UE (UNiagaraDataChannel): the class icon; a field layout has no picture" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

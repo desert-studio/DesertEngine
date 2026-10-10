@@ -30,7 +30,8 @@ TEST( ContentCreateCommands, NewLevelSequenceIsOfferedAndRunsTheCreationItWasHan
          {
              ++calls;
              return Common::MakeSuccess( true );
-         } );
+         },
+         [] { return Common::MakeError( "not this entry" ); } );
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr ) << "no \"Assets / New Level Sequence\" palette entry";
     EXPECT_EQ( calls, 0 ) << "building the palette created an asset";
@@ -42,10 +43,37 @@ TEST( ContentCreateCommands, NewLevelSequenceIsOfferedAndRunsTheCreationItWasHan
 TEST( ContentCreateCommands, ACreationThatFailedAnswersWithItsOwnReason )
 {
     const auto commands = ContentCreatePaletteCommands(
-         [] { return Common::MakeError( "New Level Sequence: the Assets window has no folder open" ); } );
+         [] { return Common::MakeError( "New Level Sequence: the Assets window has no folder open" ); },
+         [] { return Common::MakeSuccess( true ); } );
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr );
     const auto outcome = command->Run();
     ASSERT_FALSE( outcome ) << "a failed creation answered like one that worked";
     EXPECT_EQ( std::string( outcome.GetError() ), "New Level Sequence: the Assets window has no folder open" );
+}
+
+// VFX-10b: "Assets / New VFX Data Channel" runs the channel creation it was handed - not the level sequence's.
+TEST( ContentCreateCommands, NewVFXDataChannelIsOfferedAndRunsItsOwnCreation )
+{
+    int        sequences = 0;
+    int        channels  = 0;
+    const auto commands  = Desert::Editor::ContentCreatePaletteCommands(
+         [&sequences]
+         {
+             ++sequences;
+             return Common::MakeSuccess( true );
+         },
+         [&channels]
+         {
+             ++channels;
+             return Common::MakeSuccess( true );
+         } );
+    const PaletteCommand* command = nullptr;
+    for ( const PaletteCommand& c : commands )
+        if ( c.Group == "Assets" && c.Label == Desert::Editor::kNewVFXDataChannelLabel )
+            command = &c;
+    ASSERT_NE( command, nullptr ) << "no \"Assets / New VFX Data Channel\" palette entry";
+    EXPECT_TRUE( command->Run() );
+    EXPECT_EQ( channels, 1 ) << "the entry did not call CreateNewVFXDataChannel exactly once";
+    EXPECT_EQ( sequences, 0 ) << "the channel entry ran the level sequence creation";
 }

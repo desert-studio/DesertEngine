@@ -20,6 +20,7 @@
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/VFXDataChannelAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
@@ -87,6 +88,10 @@ namespace Desert::Editor
 
         if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
             if ( const auto created = CreateNewLevelSequence( &folder ); !created )
+                LOG_ERROR( "[Content] {}", created.GetError() );
+
+        if ( ImGui::Selectable( std::string( kNewVFXDataChannelLabel ).c_str() ) )
+            if ( const auto created = CreateNewVFXDataChannel( &folder ); !created )
                 LOG_ERROR( "[Content] {}", created.GetError() );
 
         // Pick the domain up front (like Unreal's Material Domain / Godot's Mode): it decides the output node,
@@ -252,6 +257,23 @@ namespace Desert::Editor
              !saved )
             return Common::MakeFormattedError( "New Level Sequence: {}", saved.GetError() );
         // Selected once the refresh lists it (UE selects the new asset in the Content Browser).
+        m_On.OnSelectAfterRefresh( path.generic_string() );
+        m_On.OnRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr NewAssetMenu::CreateNewVFXDataChannel( const DirectoryInformation* folder )
+    {
+        if ( folder == nullptr )
+            return Common::MakeError( "New VFX Data Channel: the Assets window has no folder open" );
+        const auto path =
+             UniqueIn( *folder, "NewVFXDataChannel", std::string( Assets::Serialization::kVFXDataChannelExtension ) );
+        // UE's new UNiagaraDataChannel holds no variable; ours must hold one (a channel with no field spawns
+        // nothing and the validator refuses it), so it starts with the field every channel spawn binds first.
+        Assets::Serialization::VFXDataChannelData data;
+        data.Fields = { { "Position", Assets::Serialization::VFXDataChannelFieldType::Position } };
+        if ( const auto saved = Assets::VFXDataChannelAsset::Save( path, data ); !saved )
+            return Common::MakeFormattedError( "New VFX Data Channel: {}", saved.GetError() );
         m_On.OnSelectAfterRefresh( path.generic_string() );
         m_On.OnRefresh();
         return Common::MakeSuccess( true );

@@ -68,6 +68,7 @@ namespace Desert::Scripting
                  RegisterTimerBindings( L );
                  RegisterWorldBindings( L );
                  RegisterAudioBindings( L );
+                 RegisterVFXBindings( L );
                  RegisterProjectBindings( L );
                  RegisterLevelBindings( L );
                  RegisterAnimationBindings( L );

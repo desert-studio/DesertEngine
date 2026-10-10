@@ -76,6 +76,8 @@ namespace Desert::Editor
         /// UE's "Add Level Sequence": an empty `.dseq` in @p folder, selected once the folder is re-listed. The
         /// ONE creation route: the background menu and the palette's "Assets / New Level Sequence" both land here.
         Common::BoolResultStr CreateNewLevelSequence( const DirectoryInformation* folder );
+        // UE's new UNiagaraDataChannel, with the Position field every channel spawn binds first.
+        Common::BoolResultStr CreateNewVFXDataChannel( const DirectoryInformation* folder );
         /// One cloud asset in @p folder under a unique name, its document opened; the two volume formats are
         /// generated on a worker (see m_Bake).
         void CreateNewCloudAsset( const DirectoryInformation& folder, CloudAssetKind kind );

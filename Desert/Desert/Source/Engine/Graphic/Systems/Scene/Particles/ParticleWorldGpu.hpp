@@ -56,11 +56,23 @@ namespace Desert::Graphic::System
     // One element of ParticleSimulate's step table (`struct VFXStep`).
     struct ParticleStepGpu
     {
-        uint32_t IdBase = 0;
-        uint32_t Seed   = 0;
-        uint32_t Budget = 0;
+        uint32_t IdBase       = 0;
+        uint32_t Seed         = 0;
+        uint32_t Budget       = 0;
+        uint32_t ChannelFirst = 0;
+        uint32_t ChannelCount = 0;
     };
     static_assert( sizeof( ParticleStepGpu ) == kParticleStepStride );
+
+    // One Spawn from Channel particle (ParticleSimulate `struct VFXChannelSpawn`), the payload bound to it.
+    struct ParticleChannelSpawnGpu
+    {
+        glm::vec4 Position  = glm::vec4( 0.0f ); // xyz world cm, w = 1 when the module binds a Position field
+        glm::vec4 Direction = glm::vec4( 0.0f ); // xyz start velocity direction, w = 1 when bound
+        glm::vec4 Color     = glm::vec4( 1.0f ); // linear rgba -> the particle's Tint when Scalars.z = 1
+        glm::vec4 Scalars   = glm::vec4( 0.0f ); // x = lifetime s, z = 1 colour bound, w = 1 lifetime bound
+    };
+    static_assert( sizeof( ParticleChannelSpawnGpu ) == kParticleChannelSpawnStride );
 
     // One slot of an emitter's Counters (Common/ParticlePool.glslh ParticleDrawSlot); the first four members are
     // the VkDrawIndirectCommand the billboard draw reads.
@@ -83,9 +95,11 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> Steps;        // this tick's step table
         std::shared_ptr<ShaderResources::StorageBuffer> Counters;     // two draw slots, uploaded per tick
         std::shared_ptr<ShaderResources::StorageBuffer> DispatchArgs; // Spawn+Update's and the next compact's
+        std::shared_ptr<ShaderResources::StorageBuffer> ChannelSpawns; // this tick's Spawn from Channel particles
 
         ParticlePoolRange Range;
-        uint32_t          StepCapacity = 0;
+        uint32_t          StepCapacity    = 0;
+        uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
         uint64_t          Generation   = 0;    // the VFXWorld instance generation this state belongs to
         bool              NeedsReset   = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
     };

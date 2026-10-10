@@ -327,3 +327,28 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
     EXPECT_TRUE( std::regex_search( layer, gate ) ) << "the \"Open Scene\" palette entry runs " << entry[1].str()
                                                     << ", which does not call SceneOpenRequest::Request";
 }
+
+// A `.dfxch` DOUBLE-CLICK REACHES THE CHANNEL EDITOR (VFX-10c). The browser's double-click asks the registry
+// (OpenPath) for every file that is not a folder or a scene; the registry answers for `.dfxch` only if a path
+// opener is registered under the format's own extension constant and hands the path to the channel editor's
+// opener. Red when the opener is not registered, is registered under another extension, calls something else,
+// when VFXDataChannel is back on the no-editor list, or when the browser stops routing double-clicks to OpenPath.
+TEST( AssetOpenRegister, AVFXDataChannelFileHasAPathOpener )
+{
+    EXPECT_EQ( AssetOpenRefusal( Assets::AssetTypeID::VFXDataChannel ), nullptr );
+
+    const std::string layer = ReadRepoFile( "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp" );
+    ASSERT_FALSE( layer.empty() )
+         << "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp not found from the working directory";
+    const std::regex opener(
+         R"(RegisterPathOpener\(\s*\{\s*std::string\(\s*Assets::Serialization::kVFXDataChannelExtension\s*\)\s*\}\s*,[^;]*RequestVFXDataChannelDocument\()" );
+    EXPECT_TRUE( std::regex_search( layer, opener ) )
+         << "no path opener for Assets::Serialization::kVFXDataChannelExtension calls "
+            "RequestVFXDataChannelDocument";
+
+    const std::string browser = ReadRepoFile( "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
+    ASSERT_FALSE( browser.empty() );
+    EXPECT_NE( browser.find( "else if ( doubleClicked && m_SubjectEditors )" ), std::string::npos )
+         << "the browser's double-click no longer falls through to the registry";
+    EXPECT_NE( browser.find( "m_SubjectEditors->OpenPath( entry->AssetPath )" ), std::string::npos );
+}

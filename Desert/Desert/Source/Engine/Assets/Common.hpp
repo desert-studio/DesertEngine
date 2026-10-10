@@ -107,6 +107,9 @@ namespace Desert::Assets
         // A WATER WAVE SET (`.dwaves`): UE's UWaterWavesAsset — a seeded Gerstner generator whose waves every
         // water body naming it shares. See Engine/Assets/WaterWavesAsset.hpp.
         WaterWaves,
+        // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
+        // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
+        VFXDataChannel,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -203,6 +206,9 @@ namespace Desert::Assets
             // A WAVE SET IS SCENE-SCOPED for the retarget's reason: the water body that names it holds its
             // `AssetHandle`, and a wave set no live entity names displaces nothing.
             case AssetTypeID::WaterWaves:
+            // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
+            // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
+            case AssetTypeID::VFXDataChannel:
             case AssetTypeID::Count:
                 return false;
         }
@@ -275,6 +281,8 @@ namespace Desert::Assets
                 return "Fracture";
             case AssetTypeID::WaterWaves:
                 return "WaterWaves";
+            case AssetTypeID::VFXDataChannel:
+                return "VFXDataChannel";
             case AssetTypeID::Count:
                 return "Count";
         }
