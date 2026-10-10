@@ -3418,7 +3418,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     EXPECT_EQ( particles.find( "DrawProcedural(" ), std::string::npos ) << "the billboards draw a fixed count";
     EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&compact<=ve.Frame->StepCount;" ),
                std::string::npos );
-    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&step<ve.Frame->StepCount;" ), std::string::npos );
+    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&ve.Frame->Pipeline!=nullptr&&step<ve.Frame->StepCount;" ), std::string::npos );
     // The draw is every view's: it is not gated by the claim.
     EXPECT_NE( particles.find( "returnve.Declared&&ve.Sprite!=nullptr;" ), std::string::npos );
     EXPECT_NE( particles.find( "m_Simulates=world.PrepareTick(scene);" ), std::string::npos );
