@@ -35,6 +35,10 @@ namespace Desert::Reflection
                 return "Struct";
             case FieldType::AssetHandle:
                 return "AssetHandle";
+            case FieldType::Entity:
+                return "Entity";
+            case FieldType::Any:
+                return "Any";
         }
         return "Unknown";
     }
@@ -52,7 +56,7 @@ namespace Desert::Reflection
             return Common::MakeError<bool>(
                  std::format( "{}::{} takes {} argument(s), got {}", Owner, Name, Params.size(), argc ) );
         for ( std::size_t i = 0; i < argc; ++i )
-            if ( args[i].Type() != Params[i].Type )
+            if ( Params[i].Type != FieldType::Any && args[i].Type() != Params[i].Type )
                 return Common::MakeError<bool>(
                      std::format( "{}::{} argument {} ('{}') is {}, got {}", Owner, Name, i, Params[i].Name,
                                   FieldTypeName( Params[i].Type ), FieldTypeName( args[i].Type() ) ) );

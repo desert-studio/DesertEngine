@@ -25,7 +25,7 @@ local function blink()
         if light then
             light.Intensity = lit and Properties.Intensity or 0.0
         end
-        self:setMaterialParam("EmissionFactor", lit and 1.0 or 0.0)
+        self:setMaterialParam("EmissionFactor", { x = lit and 1.0 or 0.0, y = 0, z = 0, w = 1 })
     end
     Timer.after(Properties.Period, blink) -- re-arm: a repeating timer is just recursion
 end
@@ -46,7 +46,7 @@ function OnUpdate(dt)
         if not enabled then
             local light = self:component("PointLight")
             if light then light.Intensity = 0.0 end
-            self:setMaterialParam("EmissionFactor", 0.0)
+            self:setMaterialParam("EmissionFactor", { x = 0.0, y = 0, z = 0, w = 1 })
             lit = false
         end
     end

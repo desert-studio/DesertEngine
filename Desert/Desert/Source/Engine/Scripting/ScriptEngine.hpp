@@ -5,7 +5,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,8 +20,9 @@ namespace Desert::Assets
 
 namespace Desert::Scripting
 {
-    // The game's script host on the Luau runtime (Luau/LuauRuntime: sandboxed slots, the watchdog, compiled-once
-    // bytecode). The engine exposes capabilities + lifecycle to scripts, so game behavior lives in hot-reloadable
+    // The game's script host — LANGUAGE-FREE: no language type appears here (PIMPL); the one implementation is
+    // the Luau plugin (Luau/LuauScriptEngine.cpp: sandboxed slots, the watchdog, compiled-once bytecode). What
+    // the engine offers a script is its public reflected layer (FUNCTION/EVENT), bound by the language. The engine exposes capabilities + lifecycle to scripts, so game behavior lives in hot-reloadable
     // scripts instead of compiled C++. Engine = mechanism/hot-path; script = behavior/decisions.
     //
     // `self` is the entity object: its data by record key (self:component("PointLight"), has/add/remove), its
@@ -82,21 +82,8 @@ namespace Desert::Scripting
         // playing, after the scripts ran.
         void TickTimers( float dt );
 
-        // Per-frame mouse delta the engine computed (cursor-capture aware), exposed to scripts as
-        // Input.mouseDelta(). Set once per frame before running scripts.
-        void SetFrameMouseDelta( float dx, float dy );
-
-        // Advances the edge-detection state for Input.wasPressed() (down THIS frame, up LAST frame). Call once
-        // per frame BEFORE running scripts so each key fires wasPressed() exactly on the press transition.
-        void NewInputFrame();
-
-        // A script may request cursor lock/unlock via Input.lockCursor()/showCursor(). ScriptSystem consumes the
-        // pending request after running scripts and applies it (so it cooperates with the Escape toggle). Returns
-        // nullopt if no script touched the cursor this frame; otherwise true=lock(capture), false=show(free).
-        std::optional<bool> ConsumeCursorLockRequest();
-
     public:
-        // Public FORWARD declaration only: the definition lives in Internal/ScriptRuntime.hpp,
+        // Public FORWARD declaration only: the definition lives in Luau/LuauHost.hpp,
         // shared by the modular binding translation units (Register*Bindings). The rest of the
         // engine still can't touch it (incomplete type).
         struct Impl;

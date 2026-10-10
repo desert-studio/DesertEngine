@@ -4,6 +4,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
+#include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 
@@ -70,9 +71,6 @@ namespace Desert::ECS
             // the material/shader watcher). Throttled; scripts keep running between polls.
             PollScriptFiles( registry, ts );
 
-            // Advance edge-detection state so Input.wasPressed() fires exactly on the press transition.
-            m_Engine.NewInputFrame();
-
             // ---- Per-frame input plumbing exposed to scripts (Input.mouseDelta()) ----
             // ESCAPE TOGGLES the cursor free/captured (edge-detected) — so you can always free it to click
             // Stop / the UI. (Left Alt is avoided: on Windows it grabs the window's system menu and is
@@ -96,7 +94,8 @@ namespace Desert::ECS
             const glm::vec2 mouseNow( mp.first, mp.second );
             const glm::vec2 delta = ( wantLock && !toggled ) ? ( mouseNow - m_LastMouse ) : glm::vec2( 0.0f );
             m_LastMouse           = mouseNow;
-            m_Engine.SetFrameMouseDelta( delta.x, delta.y );
+            // The gameplay input frame (Input.wasPressed edges, Input.mouseDelta) — before any script runs.
+            Libraries::InputLibrary::NewFrame( delta );
 
             // ---- Run the scripts (each entity may run several script SLOTS, like UE ActorComponents) ----
             auto view = registry.view<ScriptComponent>();
@@ -185,7 +184,7 @@ namespace Desert::ECS
 
             // A script may have requested cursor lock/unlock (Input.lockCursor/showCursor). Apply it so it
             // cooperates with the Escape toggle (also keeps m_LookSuspended in sync for the next Escape press).
-            if ( auto req = m_Engine.ConsumeCursorLockRequest() )
+            if ( auto req = Libraries::InputLibrary::ConsumeCursorLockRequest() )
             {
                 m_LookSuspended = !*req;
                 if ( *req != m_CursorLocked )

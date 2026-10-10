@@ -64,7 +64,7 @@
 // block, or Whole when the component itself is REFLECT() (Skybox); Run( ... ) is the ReflectedBlockRun the
 // serializer is registered in. The tool emits Engine/Generated/ReflectedComponentBlocks.gen.hpp from these
 // markers - the one list ComponentRegistry, ECS::ReflectedComponents and SceneMigrator read.
-#define REFLECT()
+#define REFLECT( ... )
 #define PROPERTY( ... )
 #define FUNCTION( ... )
 #define EVENT( ... )

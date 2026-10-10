@@ -11,9 +11,9 @@ local angle = 0.0
 local function Place()
     local x = Properties.CentreX + Properties.Radius * math.sin( angle )
     local z = Properties.CentreZ + Properties.Radius * math.cos( angle )
-    self:setPosition( x, Properties.CentreY + Properties.Height, z )
+    self:setPosition( vector.create( x, Properties.CentreY + Properties.Height, z ) )
     local pitch = -math.atan( Properties.Height, Properties.Radius )
-    self:setRotation( pitch, angle, 0.0 )
+    self:setRotation( vector.create( pitch, angle, 0.0 ) )
 end
 
 function OnStart()

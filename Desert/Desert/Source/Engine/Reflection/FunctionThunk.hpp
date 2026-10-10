@@ -219,6 +219,22 @@ namespace Desert::Reflection
         }
     };
 
+    /// A Value itself is the Any kind (Godot's Variant): the function receives the argument as the caller gave
+    /// it and reads its Type(); returned, a Value travels as what it holds (nothing = the language's nil).
+    template <>
+    struct ValueTraits<Value>
+    {
+        static constexpr FieldType Kind = FieldType::Any;
+        static Value               From( const Value& v )
+        {
+            return v;
+        }
+        static Value To( Value v )
+        {
+            return v;
+        }
+    };
+
     /// A parameter is taken by value or by const reference; a non-const reference would be an OUT parameter,
     /// which this layer does not have (a second result is a second return, REMAINDER of SCR-API-1).
     template <typename A>

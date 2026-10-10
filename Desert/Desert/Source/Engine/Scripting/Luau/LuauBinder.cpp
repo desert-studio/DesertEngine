@@ -416,7 +416,7 @@ namespace Desert::Scripting::LuauBinder
                 PushField( L, object, *field );
                 return 1;
             }
-            if ( const FunctionInfo* function = object.Type->FindFunction( key );
+            if ( const FunctionInfo* function = object.Type->FindBoundFunction( key );
                  function != nullptr && function->Meta.ScriptCallable && !function->IsStatic )
             {
                 PushMethod( L, *function );
@@ -499,6 +499,22 @@ namespace Desert::Scripting::LuauBinder
             return isNumber;
         }
 
+        /// Pops the function on top of the stack into the entity methods table as `name`.
+        void SetEntityMethodValue( lua_State* L, const char* name )
+        {
+            lua_getfield( L, LUA_REGISTRYINDEX, kEntityMethods );
+            if ( !lua_istable( L, -1 ) )
+            {
+                lua_pop( L, 1 );
+                lua_newtable( L );
+                lua_pushvalue( L, -1 );
+                lua_setfield( L, LUA_REGISTRYINDEX, kEntityMethods );
+            }
+            lua_insert( L, -2 );
+            lua_setfield( L, -2, name );
+            lua_pop( L, 1 );
+        }
+
         void BindStaticFunctions( lua_State* L )
         {
             for ( const auto& [name, type] : Reflection::ReflectionRegistry::Get().All() )
@@ -510,24 +526,37 @@ namespace Desert::Scripting::LuauBinder
                         continue;
                     if ( !any )
                     {
-                        lua_getglobal( L, type.Name.c_str() );
+                        lua_getglobal( L, type.BoundName().c_str() );
                         const bool taken = !lua_isnil( L, -1 );
                         lua_pop( L, 1 );
                         if ( taken )
                         {
                             LOG_ERROR( "Luau: reflected type '{}' is not bound: the global '{}' is a library",
-                                       type.Name, type.Name );
+                                       type.Name, type.BoundName() );
                             break;
                         }
                         lua_newtable( L );
                         any = true;
                     }
                     lua_pushlightuserdata( L, const_cast<FunctionInfo*>( &function ) );
-                    lua_pushcclosure( L, CallStatic, function.Name.c_str(), 1 );
-                    lua_setfield( L, -2, function.Name.c_str() );
+                    lua_pushcclosure( L, CallStatic, function.BoundName().c_str(), 1 );
+                    if ( function.Meta.ScriptMethod )
+                    {
+                        // UE's ScriptMethod: the static's first parameter is the entity, so `entity:name(...)`
+                        // passes the object itself as that argument.
+                        if ( function.Params.empty() || function.Params[0].Type != FieldType::Entity )
+                            LOG_ERROR( "Luau: {}.{} is a ScriptMethod but its first parameter is not an entity",
+                                       type.Name, function.Name );
+                        else
+                        {
+                            lua_pushvalue( L, -1 );
+                            SetEntityMethodValue( L, function.BoundName().c_str() );
+                        }
+                    }
+                    lua_setfield( L, -2, function.BoundName().c_str() );
                 }
                 if ( any )
-                    lua_setglobal( L, type.Name.c_str() );
+                    lua_setglobal( L, type.BoundName().c_str() );
             }
         }
     } // namespace
@@ -575,17 +604,8 @@ namespace Desert::Scripting::LuauBinder
 
     void SetEntityMethod( lua_State* L, const char* name, lua_CFunction method )
     {
-        lua_getfield( L, LUA_REGISTRYINDEX, kEntityMethods );
-        if ( !lua_istable( L, -1 ) )
-        {
-            lua_pop( L, 1 );
-            lua_newtable( L );
-            lua_pushvalue( L, -1 );
-            lua_setfield( L, LUA_REGISTRYINDEX, kEntityMethods );
-        }
         lua_pushcfunction( L, method, name );
-        lua_setfield( L, -2, name );
-        lua_pop( L, 1 );
+        SetEntityMethodValue( L, name );
     }
 
     std::optional<LuauEntityRef> ToEntity( lua_State* L, int index )
@@ -676,9 +696,18 @@ namespace Desert::Scripting::LuauBinder
                 }
                 return;
             }
+            case FieldType::Entity:
+            {
+                const Value::EntityRef& ref = *value.Get<Value::EntityRef>();
+                if ( ref.World == nullptr )
+                    break;
+                PushEntity( L, *static_cast<entt::registry*>( ref.World ), static_cast<entt::entity>( ref.Id ) );
+                return;
+            }
             case FieldType::Unknown:
             case FieldType::Struct:
             case FieldType::AssetHandle:
+            case FieldType::Any:
                 break;
         }
         lua_pushnil( L );
@@ -762,6 +791,37 @@ namespace Desert::Scripting::LuauBinder
                     return got( "an asset handle" );
                 return Value::UInt( static_cast<std::uint64_t>( reinterpret_cast<std::uintptr_t>(
                      lua_tolightuserdatatagged( L, index, kAssetHandleTag ) ) ) );
+            case FieldType::Entity:
+            {
+                const std::optional<LuauEntityRef> ref = ToEntity( L, index );
+                if ( !ref )
+                    return got( "an entity" );
+                if ( ref->Registry == nullptr || !ref->Registry->valid( ref->Entity ) )
+                {
+                    why = "the entity is gone";
+                    return std::nullopt;
+                }
+                return Value::Entity( { ref->Registry, static_cast<std::uint32_t>( ref->Entity ) } );
+            }
+            case FieldType::Any:
+                // The language's own kind decides: a number is a Double, a vector a Vec3, an entity an Entity.
+                switch ( type )
+                {
+                    case LUA_TBOOLEAN:
+                        return ToValue( L, index, FieldType::Bool, why );
+                    case LUA_TNUMBER:
+                        return Value::Double( lua_tonumber( L, index ) );
+                    case LUA_TSTRING:
+                        return ToValue( L, index, FieldType::String, why );
+                    case LUA_TVECTOR:
+                        return ToValue( L, index, FieldType::Vec3, why );
+                    case LUA_TUSERDATA:
+                        return ToValue( L, index, FieldType::Entity, why );
+                    case LUA_TNIL:
+                        return Value();
+                    default:
+                        return got( "a boolean, number, string, vector or entity" );
+                }
             case FieldType::Unknown:
             case FieldType::Struct:
                 break;

@@ -1,7 +1,6 @@
-#include "Internal/ScriptRuntime.hpp"
+#include <Engine/Scripting/Luau/LuauHost.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
-#include <Engine/Core/Input.hpp>
 
 #include <filesystem>
 #include <format>
@@ -46,8 +45,9 @@ namespace Desert::Scripting
     ScriptEngine::ScriptEngine( Core::Scene* scene, Assets::AssetManager* assetManager )
          : m_Impl( std::make_unique<Impl>() )
     {
-        m_Impl->Scene  = scene;
-        m_Impl->Assets = assetManager;
+        m_Impl->Scene   = scene;
+        m_Impl->Assets  = assetManager;
+        m_Impl->Context = Core::WorldContext{ scene, assetManager };
 
         Impl* host      = m_Impl.get();
         m_Impl->Runtime = std::make_unique<LuauRuntime>( LuauLimits{},
@@ -59,17 +59,7 @@ namespace Desert::Scripting
                                                              host->WorldVars = lua_ref( L, -1 );
                                                              lua_pop( L, 1 );
 
-                                                             RegisterLogBindings( L );
-                                                             RegisterEntityCoreBindings( L );
-                                                             RegisterCharacterBindings( L );
-                                                             RegisterMaterialBindings( L );
-                                                             RegisterInputBindings( L );
-                                                             RegisterTimerBindings( L );
-                                                             RegisterWorldBindings( L );
-                                                             RegisterAudioBindings( L );
-                                                             RegisterProjectBindings( L );
-                                                             RegisterLevelBindings( L );
-                                                             RegisterAnimationBindings( L );
+                                                             RegisterHostNatives( L );
                                                              RegisterUIBindings( L );
                                                              RegisterLocalizationBindings( L );
                                                          } );
@@ -79,8 +69,9 @@ namespace Desert::Scripting
 
     Common::BoolResultStr ScriptEngine::RunString( const std::string& code )
     {
-        std::string           output;
-        Common::BoolResultStr ran = m_Impl->Runtime->Eval( code, output );
+        const Core::WorldContext::Scope world( m_Impl->Context );
+        std::string                     output;
+        Common::BoolResultStr           ran = m_Impl->Runtime->Eval( code, output );
         m_Impl->Settle();
         return ran;
     }
@@ -88,7 +79,8 @@ namespace Desert::Scripting
     Common::BoolResultStr ScriptEngine::EvalToString( const std::string& code, std::string& output )
     {
         output.clear();
-        Common::BoolResultStr ran = m_Impl->Runtime->Eval( code, output );
+        const Core::WorldContext::Scope world( m_Impl->Context );
+        Common::BoolResultStr           ran = m_Impl->Runtime->Eval( code, output );
         m_Impl->Settle();
         return ran;
     }
@@ -108,6 +100,7 @@ namespace Desert::Scripting
         entt::registry*    registry        = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
         const entt::entity handle          = static_cast<entt::entity>( entity );
         impl.CurrentOwner                  = key; // Timer.after at the top level belongs to this slot
+        const Core::WorldContext::Scope world( impl.Context );
         Common::ResultStr<LuauSlot> loaded = impl.Runtime->Load(
              path, source.GetValue(),
              { EntityBinding( "self", [registry, handle]() { return LuauEntityRef{ registry, handle }; } ) } );
@@ -131,6 +124,7 @@ namespace Desert::Scripting
         if ( target == 0 || !Runtime->Defines( target, function ) )
             return BOOLSUCCESS;
         CurrentOwner                 = SlotKey( entity, slot ); // Timer.after ownership
+        const Core::WorldContext::Scope world( Context );
         Common::BoolResultStr called = Runtime->Call( target, function, args );
         Settle();
         return called;
@@ -274,6 +268,7 @@ namespace Desert::Scripting
             if ( slot != 0 )
             {
                 impl.CurrentOwner = t.Owner; // a re-arm inherits the same (entity, slot)
+                const Core::WorldContext::Scope world( impl.Context );
                 if ( Common::BoolResultStr r = impl.Runtime->CallRef( slot, t.Fn ); !r.IsSuccess() )
                     LOG_ERROR( "[Lua] Timer.after error: {}", r.GetError() );
             }
@@ -321,28 +316,4 @@ namespace Desert::Scripting
         return out;
     }
 
-    void ScriptEngine::SetFrameMouseDelta( float dx, float dy )
-    {
-        m_Impl->MouseDx = dx;
-        m_Impl->MouseDy = dy;
-    }
-
-    void ScriptEngine::NewInputFrame()
-    {
-        for ( Common::KeyCode key : TrackedKeys() )
-        {
-            const int  id   = static_cast<int>( key );
-            const bool down = Input::Keyboard::IsKeyPressed( key );
-            const bool prev = m_Impl->KeyDownPrev[id];
-            m_Impl->KeyEdge[id]     = down && !prev; // rising edge
-            m_Impl->KeyDownPrev[id] = down;
-        }
-    }
-
-    std::optional<bool> ScriptEngine::ConsumeCursorLockRequest()
-    {
-        std::optional<bool> req = m_Impl->CursorLockRequest;
-        m_Impl->CursorLockRequest.reset();
-        return req;
-    }
 } // namespace Desert::Scripting

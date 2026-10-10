@@ -5,7 +5,7 @@
 // the 0-based record the list draws, a record's fields keep their types, and a bad write comes back to the
 // script as ( false, reason ) instead of vanishing.
 
-#include <Engine/Scripting/Internal/ScriptRuntime.hpp>
+#include <Engine/Scripting/Luau/LuauHost.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 
 #include <gtest/gtest.h>

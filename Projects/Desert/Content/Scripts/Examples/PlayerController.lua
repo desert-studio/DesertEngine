@@ -27,7 +27,8 @@ end
 
 function OnUpdate(dt)
     -- Look: mouse turns the body (yaw) and tilts the child camera (pitch, clamped in the engine).
-    local mdx, mdy = Input.mouseDelta()
+    local mouse = Input.mouseDelta()
+    local mdx, mdy = mouse.x, mouse.y
     self:addYaw(-mdx * Properties.LookSens)
     self:addCameraPitch(-mdy * Properties.LookSens)
 
@@ -38,7 +39,7 @@ function OnUpdate(dt)
     -- Swim POLICY (not in the engine): are we below the (user-defined) water surface?
     local swimming = false
     if World.has("waterLevel") then
-        local _, y = self:getPosition()
+        local y = self:getPosition().y
         swimming = y < World.get("waterLevel")
     end
     self:setSwimming(swimming)

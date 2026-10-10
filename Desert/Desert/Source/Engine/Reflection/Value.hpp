@@ -35,6 +35,14 @@ namespace Desert::Reflection
             std::int64_t Bits = 0;
         };
 
+        /// An entity: its id and the world (the entt registry) it lives in — opaque here, so this layer stays
+        /// free of the ECS; ECS/EntityValue.hpp converts it to and from ECS::Entity.
+        struct EntityRef
+        {
+            void*         World = nullptr;
+            std::uint32_t Id    = 0xFFFFFFFFu;
+        };
+
         /// No value: FieldType::Unknown. What a void function leaves in no slot, and what an unset slot holds.
         Value() = default;
 
@@ -79,13 +87,18 @@ namespace Desert::Reflection
             return Value( Storage( std::in_place_type<EnumBits>, EnumBits{ bits } ) );
         }
 
+        static Value Entity( EntityRef entity )
+        {
+            return Value( Storage( std::in_place_type<EntityRef>, entity ) );
+        }
+
         [[nodiscard]] FieldType Type() const
         {
             // In the order of Storage's alternatives; a new alternative without a row here fails to compile.
             static constexpr std::array<FieldType, std::variant_size_v<Storage>> kTypes = {
                  FieldType::Unknown, FieldType::Bool,   FieldType::Int,    FieldType::UInt,
                  FieldType::Float,   FieldType::Double, FieldType::String, FieldType::Vec2,
-                 FieldType::Vec3,    FieldType::Vec4,   FieldType::Enum,
+                 FieldType::Vec3,    FieldType::Vec4,   FieldType::Enum,   FieldType::Entity,
             };
             return kTypes[m_Data.index()];
         }
@@ -99,7 +112,7 @@ namespace Desert::Reflection
 
     private:
         using Storage = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, float, double, std::string,
-                                     Float2, Float3, Float4, EnumBits>;
+                                     Float2, Float3, Float4, EnumBits, EntityRef>;
 
         explicit Value( Storage data ) : m_Data( std::move( data ) )
         {

@@ -8,6 +8,5 @@ Properties = {
 }
 
 function OnUpdate(dt)
-    local x, y, z = self:getPosition()
-    self:setPosition(x + Properties.Speed * dt, y, z)
+    self:translate(vector.create(Properties.Speed * dt, 0, 0))
 end

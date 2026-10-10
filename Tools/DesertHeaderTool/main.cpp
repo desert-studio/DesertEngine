@@ -117,6 +117,8 @@ namespace
     struct FunctionMeta
     {
         bool        scriptCallable = false;
+        bool        scriptMethod   = false;
+        std::string scriptName;
         std::string category;
         std::string tooltip;
     };
@@ -152,6 +154,7 @@ namespace
     {
         std::string           fqn;          // fully-qualified C++ name, e.g. Desert::Assets::SurfaceMaterialData
         std::string           registryName; // short name used as the registry key, e.g. SurfaceMaterialData
+        std::string           scriptName;   // REFLECT( ScriptName( "..." ) ): the global a language binds
         std::vector<Field>    fields;
         std::vector<Function> functions;
         std::vector<Event>    events;
@@ -497,6 +500,7 @@ namespace
         int         depth;    // brace depth at which this scope opened
         bool        isStruct; // struct/class vs namespace
         bool        reflected = false;
+        std::string scriptName = {}; // REFLECT( ScriptName( "..." ) )
         std::vector<Field> fields =
              {}; // the two `scopes.push_back( { name, depth, isStruct } )` below stop here on purpose
         std::vector<Function>         functions = {};
@@ -517,13 +521,17 @@ namespace
                 continue;
             if ( tok == "ScriptCallable" )
                 m.scriptCallable = true;
+            else if ( tok == "ScriptMethod" )
+                m.scriptMethod = true;
+            else if ( tok.rfind( "ScriptName", 0 ) == 0 )
+                m.scriptName = ExtractStringLiteral( tok );
             else if ( tok.rfind( "Category", 0 ) == 0 )
                 m.category = ExtractStringLiteral( tok );
             else if ( tok.rfind( "Tooltip", 0 ) == 0 )
                 m.tooltip = ExtractStringLiteral( tok );
             else
                 error = "FUNCTION: unknown attribute '" + tok +
-                        "' (ScriptCallable, Category(\"...\"), Tooltip(\"...\"))";
+                        "' (ScriptCallable, ScriptMethod, ScriptName(\"...\"), Category(\"...\"), Tooltip(\"...\"))";
         }
         return m;
     }
@@ -685,7 +693,7 @@ namespace
                     std::vector<std::string>& errors )
     {
         const std::string raw = StripComments( ReadFile( file ) );
-        if ( raw.find( "REFLECT()" ) == std::string::npos && raw.find( "COMPONENT(" ) == std::string::npos )
+        if ( raw.find( "REFLECT(" ) == std::string::npos && raw.find( "COMPONENT(" ) == std::string::npos )
             return;
 
         std::string headerInclude =
@@ -761,15 +769,30 @@ namespace
                 if ( word == "REFLECT" )
                 {
                     SkipWs( raw, i );
+                    std::string reflectArgs;
                     if ( i < raw.size() && raw[i] == '(' )
                     {
-                        // consume ()
+                        // consume ( ... ): REFLECT( ScriptName( "..." ) ) is the one attribute
+                        const size_t argsBegin = i + 1;
                         int p = 0;
                         do { if ( raw[i] == '(' ) ++p; else if ( raw[i] == ')' ) --p; ++i; }
                         while ( i < raw.size() && p > 0 );
+                        reflectArgs = raw.substr( argsBegin, i - 1 - argsBegin );
                     }
                     if ( !scopes.empty() && scopes.back().isStruct )
+                    {
                         scopes.back().reflected = true;
+                        for ( const auto& tokRaw : SplitTopLevel( reflectArgs ) )
+                        {
+                            const std::string tok = Trimmed( tokRaw );
+                            if ( tok.empty() )
+                                continue;
+                            if ( tok.rfind( "ScriptName", 0 ) == 0 )
+                                scopes.back().scriptName = ExtractStringLiteral( tok );
+                            else
+                                fail( start, "REFLECT: unknown attribute '" + tok + "' (ScriptName(\"...\"))" );
+                        }
+                    }
                     continue;
                 }
                 if ( word == "PROPERTY" )
@@ -1036,6 +1059,7 @@ namespace
                     {
                         ReflectedType t;
                         t.registryName  = sc.name;
+                        t.scriptName    = sc.scriptName;
                         t.fqn           = JoinScopes( scopes ).empty()
                                              ? sc.name
                                              : JoinScopes( scopes ) + "::" + sc.name;
@@ -1124,6 +1148,8 @@ namespace
              .Set( "paramCount", static_cast<long long>( fn.params.size() ) )
              .Set( "params", Common::Json::Value( std::move( params ) ) )
              .Set( "scriptCallable", std::string( fn.meta.scriptCallable ? "true" : "false" ) )
+             .Set( "scriptMethod", std::string( fn.meta.scriptMethod ? "true" : "false" ) )
+             .Set( "scriptName", fn.meta.scriptName )
              .Set( "category", fn.meta.category )
              .Set( "tooltip", fn.meta.tooltip )
              .Build();
@@ -1170,6 +1196,7 @@ namespace
             typeValues.emplace_back( Common::Json::ObjectBuilder()
                                           .Set( "fqn", t.fqn )
                                           .Set( "registryName", t.registryName )
+                                          .Set( "scriptName", t.scriptName )
                                           .Set( "fields", Common::Json::Value( std::move( fields ) ) )
                                           .Set( "functions", Common::Json::Value( std::move( functions ) ) )
                                           .Set( "events", Common::Json::Value( std::move( events ) ) )

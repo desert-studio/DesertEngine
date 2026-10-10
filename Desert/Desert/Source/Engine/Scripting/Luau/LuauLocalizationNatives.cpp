@@ -1,4 +1,4 @@
-#include "Internal/ScriptRuntime.hpp"
+#include <Engine/Scripting/Luau/LuauHost.hpp>
 
 #include <Engine/Localization/LocalizationService.hpp>
 

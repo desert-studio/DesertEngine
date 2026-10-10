@@ -45,6 +45,7 @@ void RegisterReflection_{{ module }}()
 {% endif %}{% for t in types %}    {
         using T = ::{{ t.fqn }};
         TypeBuilder( "{{ t.registryName }}", sizeof( T ) )
+            .ScriptName( "{{ t.scriptName }}" )
 {% for f in t.fields %}{% include "Field.tpl" %}{% endfor %}{% for fn in t.functions %}{% include "Function.tpl" %}{% endfor %}{% for ev in t.events %}{% include "Event.tpl" %}{% endfor %}            .WithDefault<T>()
 {#- ^ a default-constructed instance, so the editor can offer reset-to-default per field. #}
             .Register();

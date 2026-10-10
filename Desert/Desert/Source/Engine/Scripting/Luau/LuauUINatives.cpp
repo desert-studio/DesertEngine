@@ -1,4 +1,4 @@
-#include "Internal/ScriptRuntime.hpp"
+#include <Engine/Scripting/Luau/LuauHost.hpp>
 
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UIOverlay.hpp>

@@ -66,8 +66,10 @@ DesertModules.Modules = {
     -- L7
     M( "Foliage",         { "Landscape" },                        "Foliage" ),
     -- L8
-    M( "Scripting",       { "Engine", "Renderer", "Media", "Landscape", "Foliage", "Destruction", "VFX", "Water" },
-                                                                  "ScriptPlugin" ),
+    -- the language-free script host: Engine's public reflected layer only (FUNCTION/EVENT), no feature module
+    M( "Scripting",       { "Engine" },                           "ScriptPlugin" ),
+    -- L9: a script language is a plugin over Scripting (Luau: the VM, the reflection binder, the host natives)
+    M( "ScriptLuau",      { "Scripting" },                        "ScriptPlugin" ),
 }
 
 local function P( module, pattern )
@@ -112,6 +114,7 @@ DesertModules.Placement = {
     P( "VFX",             [[Engine/VFX/|Engine/Assets/(VFXSystemAsset|Serialization/VFXSystem)\.]] ),
     P( "Water",           [[Engine/Water/|Engine/Assets/(WaterWavesAsset|Serialization/WaterWaves)\.]] ),
     P( "Hair",            [[Engine/Hair/]] ),
+    P( "ScriptLuau",      [[Engine/Scripting/Luau/]] ),
     P( "Scripting",       [[Engine/Scripting/]] ),
     P( "Engine",          [[^]] ), -- everything else of the old library (Core, ECS, Runtime, typed Assets, Generated, pch)
 }
