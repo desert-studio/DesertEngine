@@ -394,20 +394,25 @@ namespace Desert::Core::WorldCells
     }
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
-                                              std::span<const Common::Utils::AssetRegistry> registries )
+                                              std::span<const Common::Utils::AssetRegistry> registries,
+                                              const Rules::HLODMeshBuilder&                 meshBuilder )
     {
         const std::vector<Rules::EntityDescriptor> descriptors = Rules::DescribeEntities( scene.Entities );
-        return CookWorld( scene, descriptors, registries );
+        return CookWorld( scene, descriptors, registries, meshBuilder );
     }
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Rules::EntityDescriptor>      descriptors,
-                                              std::span<const Common::Utils::AssetRegistry> registries )
+                                              std::span<const Common::Utils::AssetRegistry> registries,
+                                              const Rules::HLODMeshBuilder&                 meshBuilder )
     {
         using Result = CookedWorld;
         if ( !scene.WorldPartition.has_value() )
             return Common::MakeError<Result>( "'" + scene.SceneName +
                                               "' states no WorldPartition block, so it has no cells to cook" );
+        if ( auto layers = Rules::ValidateHLODLayers( *scene.WorldPartition ); !layers )
+            return Common::MakeError<Result>( "'" + scene.SceneName + "': " + layers.GetError() );
+        const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *scene.WorldPartition );
 
         const auto&                                   records = scene.Entities;
         std::unordered_map<Common::UUID, std::size_t> byId;
@@ -544,16 +549,21 @@ namespace Desert::Core::WorldCells
                  { name, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
             cooked.Files.push_back( std::move( file ) );
         }
-        // THE INSTANCING HLOD OF EVERY CELL (WP10), after the cells so a cell's file is written before the one
-        // that stands in for it and the index lists them in that order.
+        // THE HLOD OF EVERY CELL, BY THE WORLD'S DEFAULT LAYER (WP10, WP-FAR-7), after the cells so a cell's file
+        // is written before the one that stands in for it and the index lists them in that order. No default
+        // layer: no cell has an HLOD.
         const std::vector<glm::mat4>    world        = Rules::Detail::ComposeWorld( records, byId );
         const Rules::CustomShaderSource customShader = CustomShaderFrom( registries );
         const Rules::FoliageHLODSource  foliageInHLOD = FoliageInHLODFrom( registries );
         std::set<std::uint64_t>         hlodIds;
-        for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < unitCount; ++unit )
+        for ( std::size_t unit = plan.AlwaysLoaded.size(); hlodLayer != nullptr && unit < unitCount; ++unit )
         {
-            const Rules::InstancingHLOD built =
-                 Rules::BuildInstancingHLOD( records, world, members[unit], customShader, issues, foliageInHLOD );
+            auto builtCell = Rules::BuildCellHLOD( *hlodLayer, records, world, members[unit], customShader, issues,
+                                                   foliageInHLOD, meshBuilder );
+            if ( !builtCell )
+                return Common::MakeError<Result>( "'" + scene.SceneName + "', " + index.Units[unit].Name + ": " +
+                                                  builtCell.GetError() );
+            const Rules::InstancingHLOD built = builtCell.ExtractValue();
             if ( built.Batches.empty() && built.NotInstanced.empty() )
                 continue;
             IndexHLOD row;

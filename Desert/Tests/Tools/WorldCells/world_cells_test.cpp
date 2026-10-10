@@ -18,6 +18,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -127,6 +128,7 @@ namespace
                                               Desert::Core::kUnitVersion );
         scene.Settings       = rfl::json::read<rfl::Generic>( R"({"Exposure": 1.5})" ).value();
         scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ kCell, 1500.0f } } };
+        Desert::Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
 
         auto&      records = scene.Entities;
         EntityData camera  = Record( kCameraId, "Camera", { 50.0f, 0.0f, 50.0f } );

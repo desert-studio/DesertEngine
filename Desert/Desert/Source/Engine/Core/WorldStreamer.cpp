@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -130,11 +131,24 @@ namespace Desert::Core
                  WorldCells::CustomShaderFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
             const Rules::FoliageHLODSource foliageInHLOD =
                  WorldCells::FoliageInHLODFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
+            // The same layer and the same mesh builder the cook uses (WP-FAR-7), over the editor's registry.
+            if ( auto layers = Rules::ValidateHLODLayers( *partition ); !layers )
+                return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                  "': " + layers.GetError() );
+            const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *partition );
+            const Rules::HLODMeshBuilder     meshBuilder =
+                 MakeHLODMeshBuilder( std::span( &Assets::ContentRegistry::Get(), 1 ) );
+            for ( std::size_t unit = plan.AlwaysLoaded.size();
+                  hlodLayer != nullptr && unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
-                const Rules::InstancingHLOD built = Rules::BuildInstancingHLOD(
-                     snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ), customShader, issues,
-                     foliageInHLOD );
+                auto builtCell = Rules::BuildCellHLOD( *hlodLayer, snapshot->Entities, world,
+                                                       Rules::ResidencyUnitMembers( plan, unit ), customShader,
+                                                       issues, foliageInHLOD, meshBuilder );
+                if ( !builtCell )
+                    return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName + "', " +
+                                                      Rules::DescribeResidencyUnit( plan, unit ) + ": " +
+                                                      builtCell.GetError() );
+                const Rules::InstancingHLOD built = builtCell.ExtractValue();
                 for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
                     holes.push_back( missing.Reason );
                 if ( built.Batches.empty() )

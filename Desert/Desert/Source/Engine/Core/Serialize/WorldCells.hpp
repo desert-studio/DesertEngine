@@ -76,7 +76,7 @@ namespace Desert::Core::WorldCells
     // index/cell payload shapes below. A reader refuses any other number by name, older included; a cooked
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
-    inline constexpr std::uint32_t kWorldFormatVersion = 3;
+    inline constexpr std::uint32_t kWorldFormatVersion = 4; // 4: WorldPartition states HLOD layers (WP-FAR-7)
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -160,7 +160,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexReference> References;
         std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 3 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 4 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -169,7 +169,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 3 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 4 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
@@ -193,15 +193,20 @@ namespace Desert::Core::WorldCells
     // means the cook has none, and the index says so (AssetClosureKnown). Refused, by record: a scene with no
     // WorldPartition block, a record without an id, two records with one id, a containment reference that
     // crosses units.
+    //
+    // @p meshBuilder builds a MeshMerge / MeshSimplify layer's mesh (Rules::HLODMeshBuilder); empty is a stated
+    // condition - a world whose cells use such a layer is then refused by the layer's name.
     [[nodiscard]] Common::ResultStr<CookedWorld>
-    CookWorld( const SceneSerialized& scene, std::span<const Common::Utils::AssetRegistry> registries );
+    CookWorld( const SceneSerialized& scene, std::span<const Common::Utils::AssetRegistry> registries,
+               const Rules::HLODMeshBuilder& meshBuilder = {} );
 
     // The same cook, PLANNED FROM DESCRIPTORS (WP18): `descriptors` (the world's descriptor index,
     // EntityDescriptorIndex.hpp) are what the cells are decided with; the records only fill the cell files.
     // Refused when the descriptors are not the records', id for id and in order.
     [[nodiscard]] Common::ResultStr<CookedWorld>
     CookWorld( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
-               std::span<const Common::Utils::AssetRegistry> registries );
+               std::span<const Common::Utils::AssetRegistry> registries,
+               const Rules::HLODMeshBuilder&                 meshBuilder = {} );
 
     // The bounds source a cook plans with: the first registry that knows the mesh answers.
     [[nodiscard]] Rules::AssetBoundsSource BoundsFrom( std::span<const Common::Utils::AssetRegistry> registries );

@@ -19,6 +19,7 @@
 //   7. THE HOLES are named by reason.
 
 #include <Common/Json/Document.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODSwitch.hpp>
 
 #include <gtest/gtest.h>
@@ -60,6 +61,7 @@ namespace
     {
         WorldPartitionSerialized partition;
         partition.Grids.push_back( WorldPartitionGridSerialized{ kCell, kRange } );
+        Desert::Core::Rules::StateInstancingHLODLayer( partition );
         return partition;
     }
 

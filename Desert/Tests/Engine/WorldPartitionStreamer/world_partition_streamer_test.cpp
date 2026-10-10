@@ -19,6 +19,7 @@
 //   5. REFUSALS. A record without an id; a world whose activation fails (named by unit).
 
 #include <Common/Json/Document.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <gtest/gtest.h>
@@ -63,6 +64,7 @@ namespace
     {
         WorldPartitionSerialized partition;
         partition.Grids.push_back( WorldPartitionGridSerialized{ kCell, kRange } );
+        Desert::Core::Rules::StateInstancingHLODLayer( partition );
         return partition;
     }
 

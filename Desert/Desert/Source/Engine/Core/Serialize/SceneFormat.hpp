@@ -64,7 +64,10 @@ namespace Desert::Core
     // camera keeps it set (Tools/SceneMigrator, MigratePlayerViewFlagV39ToV40).
     // v42 (PHYS-A1): RigidBody / CharacterController state CollisionProfile (a name in the project's
     // Config/CollisionProfiles.json), chosen by body Type (Tools/SceneMigrator, MigrateCollisionProfilesV41ToV42).
-    inline constexpr int kSceneVersion = 42;
+    // v43 (WP-FAR-7): a partitioned world states its HLOD layers and the one its cells use (WorldPartition's
+    // HLODLayers / DefaultHLODLayer); every partitioned world states the Instancing layer it had implicitly
+    // (Tools/SceneMigrator, MigrateHLODLayersV42ToV43).
+    inline constexpr int kSceneVersion = 43;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
@@ -124,9 +127,51 @@ namespace Desert::Core
         bool operator==( const WorldPartitionGridSerialized& ) const = default;
     };
 
+    // WHAT STANDS IN FOR A CELL WHILE IT IS AWAY - UE's UHLODLayer (WorldPartition/HLOD/HLODLayer.h), the
+    // pattern and not the letter: a named layer with a builder TYPE and an optional PARENT layer.
+    //   Instancing   - UHLODBuilderInstancing: the cell's own meshes, one instanced component per distinct
+    //                  (mesh, materials, flags). Nothing is simplified (WorldPartitionHLODRules.hpp).
+    //   MeshMerge    - UHLODBuilderMeshMerge: every mesh the cell draws merged into ONE mesh in world space,
+    //                  one section per distinct material; geometry unchanged, one draw per material.
+    //   MeshSimplify - UHLODBuilderMeshSimplify: the merged mesh, then simplified (QEM, the editor's own
+    //                  Simplify - Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp) down to
+    //                  SimplifyTrianglePercent of its triangles. What a far cell should cost.
+    // The built mesh is stored INSIDE the cell's HLOD file, as a StaticMesh record's EditMesh: UE writes its
+    // merged UStaticMesh into the HLOD actor's own package for the same reason - it is derived from the cell
+    // and belongs to nobody else.
+    enum class HLODLayerType
+    {
+        Instancing,
+        MeshMerge,
+        MeshSimplify,
+    };
+
+    struct HLODLayerSerialized
+    {
+        std::string   Name;
+        HLODLayerType Type = HLODLayerType::Instancing;
+        // UE UHLODLayer::ParentLayer: the layer the HLODs THIS layer builds are themselves gathered into, one
+        // grid level up (HLOD1 of HLOD0). Must name another layer of the list and the chain must not loop
+        // (Rules::ValidateHLODLayers); absent = the top of a chain.
+        std::optional<std::string> ParentLayer;
+        // MeshSimplify only (UE FMeshProxySettings' triangle target, as a fraction): the share of the merged
+        // mesh's triangles kept, in (0, 1]. Required on MeshSimplify and refused on any other type, so a
+        // number nobody reads cannot sit in a file looking like a setting.
+        std::optional<float> SimplifyTrianglePercent;
+
+        bool operator==( const HLODLayerSerialized& ) const = default;
+    };
+
     struct WorldPartitionSerialized
     {
         std::vector<WorldPartitionGridSerialized> Grids;
+        // The world's HLOD layers (UE: the UHLODLayer assets a world's actors name) and the one every cell's
+        // HLOD is built with (UE AWorldSettings::DefaultHLODLayer). ABSENT DefaultHLODLayer = cells have no
+        // HLOD and a far cell draws nothing - UE's state for a world with no default layer. Optional, so a
+        // world with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
+        // spelling of "none".
+        std::optional<std::vector<HLODLayerSerialized>> HLODLayers;
+        std::optional<std::string>                      DefaultHLODLayer;
 
         bool operator==( const WorldPartitionSerialized& ) const = default;
     };

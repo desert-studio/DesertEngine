@@ -173,6 +173,14 @@ namespace
         return partition;
     }
 
+    // What a conversion gives: the default grid and the stated Instancing HLOD layer (WP-FAR-7).
+    WorldPartitionSerialized ConvertedDefaults()
+    {
+        WorldPartitionSerialized partition = WorldPartitionGridDefaults();
+        Desert::Core::Rules::StateInstancingHLODLayer( partition );
+        return partition;
+    }
+
     WorldPartitionSerialized Cells( float size, float loadingRange = 25600.0f )
     {
         WorldPartitionGridSerialized grid;
@@ -437,7 +445,7 @@ TEST( WorldPartitionConvert, ConvertingAnUnpartitionedSceneAddsExactlyTheOneDefa
     // The format's own defaults, in centimetres: 128 m cells, 256 m loading range (SceneFormat.hpp).
     EXPECT_FLOAT_EQ( converted.GetValue().Grids[0].CellSize, 12800.0f );
     EXPECT_FLOAT_EQ( converted.GetValue().Grids[0].LoadingRange, 25600.0f );
-    EXPECT_EQ( converted.GetValue(), WorldPartitionGridDefaults() );
+    EXPECT_EQ( converted.GetValue(), ConvertedDefaults() );
 }
 
 // A CONVERTED WORLD IS A PARTITIONED WORLD ON DISK. The conversion is only worth anything if what it

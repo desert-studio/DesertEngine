@@ -111,11 +111,14 @@ namespace Desert::Core::Rules
         HLODExclusion Reason = HLODExclusion::Unreadable;
     };
 
-    // One instanced component of the HLOD: the ISM block, ready to be a record's "InstancedStaticMesh".
+    // One component of the HLOD. An Instancing layer's batch is the ISM block, ready to be a record's
+    // "InstancedStaticMesh". A MeshMerge / MeshSimplify layer's batch is the built mesh instead (`Mesh`, a
+    // StaticMesh block carrying the merged geometry as its EditMesh, in world space) and its `Block` is unused.
     struct HLODBatch
     {
-        Assets::InstancedStaticMeshComponentSer Block;
-        std::vector<std::size_t>                Sources; // records that contributed, in member order
+        Assets::InstancedStaticMeshComponentSer       Block;
+        std::optional<Assets::StaticMeshComponentSer> Mesh;
+        std::vector<std::size_t>                      Sources; // records that contributed, in member order
     };
 
     struct InstancingHLOD
@@ -303,6 +306,153 @@ namespace Desert::Core::Rules
         return hlod;
     }
 
+    // ── HLOD LAYERS (WP-FAR-7) ───────────────────────────────────────────────────────────────────────
+
+    // The layer of @p partition named @p name, or null.
+    [[nodiscard]] inline const HLODLayerSerialized* FindHLODLayer( const WorldPartitionSerialized& partition,
+                                                                   std::string_view                name )
+    {
+        if ( !partition.HLODLayers.has_value() )
+            return nullptr;
+        for ( const HLODLayerSerialized& layer : *partition.HLODLayers )
+            if ( layer.Name == name )
+                return &layer;
+        return nullptr;
+    }
+
+    // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
+    // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
+    // type, and a DefaultHLODLayer that names no layer.
+    [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
+    {
+        const std::vector<HLODLayerSerialized>  none;
+        const std::vector<HLODLayerSerialized>& layers =
+             partition.HLODLayers.has_value() ? *partition.HLODLayers : none;
+        if ( partition.HLODLayers.has_value() && layers.empty() )
+            return Common::MakeError<bool>( "HLODLayers is stated and empty; a world with no layers states none" );
+        for ( std::size_t i = 0; i < layers.size(); ++i )
+        {
+            const HLODLayerSerialized& layer = layers[i];
+            if ( layer.Name.empty() )
+                return Common::MakeError<bool>( "HLOD layer " + std::to_string( i ) + " has no Name" );
+            for ( std::size_t j = 0; j < i; ++j )
+                if ( layers[j].Name == layer.Name )
+                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "' is named twice" );
+            const bool simplify = layer.Type == HLODLayerType::MeshSimplify;
+            if ( simplify && !layer.SimplifyTrianglePercent.has_value() )
+                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                "' is MeshSimplify and states no SimplifyTrianglePercent" );
+            if ( !simplify && layer.SimplifyTrianglePercent.has_value() )
+                return Common::MakeError<bool>(
+                     "HLOD layer '" + layer.Name +
+                     "' states SimplifyTrianglePercent, which only MeshSimplify reads" );
+            if ( simplify && !( *layer.SimplifyTrianglePercent > 0.0f && *layer.SimplifyTrianglePercent <= 1.0f ) )
+                return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "': SimplifyTrianglePercent " +
+                                                std::to_string( *layer.SimplifyTrianglePercent ) +
+                                                " is outside (0, 1]" );
+            // Walk the parent chain: every link must resolve, and it must end within the list's length.
+            const HLODLayerSerialized* at = &layer;
+            for ( std::size_t steps = 0; at->ParentLayer.has_value(); ++steps )
+            {
+                const HLODLayerSerialized* parent = FindHLODLayer( partition, *at->ParentLayer );
+                if ( parent == nullptr )
+                    return Common::MakeError<bool>( "HLOD layer '" + at->Name + "' names ParentLayer '" +
+                                                    *at->ParentLayer + "', which is no layer of this world" );
+                if ( steps >= layers.size() || parent == &layer )
+                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                    "': its ParentLayer chain loops back on itself" );
+                at = parent;
+            }
+        }
+        if ( partition.DefaultHLODLayer.has_value() &&
+             FindHLODLayer( partition, *partition.DefaultHLODLayer ) == nullptr )
+            return Common::MakeError<bool>( "DefaultHLODLayer '" + *partition.DefaultHLODLayer +
+                                            "' is no layer of this world's HLODLayers" );
+        return Common::MakeSuccess( true );
+    }
+
+    // The layer a cell's HLOD is built with: the world's DefaultHLODLayer, null when it states none (cells then
+    // have no HLOD). Call after ValidateHLODLayers.
+    [[nodiscard]] inline const HLODLayerSerialized* CellHLODLayer( const WorldPartitionSerialized& partition )
+    {
+        return partition.DefaultHLODLayer.has_value() ? FindHLODLayer( partition, *partition.DefaultHLODLayer )
+                                                      : nullptr;
+    }
+
+    // WHAT A MESH LAYER HANDS THE GEOMETRY BUILDER: the instanced parts the Instancing pass already chose (so a
+    // merged HLOD leaves out exactly what an instanced one would, for the same named reasons), each an ISM
+    // block naming its mesh and materials with WORLD instance matrices. The builder merges every instance into
+    // one mesh in world space, one section per distinct material, and for MeshSimplify keeps
+    // `TrianglePercent` of the triangles (UHLODBuilderMeshMerge / UHLODBuilderMeshSimplify).
+    struct HLODMeshRequest
+    {
+        HLODLayerType                                            Type            = HLODLayerType::MeshMerge;
+        float                                                    TrianglePercent = 1.0f;
+        std::span<const Assets::InstancedStaticMeshComponentSer> Parts;
+    };
+
+    // The geometry side, which reads mesh assets and runs the simplifier, so it is given to the rules rather
+    // than linked into them (as CustomShaderSource is). Answers a StaticMesh block with the built EditMesh and
+    // the material slot lists, or an error naming the part that could not be read. AN EMPTY BUILDER IS A
+    // STATED CONDITION: a mesh layer then REFUSES the build by name (BuildCellHLOD) rather than falling back
+    // to instancing.
+    using HLODMeshBuilder =
+         std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const HLODMeshRequest& request )>;
+
+    // THE HLOD OF ONE CELL BY ITS LAYER. Instancing: BuildInstancingHLOD. MeshMerge / MeshSimplify: the same
+    // pass chooses the parts and the holes, then every batch that casts shadows becomes one built mesh and every
+    // batch that does not becomes another (a merged mesh has one CastShadows), each standing in for the union
+    // of its batches' sources. Refused when a mesh layer has no builder or the builder refuses.
+    [[nodiscard]] inline Common::ResultStr<InstancingHLOD>
+    BuildCellHLOD( const HLODLayerSerialized& layer, std::span<const Assets::EntityData> records,
+                   std::span<const glm::mat4> world, std::span<const std::size_t> members,
+                   const CustomShaderSource& customShader, Common::Json::Issues& issues,
+                   const FoliageHLODSource& foliage, const HLODMeshBuilder& meshBuilder )
+    {
+        InstancingHLOD instanced = BuildInstancingHLOD( records, world, members, customShader, issues, foliage );
+        if ( layer.Type == HLODLayerType::Instancing || instanced.Batches.empty() )
+            return Common::MakeSuccess( std::move( instanced ) );
+        if ( !meshBuilder )
+            return Common::MakeError<InstancingHLOD>( "HLOD layer '" + layer.Name +
+                                                      "' builds meshes and this cook was given no HLOD mesh "
+                                                      "builder; cook it where meshes can be read (the editor)" );
+        InstancingHLOD merged;
+        merged.NotInstanced   = std::move( instanced.NotInstanced );
+        merged.Instances      = instanced.Instances;
+        merged.FoliageLeftOut = instanced.FoliageLeftOut;
+        for ( const bool shadows : { true, false } )
+        {
+            std::vector<Assets::InstancedStaticMeshComponentSer> parts;
+            std::vector<std::size_t>                             sources;
+            for ( HLODBatch& batch : instanced.Batches )
+            {
+                if ( batch.Block.CastShadows.value_or( true ) != shadows )
+                    continue;
+                parts.push_back( batch.Block );
+                sources.insert( sources.end(), batch.Sources.begin(), batch.Sources.end() );
+            }
+            if ( parts.empty() )
+                continue;
+            HLODMeshRequest request;
+            request.Type            = layer.Type;
+            request.TrianglePercent = layer.SimplifyTrianglePercent.value_or( 1.0f );
+            request.Parts           = parts;
+            auto built              = meshBuilder( request );
+            if ( !built )
+                return Common::MakeError<InstancingHLOD>( "HLOD layer '" + layer.Name + "': " + built.GetError() );
+            HLODBatch batch;
+            batch.Mesh = built.ExtractValue();
+            if ( !shadows )
+                batch.Mesh->CastShadows = false;
+            // Sources in member order, once each (a record may feed several batches).
+            for ( const std::size_t member : members )
+                if ( std::find( sources.begin(), sources.end(), member ) != sources.end() )
+                    batch.Sources.push_back( member );
+            merged.Batches.push_back( std::move( batch ) );
+        }
+        return Common::MakeSuccess( std::move( merged ) );
+    }
+
     // The id of batch @p batch of the HLOD named @p name in world @p world: a function of the three, as a file's
     // GUID is, so a re-cook (and a second Play of the same scene) reproduces it. Zero is a possible hash and is
     // the null id; the caller refuses it, and an id that meets another record's.
@@ -314,15 +464,19 @@ namespace Desert::Core::Rules
         return Common::UUID( Common::Utils::PakContentHash( identity.data(), identity.size() ) );
     }
 
-    // The record of batch @p batch: an entity with only the InstancedStaticMesh block, which ComponentRegistry
-    // loads as it loads any authored ISM. What the cook writes to the HLOD file and editor Play instantiates.
+    // The record of batch @p batch: an entity with only the InstancedStaticMesh block (or, for a built mesh, only
+    // the StaticMesh block at the identity transform), which ComponentRegistry loads as it loads any authored one.
+    // What the cook writes to the HLOD file and editor Play instantiates.
     [[nodiscard]] inline Assets::EntityData HLODRecord( const HLODBatch& batch, Common::UUID id,
                                                         std::size_t index )
     {
         Assets::EntityData record;
         record.id                                                  = id;
         record.Tag                                                 = "HLOD " + std::to_string( index );
-        record.Components[std::string( kInstancePointsComponent )] = Common::Json::FromStruct( batch.Block );
+        if ( batch.Mesh.has_value() )
+            record.Components[std::string( kPrimitiveComponent )] = Common::Json::FromStruct( *batch.Mesh );
+        else
+            record.Components[std::string( kInstancePointsComponent )] = Common::Json::FromStruct( batch.Block );
         return record;
     }
 } // namespace Desert::Core::Rules

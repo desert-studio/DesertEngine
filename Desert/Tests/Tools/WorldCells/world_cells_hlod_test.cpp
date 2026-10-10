@@ -17,6 +17,7 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Json/Json.hpp>
@@ -115,6 +116,7 @@ namespace
         SceneSerialized scene;
         scene.SceneName      = "HlodMe";
         scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ kCell, 1500.0f } } };
+        Desert::Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
         auto& records        = scene.Entities;
 
         EntityData camera = Record( kCamera, "Camera", { 50.0f, 0.0f, 50.0f } );
@@ -484,6 +486,7 @@ TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
     SceneSerialized scene;
     scene.SceneName      = "HlodShaders";
     scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ kCell, 1500.0f } } };
+    Desert::Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
     scene.Entities.push_back( CubeWith( kCustomCube, { kCustomMaterial }, 0.0f ) );
     scene.Entities.push_back( CubeWith( kInstanceCube, { kCustomInstance }, 50.0f ) );
     scene.Entities.push_back( CubeWith( kMixedCube, { kCustomMaterial, kSurfaceMaterial }, 100.0f ) );

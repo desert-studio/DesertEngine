@@ -4,6 +4,7 @@
 #include "SettingsCanonical.hpp"
 
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -602,6 +603,7 @@ namespace Desert::WorldGen
                 grid.CellSize        = static_cast<float>( partitionCell.value_or( spec.CellSizeCm ) );
                 grid.LoadingRange    = static_cast<float>( loadingRange.value_or( 76800 ) );
                 scene.WorldPartition = Core::WorldPartitionSerialized{ { grid } };
+                Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
             }
 
             // The Settings block, written the way the ENGINE'S SAVER writes it - every field this build
