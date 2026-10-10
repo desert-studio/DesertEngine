@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
@@ -200,18 +201,6 @@ namespace Desert::Graphic::System
         return std::min( settings.LastLODIndex,
                          1.0f + std::log( settings.LOD1ScreenSizeSquared / screenSizeSquared ) /
                                      std::log( settings.LODOnePlusDistributionScalarSquared ) );
-    }
-
-    // The squared screen radius of a bounding sphere: a fraction of the screen, from the projection's focal
-    // scale. abs(): a Vulkan projection flips Y, UE's does not.
-    inline float LandscapeScreenRadiusSquared( const glm::vec3& center, float radius, const glm::vec3& viewOrigin,
-                                               const glm::mat4& projection )
-    {
-        const glm::vec3 d      = center - viewOrigin;
-        const float     distSq = glm::dot( d, d );
-        const float     multiple =
-             std::max( 0.5f * std::abs( projection[0][0] ), 0.5f * std::abs( projection[1][1] ) );
-        return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );
     }
 
     // A tile's LOD and what its borders and corners take. `lodAt(dx, dz)` is the continuous LOD of the tile

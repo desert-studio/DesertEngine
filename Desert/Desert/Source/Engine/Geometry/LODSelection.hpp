@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -50,11 +51,39 @@ namespace Desert::Geometry
         return static_cast<uint32_t>( levels - 1 );
     }
 
+    // THE VIEW A LOD IS ASKED FROM: where the eye is and how it projects. The projection is half the
+    // question — the same object at the same distance covers four times the screen through a lens of a
+    // quarter of the field of view, and a zoomed-in camera must get the detail it can actually see.
+    struct LODView
+    {
+        glm::vec3 Origin{ 0.0f };
+        glm::mat4 Projection{ 1.0f };
+    };
+
+    // THE SQUARED SCREEN RADIUS OF A BOUNDING SPHERE, as a fraction of the screen: the one measure every
+    // LOD in the engine is chosen by (meshes, ISM instances, landscape tiles).
+    // Port of UE ComputeBoundsScreenRadiusSquared (Engine/Source/Runtime/Engine/Private/SceneManagement.cpp):
+    // the projection's focal scale × radius / distance. abs() on the focal terms because a Vulkan projection
+    // flips Y; |Projection[2][3]| is 1 for a perspective and 0 for an orthographic projection, so an
+    // orthographic view measures size alone, as in UE.
+    inline float BoundsScreenRadiusSquared( const glm::vec3& center, float radius, const LODView& view )
+    {
+        const glm::vec3 d        = center - view.Origin;
+        const float     distSq   = glm::dot( d, d ) * std::abs( view.Projection[2][3] );
+        const float     multiple = std::max( 0.5f * std::abs( view.Projection[0][0] ),
+                                             0.5f * std::abs( view.Projection[1][1] ) );
+        return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );
+    }
+
+    // THE SCREEN SIZE AT WHICH EACH AUTOMATIC LEVEL BEGINS (UE's per-LOD ScreenSize: the sphere's diameter
+    // as a fraction of the screen). Level N is drawn while the object is smaller than kLODScreenSizes[N].
+    inline constexpr float kLODScreenSizes[kMaxAutoLOD + 1] = { 1.0f, 0.20f, 0.08f, 0.03f };
+
     // THE POLICY, taking bounds that were already computed. An Instanced Static Mesh asks this question
     // once per INSTANCE against one shared mesh; walking that mesh's submeshes 49 152 times to rebuild
     // the same box is the difference between per-instance LOD being affordable and not being.
     inline uint32_t SelectLODFromBounds( const glm::mat4& transform, const Common::Math::AABB& localBounds,
-                                         const glm::vec3& cameraPosition, int forcedLOD, int lodBias )
+                                         const LODView& view, int forcedLOD, int lodBias )
     {
         if ( forcedLOD >= 0 )
             return static_cast<uint32_t>( forcedLOD );
@@ -62,18 +91,26 @@ namespace Desert::Geometry
         if ( IsEmpty( localBounds ) )
             return 0; // empty mesh
 
-        // World-space bounding radius = mesh AABB half-diagonal * the largest transform scale. Using it
-        // (instead of raw distance) makes selection SIZE-AWARE: a large object keeps full detail farther
-        // away than a small one.
+        // World-space bounding sphere: the box's centre through the transform, radius = half-diagonal × the
+        // largest transform scale. Size-aware: a large object keeps full detail farther away than a small one.
         const float scale = glm::max(
              glm::length( glm::vec3( transform[0] ) ),
              glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
-        const float radius = glm::length( localBounds.Max - localBounds.Min ) * 0.5f * scale;
-        const float dist   = glm::length( cameraPosition - glm::vec3( transform[3] ) );
+        const float     radius = glm::length( localBounds.Max - localBounds.Min ) * 0.5f * scale;
+        const glm::vec3 center = glm::vec3( transform * glm::vec4( 0.5f * ( localBounds.Min + localBounds.Max ), 1.0f ) );
 
-        // Screen-coverage proxy (radius / distance): larger / closer = finer LOD.
-        const float coverage = radius / glm::max( dist, 0.001f );
-        const int   base     = coverage > 0.20f ? 0 : coverage > 0.08f ? 1 : coverage > 0.03f ? 2 : 3;
+        // UE ComputeStaticMeshLOD: the coarsest level whose screen size the object is still below.
+        const float screenRadiusSq = BoundsScreenRadiusSquared( center, radius, view );
+        int         base           = 0;
+        for ( int level = kMaxAutoLOD; level > 0; --level )
+        {
+            const float half = 0.5f * kLODScreenSizes[level];
+            if ( half * half > screenRadiusSq )
+            {
+                base = level;
+                break;
+            }
+        }
         // Per-mesh bias shifts the auto pick (+coarser / -finer).
         return static_cast<uint32_t>( std::clamp( base + lodBias, 0, kMaxAutoLOD ) );
     }
@@ -81,9 +118,9 @@ namespace Desert::Geometry
     // The submesh-taking spelling, for callers that hold a mesh rather than a box. One policy, one
     // definition of a mesh's extent (Geometry::LocalBounds) — the draw side, the editor's Details panel
     // and the culler cannot drift apart about either.
-    inline uint32_t SelectLOD( const glm::mat4& transform, const std::vector<Submesh>& submeshes,
-                               const glm::vec3& cameraPosition, int forcedLOD, int lodBias )
+    inline uint32_t SelectLOD( const glm::mat4& transform, const std::vector<Submesh>& submeshes, const LODView& view,
+                               int forcedLOD, int lodBias )
     {
-        return SelectLODFromBounds( transform, LocalBounds( submeshes ), cameraPosition, forcedLOD, lodBias );
+        return SelectLODFromBounds( transform, LocalBounds( submeshes ), view, forcedLOD, lodBias );
     }
 } // namespace Desert::Geometry

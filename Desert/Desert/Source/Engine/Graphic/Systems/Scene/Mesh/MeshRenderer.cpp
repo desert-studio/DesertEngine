@@ -205,7 +205,9 @@ namespace Desert::Graphic::System
 
         // The policy itself lives in Geometry::SelectLOD so the editor can report the SAME level it
         // draws with (Details "Mesh" section); this only resolves the renderer's camera + LOD toggle.
-        return Geometry::SelectLOD( transform, mesh->GetSubmeshes(), camera->GetPosition(), forcedLOD, lodBias );
+        return Geometry::SelectLOD( transform, mesh->GetSubmeshes(),
+                                    Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                    forcedLOD, lodBias );
     }
 
     void MeshRenderer::SubmitGenericMesh( const GenericMeshRenderData& data )

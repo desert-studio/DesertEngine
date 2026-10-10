@@ -1228,7 +1228,9 @@ namespace Desert::Graphic::System
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
                 CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind,
-                                     camera->GetPosition(), camera->GetPosition(), maxLevel, visible, levels );
+                                     camera->GetPosition(),
+                                     Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                     maxLevel, visible, levels );
                 m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;

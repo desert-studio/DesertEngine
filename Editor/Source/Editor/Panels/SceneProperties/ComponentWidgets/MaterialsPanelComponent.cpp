@@ -176,7 +176,9 @@ namespace Desert::Editor
                     {
                         active =
                              std::min<size_t>( Geometry::SelectLOD( entity.GetWorldTransform(),
-                                                                    lodMesh->GetSubmeshes(), camera->GetPosition(),
+                                                                    lodMesh->GetSubmeshes(),
+                                                                    Geometry::LODView{ camera->GetPosition(),
+                                                                                       camera->GetProjectionMatrix() },
                                                                     materialComp.ForcedLOD, materialComp.LODBias ),
                                                levels - 1 );
                         haveActive = true;

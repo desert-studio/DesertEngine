@@ -69,14 +69,14 @@ namespace Desert::Graphic
      * @brief The instances of one ISM a pass draws, and the LOD level of each.
      *
      * ONE function for the geometry pass and every shadow cascade, so an instance the camera does not see is
-     * not a caster either: the frustum and the LOD position are the pass's, but the cull distance is measured
+     * not a caster either: the frustum and the LOD view are the pass's, but the cull distance is measured
      * from @p cullViewPosition, which every caller passes as the MAIN camera's position — a cascade has no
      * position of its own that the fade could be measured from without leaving shadows of absent trees.
      */
     inline void CollectIsmInstances( const std::vector<glm::mat4>& transforms,
                                      const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
-                                     const glm::vec3& cullViewPosition, const glm::vec3& lodViewPosition,
+                                     const glm::vec3& cullViewPosition, const Geometry::LODView& lodView,
                                      uint32_t maxLevel, std::vector<glm::mat4>& visible,
                                      std::vector<uint32_t>& levels )
     {
@@ -97,7 +97,7 @@ namespace Desert::Graphic
                 continue;
             visible.push_back( instanceTransform );
             levels.push_back(
-                 std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodViewPosition, -1, 0 ),
+                 std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, -1, 0 ),
                            maxLevel ) );
         }
     }

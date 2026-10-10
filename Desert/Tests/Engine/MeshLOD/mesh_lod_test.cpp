@@ -157,15 +157,21 @@ namespace
     {
         return glm::scale( glm::mat4( 1.0f ), glm::vec3( scale ) );
     }
+
+    // The view the policy is asked from: an eye and a 90-degree square perspective.
+    Desert::Geometry::LODView ViewFrom( const glm::vec3& eye )
+    {
+        return Desert::Geometry::LODView{ eye, glm::perspective( glm::radians( 90.0f ), 1.0f, 1.0f, 1.0e7f ) };
+    }
 } // namespace
 
 TEST( LODSelection, ForcedLevelWinsOverEverything )
 {
     const auto subs = BoundedSubmesh( 50.0f );
     // Far away (would be the coarsest level) but pinned to LOD 1.
-    EXPECT_EQ( SelectLOD( AtOrigin(), subs, glm::vec3( 0.0f, 0.0f, 100000.0f ), /*forced*/ 1, /*bias*/ 0 ), 1u );
+    EXPECT_EQ( SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), /*forced*/ 1, /*bias*/ 0 ), 1u );
     // The bias is ignored while a level is forced.
-    EXPECT_EQ( SelectLOD( AtOrigin(), subs, glm::vec3( 0.0f, 0.0f, 100000.0f ), /*forced*/ 0, /*bias*/ 3 ), 0u );
+    EXPECT_EQ( SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), /*forced*/ 0, /*bias*/ 3 ), 0u );
 }
 
 TEST( LODSelection, CoarsensWithDistance )
@@ -173,9 +179,9 @@ TEST( LODSelection, CoarsensWithDistance )
     const auto subs = BoundedSubmesh( 50.0f ); // radius ~86.6 cm
 
     // (not named near/far: those are legacy macros in the Windows SDK headers)
-    const uint32_t closeUp = SelectLOD( AtOrigin(), subs, glm::vec3( 0.0f, 0.0f, 100.0f ), -1, 0 );
-    const uint32_t middle  = SelectLOD( AtOrigin(), subs, glm::vec3( 0.0f, 0.0f, 800.0f ), -1, 0 );
-    const uint32_t distant = SelectLOD( AtOrigin(), subs, glm::vec3( 0.0f, 0.0f, 100000.0f ), -1, 0 );
+    const uint32_t closeUp = SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100.0f ) ), -1, 0 );
+    const uint32_t middle  = SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 800.0f ) ), -1, 0 );
+    const uint32_t distant = SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), -1, 0 );
 
     EXPECT_EQ( closeUp, 0u );
     EXPECT_GT( middle, closeUp );
@@ -186,7 +192,7 @@ TEST( LODSelection, SizeAwareAndBiasShifts )
 {
     const auto smallOne = BoundedSubmesh( 50.0f );
     const auto big   = BoundedSubmesh( 5000.0f );
-    const auto eye   = glm::vec3( 0.0f, 0.0f, 5000.0f );
+    const auto eye   = ViewFrom( glm::vec3( 0.0f, 0.0f, 5000.0f ) );
 
     // A bigger object keeps finer detail at the same distance...
     EXPECT_LT( SelectLOD( AtOrigin(), big, eye, -1, 0 ), SelectLOD( AtOrigin(), smallOne, eye, -1, 0 ) );
@@ -203,7 +209,7 @@ TEST( LODSelection, SizeAwareAndBiasShifts )
 
 TEST( LODSelection, EmptyMeshIsLODZero )
 {
-    EXPECT_EQ( SelectLOD( AtOrigin(), {}, glm::vec3( 0.0f, 0.0f, 100000.0f ), -1, 0 ), 0u );
+    EXPECT_EQ( SelectLOD( AtOrigin(), {}, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), -1, 0 ), 0u );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -412,9 +418,9 @@ TEST( MeshLOD, TheBoundsTakingAndSubmeshTakingSelectorsAreOnePolicy )
     for ( float distance = 100.0f; distance < 200000.0f; distance *= 2.0f )
     {
         const glm::mat4 transform = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, -distance ) );
-        EXPECT_EQ( Desert::Geometry::SelectLOD( transform, submeshes, glm::vec3( 0.0f ), -1, 0 ),
+        EXPECT_EQ( Desert::Geometry::SelectLOD( transform, submeshes, ViewFrom( glm::vec3( 0.0f ) ), -1, 0 ),
                    Desert::Geometry::SelectLODFromBounds( transform, Desert::Geometry::LocalBounds( submeshes ),
-                                                          glm::vec3( 0.0f ), -1, 0 ) )
+                                                          ViewFrom( glm::vec3( 0.0f ) ), -1, 0 ) )
              << "at " << distance << " cm";
     }
 }
