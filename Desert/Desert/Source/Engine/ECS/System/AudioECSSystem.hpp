@@ -152,8 +152,9 @@ namespace Desert::ECS
                             LOG_ERROR( "[Audio] Sequence sound: {}", file.GetError() );
                             break; // the diff still holds the voice: one line, no retry spam
                         }
-                        const uint32_t id = audio.CreateSource( file.GetValue().string(), false, false,
-                                                                command.Gain ); // 2D, as UE's master track
+                        // Effects, as the AudioSource path above, until the sound carries its own class.
+                        const uint32_t id = audio.CreateSource( file.GetValue().string(), Audio::SoundClass::Effects,
+                                                                false, false, command.Gain ); // 2D, as UE's master track
                         if ( id == 0 )
                             break; // CreateSource logged the path; the diff still holds the voice, no retry spam
                         audio.SeekSource( id, command.Seconds );
