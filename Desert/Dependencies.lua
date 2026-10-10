@@ -160,6 +160,34 @@ local function getGTestIncludeDir()
     return DesertPlatform.HomebrewPrefix and (DesertPlatform.HomebrewPrefix .. "/include") or "/usr/local/include"
 end
 
+-- EVERY LOOP OVER A DEPENDENCY TABLE GOES THROUGH THIS, NEVER THROUGH pairs(). The tables below are
+-- keyed by name, and Lua seeds its string hash per process, so pairs() hands the keys out in a new order
+-- on every premake run. That order IS the order of -isystem flags on clang and of EXTERNAL_INCLUDE on
+-- MSVC, both of which ccache hashes: five premake runs over the same tree gave five orders and therefore
+-- five cache keys for every engine object. Integer keys (a list such as getVulkanLibs' result) come first
+-- in their own order, then names in byte order, so the generated project files are identical run to run.
+function DesertSortedPairs(t)
+    local keys = {}
+    for key in pairs(t) do
+        table.insert(keys, key)
+    end
+    table.sort(keys, function(a, b)
+        local ta, tb = type(a), type(b)
+        if ta ~= tb then
+            return ta == "number"
+        end
+        return a < b
+    end)
+    local i = 0
+    return function()
+        i = i + 1
+        local key = keys[i]
+        if key ~= nil then
+            return key, t[key]
+        end
+    end
+end
+
 -- EVERY PATH IN THESE `IncludeDir` TABLES IS THIRD-PARTY, AND THAT IS NOW LOAD-BEARING RATHER THAN
 -- INCIDENTAL. Each consumer declares them with `externalincludedirs`, which is `-isystem` on clang and
 -- `/external:I` on MSVC, so `externalwarnings "Off"` (BuildScripts/Workspace.lua) keeps vendored headers

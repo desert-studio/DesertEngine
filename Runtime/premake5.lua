@@ -46,7 +46,7 @@ project "Runtime"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
     }
 
-    for name, path in pairs(deps.EditorSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.EditorSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 
@@ -63,14 +63,14 @@ project "Runtime"
     }
 
     filter "configurations:Debug"
-    for name, path in pairs(deps.EditorSpecific.Libraries.Debug) do
+    for name, path in DesertSortedPairs(deps.EditorSpecific.Libraries.Debug) do
         links { path }
     end
 
     -- `or Shipping`: the shipping build links the SAME third-party flavour Release does. There is no
     -- third set of prebuilt libraries and inventing one would mean pinning Vulkan and reflect-cpp twice.
     filter "configurations:Release or Shipping"
-    for name, path in pairs(deps.EditorSpecific.Libraries.Release) do
+    for name, path in DesertSortedPairs(deps.EditorSpecific.Libraries.Release) do
         links { path }
     end
 
@@ -105,12 +105,12 @@ project "Runtime"
         }
 
     filter { "system:macosx", "configurations:Debug" }
-        for name, path in pairs(engineDeps.DesertSpecific.Libraries.Debug) do
+        for name, path in DesertSortedPairs(engineDeps.DesertSpecific.Libraries.Debug) do
             links { path }
         end
 
     filter { "system:macosx", "configurations:Release or Shipping" }
-        for name, path in pairs(engineDeps.DesertSpecific.Libraries.Release) do
+        for name, path in DesertSortedPairs(engineDeps.DesertSpecific.Libraries.Release) do
             links { path }
         end
 

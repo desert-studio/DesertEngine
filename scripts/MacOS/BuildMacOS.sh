@@ -3,7 +3,7 @@
 #
 # Usage:
 #   scripts/MacOS/BuildMacOS.sh [Debug|Release|Shipping] [--with-tests] [--gen-only] [--no-analyze]
-#                               [--no-ccache]
+#                               [--no-ccache] [--project=<Name>]...
 #
 # Examples:
 #   scripts/MacOS/BuildMacOS.sh              # Debug build, static analysis on
@@ -12,6 +12,8 @@
 #   scripts/MacOS/BuildMacOS.sh Debug --with-tests
 #   scripts/MacOS/BuildMacOS.sh Debug --no-analyze   # skip clang-tidy, and SAY so
 #   scripts/MacOS/BuildMacOS.sh Debug --no-ccache    # compile every unit, and SAY so
+#   scripts/MacOS/BuildMacOS.sh Shipping --project=Runtime --project=GamePackager
+#                                    # those projects and what the workspace says they depend on
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -21,6 +23,10 @@ PREMAKE_ARGS=()
 GEN_ONLY=0
 ANALYZE=1
 CCACHE=1
+# Workspace projects to build (make targets of build/Projects/Makefile). Empty = the whole workspace.
+# make builds each named project's dependencies first — the workspace Makefile lists them from the
+# projects' own `links` — so a list names what is WANTED, never the order to build it in.
+PROJECTS=()
 
 # WHERE THE ANALYSER ATTACHES. One path, named once. scripts/CI/CheckTidy.sh is the clang-tidy gate's
 # single entry point and its exit codes ARE its interface — 0 clean, 1 findings, 2 the gate could not
@@ -39,6 +45,7 @@ for arg in "$@"; do
         --gen-only)    GEN_ONLY=1 ;;
         --no-analyze)  ANALYZE=0 ;;
         --no-ccache)   CCACHE=0 ;;
+        --project=?*)  PROJECTS+=("${arg#--project=}") ;;
         *) echo "Unknown argument: $arg" >&2; exit 1 ;;
     esac
 done
@@ -155,8 +162,9 @@ fi
 MAKE_CONFIG="$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')"
 CORES="$(sysctl -n hw.ncpu)"
 
-echo "--- Building ($CONFIG, -j$CORES)"
-make -C build/Projects config="$MAKE_CONFIG" -j"$CORES" "${MAKE_TOOL_VARS[@]+"${MAKE_TOOL_VARS[@]}"}"
+echo "--- Building ($CONFIG, -j$CORES): ${PROJECTS[*]:-every project}"
+make -C build/Projects config="$MAKE_CONFIG" -j"$CORES" "${MAKE_TOOL_VARS[@]+"${MAKE_TOOL_VARS[@]}"}" \
+    "${PROJECTS[@]+"${PROJECTS[@]}"}"
 
 echo ""
 echo "=== Build complete: build/Bin/$CONFIG ==="
