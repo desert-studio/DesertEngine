@@ -93,8 +93,9 @@ namespace Desert::Core::EditorRegions
             auto loadable = ParseLoadableScene( path.string(), text.GetValue() );
             if ( !loadable )
                 return Common::MakeError<Result>( loadable.GetError() );
+            LoadableScene                   parsed = loadable.ExtractValue();
             std::vector<Assets::EntityData> arriving;
-            for ( Assets::EntityData& record : loadable.GetValue().Scene.Entities )
+            for ( Assets::EntityData& record : parsed.Scene.Entities )
                 if ( record.id.has_value() && !held.contains( static_cast<std::uint64_t>( *record.id ) ) )
                     arriving.push_back( std::move( record ) );
 
@@ -116,7 +117,7 @@ namespace Desert::Core::EditorRegions
             outcome.Loaded = arriving.size();
 
             // The document a save merges foreign keys from is the held part's, as an open of it would have made.
-            scene.SetLoadedDocument( std::move( loadable.GetValue().Document ) );
+            scene.SetLoadedDocument( std::move( parsed.Document ) );
             const std::vector<LiveEntity> after = serializer.LiveEntities();
             scene.Packages()->AdoptRegion( after, notLoaded );
             outcome.NotLoaded = notLoaded.size();
