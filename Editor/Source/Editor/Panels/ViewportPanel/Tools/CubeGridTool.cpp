@@ -6,6 +6,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/BlockoutCollision.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/BlockoutSession.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -1231,63 +1232,26 @@ namespace Desert::Editor::Tools
             ms.ReqAccept         = false;
             const bool endTool   = ms.ReqAcceptEndsTool;
             ms.ReqAcceptEndsTool = false;
-            if ( !( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() ) )
-            {
-                // Collision on Accept (UE's Cube Grid bakes collision with the mesh): a blockout you
-                // cannot walk into is half a blockout. This is a BOX around the piece, not a triangle
-                // mesh — the physics layer has box/sphere/capsule shapes today, so a concave blockout
-                // gets its bounding volume, and the panel says so rather than implying trimesh collision.
-                if ( ms.GenerateCollision )
-                {
-                    if ( auto ref = scene.FindEntityByID( m_Entity ) )
-                    {
-                        ECS::Entity e = ref->get();
-                        if ( e.HasComponent<ECS::StaticMeshComponent>() )
-                        {
-                            const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
-                            if ( smc.RuntimeMesh && !smc.RuntimeMesh->GetSubmeshes().empty() )
-                            {
-                                glm::vec3 bmin( FLT_MAX ), bmax( -FLT_MAX );
-                                for ( const auto& sm : smc.RuntimeMesh->GetSubmeshes() )
-                                {
-                                    bmin = glm::min( bmin, sm.BoundingBox.Min );
-                                    bmax = glm::max( bmax, sm.BoundingBox.Max );
-                                }
-                                if ( bmin.x <= bmax.x )
-                                {
-                                    auto& col            = e.HasComponent<ECS::ColliderComponent>()
-                                                                ? e.GetComponent<ECS::ColliderComponent>()
-                                                                : e.AddComponent<ECS::ColliderComponent>();
-                                    col.Data.Shape       = Physics::ShapeType::Box;
-                                    col.Data.HalfExtents = glm::max( ( bmax - bmin ) * 0.5f, glm::vec3( 1.0f ) );
-                                    col.Data.Radius =
-                                         glm::max( col.Data.HalfExtents.x,
-                                                   glm::max( col.Data.HalfExtents.y, col.Data.HalfExtents.z ) );
-
-                                    // Static body, so the collider actually participates in the sim
-                                    // (a collider alone is inert).
-                                    auto& rb     = e.HasComponent<ECS::RigidBodyComponent>()
-                                                        ? e.GetComponent<ECS::RigidBodyComponent>()
-                                                        : e.AddComponent<ECS::RigidBodyComponent>();
-                                    rb.Data.Type = Physics::BodyType::Static;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Output: Static Mesh (after the collider, which reads the EditMesh's render bounds): the blockout
-            // becomes a new asset before the creation is recorded. ONE undo step for the whole session, with
-            // the collider it just got: undo removes the entity (EditMesh included, through the scene
-            // serializer), redo brings it back under the same UUID. A refused write does NOT accept: the
-            // session and the tool stay open with the cells, and the user is told why (BlockoutSession.hpp).
+            // Collision (GiveBlockoutCollision: the piece's own triangles on a static body, never its bounding
+            // box) and then Output: Static Mesh, which makes the blockout a new asset, both before the creation
+            // is recorded. ONE undo step for the whole session, with the collider it just got: undo removes the
+            // entity (EditMesh included, through the scene serializer), redo brings it back under the same UUID.
+            // A refused write (or a refused collision) does NOT accept: the session and the tool stay open with
+            // the cells, and the user is told why (BlockoutSession.hpp).
             auto accepted = AcceptBlockout(
                  m_Entity, ms, endTool,
                  [&]( const Common::UUID& piece ) -> Common::BoolResultStr
                  {
                      if ( auto stored = StoreVoxels( scene ); !stored.IsSuccess() )
                          return stored;
+                     if ( ms.GenerateCollision )
+                     {
+                         auto ref = scene.FindEntityByID( piece );
+                         if ( !ref )
+                             return Common::MakeError<bool>( "the piece is no longer in the scene" );
+                         if ( auto given = GiveBlockoutCollision( ref->get() ); !given.IsSuccess() )
+                             return given;
+                     }
                      if ( ms.Output.Type != Core::ModelingState::OutputType::StaticMesh )
                          return Common::MakeSuccess( true );
                      auto written = Commands::OutputStaticMesh( piece, ms.Output.Folder, ms.Output.Name );
