@@ -275,6 +275,9 @@ namespace Desert::Editor
         /// The transport row: play/pause, stop, to start / to end, Loop. The playhead is the PLAYER's, and
         /// `m_LevelTick` is read off it every frame — the one clock the preview poses the scene at.
         void DrawLevelTransport( const Animation::Timeline::Sequence& sequence );
+        /// The header's track filters, Selected and Keyed (UE: Filters ▸ Selected / Keyed) — toggles of
+        /// EditorPreferences::SequencerFilterSelected / SequencerFilterKeyed; the rule is Sequencer/TrackFilter.hpp.
+        void DrawLevelTrackFilters();
         /// The player, (re)built when the sequence's range is not the one it was built for.
         Animation::Timeline::Player& LevelPlayer( const Animation::Timeline::Sequence& sequence );
         void                         JumpLevel( const Animation::Timeline::Sequence& sequence, int32_t tick );
