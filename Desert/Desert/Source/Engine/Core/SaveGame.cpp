@@ -28,6 +28,16 @@ namespace Desert::Core
     {
         namespace Json = Common::Json;
 
+        /// The string a found node holds; empty when the node is absent or not a string.
+        template <class FoundNode>
+        std::string StringAt( const FoundNode& node )
+        {
+            if ( !node )
+                return {};
+            const auto text = node->AsString();
+            return text ? std::string( text.GetValue() ) : std::string();
+        }
+
         std::mutex& RootMutex()
         {
             static std::mutex mutex;
@@ -203,7 +213,7 @@ namespace Desert::Core
                               const auto        kind  = record.Find( "Type" );
                               const auto        value = record.Find( "Value" );
                               const std::string kindName =
-                                   kind && kind->AsString() ? kind->AsString().GetValue() : "";
+                                   StringAt( kind );
                               Scripting::ScriptProperty read;
                               read.Name   = std::string( name );
                               bool usable = false;
@@ -304,7 +314,9 @@ namespace Desert::Core
             if ( character != Physics::kInvalidCharacter )
             {
                 physics->TeleportCharacter( character, position );
-                registry.get<ECS::CharacterControllerComponent>( entity ).VerticalVelocity = 0.0f;
+                auto& controller        = registry.get<ECS::CharacterControllerComponent>( entity );
+                controller.Velocity     = glm::vec3( 0.0f ); // stopped where it lands, like the capsule
+                controller.CurrentSpeed = 0.0f;
             }
         }
 
@@ -387,16 +399,17 @@ namespace Desert::Core
         Common::BoolResultStr CheckEnvelope( const Json::Node& root, const std::string& what )
         {
             const auto format = root.Find( "Format" );
-            if ( !format || !format->AsString() || format->AsString().GetValue() != SAVEGAME_FORMAT_NAME )
+            if ( StringAt( format ) != SAVEGAME_FORMAT_NAME )
                 return Common::MakeFormattedError<bool>( "{}: not a save game (Format is not '{}')", what,
                                                          SAVEGAME_FORMAT_NAME );
             const auto version = root.Find( "Version" );
             if ( !version || !version->AsInteger() )
                 return Common::MakeFormattedError<bool>( "{}: save game has no integer Version", what );
-            if ( version->AsInteger().GetValue() != SAVEGAME_FORMAT_VERSION )
+            const auto number = version->AsInteger();
+            if ( number.GetValue() != SAVEGAME_FORMAT_VERSION )
                 return Common::MakeFormattedError<bool>(
-                     "{}: save game version {} refused, this build reads version {}", what,
-                     version->AsInteger().GetValue(), SAVEGAME_FORMAT_VERSION );
+                     "{}: save game version {} refused, this build reads version {}", what, number.GetValue(),
+                     SAVEGAME_FORMAT_VERSION );
             return Common::MakeSuccess( true );
         }
 
@@ -466,7 +479,7 @@ namespace Desert::Core
                  const auto        savedType = record.Find( "Type" );
                  const auto        value     = record.Find( "Value" );
                  const std::string savedTypeName =
-                      savedType && savedType->AsString() ? savedType->AsString().GetValue() : "";
+                      StringAt( savedType );
                  if ( field == type.Fields.end() )
                      report.Problems.push_back( std::format( "{}.{} no longer exists; skipped", label, name ) );
                  else if ( !field->Meta.SaveGame )
@@ -544,9 +557,9 @@ namespace Desert::Core
         if ( const auto scene = root.Find( "Scene" ) )
         {
             if ( const auto guid = scene->Find( "Guid" ); guid && guid->AsString() )
-                identity.Guid = guid->AsString().GetValue();
+                identity.Guid = StringAt( guid );
             if ( const auto name = scene->Find( "Name" ); name && name->AsString() )
-                identity.Name = name->AsString().GetValue();
+                identity.Name = StringAt( name );
         }
         return Common::MakeSuccess( identity );
     }
@@ -612,7 +625,7 @@ namespace Desert::Core
                  {
                      std::string name;
                      if ( const auto saved = record.Find( "Name" ); saved && saved->AsString() )
-                         name = saved->AsString().GetValue();
+                         name = StringAt( saved );
                      const std::string label = std::format( "entity '{}' ({})", name, uuid );
                      const auto        found = byUuid.find( std::string( uuid ) );
                      if ( found == byUuid.end() )

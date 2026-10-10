@@ -18,6 +18,13 @@ using namespace Desert::Core;
 
 namespace
 {
+    // The slot names of `userIndex`, empty when listing failed (the comparison then names the missing slots).
+    std::vector<std::string> SlotsOf( const std::filesystem::path& root, std::uint32_t userIndex )
+    {
+        const auto slots = ListSaveGameSlots( root, userIndex );
+        return slots.IsSuccess() ? slots.GetValue() : std::vector<std::string>{};
+    }
+
     // PointLightData as the registry would describe it, with Intensity marked SaveGame and Color NOT marked. A
     // lookup of our own, so the test flags a field without touching the process-wide registry.
     Reflection::TypeInfo PointLightType( const char* intensityTypeName )
@@ -223,8 +230,8 @@ TEST( SaveGame, SlotsAreListedPerUserAndDeleted )
     ASSERT_TRUE( WriteSaveGameSlot( scratch.Path(), "a", 0, document ) );
     ASSERT_TRUE( WriteSaveGameSlot( scratch.Path(), "c", 1, document ) );
 
-    EXPECT_EQ( ListSaveGameSlots( scratch.Path(), 0 ).GetValue(), ( std::vector<std::string>{ "a", "b" } ) );
-    EXPECT_EQ( ListSaveGameSlots( scratch.Path(), 1 ).GetValue(), std::vector<std::string>{ "c" } );
+    EXPECT_EQ( SlotsOf( scratch.Path(), 0 ), ( std::vector<std::string>{ "a", "b" } ) );
+    EXPECT_EQ( SlotsOf( scratch.Path(), 1 ), std::vector<std::string>{ "c" } );
     EXPECT_TRUE( DoesSaveGameExist( scratch.Path(), "a", 0 ) );
     EXPECT_FALSE( DoesSaveGameExist( scratch.Path(), "c", 0 ) );
 
@@ -233,7 +240,7 @@ TEST( SaveGame, SlotsAreListedPerUserAndDeleted )
     const auto again = DeleteGameInSlot( scratch.Path(), "a", 0 );
     ASSERT_FALSE( again );
     EXPECT_NE( again.GetError().find( "'a'" ), std::string::npos ) << again.GetError();
-    EXPECT_EQ( ListSaveGameSlots( scratch.Path(), 0 ).GetValue(), std::vector<std::string>{ "b" } );
+    EXPECT_EQ( SlotsOf( scratch.Path(), 0 ), std::vector<std::string>{ "b" } );
 
     EXPECT_FALSE( SaveGameSlotPath( scratch.Path(), "../escape", 0 ) );
     EXPECT_FALSE( SaveGameSlotPath( scratch.Path(), "", 0 ) );

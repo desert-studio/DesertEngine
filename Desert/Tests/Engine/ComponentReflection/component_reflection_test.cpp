@@ -158,7 +158,7 @@ TEST( SkyAtmosphereReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     };
 
     const TypeInfo& sky = Type( "SkyAtmosphereData" );
-    EXPECT_EQ( sky.Fields.size(), 47u );
+    EXPECT_EQ( sky.Fields.size(), 42u );
     EXPECT_EQ( FieldNames( sky ), expected );
 }
 
@@ -183,7 +183,7 @@ TEST( SkyAtmosphereReflection, CategoriesAndTypesMatchTheSpecification )
     EXPECT_EQ( CountInCategory( sky, "Sky Color" ), 4u ); // the four palette colours
     EXPECT_EQ( CountInCategory( sky, "Sun" ), 6u );
     EXPECT_EQ( CountInCategory( sky, "Night Sky" ), 1u );
-    EXPECT_EQ( CountInCategory( sky, "Time Of Day" ), 5u );
+    EXPECT_EQ( CountInCategory( sky, "Time Of Day" ), 0u ); // TOD-SPLIT: TimeOfDayData owns the clock
     EXPECT_EQ( CountInCategory( sky, "Environment Lighting" ), 3u );
 
     // The physical-atmosphere groups, mirroring UE's Details panel grouping.
@@ -495,7 +495,7 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     };
 
     const TypeInfo& cloud = Type( "VolumetricCloudData" );
-    EXPECT_EQ( cloud.Fields.size(), 23u );
+    EXPECT_EQ( cloud.Fields.size(), 21u );
     EXPECT_EQ( FieldNames( cloud ), expected );
 
     // SIX Cloud Layer rows since О11: the sixth is the SCENE's own lift of the deck. It is not a sixth
@@ -526,7 +526,7 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     // different times by different views — a preview wants a small bake and a full march, a level the
     // reverse.
     EXPECT_EQ( CountInCategory( cloud, "Quality" ), 3u );
-    EXPECT_EQ( CountInCategory( cloud, "Animation" ), 2u );
+    EXPECT_EQ( CountInCategory( cloud, "Animation" ), 0u ); // WIND-SRC: the drift is the scene's WindSource
 
     // THE SEAM ITSELF: one material handle, hidden from the reflected pass because its row is the
     // terrain-style New/Edit/Clear widget in ComponentEditorRegistrations.cpp.
@@ -1750,7 +1750,7 @@ TEST( CharacterControllerReflection, ExposesTheUeMovementSettingsInCentimetres )
                ( std::vector<std::string>{ "Radius", "Height", "MaxSlopeDeg", "MaxWalkSpeed", "MaxAcceleration",
                                            "BrakingDecelerationWalking", "GroundFriction", "BrakingFrictionFactor",
                                            "JumpZVelocity", "AirControl", "GravityScale", "MaxWalkSpeedCrouched",
-                                           "CrouchedHeight", "MaxSwimSpeed" } ) );
+                                           "CrouchedHeight", "MaxSwimSpeed", "CollisionProfile" } ) );
     for ( const char* name : { "Radius", "Height", "CrouchedHeight" } )
     {
         ASSERT_NE( Find( cc, name ), nullptr ) << name;

@@ -416,9 +416,10 @@ TEST( MeshCollision, FittedCapsuleLiesOnTheFloorAlongItsAxis )
     const auto body = world.Create( log );
     ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
 
-    // Lying along X it rests at its radius; a capsule left standing on Y would sit (or topple) far higher.
+    // Lying along X it rests at its radius, sunk by at most the world's 2 cm penetration slop (PhysicsWorld.cpp);
+    // a capsule left standing on Y would sit (or topple) far higher.
     world.Run( 3.0f );
-    EXPECT_NEAR( world.Physics.GetPosition( body.GetValue() ).y, 30.0f, 1.5f );
+    EXPECT_NEAR( world.Physics.GetPosition( body.GetValue() ).y, 30.0f, 2.0f );
     const auto hit = world.Physics.CastRay( { 180.0f, 100.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 200.0f );
     ASSERT_TRUE( hit.has_value() ) << "the capsule's far end is not where its axis puts it";
     EXPECT_NEAR( hit->Point.y, 60.0f, 2.0f ); // NOLINT(bugprone-unchecked-optional-access): ASSERT above

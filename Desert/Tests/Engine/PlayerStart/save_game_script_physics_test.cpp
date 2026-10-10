@@ -8,6 +8,7 @@
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../PhysicsFixture.hpp"
 
 #include <gtest/gtest.h>
 
@@ -123,11 +124,12 @@ namespace
 TEST( SaveGame, RestoredPawnBodyIsTeleportedAndStopped )
 {
     Physics::PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 0.0f ) ); // no gravity: only the teleport and the old velocity move the body
+    ASSERT_TRUE( world.Init( 0.0f, TestSupport::PhysicsTestProfiles() ) ); // no gravity: only the teleport and the old velocity move the body
     Physics::BodyDesc desc;
     desc.Type        = Physics::BodyType::Dynamic;
     desc.HalfExtents = glm::vec3( 50.0f );
     desc.Position    = glm::vec3( 0.0f );
+    desc.Profile     = TestSupport::ProfileId( world, "PhysicsActor" );
     const auto body  = world.CreateBody( desc );
     ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
 
@@ -154,28 +156,31 @@ TEST( SaveGame, RestoredPawnBodyIsTeleportedAndStopped )
 TEST( SaveGame, RestoredPawnCharacterIsTeleported )
 {
     Physics::PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 0.0f ) );
+    ASSERT_TRUE( world.Init( 0.0f, TestSupport::PhysicsTestProfiles() ) );
     Physics::CharacterDesc desc;
     desc.Radius      = 30.0f;
     desc.HalfHeight  = 60.0f;
     desc.Position    = glm::vec3( 0.0f );
     desc.MaxSlopeDeg = 50.0f;
+    desc.Profile     = TestSupport::ProfileId( world, "Pawn" );
 
     entt::registry     registry;
     const entt::entity pawn       = MakePawn( registry, glm::vec3( 0.0f, 0.0f, 2500.0f ) );
     auto&              controller = registry.emplace<ECS::CharacterControllerComponent>( pawn );
-    controller.RuntimeCharacter   = world.CreateCharacter( desc );
+    const auto         character  = world.CreateCharacter( desc );
+    ASSERT_TRUE( character.IsSuccess() ) << character.GetError();
+    controller.RuntimeCharacter = character.GetValue();
     const auto document           = CaptureSaveGame( registry, pawn, kArena, NoFlaggedFields( {} ) );
 
-    registry.get<ECS::TransformComponent>( pawn ).Translation                = glm::vec3( 0.0f );
-    registry.get<ECS::CharacterControllerComponent>( pawn ).VerticalVelocity = -900.0f;
+    registry.get<ECS::TransformComponent>( pawn ).Translation        = glm::vec3( 0.0f );
+    registry.get<ECS::CharacterControllerComponent>( pawn ).Velocity = glm::vec3( 0.0f, 0.0f, -900.0f );
 
     const auto applied = ApplySaveGame( registry, pawn, kArena, document, NoFlaggedFields( {} ), &world );
     ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
     const auto& cc = registry.get<ECS::CharacterControllerComponent>( pawn );
     EXPECT_NEAR( glm::distance( world.GetCharacterPosition( cc.RuntimeCharacter ), glm::vec3( 0, 0, 2500.0f ) ),
                  0.0f, 0.01f );
-    EXPECT_EQ( cc.VerticalVelocity, 0.0f );
+    EXPECT_EQ( glm::length( cc.Velocity ), 0.0f );
 
     // Without the world, a live character is reported instead of silently left behind.
     registry.get<ECS::TransformComponent>( pawn ).Translation = glm::vec3( 0.0f );
