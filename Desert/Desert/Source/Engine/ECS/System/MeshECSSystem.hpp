@@ -2,6 +2,7 @@
 
 #include "System.hpp"
 #include "SystemRules.hpp"
+#include "MeshSectionMaterials.hpp"
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
@@ -19,6 +20,9 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Runtime/SelectionContext.hpp>
+
+#include <algorithm>
+#include <unordered_set>
 
 namespace Desert::ECS
 {
@@ -92,7 +96,8 @@ namespace Desert::ECS
                              return;
 
                          // --- Auto-Initialize Material Slots --- (the one rule, AdoptMeshMaterialSlots)
-                         AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
+                         if ( AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle ) )
+                             mesh.RuntimeMaterialInstances.clear();
 
                          // A MaterialService::Invalidate() this frame dropped some runtime Material —
                          // rebuild every cached instance set (parents may be graveyarded). One uint
@@ -476,8 +481,8 @@ namespace Desert::ECS
                          // of its own takes them, by the same rule. Without it every placed skinned mesh drew the
                          // grey default although its .demat and textures were written (THM1l, live on Fox.glb). A
                          // runtime rig (Convert to Skinned) carries its own slots.
-                         if ( !mesh.RuntimeMesh )
-                             AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
+                         if ( !mesh.RuntimeMesh && AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle ) )
+                             mesh.RuntimeMaterialInstances.clear();
 
                          // One skinned lit material instance (default if no slot assigned), rebuilt only when
                          // the slot set changes.
@@ -580,31 +585,33 @@ namespace Desert::ECS
         }
 
     private:
-        // A component with no material slot takes its mesh asset's (static and skinned alike).
-        // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered later than the mesh)
-        // leaves the slots EMPTY so this retries next frame - pushing Null() handles would pass the empty()
-        // gate forever and freeze the mesh on the fallback material.
-        static void AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>& slots,
-                                            const Assets::AssetHandle&        meshHandle )
+        // The component's slots take its mesh asset's section materials by the per-section rule
+        // (FillSectionMaterials, static and skinned alike): a section whose material does not resolve draws the
+        // default surface ALONE and is retried every frame, the other sections draw their own. True when a slot
+        // changed - the caller then rebuilds its runtime instances.
+        bool AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>& slots,
+                                     const Assets::AssetHandle&        meshHandle )
         {
-            if ( !slots.empty() || meshHandle.IsNull() )
-                return;
+            // Every slot named: nothing to take from the mesh (the per-frame common case, no lookup).
+            if ( meshHandle.IsNull() ||
+                 ( !slots.empty() &&
+                   std::none_of( slots.begin(), slots.end(), []( const auto& h ) { return h.IsNull(); } ) ) )
+                return false;
             auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
             if ( meshAsset == nullptr )
-                return;
-            const auto&                      defaultHandles = meshAsset->GetMaterialHandles();
-            std::vector<Assets::AssetHandle> resolved;
-            resolved.reserve( defaultHandles.size() );
-            for ( const auto& h : defaultHandles )
-            {
-                const auto internal =
-                     Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( h );
-                if ( internal.IsNull() )
-                    return;
-                resolved.push_back( internal );
-            }
-            if ( !resolved.empty() )
-                slots = std::move( resolved );
+                return false;
+            const auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+            const auto  fill      = FillSectionMaterials( slots, meshAsset->GetMaterialHandles(),
+                                                          [materials]( const Common::UUID& id )
+                                                          { return materials->GetAssetHandleByExternal( id ); } );
+            if ( !fill.Unresolved.empty() && m_UnresolvedSectionsLogged.insert( meshHandle ).second )
+                for ( const std::size_t section : fill.Unresolved )
+                    LOG_ERROR(
+                         "[MeshECSSystem] mesh {} section {} names material {}, which does not resolve; that "
+                         "section draws the default surface, the others their own materials",
+                         static_cast<uint64_t>( meshHandle ), section,
+                         static_cast<uint64_t>( meshAsset->GetMaterialHandles()[section] ) );
+            return fill.Changed;
         }
 
         // The fallback for a mesh with no material slot at all — the DEFAULT SURFACE template's cell per vertex
@@ -636,6 +643,8 @@ namespace Desert::ECS
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultMaterial;
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultSkinnedMaterial;
         bool                                         m_DefaultRefusalLogged = false;
+        // Meshes whose unresolved sections were already reported (once per mesh, not per frame).
+        std::unordered_set<Assets::AssetHandle> m_UnresolvedSectionsLogged;
         // Gameplay seconds since the scene's systems started (FO-7). Double: a float clock loses the sway's
         // sub-frame steps after a few hours of play; MakeInstanceWind wraps it to the sway period.
         double m_WindSeconds = 0.0;
