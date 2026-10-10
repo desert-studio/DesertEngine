@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Math/Ray.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ToolCursor.hpp>
 
 #include <glm/glm.hpp>
 
@@ -27,11 +28,19 @@ namespace Desert::Editor::Tools
         void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const glm::mat4& viewProj,
                      const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool interactive );
 
+        // Place while the knife is armed, Select over an element, Default over empty space (a click clears),
+        // Unavailable with no mesh selected.
+        [[nodiscard]] ToolCursor Cursor() const
+        {
+            return m_Cursor;
+        }
+
         // Screen-space pick radius for vertices and edges.
         static constexpr float kTolerancePixels = 8.0f;
 
     private:
         bool                     m_KnifeArmed = false; // Alt+K: the next two clicks draw the cut line
         std::optional<glm::vec2> m_KnifeStart;         // its first end, in screen pixels
+        ToolCursor               m_Cursor = ToolCursor::None;
     };
 } // namespace Desert::Editor::Tools

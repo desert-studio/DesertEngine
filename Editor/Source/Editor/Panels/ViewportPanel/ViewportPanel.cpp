@@ -1887,6 +1887,9 @@ namespace Desert::Editor
                                             m_ViewportData.Size, m_ViewportData.IsHovered );
                 m_CreateShapeTool.Update( *m_Scene, ray, centreRay, m_ViewportData.ViewportPos,
                                           m_ViewportData.Size, m_ViewportData.IsHovered );
+                // The active tool says what its next click does; the viewport turns that into the cursor.
+                Tools::ApplyToolCursor( ActiveModelingToolCursor(), m_ViewportData.ViewportPos,
+                                        m_ViewportData.Size, m_ViewportData.IsHovered );
                 Tools::DrawActiveToolBar( m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }
@@ -2352,6 +2355,25 @@ namespace Desert::Editor
         {
             ImGui::SetMouseCursor( CursorForHandle( hovered ) );
         }
+    }
+
+    Tools::ToolCursor ViewportPanel::ActiveModelingToolCursor() const
+    {
+        using T = Core::ModelingState::Tool;
+        switch ( Core::ModelingState::Get().ActiveTool )
+        {
+            case T::None:
+                return Tools::ToolCursor::None;
+            case T::CubeGrid:
+                return m_CubeGridTool.Cursor();
+            case T::PolyEdit:
+                return m_PolyEditTool.Cursor();
+            case T::ElementSelect:
+                return m_ElementSelectTool.Cursor();
+            case T::CreateShape:
+                return m_CreateShapeTool.Cursor();
+        }
+        return Tools::ToolCursor::None;
     }
 
     void ViewportPanel::DrawViewAxisGizmo( const glm::vec2& viewportPos, const glm::vec2& viewportSize )

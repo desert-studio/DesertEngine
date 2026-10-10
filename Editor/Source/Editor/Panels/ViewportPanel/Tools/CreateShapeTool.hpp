@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ToolCursor.hpp>
 
 #include <Common/Core/Math/Ray.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -35,6 +36,12 @@ namespace Desert::Editor::Tools
         void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
                      const Common::Math::Ray& centreRay, const glm::vec2& viewportPos,
                      const glm::vec2& viewportSize, bool interactive );
+
+        // Place over a surface the shape would land on, Unavailable where nothing would catch it.
+        [[nodiscard]] ToolCursor Cursor() const
+        {
+            return m_Cursor;
+        }
 
         // Where a shape lands and how it is turned (UE's ShapeFrame in UAddPrimitiveTool): the hit point,
         // and the rotation taking the shape's up axis (+Y) onto the surface normal under Align to Normal.
@@ -87,5 +94,6 @@ namespace Desert::Editor::Tools
         Geometry::ShapeMesh                m_Preview;
         std::vector<FeatureEdge>           m_Edges;
         bool                               m_HasBuilt = false;
+        ToolCursor                         m_Cursor   = ToolCursor::None;
     };
 } // namespace Desert::Editor::Tools

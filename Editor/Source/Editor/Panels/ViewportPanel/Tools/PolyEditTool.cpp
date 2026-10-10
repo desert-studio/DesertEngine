@@ -84,6 +84,17 @@ namespace Desert::Editor::Tools
         m_Dragging = false;
     }
 
+    int PolyEditTool::HitTriangle( const Geometry::EditMesh& mesh, const glm::mat4& world,
+                                   const Common::Math::Ray& ray )
+    {
+        // Nearest triangle under the ray - the same pick the Select Elements tool makes in Triangle mode.
+        Geometry::PickView view;
+        view.LocalToWorld = world;
+        view.RayOrigin    = ray.Origin;
+        view.RayDirection = ray.Direction;
+        return Geometry::PickElement( mesh, Geometry::ElementMode::Triangle, view ).Id;
+    }
+
     bool PolyEditTool::PickFace( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
     {
         const auto target = GetTarget( scene, m_Entity );
@@ -98,12 +109,7 @@ namespace Desert::Editor::Tools
         const Geometry::EditMesh& mesh  = *pickView.GetValue();
         const glm::mat4&          world = target->World;
 
-        // Nearest triangle under the ray - the same pick the Select Elements tool makes in Triangle mode.
-        Geometry::PickView view;
-        view.LocalToWorld = world;
-        view.RayOrigin    = ray.Origin;
-        view.RayDirection = ray.Direction;
-        const int hit     = Geometry::PickElement( mesh, Geometry::ElementMode::Triangle, view ).Id;
+        const int hit = HitTriangle( mesh, world, ray );
         if ( hit == Geometry::InvalidId )
         {
             ClearSelection();
@@ -152,6 +158,7 @@ namespace Desert::Editor::Tools
                                const glm::mat4& viewProj, const glm::vec2& viewportPos,
                                const glm::vec2& viewportSize, bool interactive )
     {
+        m_Cursor = ToolCursor::None;
         if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::PolyEdit )
         {
             ClearSelection();
@@ -173,6 +180,7 @@ namespace Desert::Editor::Tools
         if ( !target )
         {
             ClearSelection();
+            m_Cursor = ToolCursor::Unavailable; // nothing selected to edit
             return;
         }
         const glm::mat4& world = target->World;
@@ -248,6 +256,20 @@ namespace Desert::Editor::Tools
             }
             if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
                 FinishDrag();
+        }
+
+        // The cursor says what the next press does: keep pushing, pick a face, or nothing.
+        if ( m_Dragging )
+            m_Cursor = ToolCursor::Drag;
+        else if ( auto hoverView = Geometry::Bridge::EditMeshView( target->Target.Mesh ); hoverView.IsSuccess() )
+            m_Cursor = HitTriangle( *hoverView.GetValue(), world, ray ) != Geometry::InvalidId
+                            ? ToolCursor::Select
+                            : ToolCursor::Unavailable;
+        else
+            m_Cursor = ToolCursor::Unavailable;
+
+        if ( m_HasSel )
+        {
 
             // Highlight the selected face (translucent green + outline).
             static const Geometry::EditMesh kNoMesh;

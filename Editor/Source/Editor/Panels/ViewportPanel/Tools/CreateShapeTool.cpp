@@ -272,6 +272,7 @@ namespace Desert::Editor::Tools
                                   const glm::vec2& viewportSize, bool interactive )
     {
         const auto& ms = MS::Get();
+        m_Cursor       = ToolCursor::None;
         if ( ms.ActiveTool != MS::Tool::CreateShape )
         {
             Render::ToolPreview::Hide( scene );
@@ -284,6 +285,7 @@ namespace Desert::Editor::Tools
                              mouse.x < viewportPos.x + viewportSize.x && mouse.y < viewportPos.y + viewportSize.y;
         // Under the cursor while it is over the viewport; else where the viewport centre looks.
         const auto spot = PlacementSpot( scene, hovered ? ray : centreRay, settings );
+        m_Cursor        = spot ? ToolCursor::Place : ToolCursor::Unavailable;
         if ( !spot )
         {
             Render::ToolPreview::Hide( scene );

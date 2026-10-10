@@ -2,6 +2,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Common/Core/Math/Ray.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ToolCursor.hpp>
 
 #include <glm/glm.hpp>
 
@@ -15,6 +16,7 @@ namespace Desert::Core
 namespace Desert::Geometry
 {
     class DynamicMesh3;
+    class EditMesh;
 }
 
 namespace Desert::Editor::Tools
@@ -30,10 +32,20 @@ namespace Desert::Editor::Tools
         void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const glm::mat4& viewProj,
                      const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool interactive );
 
+        // Drag while a face is being pushed, Select over the edited mesh, Unavailable off it or with no mesh
+        // selected to edit.
+        [[nodiscard]] ToolCursor Cursor() const
+        {
+            return m_Cursor;
+        }
+
     private:
         void        ClearSelection();
         void        FinishDrag();
         bool        PickFace( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
+        // The mesh's nearest triangle under the ray (placed by `world`), or Geometry::InvalidId.
+        static int HitTriangle( const Geometry::EditMesh& mesh, const glm::mat4& world,
+                                const Common::Math::Ray& ray );
 
         Common::UUID     m_Entity = Common::UUID::Null(); // entity whose mesh we edit (the current selection)
         std::vector<int> m_SelVerts;                      // EditMesh vertex IDs moved together
@@ -42,6 +54,7 @@ namespace Desert::Editor::Tools
         glm::vec3        m_CentroidWorld{ 0 };
         bool             m_HasSel   = false;
         bool             m_Dragging = false;
+        ToolCursor       m_Cursor   = ToolCursor::None;
         float            m_DragS    = 0.0f; // last push parameter along the world normal line
         // The drag's undo record: whose mesh, and the mesh it started from (immutable, so kept by reference).
         Common::UUID                              m_DragEntity = Common::UUID::Null();
