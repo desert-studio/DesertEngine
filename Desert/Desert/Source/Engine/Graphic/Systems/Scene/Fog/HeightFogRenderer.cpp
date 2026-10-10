@@ -262,7 +262,6 @@ namespace Desert::Graphic::System
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_ApplyPipeline, nullptr );
         };
-        config.PipelineSpec      = m_ApplyPipeline->GetSpecification();
         config.TargetFramebuffer = target;
 
         // The apply samples the fog image the AtmosphericFog node wrote as a storage image this frame.

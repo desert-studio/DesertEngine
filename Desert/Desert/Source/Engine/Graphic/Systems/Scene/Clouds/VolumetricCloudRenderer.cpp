@@ -2175,7 +2175,6 @@ namespace Desert::Graphic::System
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_CompositePipeline,
                                                            m_CompositeMaterial->GetMaterialExecutor() );
         };
-        config.PipelineSpec      = m_CompositePipeline->GetSpecification();
         config.TargetFramebuffer = target;
 
         // The composite samples the reconstruction the resolve node wrote this frame (m_ResolvedIndex is decided
