@@ -155,7 +155,8 @@ namespace Desert::Editor
 
                     // Spelled per component: in a Windows unity blob imgui.h may arrive first without
                     // IMGUI_DEFINE_MATH_OPERATORS, and ImVec2 then has no operator+.
-                    const ImRect childRect( currentPos, ImVec2( currentPos.x, currentPos.y + ImGui::GetFontSize() ) );
+                    const ImRect childRect( currentPos,
+                                            ImVec2( currentPos.x, currentPos.y + ImGui::GetFontSize() ) );
 
                     const float midpoint = ( childRect.Min.y + childRect.Max.y ) * 0.5f;
                     drawList->AddLine( ImVec2( verticalLineStart.x, midpoint ),
