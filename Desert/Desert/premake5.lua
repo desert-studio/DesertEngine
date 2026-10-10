@@ -26,10 +26,11 @@ project "Desert"
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
             .. ' --modules "' .. kModuleTable .. '"'
             .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
-            -- DesertUI's reflected UI*Data (UI-FW-4): its own project has no generator step, the engine's set
-            -- registers them (Reflection_DesertUI.gen.cpp, compiled here).
-            .. ' --reflect-root "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source" "UI"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
+            -- DesertUI's reflected UI*Data (UI-FW-4): its own project has no generator step, the engine's set
+            -- registers them (Reflection_DesertUI.gen.cpp, compiled here). --reflect-root extends the
+            -- --reflect request above, so it must follow that request's three operands.
+            .. ' --reflect-root "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source" "UI"'
             .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
