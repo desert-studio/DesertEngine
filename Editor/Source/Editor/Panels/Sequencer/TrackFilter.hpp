@@ -10,7 +10,8 @@
  *     which property. A track of the sequence itself (Camera Cut, the master Event track) is bound to no actor,
  *     so it never passes.
  *   * KEYED (SequencerTrackFilter_Keyed.cpp) is per TRACK: a track passes when any of its sections holds a key
- *     (`Animation::Timeline::TrackHasKeys`); a binding is shown when any of its tracks passes, with only those tracks.
+ *     (`Animation::Timeline::TrackHasKeys`); a binding is shown when any of its tracks passes, with only those
+ * tracks.
  *
  * Active filters combine with AND, as UE's do: a row is shown only when it passes every one that is on. The
  * on/off state is the user's (EditorPreferences::SequencerFilterSelected / SequencerFilterKeyed), not the

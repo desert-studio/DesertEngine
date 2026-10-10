@@ -568,7 +568,8 @@ namespace Desert::Editor
             if ( !Sequencer::BindingPasses( sequence, binding, selected, filters ) )
                 continue;
             // A track of this actor shows when it exists and passes the active filters.
-            const auto shows = [&]( const std::string_view property ) {
+            const auto shows = [&]( const std::string_view property )
+            {
                 const LevelTL::Track* track = LevelTL::FindTrack( sequence, binding.Guid, property );
                 return track != nullptr && Sequencer::TrackPasses( *track, selected, filters );
             };
@@ -787,7 +788,8 @@ namespace Desert::Editor
         // The Camera Cut track (sequence level): one bar per cut, labelled with the camera binding.
         for ( const auto& track : sequence.Tracks )
         {
-            // A sequence-level track is bound to no actor: Selected hides it, Keyed asks its keys (a cut has none).
+            // A sequence-level track is bound to no actor: Selected hides it, Keyed asks its keys (a cut has
+            // none).
             if ( track.Property != ECS::kLevelSequenceCameraCutProperty ||
                  !Sequencer::TrackPasses( track, false, filters ) )
                 continue;
@@ -811,7 +813,7 @@ namespace Desert::Editor
 
         // The sequence's own Event track (UE: an Event track added at the sequence's root).
         if ( const LevelTL::Track* master = LevelTL::FindTrack( sequence, ECS::LevelSequenceMasterBinding(),
-                                                                 ECS::kLevelSequenceEventProperty );
+                                                                ECS::kLevelSequenceEventProperty );
              master != nullptr && ECS::HasEventTrack( sequence, ECS::LevelSequenceMasterBinding() ) &&
              Sequencer::TrackPasses( *master, false, filters ) )
             DrawLevelEventRow( sequence, ECS::LevelSequenceMasterBinding(), ICON_MDI_FLAG " Sequence Events",
@@ -922,8 +924,9 @@ namespace Desert::Editor
     {
         // UE's Filters ▸ Selected / Keyed (SequencerTrackFilterCommands.h ToggleFilter_Selected, _Keyed): a lit
         // button is an active filter. The state is the user's — EditorPreferences, saved on the click.
-        auto& prefs  = EditorPreferences::Get();
-        const auto toggle = [&]( const char* label, const char* tooltip, bool& on ) {
+        auto&      prefs  = EditorPreferences::Get();
+        const auto toggle = [&]( const char* label, const char* tooltip, bool& on )
+        {
             if ( on )
                 ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
             const bool pressed = ImGui::SmallButton( label );

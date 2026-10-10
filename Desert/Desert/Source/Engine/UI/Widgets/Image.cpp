@@ -29,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawImageWidget( ElementFrame& frame )
     {
         auto& ctx   = frame.Ctx;
-        auto& tree   = frame.Tree;
+        auto& tree  = frame.Tree;
         auto& e     = frame.E;
         auto& scale = frame.Scale;
         auto& dl    = frame.Dl;
@@ -49,7 +49,7 @@ namespace Desert::UI::Walk
     void DrawRenderTextureWidget( ElementFrame& frame )
     {
         auto& ctx  = frame.Ctx;
-        auto& tree  = frame.Tree;
+        auto& tree = frame.Tree;
         auto& e    = frame.E;
         auto& dl   = frame.Dl;
         auto& rect = frame.ElementRect;

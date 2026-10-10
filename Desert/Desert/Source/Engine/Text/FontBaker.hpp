@@ -34,7 +34,6 @@ namespace Desert::Text
     static_assert( kDistanceRangeTexels <= static_cast<float>( kGlyphPadding + kGlyphPadding ),
                    "the distance band must fit inside the rasterized gutter" );
 
-
     // Bakes printable ASCII [32,126] — plus any `extraCodepoints` asked for — into an MSDF atlas via a
     // simple shelf packer. `pixelHeight` is the bake resolution (bigger = sharper minification headroom,
     // larger atlas). Codepoints the font has no glyph for are skipped, so asking for a character a font

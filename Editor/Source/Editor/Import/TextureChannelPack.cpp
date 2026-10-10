@@ -29,7 +29,10 @@ namespace Desert::Editor
             std::vector<unsigned char>                    Owned; // a DDS's decoded texels (stb owns no buffer)
             int                                           Width  = 0;
             int                                           Height = 0;
-            [[nodiscard]] const uint8_t*                  Texels() const { return Data ? Data.get() : Owned.data(); }
+            [[nodiscard]] const uint8_t*                  Texels() const
+            {
+                return Data ? Data.get() : Owned.data();
+            }
         };
     } // namespace
 
@@ -90,9 +93,9 @@ namespace Desert::Editor
                 // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
                 // the bytes reach it only through this cast.
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-                image.Data.reset( stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
-                                                     static_cast<int>( bytes.GetValue().size() ), &image.Width,
-                                                     &image.Height, &components, 4 ) );
+                image.Data.reset( stbi_load_from_memory(
+                     reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
+                     static_cast<int>( bytes.GetValue().size() ), &image.Width, &image.Height, &components, 4 ) );
             if ( !image.Data && image.Owned.empty() )
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
                                                                     slot.Slot, part.Source.generic_string(),

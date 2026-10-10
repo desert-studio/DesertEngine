@@ -261,8 +261,8 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     EXPECT_FALSE( world.Packages.IsLoaded( UUID( 30 ) ) );
 
     world.Packages.Touch( UUID( 10 ) );
-    world.Tags[10] = "A2";
-    world.Composed = 0;
+    world.Tags[10]   = "A2";
+    world.Composed   = 0;
     const auto saved = world.Save( CleanCheck::AgainstFiles );
     EXPECT_FALSE( saved.Whole );
     EXPECT_EQ( saved.Files.Removed, 0u );
@@ -290,7 +290,7 @@ TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartIsRefused )
     world.Tags.erase( 30 );
     const std::vector<UUID> notLoaded{ UUID( 30 ) };
     world.Packages.AdoptRegion( world.Live(), notLoaded );
-    world.Scene = world.Root / "Elsewhere.desce";
+    world.Scene      = world.Root / "Elsewhere.desce";
     const auto saved = world.TrySave( CleanCheck::Trust );
     ASSERT_FALSE( saved );
     EXPECT_NE( saved.GetError().find( "not loaded" ), std::string::npos ) << saved.GetError();

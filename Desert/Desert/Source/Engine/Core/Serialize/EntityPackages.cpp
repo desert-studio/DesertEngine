@@ -83,7 +83,7 @@ namespace Desert::Core
 
     void EntityPackages::Baseline( const std::filesystem::path& scenePath, std::span<const LiveEntity> live )
     {
-        m_Whole        = false;
+        m_Whole = false;
         m_Unrecorded.clear();
         m_BaselinePath = scenePath.lexically_normal();
         m_SavedRevision.clear();
@@ -149,10 +149,11 @@ namespace Desert::Core
             // so the records left on disk keep their files and their place in the header.
             plan.Whole = false;
             if ( !partitioned || !m_BaselinePath || *m_BaselinePath != scenePath.lexically_normal() )
-                plan.Refusal = fmt::format( "{} of its {} entities are not loaded (an editor region left them on disk), "
-                                            "and a save that is not a delta of the world's own files would drop them. Load "
-                                            "the whole world first. Nothing was written.",
-                                            m_NotLoaded.size(), plan.Listed.size() );
+                plan.Refusal =
+                     fmt::format( "{} of its {} entities are not loaded (an editor region left them on disk), "
+                                  "and a save that is not a delta of the world's own files would drop them. Load "
+                                  "the whole world first. Nothing was written.",
+                                  m_NotLoaded.size(), plan.Listed.size() );
             else
                 plan.Removed = goneRecords();
             return plan;
@@ -217,7 +218,8 @@ namespace Desert::Core
         const PackageSavePlan plan = packages.Plan( scenePath, live, partitioned );
         outcome.Whole              = plan.Whole;
         if ( !plan.Refusal.empty() )
-            return Common::MakeError<PackageSaveOutcome>( fmt::format( "'{}': {}", scenePath.string(), plan.Refusal ) );
+            return Common::MakeError<PackageSaveOutcome>(
+                 fmt::format( "'{}': {}", scenePath.string(), plan.Refusal ) );
         std::unordered_set<std::uint64_t> notLoaded;
         for ( const Common::UUID id : plan.NotLoaded )
             notLoaded.insert( Bits( id ) );

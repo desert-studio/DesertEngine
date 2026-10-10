@@ -25,11 +25,14 @@ namespace Desert::Scripting
             const LuauEntityRef ref  = LuauBinder::CheckEntity( L, 1 );
             const std::string   name = luaL_checkstring( L, 2 );
             // w defaults to 1 so `self:setMaterialParam("AlbedoColor", r, g, b)` reads as a colour.
-            const glm::vec4 v( static_cast<float>( luaL_checknumber( L, 3 ) ), static_cast<float>( luaL_optnumber( L, 4, 0.0 ) ),
-                               static_cast<float>( luaL_optnumber( L, 5, 0.0 ) ), static_cast<float>( luaL_optnumber( L, 6, 1.0 ) ) );
-            auto& reg = *ref.Registry;
+            const glm::vec4 v( static_cast<float>( luaL_checknumber( L, 3 ) ),
+                               static_cast<float>( luaL_optnumber( L, 4, 0.0 ) ),
+                               static_cast<float>( luaL_optnumber( L, 5, 0.0 ) ),
+                               static_cast<float>( luaL_optnumber( L, 6, 1.0 ) ) );
+            auto&           reg = *ref.Registry;
 
-            if ( auto* mc = reg.try_get<ECS::MaterialComponent>( ref.Entity ); mc != nullptr && !mc->ShaderName.empty() )
+            if ( auto* mc = reg.try_get<ECS::MaterialComponent>( ref.Entity );
+                 mc != nullptr && !mc->ShaderName.empty() )
             {
                 UpsertComponentParam( *mc, name, v );
                 return 0;
@@ -67,7 +70,8 @@ namespace Desert::Scripting
             if ( const auto* smc = reg.try_get<ECS::StaticMeshComponent>( ref.Entity );
                  smc != nullptr && !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
             {
-                for ( const auto& [pname, prop] : smc->RuntimeMaterialInstances[0]->GetPropertySet().GetProperties() )
+                for ( const auto& [pname, prop] :
+                      smc->RuntimeMaterialInstances[0]->GetPropertySet().GetProperties() )
                 {
                     if ( pname != name || !prop.bIsOverridden )
                         continue;
@@ -103,7 +107,8 @@ namespace Desert::Scripting
         int SetShader( lua_State* L )
         {
             const LuauEntityRef ref = LuauBinder::CheckEntity( L, 1 );
-            ref.Registry->get_or_emplace<ECS::MaterialComponent>( ref.Entity ).ShaderName = luaL_checkstring( L, 2 );
+            ref.Registry->get_or_emplace<ECS::MaterialComponent>( ref.Entity ).ShaderName =
+                 luaL_checkstring( L, 2 );
             return 0;
         }
 
@@ -119,10 +124,11 @@ namespace Desert::Scripting
     // Material API — the unified material protocol (params by shader-schema name).
     void RegisterMaterialBindings( lua_State* L )
     {
-        for ( const luaL_Reg& method : { luaL_Reg{ "setMaterialParam", &SetMaterialParam },
-                                         luaL_Reg{ "getMaterialParam", &GetMaterialParam },
-                                         luaL_Reg{ "clearMaterialParams", &ClearMaterialParams },
-                                         luaL_Reg{ "setShader", &SetShader }, luaL_Reg{ "getShader", &GetShader } } )
+        for ( const luaL_Reg& method :
+              { luaL_Reg{ "setMaterialParam", &SetMaterialParam },
+                luaL_Reg{ "getMaterialParam", &GetMaterialParam },
+                luaL_Reg{ "clearMaterialParams", &ClearMaterialParams }, luaL_Reg{ "setShader", &SetShader },
+                luaL_Reg{ "getShader", &GetShader } } )
             LuauBinder::SetEntityMethod( L, method.name, method.func );
     }
 } // namespace Desert::Scripting

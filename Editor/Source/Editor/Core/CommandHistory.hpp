@@ -55,7 +55,7 @@ namespace Desert::Editor
         friend class CommandHistory;
         std::weak_ptr<::Desert::Core::IEditStamps>      m_Ledger;
         std::vector<::Desert::Core::IEditStamps::Stamp> m_Stamps;
-        bool                                     m_StampsWhole = false;
+        bool                                            m_StampsWhole = false;
     };
 
     // The single editor-wide undo/redo stack: reflected-property edits, gizmo transforms and structural
@@ -183,7 +183,6 @@ namespace Desert::Editor
         }
 
     public:
-
         /// The last two entries become ONE, undone newest-first and redone oldest-first. For a single
         /// user action whose two halves are recorded by two owners a frame apart: an auto-keyed control
         /// edit is the control's pose entry (RecordControlDrag) and the Sequencer's key entry, and one
@@ -199,9 +198,9 @@ namespace Desert::Editor
             m_Undo.pop_back();
             std::unique_ptr<ICommand> first = std::move( m_Undo.back() );
             m_Undo.pop_back();
-            auto joined           = std::make_unique<JoinedCommand>( std::move( first ), std::move( second ) );
-            joined->m_Ledger      = joined->First().m_Ledger.expired() ? joined->Second().m_Ledger
-                                                                       : joined->First().m_Ledger;
+            auto joined = std::make_unique<JoinedCommand>( std::move( first ), std::move( second ) );
+            joined->m_Ledger =
+                 joined->First().m_Ledger.expired() ? joined->Second().m_Ledger : joined->First().m_Ledger;
             joined->m_StampsWhole = joined->First().m_StampsWhole || joined->Second().m_StampsWhole;
             joined->m_Stamps      = joined->First().m_Stamps;
             joined->m_Stamps.insert( joined->m_Stamps.end(), joined->Second().m_Stamps.begin(),
@@ -455,8 +454,8 @@ namespace Desert::Editor
 
         std::vector<std::unique_ptr<ICommand>> m_Undo;
         std::vector<std::unique_ptr<ICommand>> m_Redo;
-        std::weak_ptr<::Desert::Core::IEditStamps>       m_Packages;
-        std::vector<Common::UUID>                        m_FieldSubjects; // FieldSubject scopes, innermost last
+        std::weak_ptr<::Desert::Core::IEditStamps> m_Packages;
+        std::vector<Common::UUID>                  m_FieldSubjects; // FieldSubject scopes, innermost last
         uint64_t                               m_Revision = 0;
     };
 } // namespace Desert::Editor

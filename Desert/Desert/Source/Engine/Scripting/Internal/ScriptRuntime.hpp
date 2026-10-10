@@ -41,54 +41,65 @@ namespace Desert::Assets
 
 namespace Desert::Scripting
 {
-        // Maps script-friendly key names to engine key codes. Single characters cover the
-        // whole alphabet + digits ("G", "5"); named keys cover the common gameplay set.
-        inline std::optional<Common::KeyCode> KeyFromName( const std::string& name )
+    // Maps script-friendly key names to engine key codes. Single characters cover the
+    // whole alphabet + digits ("G", "5"); named keys cover the common gameplay set.
+    inline std::optional<Common::KeyCode> KeyFromName( const std::string& name )
+    {
+        using K = Common::KeyCode;
+        if ( name.size() == 1 )
         {
-            using K = Common::KeyCode;
-            if ( name.size() == 1 )
-            {
-                const char c = name[0];
-                if ( c >= 'A' && c <= 'Z' )
-                    return static_cast<K>( c );
-                if ( c >= 'a' && c <= 'z' )
-                    return static_cast<K>( c - 'a' + 'A' );
-                if ( c >= '0' && c <= '9' )
-                    return static_cast<K>( c ); // KeyCode::D0..D9 == ASCII '0'..'9'
-            }
-            if ( name == "Space" ) return K::Space;
-            if ( name == "Shift" || name == "LeftShift" ) return K::LeftShift;
-            if ( name == "Ctrl" || name == "LeftControl" ) return K::LeftControl;
-            if ( name == "Alt" || name == "LeftAlt" ) return K::LeftAlt;
-            if ( name == "Tab" ) return K::Tab;
-            if ( name == "Enter" ) return K::Enter;
-            if ( name == "Escape" ) return K::Escape;
-            if ( name == "Left" ) return K::Left;
-            if ( name == "Right" ) return K::Right;
-            if ( name == "Up" ) return K::Up;
-            if ( name == "Down" ) return K::Down;
-            return std::nullopt;
+            const char c = name[0];
+            if ( c >= 'A' && c <= 'Z' )
+                return static_cast<K>( c );
+            if ( c >= 'a' && c <= 'z' )
+                return static_cast<K>( c - 'a' + 'A' );
+            if ( c >= '0' && c <= '9' )
+                return static_cast<K>( c ); // KeyCode::D0..D9 == ASCII '0'..'9'
         }
+        if ( name == "Space" )
+            return K::Space;
+        if ( name == "Shift" || name == "LeftShift" )
+            return K::LeftShift;
+        if ( name == "Ctrl" || name == "LeftControl" )
+            return K::LeftControl;
+        if ( name == "Alt" || name == "LeftAlt" )
+            return K::LeftAlt;
+        if ( name == "Tab" )
+            return K::Tab;
+        if ( name == "Enter" )
+            return K::Enter;
+        if ( name == "Escape" )
+            return K::Escape;
+        if ( name == "Left" )
+            return K::Left;
+        if ( name == "Right" )
+            return K::Right;
+        if ( name == "Up" )
+            return K::Up;
+        if ( name == "Down" )
+            return K::Down;
+        return std::nullopt;
+    }
 
-        // The keys Input.wasPressed() edge-tracks each frame (NewInputFrame). Mirrors
-        // KeyFromName's coverage: full alphabet + digits + the named gameplay keys.
-        inline const std::vector<Common::KeyCode>& TrackedKeys()
+    // The keys Input.wasPressed() edge-tracks each frame (NewInputFrame). Mirrors
+    // KeyFromName's coverage: full alphabet + digits + the named gameplay keys.
+    inline const std::vector<Common::KeyCode>& TrackedKeys()
+    {
+        static const std::vector<Common::KeyCode> keys = []
         {
-            static const std::vector<Common::KeyCode> keys = []
-            {
-                std::vector<Common::KeyCode> v;
-                for ( int c = 'A'; c <= 'Z'; ++c )
-                    v.push_back( static_cast<Common::KeyCode>( c ) );
-                for ( int c = '0'; c <= '9'; ++c )
-                    v.push_back( static_cast<Common::KeyCode>( c ) );
-                using K = Common::KeyCode;
-                for ( K k : { K::Space, K::LeftShift, K::LeftControl, K::LeftAlt, K::Tab, K::Enter,
-                              K::Escape, K::Left, K::Right, K::Up, K::Down } )
-                    v.push_back( k );
-                return v;
-            }();
-            return keys;
-        }
+            std::vector<Common::KeyCode> v;
+            for ( int c = 'A'; c <= 'Z'; ++c )
+                v.push_back( static_cast<Common::KeyCode>( c ) );
+            for ( int c = '0'; c <= '9'; ++c )
+                v.push_back( static_cast<Common::KeyCode>( c ) );
+            using K = Common::KeyCode;
+            for ( K k : { K::Space, K::LeftShift, K::LeftControl, K::LeftAlt, K::Tab, K::Enter, K::Escape, K::Left,
+                          K::Right, K::Up, K::Down } )
+                v.push_back( k );
+            return v;
+        }();
+        return keys;
+    }
 
     struct ScriptEngine::Impl
     {
@@ -135,8 +146,8 @@ namespace Desert::Scripting
         /// Calls (entity, slot)'s `function` when it defines one (success when it does not), then Settles.
         Common::BoolResultStr CallSlot( uint32_t entity, uint32_t slot, const char* function,
                                         std::span<const Reflection::Value> args );
-        void Settle();
-        void ReleaseEntity( uint32_t entity );
+        void                  Settle();
+        void                  ReleaseEntity( uint32_t entity );
 
         /// Declared LAST: the VM's natives reach the fields above through Of(), so they outlive it.
         std::unique_ptr<LuauRuntime> Runtime;
@@ -154,7 +165,8 @@ namespace Desert::Scripting
         }
 
         /// Cancels the timers `drop` selects (their callbacks are unpinned).
-        template <class Predicate> void DropTimers( Predicate drop )
+        template <class Predicate>
+        void DropTimers( Predicate drop )
         {
             std::erase_if( Timers,
                            [this, &drop]( const PendingTimer& timer )
@@ -174,7 +186,10 @@ namespace Desert::Scripting
         {
             return LuauBinder::CheckEntity( L, index ).Entity;
         }
-        entt::registry& Registry() const { return Scene->GetRegistry(); }
+        entt::registry& Registry() const
+        {
+            return Scene->GetRegistry();
+        }
     };
 
     /// Reads the three numbers at `first..first+2` as a vector (a Luau `vector` at `first` is accepted too).

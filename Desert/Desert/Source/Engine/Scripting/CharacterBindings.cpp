@@ -15,7 +15,8 @@ namespace Desert::Scripting
         {
             if ( auto* cc = Character( L ) )
             {
-                cc->MoveInput    = { static_cast<float>( luaL_checknumber( L, 3 ) ), static_cast<float>( luaL_checknumber( L, 2 ) ) };
+                cc->MoveInput    = { static_cast<float>( luaL_checknumber( L, 3 ) ),
+                                     static_cast<float>( luaL_checknumber( L, 2 ) ) };
                 cc->DesiredSpeed = static_cast<float>( luaL_checknumber( L, 4 ) );
             }
             return 0;
@@ -87,10 +88,11 @@ namespace Desert::Scripting
     // Gameplay verbs of a character entity; each is a no-op without a CharacterControllerComponent.
     void RegisterCharacterBindings( lua_State* L )
     {
-        for ( const luaL_Reg& method : { luaL_Reg{ "move", &Move }, luaL_Reg{ "jump", &Jump },
-                                         luaL_Reg{ "isOnGround", &IsOnGround }, luaL_Reg{ "setSwimming", &SetSwimming },
-                                         luaL_Reg{ "swim", &Swim }, luaL_Reg{ "isSwimming", &IsSwimming },
-                                         luaL_Reg{ "addYaw", &AddYaw }, luaL_Reg{ "addCameraPitch", &AddCameraPitch } } )
+        for ( const luaL_Reg& method :
+              { luaL_Reg{ "move", &Move }, luaL_Reg{ "jump", &Jump }, luaL_Reg{ "isOnGround", &IsOnGround },
+                luaL_Reg{ "setSwimming", &SetSwimming }, luaL_Reg{ "swim", &Swim },
+                luaL_Reg{ "isSwimming", &IsSwimming }, luaL_Reg{ "addYaw", &AddYaw },
+                luaL_Reg{ "addCameraPitch", &AddCameraPitch } } )
             LuauBinder::SetEntityMethod( L, method.name, method.func );
     }
 } // namespace Desert::Scripting

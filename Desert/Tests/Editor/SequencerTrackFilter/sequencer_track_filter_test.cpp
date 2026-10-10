@@ -3,7 +3,8 @@
 // The rule lives in Editor/Panels/Sequencer/TrackFilter.hpp; the timeline only asks it. What is pinned here is
 // UE's behaviour (SequencerTrackFilter_Selected.cpp, _Keyed.cpp):
 //   * no active filter shows everything — the filters are subtractive and off by default;
-//   * Selected is about the ACTOR: a selected binding shows every track, keyed or not; an unselected one shows none;
+//   * Selected is about the ACTOR: a selected binding shows every track, keyed or not; an unselected one shows
+//   none;
 //   * Keyed is about the TRACK: any key in any channel component, or in a section's weight, makes it pass; an
 //     empty channel and a Camera Cut do not; a binding passes when any of ITS tracks does — another binding's
 //     keys never lend it a row;
@@ -74,7 +75,8 @@ TEST( SequencerTrackFilter, HasKeysSeesAnyComponentAndTheSectionWeight )
 
     T::EventChannel events;
     EXPECT_FALSE( T::TrackHasKeys( ChannelTrack( guid, "Events", events ) ) );
-    events.Keys.push_back( T::EventKey{ Desert::Animation::FrameNumber{ 5 }, Desert::Animation::FrameNumber{ 0 }, "Fire", 0 } );
+    events.Keys.push_back(
+         T::EventKey{ Desert::Animation::FrameNumber{ 5 }, Desert::Animation::FrameNumber{ 0 }, "Fire", 0 } );
     EXPECT_TRUE( T::TrackHasKeys( ChannelTrack( guid, "Events", events ) ) );
 
     // An Animation section has no content channel: unkeyed, until its weight is keyed (UE's "Weight" channel).
@@ -99,7 +101,7 @@ TEST( SequencerTrackFilter, HasKeysSeesAnyComponentAndTheSectionWeight )
 
 TEST( SequencerTrackFilter, SelectedIsPerActorKeyedIsPerTrackBothAreAnd )
 {
-    T::Sequence sequence;
+    T::Sequence      sequence;
     const T::Binding keyedActor = Actor( "keyed" );
     const T::Binding emptyActor = Actor( "empty" );
     sequence.Bindings           = { keyedActor, emptyActor };

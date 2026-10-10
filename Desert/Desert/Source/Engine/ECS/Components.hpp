@@ -1425,7 +1425,8 @@ namespace Desert::ECS
                         "this body towards the other; impulse in kg*cm/s." ) )
         using OnHit = void( entt::entity other, glm::vec3 point, glm::vec3 normal, float impulse );
 
-        EVENT( Category( "Collision" ), Tooltip( "Another body began to overlap this one (UE OnComponentBeginOverlap)." ) )
+        EVENT( Category( "Collision" ),
+               Tooltip( "Another body began to overlap this one (UE OnComponentBeginOverlap)." ) )
         using OnBeginOverlap = void( entt::entity other );
 
         EVENT( Category( "Collision" ),

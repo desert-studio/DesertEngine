@@ -41,8 +41,8 @@
 // Every parameter is named; a name is a FUNCTION once per type (no overloads: a caller calls by name).
 //
 // EVENT(...) marks the event signature that follows it, inside a REFLECT() type — UE's
-// DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE (PrimitiveComponent.h OnComponentHit): a named alias of a void function
-// type whose parameters are the event's payload:
+// DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE (PrimitiveComponent.h OnComponentHit): a named alias of a void
+// function type whose parameters are the event's payload:
 //
 //       EVENT( Category( "Collision" ), Tooltip( "This body struck another." ) )
 //       using OnHit = void( entt::entity other, glm::vec3 point, glm::vec3 normal, float impulse );

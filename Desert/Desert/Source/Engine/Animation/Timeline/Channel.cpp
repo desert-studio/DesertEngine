@@ -229,12 +229,13 @@ namespace Desert::Animation::Timeline
 
     bool ChannelHasKeys( const Channel& channel )
     {
-        const auto vec = []( const VectorChannel& v ) { return !v.X.Keys.empty() || !v.Y.Keys.empty() || !v.Z.Keys.empty(); };
-        const auto rot = []( const RotationChannel& r ) {
-            return !r.X.Keys.empty() || !r.Y.Keys.empty() || !r.Z.Keys.empty() || !r.W.Keys.empty();
-        };
+        const auto vec = []( const VectorChannel& v )
+        { return !v.X.Keys.empty() || !v.Y.Keys.empty() || !v.Z.Keys.empty(); };
+        const auto rot = []( const RotationChannel& r )
+        { return !r.X.Keys.empty() || !r.Y.Keys.empty() || !r.Z.Keys.empty() || !r.W.Keys.empty(); };
         return std::visit(
-             [&]<typename C>( const C& c ) -> bool {
+             [&]<typename C>( const C& c ) -> bool
+             {
                  if constexpr ( std::is_same_v<C, FloatChannel> )
                      return !c.Keys.empty();
                  else if constexpr ( std::is_same_v<C, VectorChannel> )

@@ -107,10 +107,10 @@ namespace Desert::UI
             }
             return;
         }
-        entt::registry& reg = ecs->Registry();
-        const float dtSeconds = uiStep.DtSeconds;
-        const bool  advance   = uiStep.Advance;
-        const bool  gameWorld = uiStep.GameWorld;
+        entt::registry& reg       = ecs->Registry();
+        const float     dtSeconds = uiStep.DtSeconds;
+        const bool      advance   = uiStep.Advance;
+        const bool      gameWorld = uiStep.GameWorld;
         Samples.clear();
         auto clips = reg.view<ECS::UIAnimComponent>();
         if ( clips.empty() )

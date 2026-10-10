@@ -209,8 +209,9 @@ namespace
 
     TEST( ReflectedFunctions, AnEventPayloadIsPackedInTheDeclaredKinds )
     {
-        const auto by      = static_cast<entt::entity>( 42u );
-        const auto payload = Desert::Reflection::EventPayload<Counter::OnReached>( 7, by, glm::vec3( 1.0f, 2.0f, 3.0f ) );
+        const auto by = static_cast<entt::entity>( 42u );
+        const auto payload =
+             Desert::Reflection::EventPayload<Counter::OnReached>( 7, by, glm::vec3( 1.0f, 2.0f, 3.0f ) );
         ASSERT_EQ( payload.size(), 3u );
         ASSERT_NE( payload[0].Get<std::int64_t>(), nullptr );
         EXPECT_EQ( *payload[0].Get<std::int64_t>(), 7 );
@@ -220,7 +221,8 @@ namespace
         EXPECT_EQ( ( *payload[2].Get<Value::Float3>() )[2], 3.0f );
 
         using EntityTraits = Desert::Reflection::ValueTraits<entt::entity>;
-        EXPECT_TRUE( EntityTraits::From( EntityTraits::To( entt::null ) ) == entt::null ) << "null survives the trip";
+        EXPECT_TRUE( EntityTraits::From( EntityTraits::To( entt::null ) ) == entt::null )
+             << "null survives the trip";
         EXPECT_FALSE( EntityTraits::Fits( Value::UInt( ~std::uint64_t{ 0 } ) ) ) << "an id wider than an entity";
     }
 } // namespace

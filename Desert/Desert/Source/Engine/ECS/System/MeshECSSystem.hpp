@@ -154,7 +154,8 @@ namespace Desert::ECS
                              // They land as slot-0 instance overrides once and the buffer is cleared — the
                              // authored slots stay the single source of truth, nothing re-applies per frame,
                              // and slot edits in the editor can never be silently shadowed. Live script
-                             // writes go straight to the instance (Scripting/MaterialBindings.cpp, entity:setMaterialParam).
+                             // writes go straight to the instance (Scripting/MaterialBindings.cpp,
+                             // entity:setMaterialParam).
                              if ( registry.has<MaterialComponent>( entity ) &&
                                   !mesh.RuntimeMaterialInstances.empty() )
                              {

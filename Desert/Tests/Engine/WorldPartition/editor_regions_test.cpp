@@ -56,8 +56,8 @@ namespace
 
         EditorRegions::RegionSelection Select( std::span<const Rules::CellBounds> regions ) const
         {
-            const auto plan = Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( Descriptors ),
-                                                         Partition );
+            const auto plan =
+                 Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( Descriptors ), Partition );
             return EditorRegions::SelectRecords( plan, Ids, regions );
         }
     };
@@ -94,7 +94,7 @@ TEST( EditorRegions, ARegionInEmptyGroundHoldsNoCube )
 {
     const CubeWorld         world;
     const Rules::CellBounds empty{ 2000.0f, 2000.0f, 9000.0f, 9000.0f };
-    const auto selection = world.Select( std::span<const Rules::CellBounds>( &empty, 1 ) );
+    const auto              selection = world.Select( std::span<const Rules::CellBounds>( &empty, 1 ) );
     EXPECT_EQ( selection.InRegions, 0u );
     EXPECT_EQ( selection.Records, ( std::vector<std::uint64_t>{ 101 } ) );
 }

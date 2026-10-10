@@ -28,7 +28,7 @@ namespace Desert::UI
 
         // @p authored as drawn: a literal unescaped and untouched, a key translated in the current language
         // (or itself when it does not resolve). @p count is the plural count and the value `{n}` prints.
-        [[nodiscard]] virtual UIResolvedText Resolve( std::string_view       authored,
+        [[nodiscard]] virtual UIResolvedText Resolve( std::string_view      authored,
                                                       std::optional<double> count = std::nullopt ) = 0;
 
         // @p value laid out as the reader's locale writes numbers, with @p fractionDigits after the separator.

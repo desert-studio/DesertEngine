@@ -24,7 +24,7 @@ namespace Desert::Core::EditorRegions
         Common::ResultStr<RegionOutcome> Hold( Scene& scene, Assets::AssetManager* assets,
                                                const std::span<const Rules::CellBounds>* regions )
         {
-            using Result = RegionOutcome;
+            using Result         = RegionOutcome;
             const auto& baseline = scene.Packages()->BaselinePath();
             if ( !baseline )
                 return Common::MakeError<Result>( fmt::format(
@@ -49,9 +49,9 @@ namespace Desert::Core::EditorRegions
             if ( regions != nullptr )
             {
                 const std::vector<Rules::EntityDescriptor> descriptors = DescriptorIndex::Descriptors( rows );
-                const Rules::WorldPartitionPlan            plan        = Rules::PlanWorldPartition(
-                     std::span<const Rules::EntityDescriptor>( descriptors ), *scene.GetWorldPartition(),
-                     RegistryMeshBounds() );
+                const Rules::WorldPartitionPlan            plan =
+                     Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( descriptors ),
+                                                *scene.GetWorldPartition(), RegistryMeshBounds() );
                 outcome.Selection = SelectRecords( plan, rowIds, *regions );
             }
             else
@@ -59,7 +59,7 @@ namespace Desert::Core::EditorRegions
 
             const std::unordered_set<std::uint64_t> wanted( outcome.Selection.Records.begin(),
                                                             outcome.Selection.Records.end() );
-            std::vector<Common::UUID> notLoaded;
+            std::vector<Common::UUID>               notLoaded;
             for ( const std::uint64_t id : rowIds )
                 if ( !wanted.contains( id ) )
                     notLoaded.emplace_back( id );
@@ -78,10 +78,11 @@ namespace Desert::Core::EditorRegions
                 if ( wanted.contains( record ) )
                     continue;
                 if ( scene.Packages()->IsDirty( entity.Id ) )
-                    return Common::MakeError<Result>( fmt::format(
-                         "'{}': entity {} differs from its file and would leave the loaded regions. Save it first. "
-                         "Nothing was loaded or unloaded.",
-                         path.string(), static_cast<std::uint64_t>( entity.Id ) ) );
+                    return Common::MakeError<Result>(
+                         fmt::format( "'{}': entity {} differs from its file and would leave the loaded regions. "
+                                      "Save it first. "
+                                      "Nothing was loaded or unloaded.",
+                                      path.string(), static_cast<std::uint64_t>( entity.Id ) ) );
                 if ( static_cast<std::uint64_t>( entity.Id ) == record )
                     leaving.push_back( entity.Id );
             }
@@ -128,8 +129,8 @@ namespace Desert::Core::EditorRegions
     RegionSelection SelectRecords( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
                                    std::span<const Rules::CellBounds> regions )
     {
-        RegionSelection          selection;
-        std::vector<bool>        take( rowIds.size(), false );
+        RegionSelection                 selection;
+        std::vector<bool>               take( rowIds.size(), false );
         std::unordered_set<std::size_t> always( plan.AlwaysLoaded.begin(), plan.AlwaysLoaded.end() );
         for ( std::size_t c = 0; c < plan.Composites.size(); ++c )
         {

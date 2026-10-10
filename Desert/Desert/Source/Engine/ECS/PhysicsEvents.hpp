@@ -52,9 +52,9 @@ namespace Desert::ECS
      * is not in @p bodies (a landscape tile, a destructible's piece) names no entity: it is reported as Other
      * as null, and is not given an event of its own.
      */
-    inline void NameContactEvents( std::span<const Physics::ContactEvent>                     events,
+    inline void NameContactEvents( std::span<const Physics::ContactEvent>                       events,
                                    const std::unordered_map<Physics::BodyHandle, entt::entity>& bodies,
-                                   std::vector<PhysicsEvent>&                                  out )
+                                   std::vector<PhysicsEvent>&                                   out )
     {
         const auto entityOf = [&]( Physics::BodyHandle body )
         {

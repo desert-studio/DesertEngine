@@ -245,7 +245,8 @@ namespace
     std::map<std::string, std::string> Snapshot( const std::filesystem::path& root )
     {
         std::map<std::string, std::string> files;
-        // The descriptor index is derived from the entity files and rewritten with them; only authored files count.
+        // The descriptor index is derived from the entity files and rewritten with them; only authored files
+        // count.
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
             if ( entry.is_regular_file() && entry.path().filename() != Desert::Core::DescriptorIndex::kFileName )
             {

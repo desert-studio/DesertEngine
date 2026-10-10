@@ -295,26 +295,27 @@ namespace Desert::Editor
         DrawMap( *plan, *partition, residency, streamer );
     }
 
-    Common::BoolResultStr WorldPartitionPanel::LoadRegion( std::optional<::Desert::Core::Rules::CellBounds> region )
+    Common::BoolResultStr
+    WorldPartitionPanel::LoadRegion( std::optional<::Desert::Core::Rules::CellBounds> region )
     {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
         auto* assets = const_cast<::Desert::Assets::AssetManager*>( m_Assets );
         auto  changed =
              region.has_value()
-                  ? ::Desert::Core::EditorRegions::LoadRegions(
+                   ? ::Desert::Core::EditorRegions::LoadRegions(
                          *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( &*region, 1 ) )
-                  : ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets );
+                   : ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
         if ( outcome.Loaded > 0 || outcome.Unloaded > 0 )
             CommandHistory::Get().Clear();
-        m_RegionStatus = std::format( "{} record(s) loaded, {} unloaded; {} of the world left on disk "
-                                      "({} composite(s) in the region, {} always loaded, {} without a place).",
-                                      outcome.Loaded, outcome.Unloaded, outcome.NotLoaded,
-                                      outcome.Selection.InRegions, outcome.Selection.AlwaysLoaded,
-                                      outcome.Selection.Unplaced );
+        m_RegionStatus =
+             std::format( "{} record(s) loaded, {} unloaded; {} of the world left on disk "
+                          "({} composite(s) in the region, {} always loaded, {} without a place).",
+                          outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
+                          outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced );
         m_EditPlanStale = true;
         return BOOLSUCCESS;
     }

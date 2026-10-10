@@ -432,10 +432,10 @@ namespace Desert::Core::WorldCells
                                               " descriptors; the descriptor index is not this world's" );
         for ( std::size_t record = 0; record < records.size(); ++record )
             if ( descriptors[record].Id != static_cast<std::uint64_t>( *records[record].id ) )
-                return Common::MakeError<Result>( "record " + std::to_string( record ) + " of '" + scene.SceneName +
-                                                  "' is entity " +
-                                                  std::to_string( static_cast<std::uint64_t>( *records[record].id ) ) +
-                                                  " but its descriptor is another; the descriptor index is stale" );
+                return Common::MakeError<Result>(
+                     "record " + std::to_string( record ) + " of '" + scene.SceneName + "' is entity " +
+                     std::to_string( static_cast<std::uint64_t>( *records[record].id ) ) +
+                     " but its descriptor is another; the descriptor index is stale" );
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
         // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and

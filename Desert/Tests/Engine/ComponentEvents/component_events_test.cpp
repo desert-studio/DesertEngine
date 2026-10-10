@@ -10,11 +10,11 @@
 //   5. Refusals: an unknown type or event, an empty listener, a payload of another signature.
 //
 // Mutations this suite must turn red:
-//   * ComponentEventSystem.cpp DeliverContacts — pass fact.Point as the normal            (ALandingBallHearsItsHit)
+//   * ComponentEventSystem.cpp DeliverContacts — pass fact.Point as the normal (ALandingBallHearsItsHit)
 //   * ComponentEventSystem.cpp DeliverComponentEvents — drop `contacts->Publication != cursor.Physics`
 //     (ABatchIsDeliveredOnce)
-//   * ComponentEvents.cpp Broadcast — drop the kind check                                  (AWrongPayloadIsRefused)
-//   * ComponentEvents.cpp Prune — return false from the predicate                          (ADestroyedEntityTakes...)
+//   * ComponentEvents.cpp Broadcast — drop the kind check (AWrongPayloadIsRefused)
+//   * ComponentEvents.cpp Prune — return false from the predicate (ADestroyedEntityTakes...)
 
 #include <Engine/ECS/ComponentEvents.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -51,7 +51,8 @@ namespace
         std::vector<std::vector<Value>> Calls;
         ECS::ComponentEvents::Listener  Listener()
         {
-            return [this]( std::span<const Value> payload ) { Calls.emplace_back( payload.begin(), payload.end() ); };
+            return [this]( std::span<const Value> payload )
+            { Calls.emplace_back( payload.begin(), payload.end() ); };
         }
     };
 
@@ -62,7 +63,8 @@ namespace
     }
 
     // A floor and a ball as entities, the ball's profile generating hit events; every step's contacts are
-    // published into the registry's PhysicsEventQueue and delivered, as PhysicsECSSystem + ComponentEventSystem do.
+    // published into the registry's PhysicsEventQueue and delivered, as PhysicsECSSystem + ComponentEventSystem
+    // do.
     struct ContactScene
     {
         entt::registry                                        Registry;
@@ -131,7 +133,7 @@ TEST( ComponentEvents, ALandingBallHearsItsHit )
 {
     ContactScene scene;
     Heard        heard;
-    auto bound = scene.Events().Subscribe( scene.Ball, "RigidBodyData", "OnHit", heard.Listener() );
+    auto         bound = scene.Events().Subscribe( scene.Ball, "RigidBodyData", "OnHit", heard.Listener() );
     ASSERT_TRUE( bound.IsSuccess() ) << bound.GetError();
 
     EXPECT_GE( scene.Run( 120 ), 1u );
@@ -155,7 +157,8 @@ TEST( ComponentEvents, NobodyListeningIsNothingCalled )
     ContactScene other;
     Heard        heard;
     ASSERT_TRUE( other.Events().Subscribe( other.Floor, "RigidBodyData", "OnHit", heard.Listener() ).IsSuccess() );
-    ASSERT_TRUE( other.Events().Subscribe( other.Ball, "RigidBodyData", "OnBeginOverlap", heard.Listener() ).IsSuccess() );
+    ASSERT_TRUE(
+         other.Events().Subscribe( other.Ball, "RigidBodyData", "OnBeginOverlap", heard.Listener() ).IsSuccess() );
     EXPECT_EQ( other.Run( 120 ), 0u );
     EXPECT_TRUE( heard.Calls.empty() ) << "the floor's profile reports no hit; the ball overlaps nothing";
 }
@@ -188,8 +191,8 @@ TEST( ComponentEvents, AnUnboundListenerIsNotCalled )
 
 TEST( ComponentEvents, ADestroyedEntityTakesItsListeners )
 {
-    ContactScene scene;
-    Heard        heard;
+    ContactScene       scene;
+    Heard              heard;
     const entt::entity gone = scene.Registry.create();
     ASSERT_TRUE( scene.Events().Subscribe( gone, "RigidBodyData", "OnHit", heard.Listener() ).IsSuccess() );
     ASSERT_TRUE( scene.Events().Subscribe( scene.Ball, "RigidBodyData", "OnHit", heard.Listener() ).IsSuccess() );
@@ -227,7 +230,8 @@ TEST( ComponentEvents, AWrongPayloadIsRefused )
     ECS::ComponentEvents events;
     const entt::entity   self = static_cast<entt::entity>( 3u );
     EXPECT_FALSE( events.Subscribe( self, "NoSuchType", "OnHit", []( std::span<const Value> ) {} ).IsSuccess() );
-    EXPECT_FALSE( events.Subscribe( self, "RigidBodyData", "OnNoSuchEvent", []( std::span<const Value> ) {} ).IsSuccess() );
+    EXPECT_FALSE(
+         events.Subscribe( self, "RigidBodyData", "OnNoSuchEvent", []( std::span<const Value> ) {} ).IsSuccess() );
     EXPECT_FALSE( events.Subscribe( self, "RigidBodyData", "OnHit", {} ).IsSuccess() );
 
     Heard heard;
@@ -239,8 +243,9 @@ TEST( ComponentEvents, AWrongPayloadIsRefused )
     EXPECT_FALSE( events.Broadcast( self, *end, wrongKind ).IsSuccess() );
     EXPECT_FALSE( events.Broadcast( self, *end, wrongCount ).IsSuccess() );
     EXPECT_TRUE( heard.Calls.empty() ) << "a refused payload calls nobody";
-    const auto right = Reflection::EventPayload<ECS::RigidBodyData::OnEndOverlap>( static_cast<entt::entity>( 4u ) );
-    auto       called = events.Broadcast( self, *end, right );
+    const auto right =
+         Reflection::EventPayload<ECS::RigidBodyData::OnEndOverlap>( static_cast<entt::entity>( 4u ) );
+    auto called = events.Broadcast( self, *end, right );
     ASSERT_TRUE( called.IsSuccess() ) << called.GetError();
     EXPECT_EQ( called.GetValue(), 1u );
 }

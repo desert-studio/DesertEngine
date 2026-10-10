@@ -191,7 +191,7 @@ namespace Desert::Reflection
     struct FunctionInfo
     {
         std::string            Name;
-        std::string            Owner;   // registry name of the reflected type that declares it
+        std::string            Owner; // registry name of the reflected type that declares it
         std::vector<ParamInfo> Params;
         std::vector<ParamInfo> Returns; // empty for void; one entry otherwise
         bool                   IsStatic = false;

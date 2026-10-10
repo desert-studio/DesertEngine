@@ -131,7 +131,7 @@ namespace Desert::WorldCook
         out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries );
+        auto       cooked  = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries );
         if ( !cooked )
         {
             err << "WorldCook: " << cooked.GetError() << "\n";

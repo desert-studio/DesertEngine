@@ -234,7 +234,8 @@ namespace Desert::UI::Walk
         res.RequestGlyphs( fontHandle, Text::Utf8Decode( t.Text ) );
 
         const FontFace font = res.Font( fontHandle, Text::kDefaultBakePixelHeight );
-        if ( font.Baked == nullptr || font.Atlas == nullptr || !font.Baked->Valid() || font.Baked->PixelHeight <= 0.0f )
+        if ( font.Baked == nullptr || font.Atlas == nullptr || !font.Baked->Valid() ||
+             font.Baked->PixelHeight <= 0.0f )
             return;
 
         const Text::BakedFont& bf    = *font.Baked;

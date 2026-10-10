@@ -113,7 +113,8 @@ namespace Desert::Graphic::Render2D
         // IUIRenderTextureSource. The walk holds this object through the interface and never through the
         // concrete type — see UIRenderTextureSource.hpp for the link failure that rule was written from.
         [[nodiscard]] const void*
-        ResolveRenderTexture( ::Desert::UI::NodeId element, const ::Desert::UI::UIRenderTextureRequest& request ) override;
+        ResolveRenderTexture( ::Desert::UI::NodeId                        element,
+                              const ::Desert::UI::UIRenderTextureRequest& request ) override;
 
     private:
         // One element's world. Destroying it is what returns the renderer slot, so this type is only ever

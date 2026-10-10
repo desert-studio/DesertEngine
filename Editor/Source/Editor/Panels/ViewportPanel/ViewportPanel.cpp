@@ -1618,8 +1618,8 @@ namespace Desert::Editor
                 // before.
                 pv.Keys.clear();
                 {
-                    const ImGuiIO& io   = ImGui::GetIO();
-                    ::Desert::UI::UIKeyMods  mods = ::Desert::UI::UIKeyMods::None;
+                    const ImGuiIO&          io   = ImGui::GetIO();
+                    ::Desert::UI::UIKeyMods mods = ::Desert::UI::UIKeyMods::None;
                     if ( io.KeyShift )
                         mods = mods | ::Desert::UI::UIKeyMods::Shift;
                     if ( io.KeyCtrl )

@@ -23,8 +23,8 @@ namespace Desert::Assets
         // A HANDLE OF ITS OWN: AsyncAssetLoader joins requests by handle (one asset object per handle), and
         // the twin is a second object for this file - under the live asset's handle a request for the live
         // one would wait on the twin's read and be told its own, unread, object had loaded. The load reads
-        // the file by path, so the handle names only this request.
-        m_Metadata.Handle = Common::UUID::Generate();
+        // the file by path, so the handle names only this request (and is kept out of AssetPathIndex).
+        MintUnindexedHandle();
     }
 
     std::shared_ptr<AssetBase> SkeletonAsset::MakeReloadTarget() const

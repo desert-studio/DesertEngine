@@ -213,8 +213,8 @@ namespace Desert::UI
 
         struct DirectionRule
         {
-            UINavigationRule   Rule   = UINavigationRule::Escape;
-            std::string_view   Target;
+            UINavigationRule Rule = UINavigationRule::Escape;
+            std::string_view Target;
         };
 
         DirectionRule RuleOf( const UINavigationData& d, UINavigation dir )

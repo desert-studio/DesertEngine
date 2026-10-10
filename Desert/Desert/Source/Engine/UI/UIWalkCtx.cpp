@@ -52,7 +52,7 @@ namespace Desert::UI::Walk
             if ( !ret.Mask || ret.MaskElement.empty() )
                 continue;
             NodeId found = NodeId::Null;
-            int          hits  = 0;
+            int    hits  = 0;
             for ( const NodeId m : elements )
                 if ( m != r && tree.Name( m ) == ret.MaskElement )
                 {
@@ -85,8 +85,7 @@ namespace Desert::UI::Walk
     // values — what its author actually typed — rather than an invented default or nothing drawn.
     ElementStyle StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e )
     {
-        const UIStyleData* authored =
-             tree.Has<UIStyleData>( e ) ? tree.Get<UIStyleData>( e ) : nullptr;
+        const UIStyleData* authored = tree.Has<UIStyleData>( e ) ? tree.Get<UIStyleData>( e ) : nullptr;
 
         if ( authored != nullptr && authored->Source == UIStyleSource::Local )
             return ElementStyle( nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() );
@@ -102,8 +101,8 @@ namespace Desert::UI::Walk
         {
             LOG_ERROR( "[UI] Element '{}' asks for the style '{}', which the theme '{}' does not "
                        "declare — it draws its own authored colours instead.",
-                       tree.Name( e ).empty() ? std::string_view( "<untagged>" ) : tree.Name( e ),
-                       name, ctx.Style.Theme()->Name );
+                       tree.Name( e ).empty() ? std::string_view( "<untagged>" ) : tree.Name( e ), name,
+                       ctx.Style.Theme()->Name );
         }
         return style;
     }
@@ -279,8 +278,7 @@ namespace Desert::UI::Walk
         out.Tint *= clip->Tint;
     }
 
-    BindingSample SampleBinding( IUITree& tree, NodeId e, TweenSample& tw,
-                                 const UICanvasContext& cell )
+    BindingSample SampleBinding( IUITree& tree, NodeId e, TweenSample& tw, const UICanvasContext& cell )
     {
         BindingSample out;
         if ( !tree.Has<UIBindingData>( e ) )
@@ -420,9 +418,8 @@ namespace Desert::UI::Walk
     // Keyboard-focusable controls (Tab cycles between them; Enter activates the focused one).
     bool IsFocusable( IUITree& tree, NodeId e )
     {
-        return tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) ||
-               tree.Has<UIToggleData>( e ) || tree.Has<UISliderData>( e ) ||
-               tree.Has<UIDropdownData>( e );
+        return tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) || tree.Has<UIToggleData>( e ) ||
+               tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e );
     }
 
     // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and
@@ -474,8 +471,7 @@ namespace Desert::UI::Walk
     // (`ctx.View.RenderTextures == nullptr`) — a unit test, or a host that never wired one. Reported
     // once per view, because a per-frame line buries the log and gets the whole message ignored; the
     // magenta is what keeps saying it, every frame.
-    const void* ResolveRenderTexture( WalkCtx& ctx, NodeId e, const UIRenderTextureData& data,
-                                      const Rect& rect )
+    const void* ResolveRenderTexture( WalkCtx& ctx, NodeId e, const UIRenderTextureData& data, const Rect& rect )
     {
         if ( ctx.View.RenderTextures == nullptr )
         {

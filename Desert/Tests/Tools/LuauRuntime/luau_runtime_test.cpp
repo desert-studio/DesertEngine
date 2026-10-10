@@ -159,7 +159,7 @@ namespace
     {
         LuauRuntime runtime( LuauLimits{ .ScriptMemoryBytes = std::size_t{ 1 } << 20U } );
         LuauSlot    modest = MustLoad( runtime, "small.luau", "Kept = {}" );
-        LuauSlot    hog   = MustLoad( runtime, "hog.luau", R"(
+        LuauSlot    hog    = MustLoad( runtime, "hog.luau", R"(
             function Grow() Hoard = {}; for i = 1, 1e7 do Hoard[i] = tostring(i) end end
         )" );
         (void)modest;

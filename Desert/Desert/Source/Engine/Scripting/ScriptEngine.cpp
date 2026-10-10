@@ -49,38 +49,37 @@ namespace Desert::Scripting
         m_Impl->Scene  = scene;
         m_Impl->Assets = assetManager;
 
-        Impl* host       = m_Impl.get();
-        m_Impl->Runtime = std::make_unique<LuauRuntime>(
-             LuauLimits{},
-             [host]( lua_State* L )
-             {
-                 lua_pushlightuserdata( L, host );
-                 lua_setfield( L, LUA_REGISTRYINDEX, kHost );
-                 lua_newtable( L );
-                 host->WorldVars = lua_ref( L, -1 );
-                 lua_pop( L, 1 );
+        Impl* host      = m_Impl.get();
+        m_Impl->Runtime = std::make_unique<LuauRuntime>( LuauLimits{},
+                                                         [host]( lua_State* L )
+                                                         {
+                                                             lua_pushlightuserdata( L, host );
+                                                             lua_setfield( L, LUA_REGISTRYINDEX, kHost );
+                                                             lua_newtable( L );
+                                                             host->WorldVars = lua_ref( L, -1 );
+                                                             lua_pop( L, 1 );
 
-                 RegisterLogBindings( L );
-                 RegisterEntityCoreBindings( L );
-                 RegisterCharacterBindings( L );
-                 RegisterMaterialBindings( L );
-                 RegisterInputBindings( L );
-                 RegisterTimerBindings( L );
-                 RegisterWorldBindings( L );
-                 RegisterAudioBindings( L );
-                 RegisterProjectBindings( L );
-                 RegisterLevelBindings( L );
-                 RegisterAnimationBindings( L );
-                 RegisterUIBindings( L );
-                 RegisterLocalizationBindings( L );
-             } );
+                                                             RegisterLogBindings( L );
+                                                             RegisterEntityCoreBindings( L );
+                                                             RegisterCharacterBindings( L );
+                                                             RegisterMaterialBindings( L );
+                                                             RegisterInputBindings( L );
+                                                             RegisterTimerBindings( L );
+                                                             RegisterWorldBindings( L );
+                                                             RegisterAudioBindings( L );
+                                                             RegisterProjectBindings( L );
+                                                             RegisterLevelBindings( L );
+                                                             RegisterAnimationBindings( L );
+                                                             RegisterUIBindings( L );
+                                                             RegisterLocalizationBindings( L );
+                                                         } );
     }
 
     ScriptEngine::~ScriptEngine() = default;
 
     Common::BoolResultStr ScriptEngine::RunString( const std::string& code )
     {
-        std::string output;
+        std::string           output;
         Common::BoolResultStr ran = m_Impl->Runtime->Eval( code, output );
         m_Impl->Settle();
         return ran;
@@ -94,8 +93,7 @@ namespace Desert::Scripting
         return ran;
     }
 
-    Common::BoolResultStr ScriptEngine::LoadEntityScript( uint32_t entity, uint32_t slot,
-                                                          const std::string& path )
+    Common::BoolResultStr ScriptEngine::LoadEntityScript( uint32_t entity, uint32_t slot, const std::string& path )
     {
         Common::ResultStr<std::string> source = ReadScript( path );
         if ( !source.IsSuccess() )
@@ -107,13 +105,12 @@ namespace Desert::Scripting
         impl.DropTimers( [key]( const Impl::PendingTimer& t ) { return t.Owner == key; } );
         impl.LastUpdateError.erase( key ); // fresh sandbox -> fresh error state
 
-        entt::registry*    registry = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
-        const entt::entity handle   = static_cast<entt::entity>( entity );
-        impl.CurrentOwner           = key; // Timer.after at the top level belongs to this slot
-        Common::ResultStr<LuauSlot> loaded =
-             impl.Runtime->Load( path, source.GetValue(),
-                                 { EntityBinding( "self", [registry, handle]()
-                                                  { return LuauEntityRef{ registry, handle }; } ) } );
+        entt::registry*    registry        = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
+        const entt::entity handle          = static_cast<entt::entity>( entity );
+        impl.CurrentOwner                  = key; // Timer.after at the top level belongs to this slot
+        Common::ResultStr<LuauSlot> loaded = impl.Runtime->Load(
+             path, source.GetValue(),
+             { EntityBinding( "self", [registry, handle]() { return LuauEntityRef{ registry, handle }; } ) } );
         impl.Settle();
         if ( !loaded.IsSuccess() )
             return Common::MakeError<bool>( loaded.GetError() );
@@ -133,7 +130,7 @@ namespace Desert::Scripting
         const LuauSlot target = SlotOf( entity, slot );
         if ( target == 0 || !Runtime->Defines( target, function ) )
             return BOOLSUCCESS;
-        CurrentOwner                    = SlotKey( entity, slot ); // Timer.after ownership
+        CurrentOwner                 = SlotKey( entity, slot ); // Timer.after ownership
         Common::BoolResultStr called = Runtime->Call( target, function, args );
         Settle();
         return called;
@@ -157,7 +154,8 @@ namespace Desert::Scripting
                     Runtime->Release( slot );
             Slots.erase( it );
         }
-        DropTimers( [entity]( const PendingTimer& t ) { return static_cast<uint32_t>( t.Owner >> 32 ) == entity; } );
+        DropTimers( [entity]( const PendingTimer& t )
+                    { return static_cast<uint32_t>( t.Owner >> 32 ) == entity; } );
     }
 
     void ScriptEngine::CallStart( uint32_t entity, uint32_t slot )
@@ -216,13 +214,16 @@ namespace Desert::Scripting
             switch ( p.Type )
             {
                 case PropertyType::Number:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::Double( p.Number ) );
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
+                                                    Reflection::Value::Double( p.Number ) );
                     break;
                 case PropertyType::Bool:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::Bool( p.Bool ) );
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
+                                                    Reflection::Value::Bool( p.Bool ) );
                     break;
                 case PropertyType::String:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::String( p.Str ) );
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
+                                                    Reflection::Value::String( p.Str ) );
                     break;
             }
         }
@@ -243,9 +244,12 @@ namespace Desert::Scripting
                     m_Impl->Runtime->Release( it->second[i] );
             it->second.resize( count );
         }
-        m_Impl->DropTimers( [entity, count]( const Impl::PendingTimer& t )
-                            { return static_cast<uint32_t>( t.Owner >> 32 ) == entity &&
-                                     static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) >= count; } );
+        m_Impl->DropTimers(
+             [entity, count]( const Impl::PendingTimer& t )
+             {
+                 return static_cast<uint32_t>( t.Owner >> 32 ) == entity &&
+                        static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) >= count;
+             } );
     }
 
     void ScriptEngine::TickTimers( float dt )

@@ -65,9 +65,9 @@ namespace Desert::Scripting
     // The `Input` table: keyboard state + per-frame mouse delta + cursor control.
     void RegisterInputBindings( lua_State* L )
     {
-        constexpr luaL_Reg kInput[] = { { "isKeyDown", &IsKeyDown },     { "wasPressed", &WasPressed },
-                                        { "mouseDelta", &MouseDelta },   { "lockCursor", &LockCursor },
-                                        { "showCursor", &ShowCursor },   { "isMouseDown", &IsMouseDown },
+        constexpr luaL_Reg kInput[] = { { "isKeyDown", &IsKeyDown },   { "wasPressed", &WasPressed },
+                                        { "mouseDelta", &MouseDelta }, { "lockCursor", &LockCursor },
+                                        { "showCursor", &ShowCursor }, { "isMouseDown", &IsMouseDown },
                                         { nullptr, nullptr } };
         luaL_register( L, "Input", kInput );
         lua_pop( L, 1 );

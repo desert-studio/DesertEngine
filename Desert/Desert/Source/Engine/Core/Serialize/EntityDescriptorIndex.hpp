@@ -72,9 +72,10 @@ namespace Desert::Core::DescriptorIndex
     // `unchanged(id)` true (WP17's delta save) reuses that entity's previous row WITHOUT asking `textOf`; with no
     // previous row the entity is read as any other.
     using IsUnchanged = std::function<bool( Common::UUID )>;
-    [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( const std::filesystem::path& scenePath,
+    [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( const std::filesystem::path&  scenePath,
                                                              std::span<const Common::UUID> listed,
-                                                             const RecordText& textOf, const IsUnchanged& unchanged = {} );
+                                                             const RecordText&             textOf,
+                                                             const IsUnchanged&            unchanged = {} );
 
     // Refresh of the world as it is on disk: the list from its header, each text from its file.
     [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( const std::filesystem::path& scenePath );

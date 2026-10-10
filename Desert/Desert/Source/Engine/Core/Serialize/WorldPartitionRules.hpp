@@ -1145,17 +1145,17 @@ namespace Desert::Core::Rules
     // here, once, with the same helpers.
     [[nodiscard]] inline EntityDescriptor DescribeEntity( const Assets::EntityData& record )
     {
-        EntityDescriptor out;
+        EntityDescriptor      out;
         Common::Json::Issues& issues = out.Issues;
         out.Id                       = Detail::IdBits( record.id );
         out.Parent                   = Detail::IdBits( record.parent );
         out.Tag                      = record.Tag.value_or( "" );
         for ( const auto& [name, payload] : record.Components )
             out.Components.push_back( name );
-        out.Translation = record.Translation;
-        out.Rotation    = record.Rotation;
-        out.Scale       = record.Scale;
-        out.PrefabPath  = record.PrefabPath;
+        out.Translation      = record.Translation;
+        out.Rotation         = record.Rotation;
+        out.Scale            = record.Scale;
+        out.PrefabPath       = record.PrefabPath;
         out.MissingTransform = Assets::MissingInstanceTransform( record );
 
         // The record's own boxes, and the mesh assets whose boxes the bounds source states.
@@ -1166,14 +1166,14 @@ namespace Desert::Core::Rules
             const auto mesh = Detail::BlockOf( record, key, issues );
             if ( !mesh.has_value() )
                 continue;
-            DescriptorMesh named;
+            DescriptorMesh                   named;
             const Common::Content::AssetGuid guid = Detail::ReadGuid( *mesh, kMeshHandleField, issues );
             mesh->ReadInto( kMeshPathField, named.Path, issues );
             if ( guid.IsNull() && named.Path.empty() )
                 continue;
             if ( !guid.IsNull() )
                 named.Guid = Common::Content::AssetGuidToText( guid );
-                out.Meshes.push_back( std::move( named ) );
+            out.Meshes.push_back( std::move( named ) );
         }
         if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
             out.Meshes.push_back( DescriptorMesh{ std::string(), *record.PrefabPath } );
@@ -1217,7 +1217,8 @@ namespace Desert::Core::Rules
         return out;
     }
 
-    [[nodiscard]] inline std::vector<EntityDescriptor> DescribeEntities( std::span<const Assets::EntityData> records )
+    [[nodiscard]] inline std::vector<EntityDescriptor>
+    DescribeEntities( std::span<const Assets::EntityData> records )
     {
         std::vector<EntityDescriptor> out;
         out.reserve( records.size() );
@@ -1373,7 +1374,7 @@ namespace Desert::Core::Rules
             const auto found = byId.find( Common::UUID( tile.LandscapeTile->Root ) );
             if ( found == byId.end() || !descriptors[found->second].LandscapeRoot.has_value() )
                 return std::nullopt;
-            const DescriptorLandscapeRoot& tiling = *descriptors[found->second].LandscapeRoot;
+            const DescriptorLandscapeRoot&  tiling = *descriptors[found->second].LandscapeRoot;
             World::Landscape::LandscapeRoot root;
             root.Origin       = glm::vec3( world[found->second][3] );
             root.QuadsPerTile = tiling.QuadsPerTile;
@@ -1425,12 +1426,12 @@ namespace Desert::Core::Rules
             if ( !data.MissingTransform.empty() )
             {
                 plan.UnplacedPrefabInstances.push_back( record );
-                plan.Issues.push_back( Common::Json::Issue{
-                     data.Id.has_value() ? "Entities[id=" + std::to_string( *data.Id ) + "]"
-                                         : "Entities[" + std::to_string( record ) + "]",
-                     "a prefab instance stating its root transform (scene v37)",
-                     "no " + data.MissingTransform + " on the instance of '" + data.PrefabPath.value_or( "" ) +
-                          "'" } );
+                plan.Issues.push_back(
+                     Common::Json::Issue{ data.Id.has_value() ? "Entities[id=" + std::to_string( *data.Id ) + "]"
+                                                              : "Entities[" + std::to_string( record ) + "]",
+                                          "a prefab instance stating its root transform (scene v37)",
+                                          "no " + data.MissingTransform + " on the instance of '" +
+                                               data.PrefabPath.value_or( "" ) + "'" } );
             }
 
             if ( const auto parent = Detail::ParentOf( data ); parent.has_value() )

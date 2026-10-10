@@ -29,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawSliderWidget( ElementFrame& frame )
     {
         auto& ctx       = frame.Ctx;
-        auto& tree       = frame.Tree;
+        auto& tree      = frame.Tree;
         auto& e         = frame.E;
         auto& dl        = frame.Dl;
         auto& input     = frame.Input;
@@ -39,7 +39,7 @@ namespace Desert::UI::Walk
         auto& mn        = frame.Mn;
         auto& mx        = frame.Mx;
         auto& hot       = frame.Hot;
-        auto& focused    = frame.Focused;
+        auto& focused   = frame.Focused;
 
         auto&       sl    = *tree.GetState<UISliderData>( e );
         const float range = std::max( 0.0001f, sl.MaxValue - sl.MinValue );

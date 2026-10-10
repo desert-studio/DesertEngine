@@ -37,7 +37,7 @@ namespace Desert::Editor
         // capture only - a heavy import's meshes stay Pending until their cook lands, and a capture begun before
         // that photographs an empty scene (Bistro, GI-BISTRO2). Once recording, a cook landing mid-capture is
         // part of what is being recorded, as a streamed cell is in a flight.
-        bool     AssetsCompiling  = false;
+        bool AssetsCompiling = false;
         // Textures the scene asked for that are not on the GPU yet (TextureService::InFlight: read, cook or
         // upload outstanding). Each draws its slot's white default with no alpha cut until it lands, so a capture
         // begun under them photographs white foliage cards (Bistro night_street_a: 78 of 229 textures in at the

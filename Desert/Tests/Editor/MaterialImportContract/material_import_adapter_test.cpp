@@ -608,10 +608,9 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
         mat.AddProperty( &base, AI_MATKEY_TEXTURE( aiTextureType_BASE_COLOR, 0 ) );
         if ( withDiffuse )
             mat.AddProperty( &diffuse, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
-        return FillFromTemplate( ReadSourceMaterial( mat, SourceFormatOf( "chair.fbx" ), "M",
-                                                     BesideAbsentSource )
-                                      .Material,
-                                 Template( "Surface/StandardSurface.shader" ) );
+        return FillFromTemplate(
+             ReadSourceMaterial( mat, SourceFormatOf( "chair.fbx" ), "M", BesideAbsentSource ).Material,
+             Template( "Surface/StandardSurface.shader" ) );
     };
     const TemplateFill onlyBase = read( false );
     ASSERT_NE( Slot( onlyBase, "u_AlbedoTexture" ), nullptr ) << "an FBX base_color_map was dropped";
@@ -665,8 +664,7 @@ namespace
         const aiString specular( "Bistro_Specular.png" );
         mat.AddProperty( &albedo, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
         mat.AddProperty( &specular, AI_MATKEY_TEXTURE( aiTextureType_SPECULAR, 0 ) );
-        return ReadSourceMaterial( mat, SourceFormatOf( "BistroExterior.fbx" ), "Paris_Wall",
-                                   BesideAbsentSource )
+        return ReadSourceMaterial( mat, SourceFormatOf( "BistroExterior.fbx" ), "Paris_Wall", BesideAbsentSource )
              .Material;
     }
 } // namespace
@@ -700,9 +698,9 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
     EXPECT_FALSE( orm->NeedsPacking() ) << "one image fills every ORM channel: it binds as is";
 }
 
-// BISTRO-COLOR: the ORCA Bistro Specular map is Falcor's metal-rough - roughness in G, metal in B, R 0 in every one
-// of its 201 maps. Stated as RoughnessMetallic it routes G and B only (the import packs an R of no occlusion), and
-// the image is the whole of roughness and metal: the factors it multiplies are 1, not the template's metal 0.
+// BISTRO-COLOR: the ORCA Bistro Specular map is Falcor's metal-rough - roughness in G, metal in B, R 0 in every
+// one of its 201 maps. Stated as RoughnessMetallic it routes G and B only (the import packs an R of no occlusion),
+// and the image is the whole of roughness and metal: the factors it multiplies are 1, not the template's metal 0.
 TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusionAlone )
 {
     const SourceMaterial source =
@@ -717,7 +715,8 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusi
     EXPECT_TRUE( orm->NeedsPacking() ) << "the slot's R must come from the packer (no occlusion), not the map";
     for ( const char* factor : { "MetallicFactor", "RoughnessFactor" } )
     {
-        const auto it = std::ranges::find_if( fill.Params, [&]( const ImportedParam& p ) { return p.Name == factor; } );
+        const auto it =
+             std::ranges::find_if( fill.Params, [&]( const ImportedParam& p ) { return p.Name == factor; } );
         ASSERT_NE( it, fill.Params.end() ) << factor;
         EXPECT_EQ( it->Value.x, 1.0f ) << factor << ": the map is the whole value";
     }

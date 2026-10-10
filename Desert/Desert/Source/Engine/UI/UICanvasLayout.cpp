@@ -543,7 +543,7 @@ namespace Desert::UI
             child.Depth        = scope.Depth + 1;
             child.ParentEntity = e;
             child.Elect     = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly );
-            child.SkippedBy    = scope.SkippedBy != NodeId::Null ? scope.SkippedBy : node.Drawn ? NodeId::Null : e;
+            child.SkippedBy = scope.SkippedBy != NodeId::Null ? scope.SkippedBy : node.Drawn ? NodeId::Null : e;
             child.Row       = scope.Row;
             child.RowIndex  = scope.RowIndex;
 

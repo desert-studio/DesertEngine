@@ -32,9 +32,9 @@ namespace Desert::Editor::Core
         // UIViewContext::PrevRightDown, exactly as the left button's is; reporting the edge here as well
         // would be a second place computing the same fact, and the two would eventually disagree about
         // which frame the click was in.
-        bool                        RightDown = false;
+        bool                                  RightDown = false;
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
-        std::vector<::Desert::UI::UIKeyEvent> Keys;              // key presses this frame, in order (UIInput::Keys)
+        std::vector<::Desert::UI::UIKeyEvent> Keys; // key presses this frame, in order (UIInput::Keys)
         std::string TypedText; // UTF-8 chars typed this frame (drives the focused InputField)
 
         entt::entity Focused = entt::null; // persisted keyboard focus across frames

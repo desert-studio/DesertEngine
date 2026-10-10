@@ -203,7 +203,7 @@ namespace Desert::Core
         Common::UUID IdOf( const entt::registry& registry, entt::entity handle )
         {
             return registry.has<ECS::UUIDComponent>( handle ) ? registry.get<ECS::UUIDComponent>( handle ).UUID
-                                                                  : Common::UUID( 0 );
+                                                              : Common::UUID( 0 );
         }
 
         Common::UUID RecordOf( const ECS::Entity& entity )
@@ -217,7 +217,8 @@ namespace Desert::Core
                 if ( parent == entt::null )
                     break;
                 current = parent;
-                if ( registry->has<ECS::PrefabComponent>( current ) || registry->has<ECS::FoliageComponent>( current ) )
+                if ( registry->has<ECS::PrefabComponent>( current ) ||
+                     registry->has<ECS::FoliageComponent>( current ) )
                     owner = current;
             }
             return IdOf( *registry, owner );
@@ -304,7 +305,8 @@ namespace Desert::Core
             }
             // Counted before the filter: a root's sibling index is its place among ALL roots.
             const uint32_t siblingIndex = SiblingIndexOf( entity, nextRootIndex );
-            if ( only != nullptr && !only->contains( static_cast<uint64_t>( IdOf( *entity.GetRegistry(), entity.GetHandle() ) ) ) )
+            if ( only != nullptr &&
+                 !only->contains( static_cast<uint64_t>( IdOf( *entity.GetRegistry(), entity.GetHandle() ) ) ) )
             {
                 continue;
             }
@@ -489,7 +491,8 @@ namespace Desert::Core
         }
         phases.Lap( "count undeclared keys", scene.Entities.size() );
         m_Scene->SetLoadedDocument( std::move( loaded.Document ) );
-        // A load replaces every entity: nothing is known about any file until the caller adopts one (AdoptAsSaved).
+        // A load replaces every entity: nothing is known about any file until the caller adopts one
+        // (AdoptAsSaved).
         m_Scene->Packages()->Forget();
 
         // Restore the scene name (was only logged before — so a renamed+saved scene reverted on load).
@@ -793,13 +796,14 @@ namespace Desert::Core
         // THROUGH THE ENTITY PACKAGES (WP17): a partitioned world saved to the file it was opened from or last
         // saved to serializes and writes only the entities that differ from their files, plus the header and the
         // files of deleted entities; anything else is the whole save, as before.
-        const std::vector<LiveEntity> live = LiveEntities();
+        const std::vector<LiveEntity> live  = LiveEntities();
         auto                          saved = SaveThroughPackages(
              path, *m_Scene->Packages(), live, m_Scene->GetWorldPartition().has_value(),
              [this]( const std::unordered_set<std::uint64_t>* only ) { return SerializeToDocument( only ); },
              kEditorCleanCheck );
         if ( !saved )
-            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(), saved.GetError() );
+            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
+                                               saved.GetError() );
         m_LastSave = saved.GetValue();
         return BOOLSUCCESS;
     }

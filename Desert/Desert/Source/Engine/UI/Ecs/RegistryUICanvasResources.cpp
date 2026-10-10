@@ -35,8 +35,8 @@ namespace Desert::UI
 
     TextureRef RegistryUICanvasResources::VideoFrame( uint64_t video, float volume, bool muted )
     {
-        return RefOf(
-             Runtime::ResourceRegistry::GetVideoService()->Resolve( video, { .Volume = volume, .Muted = muted } ) );
+        return RefOf( Runtime::ResourceRegistry::GetVideoService()->Resolve(
+             video, { .Volume = volume, .Muted = muted } ) );
     }
 
     const UIThemeRuntime* RegistryUICanvasResources::Theme( const Common::AssetHandle& theme )

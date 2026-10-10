@@ -201,6 +201,19 @@ namespace Desert::Assets
             static_cast<void>( Common::AssetPathIndex::Record( static_cast<uint64_t>( handle ), stableKey ) );
         }
 
+        /// Installs a RANDOM handle that names NO file, and deliberately records no inverse for it.
+        ///
+        /// The second legitimate way to replace the path-derived identity, and the opposite of the one
+        /// above: a reload twin is a second object for a file whose live asset already owns that file's
+        /// handle. AsyncAssetLoader joins requests by handle, so the twin needs a number of its own, and
+        /// that number is a statement about this REQUEST, not about any file - binding it to the file's
+        /// key in AssetPathIndex would put a wrong answer in the index (and collide with the live one).
+        /// One spelling here, so the census over `m_Metadata.Handle =` keeps exactly two writers.
+        void MintUnindexedHandle()
+        {
+            m_Metadata.Handle = Common::UUID::Generate();
+        }
+
         /// THE PER-TYPE HALF OF `Load()`. Reads the file and fills the type; says nothing about timing.
         ///
         /// Protected rather than public because the public half is the whole contract: a caller reaching

@@ -35,11 +35,11 @@ namespace Desert::ECS
         /// Binds @p listener to the event @p event of the reflected type @p type on @p self (UE AddDynamic).
         /// Refused by name when the type or the event is not reflected, or @p listener is empty.
         [[nodiscard]] Common::ResultStr<Subscription> Subscribe( entt::entity self, std::string_view type,
-                                                                std::string_view event, Listener listener );
+                                                                 std::string_view event, Listener listener );
         /// The same, for an EventInfo already looked up (it must be the registry's own record: binding is by
         /// identity, so a copy of the record names no event).
-        [[nodiscard]] Common::ResultStr<Subscription> Subscribe( entt::entity self, const Reflection::EventInfo& event,
-                                                                Listener listener );
+        [[nodiscard]] Common::ResultStr<Subscription>
+        Subscribe( entt::entity self, const Reflection::EventInfo& event, Listener listener );
 
         /// Unbinds one subscription (UE RemoveDynamic). False when it is not bound (already removed, or pruned
         /// with its entity).
@@ -56,8 +56,9 @@ namespace Desert::ECS
         /// A listener may subscribe or unsubscribe while being called: the call goes to the listeners bound when
         /// the broadcast began. A payload of another count or kind than the event's parameters is refused, and
         /// nobody is called.
-        [[nodiscard]] Common::ResultStr<std::size_t> Broadcast( entt::entity self, const Reflection::EventInfo& event,
-                                                               std::span<const Reflection::Value> payload ) const;
+        [[nodiscard]] Common::ResultStr<std::size_t> Broadcast( entt::entity                       self,
+                                                                const Reflection::EventInfo&       event,
+                                                                std::span<const Reflection::Value> payload ) const;
 
         /// Drops the subscriptions of entities @p registry no longer has. An id carries its version, so a
         /// recycled id is a different entity and never receives a dead one's listeners; this only frees them.
@@ -66,8 +67,8 @@ namespace Desert::ECS
     private:
         struct Key
         {
-            entt::entity                 Self  = entt::null;
-            const Reflection::EventInfo* Event = nullptr;
+            entt::entity                 Self                           = entt::null;
+            const Reflection::EventInfo* Event                          = nullptr;
             bool                         operator==( const Key& ) const = default;
         };
         struct KeyHash
@@ -75,7 +76,8 @@ namespace Desert::ECS
             std::size_t operator()( const Key& key ) const noexcept
             {
                 return std::hash<const void*>{}( key.Event ) ^
-                       ( std::hash<std::uint64_t>{}( static_cast<std::uint64_t>( static_cast<std::underlying_type_t<entt::entity>>( key.Self ) ) )
+                       ( std::hash<std::uint64_t>{}( static_cast<std::uint64_t>(
+                              static_cast<std::underlying_type_t<entt::entity>>( key.Self ) ) )
                          << 1u );
             }
         };

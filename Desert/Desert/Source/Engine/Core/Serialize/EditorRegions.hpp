@@ -40,7 +40,7 @@ namespace Desert::Core::EditorRegions
     // What a set of regions selects of a world.
     struct RegionSelection
     {
-        std::vector<std::uint64_t> Records;      // record ids to hold, in the world's (descriptor row) order
+        std::vector<std::uint64_t> Records;          // record ids to hold, in the world's (descriptor row) order
         std::size_t                InRegions    = 0; // composites whose footprint meets a region
         std::size_t                AlwaysLoaded = 0; // composites held whatever the regions
         std::size_t                Unplaced     = 0; // composites with no footprint: held by LoadWholeWorld only
@@ -48,8 +48,8 @@ namespace Desert::Core::EditorRegions
 
     // PURE. `plan` is PlanWorldPartition over the world's descriptors and `rowIds[r]` is the id of record `r`.
     // A region and a footprint meet when they share any point (edges included).
-    [[nodiscard]] RegionSelection SelectRecords( const Rules::WorldPartitionPlan& plan,
-                                                 std::span<const std::uint64_t>   rowIds,
+    [[nodiscard]] RegionSelection SelectRecords( const Rules::WorldPartitionPlan&   plan,
+                                                 std::span<const std::uint64_t>     rowIds,
                                                  std::span<const Rules::CellBounds> regions );
 
     // What a region change did.

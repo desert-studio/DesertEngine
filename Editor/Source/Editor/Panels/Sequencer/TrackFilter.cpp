@@ -19,8 +19,8 @@ namespace Desert::Editor::Sequencer
             return false;
         if ( !filters.Keyed )
             return true;
-        return std::ranges::any_of( sequence.Tracks, [&]( const Animation::Timeline::Track& track ) {
-            return track.Binding == binding.Guid && TrackPasses( track, bindingSelected, filters );
-        } );
+        return std::ranges::any_of(
+             sequence.Tracks, [&]( const Animation::Timeline::Track& track )
+             { return track.Binding == binding.Guid && TrackPasses( track, bindingSelected, filters ); } );
     }
 } // namespace Desert::Editor::Sequencer

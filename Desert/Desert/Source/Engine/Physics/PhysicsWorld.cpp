@@ -440,8 +440,8 @@ namespace Desert::Physics
                     event.Notify2 = true;
                     const JPH::SubShapeIDPair pair( body1.GetID(), manifold.mSubShapeID1, body2.GetID(),
                                                     manifold.mSubShapeID2 );
-                    const std::lock_guard lock( Mutex );
-                    const uint64_t        bodies = BodyPairKey( event.Body1, event.Body2 );
+                    const std::lock_guard     lock( Mutex );
+                    const uint64_t            bodies = BodyPairKey( event.Body1, event.Body2 );
                     if ( !SensorShapes.emplace( ShapePairKey( pair ), bodies ).second )
                         return;
                     if ( OverlapCounts[bodies]++ == 0u )
@@ -725,12 +725,9 @@ namespace Desert::Physics
                 // The solver's threads found the contacts in no fixed order: sorted, the events of a step are
                 // the same on every machine that took it.
                 std::vector<ContactEvent>& events = world.Impulses.Events;
-                std::stable_sort( events.begin(), events.end(),
-                                  []( const ContactEvent& a, const ContactEvent& b )
-                                  {
-                                      return std::tie( a.Body1, a.Body2, a.Kind ) <
-                                             std::tie( b.Body1, b.Body2, b.Kind );
-                                  } );
+                std::stable_sort(
+                     events.begin(), events.end(), []( const ContactEvent& a, const ContactEvent& b )
+                     { return std::tie( a.Body1, a.Body2, a.Kind ) < std::tie( b.Body1, b.Body2, b.Kind ); } );
                 world.StepEvents.insert( world.StepEvents.end(), events.begin(), events.end() );
                 events.clear();
             }

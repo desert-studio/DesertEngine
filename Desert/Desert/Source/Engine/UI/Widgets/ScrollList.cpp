@@ -29,7 +29,7 @@ namespace Desert::UI::Walk
     void DrawChildren( ElementFrame& frame )
     {
         auto& ctx         = frame.Ctx;
-        auto& tree         = frame.Tree;
+        auto& tree        = frame.Tree;
         auto& e           = frame.E;
         auto& scale       = frame.Scale;
         auto& dl          = frame.Dl;

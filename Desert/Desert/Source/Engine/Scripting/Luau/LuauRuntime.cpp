@@ -430,15 +430,19 @@ namespace Desert::Scripting
                     switch ( lua_type( thread, -1 ) )
                     {
                         case LUA_TBOOLEAN:
-                            entries.push_back( { std::move( key ), Reflection::Value::Bool( lua_toboolean( thread, -1 ) != 0 ) } );
+                            entries.push_back( { std::move( key ),
+                                                 Reflection::Value::Bool( lua_toboolean( thread, -1 ) != 0 ) } );
                             break;
                         case LUA_TNUMBER:
-                            entries.push_back( { std::move( key ), Reflection::Value::Double( lua_tonumber( thread, -1 ) ) } );
+                            entries.push_back(
+                                 { std::move( key ), Reflection::Value::Double( lua_tonumber( thread, -1 ) ) } );
                             break;
                         case LUA_TSTRING:
-                            entries.push_back( { std::move( key ), Reflection::Value::String( lua_tostring( thread, -1 ) ) } );
+                            entries.push_back(
+                                 { std::move( key ), Reflection::Value::String( lua_tostring( thread, -1 ) ) } );
                             break;
-                        default: break; // a table / function default is not an editor property
+                        default:
+                            break; // a table / function default is not an editor property
                     }
                 }
                 lua_pop( thread, 1 );

@@ -9,7 +9,8 @@
 //      no impulse reported); a ray does not find a NoCollision / PhysicsOnly body; a Pawn capsule stands on a
 //      BlockAll floor and falls through a Trigger floor.
 //
-// Mutations this suite must turn red (the test that should fail is named on each line; run them before trusting it):
+// Mutations this suite must turn red (the test that should fail is named on each line; run them before trusting
+// it):
 //   * CollisionProfiles::PhysicsResponse — std::min → std::max            (PairResponseIsTheLesserOfTheTwo)
 //   * PhysicsWorld.cpp ContactRecorder::Respond — drop `settings.mIsSensor = true`  (ABallPassesThroughATrigger)
 //   * PhysicsWorld::CastRay — drop the QueryableLayerFilter argument     (ARayDoesNotFindBodiesOutsideQueries)

@@ -335,7 +335,8 @@ namespace Desert::Core::ExternalEntities
         }
         const auto header = scene.WithArrayMember( kRecords, kListMember, ids );
         if ( !header )
-            return Common::MakeError<WriteOutcome>( fmt::format( "'{}': {}", scenePath.string(), header.GetError() ) );
+            return Common::MakeError<WriteOutcome>(
+                 fmt::format( "'{}': {}", scenePath.string(), header.GetError() ) );
         const auto headerText = Common::Json::WriteCanonical( header.GetValue() );
         if ( !headerText )
             return Common::MakeError<WriteOutcome>(
@@ -430,10 +431,11 @@ namespace Desert::Core::ExternalEntities
             return Common::MakeError<Result>( text.GetError() );
         auto document = Common::Json::TextDocument::Parse( text.GetValue() );
         if ( !document )
-            return Common::MakeError<Result>( fmt::format( "'{}' is not JSON: {}", path.string(), document.GetError() ) );
-        if ( !IsHeader( document.GetValue() ) )
             return Common::MakeError<Result>(
-                 fmt::format( "'{}' is not a partitioned world's header: it lists no {}", path.string(), kListMember ) );
+                 fmt::format( "'{}' is not JSON: {}", path.string(), document.GetError() ) );
+        if ( !IsHeader( document.GetValue() ) )
+            return Common::MakeError<Result>( fmt::format(
+                 "'{}' is not a partitioned world's header: it lists no {}", path.string(), kListMember ) );
         auto list = document.GetValue().AsDocument<HeaderList>();
         if ( !list )
             return Common::MakeError<Result>(
@@ -514,10 +516,11 @@ namespace Desert::Core::ExternalEntities
             return Common::MakeError<std::string>(
                  fmt::format( "[SceneSerializer] '{}' is not JSON: {}", path.string(), document.GetError() ) );
         if ( !IsHeader( document.GetValue() ) || !HasMember( document.GetValue(), "WorldPartition" ) )
-            return Common::MakeError<std::string>( fmt::format(
-                 "[SceneSerializer] '{}' is not a partitioned world's header: only a world kept one file per entity "
-                 "loads by region.",
-                 path.string() ) );
+            return Common::MakeError<std::string>(
+                 fmt::format( "[SceneSerializer] '{}' is not a partitioned world's header: only a world kept one "
+                              "file per entity "
+                              "loads by region.",
+                              path.string() ) );
         auto list = document.GetValue().AsDocument<HeaderList>();
         if ( !list )
             return Common::MakeError<std::string>( fmt::format(
@@ -539,9 +542,10 @@ namespace Desert::Core::ExternalEntities
             for ( const std::uint64_t bits : wanted )
                 if ( std::find( list.GetValue().ExternalEntities.begin(), list.GetValue().ExternalEntities.end(),
                                 bits ) == list.GetValue().ExternalEntities.end() )
-                    return Common::MakeError<std::string>( fmt::format(
-                         "[SceneSerializer] '{}' does not list entity {}: a region loads only what the world holds.",
-                         path.string(), bits ) );
+                    return Common::MakeError<std::string>(
+                         fmt::format( "[SceneSerializer] '{}' does not list entity {}: a region loads only what "
+                                      "the world holds.",
+                                      path.string(), bits ) );
 
         auto header = document.GetValue().WithArrayMember( kListMember, kListMember, kept );
         if ( !header )
@@ -552,7 +556,8 @@ namespace Desert::Core::ExternalEntities
             const std::filesystem::path file = FileOf( path, id );
             std::error_code             ec;
             if ( !std::filesystem::is_regular_file( file, ec ) )
-                return Common::MakeError<std::string>( fmt::format( "its file {} does not exist", file.string() ) );
+                return Common::MakeError<std::string>(
+                     fmt::format( "its file {} does not exist", file.string() ) );
             return Common::Utils::FileSystem::ReadFileContent( file );
         };
         auto scene = Assemble( header.GetValue(), path.string(), read );

@@ -326,7 +326,8 @@ namespace Desert::Scripting::LuauBinder
             const LuauBinding& object = *CheckObject( L, 1 );
             const char*        key    = luaL_checkstring( L, 2 );
             if ( object.Type != nullptr || !object.Entity )
-                luaL_errorL( L, "%s() is a method of an entity: call it as entity:%s(\"%s\")", method, method, key );
+                luaL_errorL( L, "%s() is a method of an entity: call it as entity:%s(\"%s\")", method, method,
+                             key );
 
             const ECS::ReflectedComponent* row = ECS::FindReflectedComponent( key );
             if ( row == nullptr )
@@ -390,9 +391,9 @@ namespace Desert::Scripting::LuauBinder
 
             if ( object.Type == nullptr )
             {
-                for ( const auto& [name, method] : { std::pair{ "component", &EntityComponent },
-                                                     std::pair{ "has", &EntityHas }, std::pair{ "add", &EntityAdd },
-                                                     std::pair{ "remove", &EntityRemove } } )
+                for ( const auto& [name, method] :
+                      { std::pair{ "component", &EntityComponent }, std::pair{ "has", &EntityHas },
+                        std::pair{ "add", &EntityAdd }, std::pair{ "remove", &EntityRemove } } )
                 {
                     if ( std::strcmp( key, name ) == 0 )
                     {

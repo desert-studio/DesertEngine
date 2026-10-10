@@ -38,7 +38,8 @@ namespace Desert::Scripting
         ScriptEngine( const ScriptEngine& )            = delete;
         ScriptEngine& operator=( const ScriptEngine& ) = delete;
 
-        // Runs a chunk in the console sandbox (its globals persist between calls). Returns the script error on failure.
+        // Runs a chunk in the console sandbox (its globals persist between calls). Returns the script error on
+        // failure.
         Common::BoolResultStr RunString( const std::string& code );
 
         // REPL eval for the editor Lua console: runs @p code (as an expression first, then as a

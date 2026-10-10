@@ -129,7 +129,7 @@ namespace Desert::Core
         [[nodiscard]] Revision CurrentOf( std::uint64_t id ) const;
 
         Revision                                       m_Next = 1;
-        std::unordered_map<std::uint64_t, Revision>    m_Current; // absent = 0 (never edited)
+        std::unordered_map<std::uint64_t, Revision>    m_Current;    // absent = 0 (never edited)
         std::unordered_set<std::uint64_t>              m_Unrecorded; // MarkModified since the baseline
         bool                                           m_Whole = false;
         std::optional<std::filesystem::path>           m_BaselinePath;

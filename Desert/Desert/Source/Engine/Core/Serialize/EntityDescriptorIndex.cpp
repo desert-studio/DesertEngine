@@ -33,7 +33,8 @@ namespace Desert::Core::DescriptorIndex
             const fs::path  file = ExternalEntities::FileOf( scenePath, id );
             std::error_code ec;
             if ( !fs::is_regular_file( file, ec ) )
-                return Common::MakeError<std::string>( fmt::format( "its file {} does not exist", file.string() ) );
+                return Common::MakeError<std::string>(
+                     fmt::format( "its file {} does not exist", file.string() ) );
             return Common::Utils::FileSystem::ReadFileContent( file );
         }
     } // namespace
@@ -77,9 +78,8 @@ namespace Desert::Core::DescriptorIndex
             row.Id    = bits;
             row.Bytes = text.GetValue().size();
             row.Crc   = CrcOf( text.GetValue() );
-            if ( const auto found = before.find( bits ); found != before.end() &&
-                                                         found->second->Bytes == row.Bytes &&
-                                                         found->second->Crc == row.Crc )
+            if ( const auto found = before.find( bits );
+                 found != before.end() && found->second->Bytes == row.Bytes && found->second->Crc == row.Crc )
             {
                 row.Descriptor = found->second->Descriptor;
                 ++outcome.Reused;
@@ -88,8 +88,9 @@ namespace Desert::Core::DescriptorIndex
             {
                 auto record = Common::Json::Read<Assets::EntityData>( text.GetValue() );
                 if ( !record )
-                    return Common::MakeError<RefreshOutcome>( fmt::format(
-                         "'{}': entity {} is not an entity record: {}", scenePath.string(), bits, record.GetError() ) );
+                    return Common::MakeError<RefreshOutcome>(
+                         fmt::format( "'{}': entity {} is not an entity record: {}", scenePath.string(), bits,
+                                      record.GetError() ) );
                 row.Descriptor = Rules::DescribeEntity( record.GetValue() );
                 if ( row.Descriptor.Id != bits )
                     return Common::MakeError<RefreshOutcome>( fmt::format(
@@ -137,13 +138,13 @@ namespace Desert::Core::DescriptorIndex
 
     Common::ResultStr<DescriptorIndexFile> ReadFresh( const fs::path& scenePath )
     {
-        using Result         = DescriptorIndexFile;
-        const fs::path index = PathOf( scenePath );
+        using Result          = DescriptorIndexFile;
+        const fs::path  index = PathOf( scenePath );
         std::error_code ec;
         if ( !fs::is_regular_file( index, ec ) )
-            return Common::MakeError<Result>( fmt::format(
-                 "'{}' has no descriptor index ({}); saving the world or cooking it builds one", scenePath.string(),
-                 index.string() ) );
+            return Common::MakeError<Result>(
+                 fmt::format( "'{}' has no descriptor index ({}); saving the world or cooking it builds one",
+                              scenePath.string(), index.string() ) );
         auto read = Common::Json::ReadFile<DescriptorIndexFile>( index );
         if ( !read )
             return Common::MakeError<Result>( read.GetError() );
@@ -158,15 +159,16 @@ namespace Desert::Core::DescriptorIndex
                 return Common::MakeError<Result>(
                      fmt::format( "{} is stale: entity {} is not in it", index.string(),
                                   static_cast<std::uint64_t>( listed.GetValue()[at] ) ) );
-            if ( at >= listed.GetValue().size() || static_cast<std::uint64_t>( listed.GetValue()[at] ) != rows[at].Id )
+            if ( at >= listed.GetValue().size() ||
+                 static_cast<std::uint64_t>( listed.GetValue()[at] ) != rows[at].Id )
                 return Common::MakeError<Result>(
                      fmt::format( "{} is stale: it describes entity {}, which '{}' does not list there",
                                   index.string(), rows[at].Id, scenePath.string() ) );
             const fs::path file = ExternalEntities::FileOf( scenePath, Common::UUID( rows[at].Id ) );
             auto           text = FileText( scenePath, Common::UUID( rows[at].Id ) );
             if ( !text )
-                return Common::MakeError<Result>( fmt::format( "{} is stale: entity {}: {}", index.string(),
-                                                               rows[at].Id, text.GetError() ) );
+                return Common::MakeError<Result>(
+                     fmt::format( "{} is stale: entity {}: {}", index.string(), rows[at].Id, text.GetError() ) );
             if ( text.GetValue().size() != rows[at].Bytes || CrcOf( text.GetValue() ) != rows[at].Crc )
                 return Common::MakeError<Result>(
                      fmt::format( "{} is stale: {} changed since entity {} was described", index.string(),
