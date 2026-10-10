@@ -1,14 +1,17 @@
 // S1: the procedural foliage simulation, ported from UE's ProceduralFoliage{Tile,Broadphase,Instance,Spawner}.
 // A seed grows the same forest every time and another seed another one; in an overlap the stronger plant takes the
 // room; tiles stitched with an overlap place every plant once, with no pair overlapping across a seam and no bare
-// strip along it.
+// strip along it. S1a: no two survivors closer than their grown collision radii, shade kills only the intolerant,
+// one year per generation with the scale following the age, and a seam independent of the layout around it.
 
 #include <Engine/World/Foliage/Procedural/ProceduralFoliageSpawner.hpp>
 #include <Engine/World/Foliage/Procedural/ProceduralFoliageVolume.hpp>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <tuple>
 #include <vector>
 
 namespace
@@ -164,6 +167,152 @@ TEST( ProceduralFoliage, StitchedTilesPlaceEveryPlantOnceWithNoOverlapOrBareStri
     ASSERT_GT( interior, 10u );
     EXPECT_GE( static_cast<float>( seam ), 0.6f * static_cast<float>( interior ) )
          << "seam " << seam << " against interior " << interior;
+}
+
+// S1a: the rules each surviving plant obeys, checked over a whole grown tile rather than one pair.
+namespace
+{
+    bool LessByLocation( const ProceduralFoliagePlacement& a, const ProceduralFoliagePlacement& b )
+    {
+        return std::tie( a.Location.x, a.Location.y, a.TypeIndex ) <
+               std::tie( b.Location.x, b.Location.y, b.TypeIndex );
+    }
+
+    /// The placements whose X lies in [@p x0, @p x1), ordered by location.
+    std::vector<ProceduralFoliagePlacement> Band( const std::vector<ProceduralFoliagePlacement>& placed, float x0,
+                                                  float x1 )
+    {
+        std::vector<ProceduralFoliagePlacement> band;
+        for ( const auto& p : placed )
+            if ( p.Location.x >= x0 && p.Location.x < x1 )
+                band.push_back( p );
+        std::sort( band.begin(), band.end(), LessByLocation );
+        return band;
+    }
+} // namespace
+
+TEST( ProceduralFoliage, NoTwoSurvivorsStandCloserThanTheirGrownCollisionRadii )
+{
+    // Two types growing through a scale range, so the radii differ per instance (UE: CollisionRadius * Scale).
+    auto large                       = Type( 60.0f, 60.0f, 1.0f, 2.0f );
+    large.Procedural.ProceduralScale = { 1.0f, 2.0f };
+    large.Procedural.MaxAge          = 3.0f;
+    auto small                       = Type( 15.0f, 15.0f, 0.0f, 5.0f );
+    small.Procedural.ProceduralScale = { 0.5f, 1.5f };
+    small.Procedural.MaxAge          = 2.0f;
+    const std::vector<FoliageTypeData> types{ large, small };
+    ProceduralFoliageSpawner           spawner( Settings( 21, 1, 4000.0f ), types );
+    spawner.Simulate();
+    const auto placed = spawner.GetRandomTile( 0, 0 )->PlacedInstances();
+    ASSERT_GT( placed.size(), 50u );
+
+    for ( size_t i = 0; i < placed.size(); ++i )
+        for ( size_t j = i + 1; j < placed.size(); ++j )
+        {
+            const float ri = RadiiOf( placed[i], types[placed[i].TypeIndex].Procedural ).Collision;
+            const float rj = RadiiOf( placed[j], types[placed[j].TypeIndex].Procedural ).Collision;
+            ASSERT_GE( Distance( placed[i].Location, placed[j].Location ), ri + rj - 0.01f )
+                 << "(" << placed[i].Location.x << ", " << placed[i].Location.y << ") radius " << ri << " and ("
+                 << placed[j].Location.x << ", " << placed[j].Location.y << ") radius " << rj;
+        }
+}
+
+TEST( ProceduralFoliage, ShadeKillsATypeThatCannotGrowInShadeAndSparesOneThatCan )
+{
+    // Trees with a small trunk (collision 30) and a wide crown (shade 200) over ground cover (10 / 10).
+    const auto tree  = Type( 30.0f, 200.0f, 1.0f, 2.0f );
+    auto       cover = Type( 10.0f, 10.0f, 0.0f, 6.0f );
+
+    const auto coverInShade = [&]( bool canGrowInShade, size_t& coverCount )
+    {
+        cover.Procedural.CanGrowInShade = canGrowInShade;
+        ProceduralFoliageSpawner spawner( Settings( 9, 1, 4000.0f ), { tree, cover } );
+        spawner.Simulate();
+        const auto placed = spawner.GetRandomTile( 0, 0 )->PlacedInstances();
+        size_t     shaded = 0;
+        coverCount        = 0;
+        for ( const auto& c : placed )
+        {
+            if ( c.TypeIndex != 1 )
+                continue;
+            ++coverCount;
+            for ( const auto& t : placed )
+                if ( t.TypeIndex == 0 && Distance( t.Location, c.Location ) < 200.0f + 10.0f )
+                {
+                    ++shaded;
+                    break;
+                }
+        }
+        return shaded;
+    };
+
+    size_t intolerant = 0;
+    EXPECT_EQ( coverInShade( false, intolerant ), 0u ) << "cover that cannot grow in shade survived under a crown";
+    EXPECT_GT( intolerant, 10u );
+    size_t tolerant = 0;
+    EXPECT_GT( coverInShade( true, tolerant ), 10u ) << "shade-tolerant cover must survive under the crowns";
+}
+
+TEST( ProceduralFoliage, AnInstanceAgesOneGenerationPerStepUpToMaxAgeAndItsScaleFollowsItsAge )
+{
+    auto type                       = Type( 25.0f, 25.0f, 0.0f, 3.0f );
+    type.Procedural.ProceduralScale = { 1.0f, 3.0f };
+    type.Procedural.MaxAge          = 3.0f;
+    type.Procedural.NumSteps        = 5;
+    const auto& procedural          = type.Procedural;
+
+    // UE GetScaleForAge / AgeSeeds: never shrinking with age, one year per generation, capped at MaxAge.
+    for ( float age = 0.0f; age < 5.0f; age += 0.5f )
+        EXPECT_LE( ScaleForAge( procedural, age ), ScaleForAge( procedural, age + 0.5f ) );
+    EXPECT_EQ( NextAge( procedural, 0.0f, 1 ), 1.0f );
+    EXPECT_EQ( NextAge( procedural, 2.0f, 5 ), 3.0f );
+    EXPECT_EQ( ScaleForAge( procedural, 3.0f ), 3.0f );
+
+    ProceduralFoliageSpawner younger( Settings( 13, 1, 3000.0f ), { type } );
+    ProceduralFoliageSpawner older( Settings( 13, 1, 3000.0f ), { type } );
+    younger.Simulate( 2 );
+    older.Simulate( 3 );
+    const auto before = younger.GetRandomTile( 0, 0 )->PlacedInstances();
+    const auto after  = older.GetRandomTile( 0, 0 )->PlacedInstances();
+    ASSERT_GT( before.size(), 20u );
+
+    for ( const auto& instance : after )
+    {
+        EXPECT_LE( instance.Age, procedural.MaxAge );
+        EXPECT_EQ( instance.Scale, ScaleForAge( procedural, instance.Age ) );
+    }
+    // A plant that lives through the extra generation stands where it stood, a year older and no smaller.
+    size_t survivors = 0;
+    for ( const auto& b : before )
+        for ( const auto& a : after )
+            if ( a.Location == b.Location && a.TypeIndex == b.TypeIndex )
+            {
+                ++survivors;
+                EXPECT_EQ( a.Age, NextAge( procedural, b.Age, 1 ) );
+                EXPECT_GE( a.Scale, b.Scale );
+            }
+    EXPECT_GT( survivors, 10u );
+}
+
+TEST( ProceduralFoliage, ASeamPlacesTheSamePlantsWhicheverLayoutAroundItIsGenerated )
+{
+    // The seam between tiles 0 and 1 is composed from those two tiles alone: a layout that also holds tile -1 (to
+    // the left) or tile 2 (to the right) places the same plants along it, so regenerating a neighbour never moves
+    // a plant at the border.
+    constexpr float                    kSize    = 3000.0f;
+    constexpr float                    kOverlap = 200.0f;
+    const std::vector<FoliageTypeData> types{ Type( 50.0f, 50.0f, 0.0f, 3.0f ), Type( 20.0f, 20.0f, 0.0f, 4.0f ) };
+    ProceduralFoliageSpawner           spawner( Settings( 17, 4, kSize ), types );
+    spawner.Simulate();
+
+    const auto pair =
+         GenerateProceduralContent( spawner, ProceduralFoliageTileLayout{ 0, 0, 2, 1 }, {}, kOverlap );
+    const auto wider     = GenerateProceduralContent( spawner, ProceduralFoliageTileLayout{ -1, 0, 4, 1 },
+                                                      { -kSize, 0.0f }, kOverlap );
+    const auto seamPair  = Band( pair, kSize - 2.0f * kOverlap, kSize + 2.0f * kOverlap );
+    const auto seamWider = Band( wider, kSize - 2.0f * kOverlap, kSize + 2.0f * kOverlap );
+    ASSERT_GT( seamPair.size(), 10u );
+    EXPECT_EQ( seamPair, seamWider );
 }
 
 // S1-b: the volume. A resimulation traces every placement inside the volume onto the ground, files it by type and
