@@ -115,8 +115,9 @@ TEST( LandscapeLod, UEScreenSizeRatiosAndTheLastLod )
         const float lod = LandscapeLodFromScreenSize(
              s, Desert::Geometry::BoundsScreenRadiusSquared(
                      glm::vec3( 0.0f ), 9000.0f,
-                     Desert::Geometry::LODView{ glm::vec3( 0.0f, 0.0f, d ),
-                                                glm::perspective( 2.0f * std::atan( 1.0f / 1.3f ), 1.0f, 1.0f, 1.0e8f ) } ) );
+                     Desert::Geometry::LODView{
+                          glm::vec3( 0.0f, 0.0f, d ),
+                          glm::perspective( 2.0f * std::atan( 1.0f / 1.3f ), 1.0f, 1.0f, 1.0e8f ) } ) );
         ASSERT_GE( lod, previous ) << d;
         ASSERT_LE( lod, previous + 0.25f ) << "a jump, not a blend, at " << d;
         previous = lod;

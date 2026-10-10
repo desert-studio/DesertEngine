@@ -68,10 +68,10 @@ namespace Desert::Geometry
     // orthographic view measures size alone, as in UE.
     inline float BoundsScreenRadiusSquared( const glm::vec3& center, float radius, const LODView& view )
     {
-        const glm::vec3 d        = center - view.Origin;
-        const float     distSq   = glm::dot( d, d ) * std::abs( view.Projection[2][3] );
-        const float     multiple = std::max( 0.5f * std::abs( view.Projection[0][0] ),
-                                             0.5f * std::abs( view.Projection[1][1] ) );
+        const glm::vec3 d      = center - view.Origin;
+        const float     distSq = glm::dot( d, d ) * std::abs( view.Projection[2][3] );
+        const float     multiple =
+             std::max( 0.5f * std::abs( view.Projection[0][0] ), 0.5f * std::abs( view.Projection[1][1] ) );
         return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );
     }
 
@@ -97,7 +97,8 @@ namespace Desert::Geometry
              glm::length( glm::vec3( transform[0] ) ),
              glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
         const float     radius = glm::length( localBounds.Max - localBounds.Min ) * 0.5f * scale;
-        const glm::vec3 center = glm::vec3( transform * glm::vec4( 0.5f * ( localBounds.Min + localBounds.Max ), 1.0f ) );
+        const glm::vec3 center =
+             glm::vec3( transform * glm::vec4( 0.5f * ( localBounds.Min + localBounds.Max ), 1.0f ) );
 
         // UE ComputeStaticMeshLOD: the coarsest level whose screen size the object is still below.
         const float screenRadiusSq = BoundsScreenRadiusSquared( center, radius, view );
@@ -118,8 +119,8 @@ namespace Desert::Geometry
     // The submesh-taking spelling, for callers that hold a mesh rather than a box. One policy, one
     // definition of a mesh's extent (Geometry::LocalBounds) — the draw side, the editor's Details panel
     // and the culler cannot drift apart about either.
-    inline uint32_t SelectLOD( const glm::mat4& transform, const std::vector<Submesh>& submeshes, const LODView& view,
-                               int forcedLOD, int lodBias )
+    inline uint32_t SelectLOD( const glm::mat4& transform, const std::vector<Submesh>& submeshes,
+                               const LODView& view, int forcedLOD, int lodBias )
     {
         return SelectLODFromBounds( transform, LocalBounds( submeshes ), view, forcedLOD, lodBias );
     }

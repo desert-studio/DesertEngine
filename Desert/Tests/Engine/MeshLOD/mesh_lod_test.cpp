@@ -169,9 +169,13 @@ TEST( LODSelection, ForcedLevelWinsOverEverything )
 {
     const auto subs = BoundedSubmesh( 50.0f );
     // Far away (would be the coarsest level) but pinned to LOD 1.
-    EXPECT_EQ( SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), /*forced*/ 1, /*bias*/ 0 ), 1u );
+    EXPECT_EQ(
+         SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), /*forced*/ 1, /*bias*/ 0 ),
+         1u );
     // The bias is ignored while a level is forced.
-    EXPECT_EQ( SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), /*forced*/ 0, /*bias*/ 3 ), 0u );
+    EXPECT_EQ(
+         SelectLOD( AtOrigin(), subs, ViewFrom( glm::vec3( 0.0f, 0.0f, 100000.0f ) ), /*forced*/ 0, /*bias*/ 3 ),
+         0u );
 }
 
 TEST( LODSelection, CoarsensWithDistance )
@@ -192,7 +196,7 @@ TEST( LODSelection, SizeAwareAndBiasShifts )
 {
     const auto smallOne = BoundedSubmesh( 50.0f );
     const auto big   = BoundedSubmesh( 5000.0f );
-    const auto eye   = ViewFrom( glm::vec3( 0.0f, 0.0f, 5000.0f ) );
+    const auto eye      = ViewFrom( glm::vec3( 0.0f, 0.0f, 5000.0f ) );
 
     // A bigger object keeps finer detail at the same distance...
     EXPECT_LT( SelectLOD( AtOrigin(), big, eye, -1, 0 ), SelectLOD( AtOrigin(), smallOne, eye, -1, 0 ) );

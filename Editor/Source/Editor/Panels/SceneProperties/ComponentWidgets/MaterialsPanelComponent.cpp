@@ -174,13 +174,12 @@ namespace Desert::Editor
                 {
                     if ( const auto& camera = scene->GetActiveCamera() )
                     {
-                        active =
-                             std::min<size_t>( Geometry::SelectLOD( entity.GetWorldTransform(),
-                                                                    lodMesh->GetSubmeshes(),
-                                                                    Geometry::LODView{ camera->GetPosition(),
-                                                                                       camera->GetProjectionMatrix() },
-                                                                    materialComp.ForcedLOD, materialComp.LODBias ),
-                                               levels - 1 );
+                        active = std::min<size_t>(
+                             Geometry::SelectLOD(
+                                  entity.GetWorldTransform(), lodMesh->GetSubmeshes(),
+                                  Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                  materialComp.ForcedLOD, materialComp.LODBias ),
+                             levels - 1 );
                         haveActive = true;
                     }
                 }

@@ -567,9 +567,9 @@ namespace Desert::Graphic::System
         // object it belongs to. The per-object caster loop below has always asked it this
         // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
         const auto*     lodCamera       = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView lodView = lodCamera != nullptr
-                                               ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
-                                               : Geometry::LODView{};
+        const Geometry::LODView lodView =
+             lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
+                                  : Geometry::LODView{};
 
         std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
         const auto bucketFor = [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&

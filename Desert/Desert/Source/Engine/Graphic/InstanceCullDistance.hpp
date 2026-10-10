@@ -96,9 +96,8 @@ namespace Desert::Graphic
                       WindExpandedBounds( Geometry::TransformBounds( instanceTransform, localBounds ), wind ) ) )
                 continue;
             visible.push_back( instanceTransform );
-            levels.push_back(
-                 std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, -1, 0 ),
-                           maxLevel ) );
+            levels.push_back( std::min(
+                 Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, -1, 0 ), maxLevel ) );
         }
     }
 } // namespace Desert::Graphic

@@ -123,7 +123,8 @@ namespace Desert::Graphic::System
             const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
             return LandscapeLodFromScreenSize(
                  MakeLandscapeLodSettings( l.QuadsPerTile ),
-                 Geometry::BoundsScreenRadiusSquared( center, radius, Geometry::LODView{ viewOrigin, projection } ) );
+                 Geometry::BoundsScreenRadiusSquared( center, radius,
+                                                      Geometry::LODView{ viewOrigin, projection } ) );
         }
     } // namespace
 
