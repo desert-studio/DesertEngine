@@ -153,6 +153,7 @@ namespace Desert::Editor
         }
         m_PlanSource    = m_Scene->GetWorldPartition();
         m_PlanFromIndex = false;
+        m_EditCells.clear();
         // A PARTITIONED WORLD OPENED FROM ITS FILES IS PLANNED OVER ITS DESCRIPTOR INDEX (WP20, UE's World
         // Partition editor draws every actor descriptor, loaded or not): the scene may hold only a region of it,
         // and the map is where the next region is chosen. An entity's unsaved move shows after its save.
@@ -176,6 +177,16 @@ namespace Desert::Editor
                  std::span<const ::Desert::Core::Rules::EntityDescriptor>( descriptors ), m_EditPartition,
                  ::Desert::Core::RegistryMeshBounds() );
             m_PlanFromIndex = true;
+            // What of each cell the editor holds now: a region load marks the plan stale, so this is remade
+            // whenever the held set changes.
+            std::vector<std::uint64_t> rowIds;
+            rowIds.reserve( index.GetValue().Index.Entities.size() );
+            for ( const ::Desert::Core::DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
+                rowIds.push_back( row.Id );
+            const ::Desert::Core::EntityPackages& packages = *m_Scene->Packages();
+            m_EditCells = WorldPartitionMap::EditorCellStates(
+                 *m_EditPlan, rowIds,
+                 [&packages]( std::uint64_t id ) { return packages.IsLoaded( Common::UUID( id ) ); } );
             m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
             return;
         }
@@ -508,7 +519,7 @@ namespace Desert::Editor
         for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level ) )
         {
             const auto&          cell  = plan.Cells[index];
-            const Map::CellState state = Map::StateOf( plan, residency, index );
+            const Map::CellState state = Map::StateOf( plan, residency, index, m_EditCells );
             const glm::vec4 fill = Map::ColorOf( state );
             const ImVec2    a    = ToScreen( m_View, size, origin, { cell.Square.MinX, cell.Square.MinZ } );
             const ImVec2    b    = ToScreen( m_View, size, origin, { cell.Square.MaxX, cell.Square.MaxZ } );
@@ -564,7 +575,7 @@ namespace Desert::Editor
 
         // ── legend: every state, every cell at the shown level (on screen or not) ──
         {
-            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level );
+            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level, m_EditCells );
             const float                       h      = ImGui::GetTextLineHeight();
             ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
             for ( const Map::LegendRow& entry : std::views::reverse( legend ) )
@@ -588,7 +599,7 @@ namespace Desert::Editor
                 ImGui::BeginTooltip();
                 ImGui::Text( "%s  (%d, %d)", Map::LevelLabel( cellSize, cell.Level ).c_str(), cell.Cell.X,
                              cell.Cell.Z );
-                ImGui::Text( "%s, %zu composite(s)", Map::NameOf( Map::StateOf( plan, residency, *index ) ),
+                ImGui::Text( "%s, %zu composite(s)", Map::NameOf( Map::StateOf( plan, residency, *index, m_EditCells ) ),
                              cell.Composites.size() );
                 ImGui::EndTooltip();
             }

@@ -258,7 +258,23 @@ namespace Desert::Editor
         // and says why, with the command that fixes the file.
         Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
 
-        const auto contentRead = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+        // A PARTITIONED WORLD OPENS UNLOADED (WP20, owner's decision O3 - UE's World Partition editor): only its
+        // always-loaded part is read, and the user loads regions from the World Partition panel's map. Play plays
+        // the whole world whatever is loaded (PlaySession::Play completes it from the files). A level template
+        // or a recovery copy is not the world's files - it is read whole, as the scene it becomes.
+        const bool opensItsFiles = openAs != OpenAs::Untitled && !Autosave::SceneFor( path );
+        const auto read = [&]() -> Common::ResultStr<Desert::Core::EditorRegions::OpenRead>
+        {
+            if ( opensItsFiles )
+                return Desert::Core::EditorRegions::ReadForOpen( path );
+            auto whole = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+            if ( !whole )
+                return Common::MakeError<Desert::Core::EditorRegions::OpenRead>( whole.GetError() );
+            Desert::Core::EditorRegions::OpenRead text;
+            text.Text = whole.ExtractValue();
+            return Common::MakeSuccess( std::move( text ) );
+        };
+        const auto contentRead = read();
         if ( !contentRead )
         {
             LOG_ERROR( "{0}", contentRead.GetError() );
@@ -266,7 +282,8 @@ namespace Desert::Editor
                                         Editor::ToastLevel::Error );
             return;
         }
-        const std::string& content = contentRead.GetValue();
+        const Desert::Core::EditorRegions::OpenRead& opened  = contentRead.GetValue();
+        const std::string&                           content = opened.Text;
         phases.Lap( "read the file", content.size() );
         // The old path of a moved scene: say where it went (the gate below could only name the GUID).
         if ( const auto moved = Common::Content::RefuseRedirectorBytes(
@@ -369,21 +386,14 @@ namespace Desert::Editor
         // The files at `path` now hold every entity as it is: the next save to it writes only what differs (WP17).
         Desert::Core::SceneSerializer( m_Workspace.ActiveScene().get(), m_Assets.get() )
              .AdoptAsSaved( Common::Filepath( path ) );
-        // A PARTITIONED WORLD OPENS UNLOADED (WP20, owner's decision O3 - UE's World Partition editor): the scene
-        // keeps its always-loaded part and the user loads regions from the World Partition panel's map. Play
-        // plays the whole world whatever is loaded (PlaySession::Play completes it from the files).
-        if ( m_Workspace.ActiveScene()->GetWorldPartition() )
+        // The records the open left on disk stay the world's: a save keeps them, a region load reads them.
+        if ( opened.ByRegion )
         {
-            const auto unloaded = Desert::Core::EditorRegions::LoadRegions( *m_Workspace.ActiveScene(),
-                                                                            m_Assets.get(), {} );
-            if ( !unloaded )
-            {
-                LOG_ERROR( "[WorldPartition] '{}' stays loaded whole: {}", path.string(), unloaded.GetError() );
-                Editor::ToastManager::Push( "World stays loaded whole — see the log", Editor::ToastLevel::Warning );
-            }
-            else
-                LOG_INFO( "[WorldPartition] '{}' opened unloaded: {} always-loaded composite(s), {} record(s) on disk",
-                          path.string(), unloaded.GetValue().Selection.AlwaysLoaded, unloaded.GetValue().NotLoaded );
+            const Desert::Core::SceneSerializer held( m_Workspace.ActiveScene().get(), m_Assets.get() );
+            const std::vector<Desert::Core::LiveEntity> live = held.LiveEntities();
+            m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded );
+            LOG_INFO( "[WorldPartition] '{}' opened unloaded: {} always-loaded composite(s), {} record(s) on disk",
+                      path.string(), opened.Selection.AlwaysLoaded, opened.NotLoaded.size() );
         }
 
         // Update recent scenes

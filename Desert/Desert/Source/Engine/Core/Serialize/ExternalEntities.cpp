@@ -98,6 +98,24 @@ namespace Desert::Core::ExternalEntities
             return Common::MakeSuccess( std::move( pieces ) );
         }
 
+        // A `.deent` below the scene's folder that `listed` (normalised generic paths) does not name refuses the
+        // read: a delete that did not finish, or a merge that kept the file and dropped the entity.
+        Common::BoolResultStr RefuseUnlisted( const std::filesystem::path&           path,
+                                              const std::unordered_set<std::string>& listed )
+        {
+            auto onDisk = PiecesOnDisk( path );
+            if ( !onDisk )
+                return Common::MakeError( "[SceneSerializer] " + onDisk.GetError() );
+            for ( const std::filesystem::path& piece : onDisk.GetValue() )
+                if ( !listed.contains( piece.lexically_normal().generic_string() ) )
+                    return Common::MakeFormattedError(
+                         "[SceneSerializer] '{}': {} is an entity file the scene does not list (a delete that did "
+                         "not finish, or a merge that kept the file and dropped the entity). Delete it or list it. "
+                         "Nothing was loaded.",
+                         path.string(), piece.string() );
+            return BOOLSUCCESS;
+        }
+
         // Deletes every `.deent` below DirectoryOf(scenePath) that `claimed` does not name, then the scene's
         // folder and the `__ExternalEntities__` folder above it if that left them empty.
         Common::BoolResultStr RemoveUnclaimed( const std::filesystem::path&           scenePath,
@@ -489,18 +507,32 @@ namespace Desert::Core::ExternalEntities
         if ( !scene )
             return Common::MakeError<std::string>( "[SceneSerializer] " + scene.GetError() );
 
-        auto onDisk = PiecesOnDisk( path );
-        if ( !onDisk )
-            return Common::MakeError<std::string>( "[SceneSerializer] " + onDisk.GetError() );
-        for ( const std::filesystem::path& piece : onDisk.GetValue() )
-            if ( listed.count( piece.lexically_normal().generic_string() ) == 0 )
-                return Common::MakeError<std::string>( fmt::format(
-                     "[SceneSerializer] '{}': {} is an entity file the scene does not list (a delete that did not "
-                     "finish, or a merge that kept the file and dropped the entity). Delete it or list it. "
-                     "Nothing "
-                     "was loaded.",
-                     path.string(), piece.string() ) );
+        if ( auto unlisted = RefuseUnlisted( path, listed ); !unlisted )
+            return Common::MakeError<std::string>( unlisted.GetError() );
         return Common::MakeSuccess( scene.GetValue().Text() );
+    }
+
+    Common::ResultStr<bool> ReadsByRegion( const std::filesystem::path& path )
+    {
+        auto text = Common::Utils::FileSystem::ReadFileContent( path );
+        if ( !text )
+            return Common::MakeError<bool>( text.GetError() );
+        if ( text.GetValue().find( fmt::format( "\"{}\"", kListMember ) ) == std::string::npos )
+            return Common::MakeSuccess( false );
+        auto document = Common::Json::TextDocument::Parse( text.GetValue() );
+        // Not JSON, or a header without a partition: ReadSceneFileText refuses it with its own wording.
+        if ( !document || !IsHeader( document.GetValue() ) || !HasMember( document.GetValue(), "WorldPartition" ) )
+            return Common::MakeSuccess( false );
+        auto list = document.GetValue().AsDocument<HeaderList>();
+        if ( !list )
+            return Common::MakeError<bool>( fmt::format(
+                 "[SceneSerializer] '{}': the entity list cannot be read: {}", path.string(), list.GetError() ) );
+        std::unordered_set<std::string> listed;
+        for ( const std::uint64_t bits : list.GetValue().ExternalEntities )
+            listed.insert( FileOf( path, Common::UUID( bits ) ).lexically_normal().generic_string() );
+        if ( auto unlisted = RefuseUnlisted( path, listed ); !unlisted )
+            return Common::MakeError<bool>( unlisted.GetError() );
+        return Common::MakeSuccess( true );
     }
 
     Common::ResultStr<std::string> ReadSceneRegionText( const std::filesystem::path&             path,

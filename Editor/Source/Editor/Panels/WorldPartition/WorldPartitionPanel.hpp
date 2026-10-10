@@ -117,6 +117,8 @@ namespace Desert::Editor
         std::string                                      m_RegionStatus;
         // Whether the Edit plan is the world on disk (its descriptor index) rather than the scene in memory.
         bool m_PlanFromIndex = false;
+        // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).
+        std::vector<WorldPartitionMap::CellState> m_EditCells;
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size

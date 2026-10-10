@@ -20,6 +20,8 @@
 #include <glm/glm.hpp>
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -89,20 +91,35 @@ namespace Desert::Editor::WorldPartitionMap
         Loaded,   // read, not yet an entity: waiting for the activation budget
         Resident, // its records are entities
         Failed,
+        // Edit, a world opened by region (WP20, UE's World Partition editor colours its loaded regions): what
+        // of the cell's composites the editor holds now.
+        EditorLoaded,   // every one
+        EditorPartial,  // some
+        EditorUnloaded, // none: the cell is on disk only
     };
 
-    // A cell's state from @p residency (the streamer's), or Unstreamed without one. A unit is a cell after the
-    // plan's always-loaded composites (WorldPartitionResidencyRules.hpp, UNITS).
+    // WHAT THE EDITOR HOLDS OF EACH CELL of @p plan (planned over the world's descriptor rows), one state per
+    // cell, from whether each record is held - @p held( rowIds[r] ) - over the members of the cell's composites.
+    // A cell with no composite is EditorUnloaded. PURE: the panel passes EntityPackages::IsLoaded.
+    [[nodiscard]] std::vector<CellState> EditorCellStates( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                                           std::span<const std::uint64_t>                   rowIds,
+                                                           const std::function<bool( std::uint64_t )>&      held );
+
+    // A cell's state from @p residency (the streamer's); without one, from @p editor (EditorCellStates) or
+    // Unstreamed when that is empty. A unit is a cell after the plan's always-loaded composites
+    // (WorldPartitionResidencyRules.hpp, UNITS).
     [[nodiscard]] CellState StateOf( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                                     const ::Desert::Core::Rules::ResidencyState* residency, std::size_t cell );
+                                     const ::Desert::Core::Rules::ResidencyState* residency, std::size_t cell,
+                                     std::span<const CellState> editor = {} );
 
     // RGBA in 0..1 — UE's streaming status colour with its 2D tile opacity.
     [[nodiscard]] glm::vec4   ColorOf( CellState state );
     [[nodiscard]] const char* NameOf( CellState state );
 
-    // UE's legend names every state a cell can be in, not only the ones on screen. In Edit that is one state,
-    // in Play every residency (StateOf's range for a non-null residency).
-    [[nodiscard]] std::span<const CellState> LegendStates( bool streaming );
+    // UE's legend names every state a cell can be in, not only the ones on screen. In Edit that is one state
+    // (three for a world opened by region: @p editor), in Play every residency (StateOf's range for a non-null
+    // residency).
+    [[nodiscard]] std::span<const CellState> LegendStates( bool streaming, bool editor = false );
 
     struct LegendRow
     {
@@ -114,7 +131,7 @@ namespace Desert::Editor::WorldPartitionMap
     // cannot make cells vanish from the legend.
     [[nodiscard]] std::vector<LegendRow> Legend( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                                                  const ::Desert::Core::Rules::ResidencyState*     residency,
-                                                 int                                              level );
+                                                 int level, std::span<const CellState> editor = {} );
 
     // The streaming source's loading circle and its unload band, in pixels.
     [[nodiscard]] double RadiusPixels( const View& view, double radiusCm );

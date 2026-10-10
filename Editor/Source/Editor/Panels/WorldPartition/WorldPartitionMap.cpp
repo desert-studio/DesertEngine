@@ -141,11 +141,45 @@ namespace Desert::Editor::WorldPartitionMap
         return text;
     }
 
+    std::vector<CellState> EditorCellStates( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                             std::span<const std::uint64_t>                   rowIds,
+                                             const std::function<bool( std::uint64_t )>&      held )
+    {
+        std::vector<CellState> states;
+        states.reserve( plan.Cells.size() );
+        for ( const ::Desert::Core::Rules::PlannedCell& cell : plan.Cells )
+        {
+            std::size_t total = 0;
+            std::size_t in    = 0;
+            for ( const std::size_t c : cell.Composites )
+            {
+                if ( c >= plan.Composites.size() )
+                    continue;
+                for ( const std::size_t member : plan.Composites[c].Members )
+                {
+                    if ( member >= rowIds.size() )
+                        continue;
+                    ++total;
+                    if ( held( rowIds[member] ) )
+                        ++in;
+                }
+            }
+            if ( total > 0 && in == total )
+                states.push_back( CellState::EditorLoaded );
+            else if ( in > 0 )
+                states.push_back( CellState::EditorPartial );
+            else
+                states.push_back( CellState::EditorUnloaded );
+        }
+        return states;
+    }
+
     CellState StateOf( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                       const ::Desert::Core::Rules::ResidencyState* residency, std::size_t cell )
+                       const ::Desert::Core::Rules::ResidencyState* residency, std::size_t cell,
+                       std::span<const CellState> editor )
     {
         if ( residency == nullptr )
-            return CellState::Unstreamed;
+            return cell < editor.size() ? editor[cell] : CellState::Unstreamed;
         const std::size_t unit = plan.AlwaysLoaded.size() + cell;
         // Before the first step the state vector is empty (ResidencyState): nothing has been loaded yet.
         if ( unit >= residency->Units.size() )
@@ -186,6 +220,13 @@ namespace Desert::Editor::WorldPartitionMap
                 return { 0.0f, 1.0f, 0.0f, kTile };
             case CellState::Failed:
                 return { 142.0f / 255.0f, 35.0f / 255.0f, 35.0f / 255.0f, kTile };
+            // UE's World Partition editor: a loaded region is drawn lit, the rest of the world dim.
+            case CellState::EditorLoaded:
+                return { 0.0f, 1.0f, 0.0f, kTile };
+            case CellState::EditorPartial:
+                return { 1.0f, 1.0f, 0.0f, kTile };
+            case CellState::EditorUnloaded:
+                return { 0.5f, 0.5f, 0.5f, kTile };
         }
         return { 1.0f, 1.0f, 1.0f, kTile };
     }
@@ -206,25 +247,36 @@ namespace Desert::Editor::WorldPartitionMap
                 return "Resident";
             case CellState::Failed:
                 return "Failed to load";
+            case CellState::EditorLoaded:
+                return "Loaded in the editor";
+            case CellState::EditorPartial:
+                return "Partly loaded in the editor";
+            case CellState::EditorUnloaded:
+                return "On disk";
         }
         return "Failed to load";
     }
 
-    std::span<const CellState> LegendStates( bool streaming )
+    std::span<const CellState> LegendStates( bool streaming, bool editor )
     {
         static constexpr std::array kEdit      = { CellState::Unstreamed };
+        static constexpr std::array kEditor    = { CellState::EditorUnloaded, CellState::EditorPartial,
+                                                   CellState::EditorLoaded };
         static constexpr std::array kStreaming = { CellState::Unloaded, CellState::Loading, CellState::Loaded,
                                                    CellState::Resident, CellState::Failed };
         if ( streaming )
             return kStreaming;
+        if ( editor )
+            return kEditor;
         return kEdit;
     }
 
     std::vector<LegendRow> Legend( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                                   const ::Desert::Core::Rules::ResidencyState* residency, int level )
+                                   const ::Desert::Core::Rules::ResidencyState* residency, int level,
+                                   std::span<const CellState> editor )
     {
         std::vector<LegendRow> rows;
-        for ( const CellState state : LegendStates( residency != nullptr ) )
+        for ( const CellState state : LegendStates( residency != nullptr, !editor.empty() ) )
             rows.push_back( LegendRow{ state, 0 } );
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
         {
@@ -232,7 +284,7 @@ namespace Desert::Editor::WorldPartitionMap
                 continue;
             // A state without a row is left uncounted, and then the rows no longer sum to the cell count:
             // that sum is what the suite asserts for every residency.
-            const CellState state = StateOf( plan, residency, cell );
+            const CellState state = StateOf( plan, residency, cell, editor );
             const auto      row   = std::ranges::find( rows, state, &LegendRow::State );
             if ( row != rows.end() )
                 ++row->Count;
