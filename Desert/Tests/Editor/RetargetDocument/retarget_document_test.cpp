@@ -123,9 +123,3 @@ TEST( RetargetDocument, ClosingDropsItsUndoRecords )
     EXPECT_TRUE( history.UndoStack().empty() );
     EXPECT_FALSE( history.Undo() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
