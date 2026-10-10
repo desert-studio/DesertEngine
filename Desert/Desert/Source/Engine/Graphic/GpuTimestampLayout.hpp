@@ -12,9 +12,8 @@ namespace Desert::Graphic
     // ------------------------------------------------------------------------------------------------
     // Where each GPU timestamp lives in a frame's query pool, how big that pool has to be, which scope
     // encloses which, and how a nested measurement is turned into a breakdown that adds up. Pure functions
-    // of integers and strings, outside the Vulkan class that uses them, for the same reason
-    // RenderGraphSort.hpp sits outside RenderGraphBuilder: VulkanGpuProfiler cannot be constructed without
-    // a device, so none of this would otherwise be assertable.
+    // of integers and strings, outside the Vulkan class that uses them: VulkanGpuProfiler cannot be
+    // constructed without a device, so none of this would otherwise be assertable.
     //
     // Four relations live here:
     //

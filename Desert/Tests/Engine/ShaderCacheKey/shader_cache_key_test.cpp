@@ -36,6 +36,9 @@
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/View/SpatialUpscale.hpp>
+#include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
@@ -1887,9 +1890,9 @@ namespace
     // member is a runtime array reflects as size 0 by definition. The stride is the number that matters
     // anyway — it is what `u_Particles[i]` multiplies i by.
     uint32_t StorageArrayStride( const std::filesystem::path& shaderFile, ShaderStage stage,
-                                 shaderc_shader_kind kind, uint32_t binding )
+                                 shaderc_shader_kind kind, uint32_t binding, const std::string& cell = {} )
     {
-        const auto spirv = CompileStage( StageSource( shaderFile, stage ), shaderFile, kind );
+        const auto spirv = CompileStage( StageSource( shaderFile, stage, cell ), shaderFile, kind );
         if ( spirv.empty() )
             return 0u;
 
@@ -1922,6 +1925,9 @@ namespace
                  compiler.get_execution_mode_argument( spv::ExecutionModeLocalSize, 2 ) };
     }
 
+    // The cell a sprite template draws particles through (MeshVertexPath ParticleSprite, MeshPass Forward).
+    constexpr const char* kParticleSpriteCell = "ParticleSprite.Forward";
+
     bool ClosureNames( const std::vector<std::filesystem::path>& includes, const char* filename )
     {
         for ( const auto& include : includes )
@@ -1941,11 +1947,14 @@ TEST_F( ShaderCacheKeyShaderRoot, BothParticleStagesIndexTheStateByTheStrideTheE
     // looks mistuned, not an error.
     const uint32_t simulate  = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
                                                    ShaderStage::Compute, shaderc_compute_shader, 0 );
-    const uint32_t billboard = StorageArrayStride( ShaderPath( "Particles/ParticleBillboard.shader" ),
-                                                   ShaderStage::Vertex, shaderc_vertex_shader, 1 );
+    // The draw is the ParticleSprite.Forward cell of a sprite template (Mesh/Surface/Vertex_ParticleSprite.glslh
+    // reads the state at binding 9); the default template is the one every emitter falls back to.
+    const uint32_t billboard =
+         StorageArrayStride( ShaderPath( "Particles/ParticleSpriteDefault.shader" ), ShaderStage::Vertex,
+                             shaderc_vertex_shader, 9, kParticleSpriteCell );
 
     EXPECT_GT( simulate, 0u ) << "ParticleSimulate declares no storage block at slot 0";
-    EXPECT_GT( billboard, 0u ) << "ParticleBillboard declares no storage block at slot 1";
+    EXPECT_GT( billboard, 0u ) << "the ParticleSprite vertex path declares no storage block at slot 9";
 
     EXPECT_EQ( simulate, Desert::Graphic::System::kParticleStride )
          << "the simulation indexes the state by " << simulate << " bytes and ParticleRenderer allocates "
@@ -1984,9 +1993,10 @@ TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothSt
     const auto simulate = CollectShaderIncludes(
          StageSource( ShaderPath( "Particles/ParticleSimulate.shader" ), ShaderStage::Compute ),
          ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    const auto billboard = CollectShaderIncludes(
-         StageSource( ShaderPath( "Particles/ParticleBillboard.shader" ), ShaderStage::Vertex ),
-         ShaderPath( "Particles/ParticleBillboard.shader" ) );
+    const auto billboard =
+         CollectShaderIncludes( StageSource( ShaderPath( "Particles/ParticleSpriteDefault.shader" ),
+                                             ShaderStage::Vertex, kParticleSpriteCell ),
+                                ShaderPath( "Particles/ParticleSpriteDefault.shader" ) );
 
     EXPECT_TRUE( ClosureNames( simulate, "ParticleState.glslh" ) )
          << "the simulation declares the particle layout itself again";
@@ -3114,6 +3124,97 @@ TEST( ParticleDomainFragment, TheBlockAndTheDomainAreRefusedApartAndBesideStages
              "must not also declare" );
     refused( "Shader \"D\"\n{\n    Domain Particle\n    Particle\n    {\n    }\n}\n", "must not be empty" );
     EXPECT_FALSE( PP::DShaderParser::MayDeclareParticle( "Shader \"E\" { Domain Surface }" ) );
+}
+
+namespace
+{
+    // TAA1-B. The reflection of one compute stage of a shipped program, compiled with @p defines (shaderc macros,
+    // the same NAME=VALUE the ShaderService variant passes) — what MakeShaderBindingLayout reads when the renderer
+    // builds the pipeline.
+    ShaderResource::ReflectionData
+    ReflectComputeVariant( const std::filesystem::path&                            shaderFile,
+                           const std::vector<std::pair<std::string, std::string>>& defines )
+    {
+        ShaderResource::ReflectionData data;
+        const std::string              source = StageSource( shaderFile, ShaderStage::Compute );
+        if ( source.empty() )
+            return data;
+
+        shaderc::Compiler       compiler;
+        shaderc::CompileOptions options;
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( shaderFile ) );
+        options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
+        options.SetWarningsAsErrors();
+        for ( const auto& [name, value] : defines )
+            options.AddMacroDefinition( name, value );
+        const auto result =
+             compiler.CompileGlslToSpv( source, shaderc_compute_shader, shaderFile.string().c_str(), options );
+        EXPECT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success )
+             << shaderFile.string() << ": " << result.GetErrorMessage();
+        if ( result.GetCompilationStatus() != shaderc_compilation_status_success )
+            return data;
+
+        const std::vector<uint32_t> spirv( result.begin(), result.end() );
+        const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
+        EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
+        return data;
+    }
+
+    // Slot by slot (both sides sorted by name: the hand-written order is not a contract): name and kind, then the
+    // push-constant range.
+    void ExpectSameLayout( const Desert::Graphic::RDG::ShaderBindingLayout& reflected,
+                           const Desert::Graphic::RDG::ShaderBindingLayout& handWritten, const std::string& what )
+    {
+        auto byName = []( std::vector<Desert::Graphic::RDG::ShaderSlot> slots )
+        {
+            std::sort( slots.begin(), slots.end(),
+                       []( const auto& a, const auto& b ) { return a.Name < b.Name; } );
+            return slots;
+        };
+        const auto shader = byName( reflected.Slots );
+        const auto code   = byName( handWritten.Slots );
+        ASSERT_EQ( shader.size(), code.size() )
+             << what << ": the shader declares " << shader.size()
+             << " resource slots, the hand-written layout lists " << code.size();
+        for ( size_t i = 0; i < shader.size(); ++i )
+        {
+            EXPECT_EQ( shader[i].Name, code[i].Name ) << what << ": slot " << i;
+            EXPECT_EQ( static_cast<int>( shader[i].Kind ), static_cast<int>( code[i].Kind ) )
+                 << what << ": kind of " << shader[i].Name;
+        }
+        EXPECT_EQ( reflected.PushConstantBytes, handWritten.PushConstantBytes ) << what << ": push-constant bytes";
+    }
+} // namespace
+
+// TAA1-B. TemporalAALayout() and SupersampleResolveLayout() are hand-written so the pass validates its binding
+// block at declare time without a device. They are a second statement of what the shaders declare, so this pins
+// them to the real reflection: a slot renamed, retyped, added or dropped in either .shader (or in either layout)
+// goes red here instead of at the first frame's record-time resolve. Every TAA_QUALITY variant the renderer
+// compiles (TemporalAA::PipelineFor: 0, 1, 2) is checked, since a variant could #if a resource out.
+TEST( ShaderCacheKey, TemporalUpscalerLayoutsMatchTheShippedShadersReflection )
+{
+    using Desert::Graphic::API::Vulkan::MakeShaderBindingLayout;
+
+    const auto taa = ShaderPath( "TemporalAA/TemporalAA.shader" );
+    for ( int quality = 0; quality < 3; ++quality )
+    {
+        const auto reflection = ReflectComputeVariant( taa, { { "TAA_QUALITY", std::to_string( quality ) } } );
+        ExpectSameLayout( MakeShaderBindingLayout( reflection, "TemporalAA" ),
+                          *Desert::Graphic::TemporalAALayout(),
+                          "TemporalAA TAA_QUALITY=" + std::to_string( quality ) );
+    }
+
+    const auto resolve = ShaderPath( "TemporalAA/SupersampleResolve.shader" );
+    ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( resolve, {} ), "SupersampleResolve" ),
+                      *Desert::Graphic::SupersampleResolveLayout(), "SupersampleResolve" );
+
+    // SCAL-SPATIAL1: the spatial upscale (EASU) and the post sharpen (RCAS).
+    const auto spatial = ShaderPath( "TemporalAA/SpatialUpscale.shader" );
+    ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( spatial, {} ), "SpatialUpscale" ),
+                      *Desert::Graphic::SpatialUpscaleLayout(), "SpatialUpscale" );
+    const auto sharpen = ShaderPath( "TemporalAA/Sharpen.shader" );
+    ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( sharpen, {} ), "Sharpen" ),
+                      *Desert::Graphic::SharpenLayout(), "Sharpen" );
 }
 
 namespace

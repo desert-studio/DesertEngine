@@ -2,6 +2,7 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -10,7 +11,6 @@
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
-#include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -43,16 +43,6 @@
 
 namespace Desert::Graphic
 {
-    namespace
-    {
-        // WHAT MAKES A REGISTERED SYSTEM THE SCENE'S RATHER THAN THE RENDERER'S, as one string. Two places
-        // read it and they must not be able to disagree: ExternalSystemKey() stamps it onto every pass the
-        // editor registers, and SceneRenderer::RebindScene() drops exactly the entries carrying it when a
-        // different scene arrives. A prefix renamed in one of the two would leave the rebind matching
-        // nothing while still compiling, and the previous scene's grid would keep drawing over the new one.
-        constexpr std::string_view kExternalSystemPrefix = "External:";
-    } // namespace
-
     void SceneRenderer::Init()
     {
         // Init runs on the first scene AND on every scene after it — see the header for the two lifetimes
@@ -215,12 +205,12 @@ namespace Desert::Graphic
         {
             case 0:
             {
-                // Ensure the phase registry exists before any system registers custom phases or passes.
-                RenderPhaseRegistry::CreateInstance();
-
                 // The surface's size, never the window's: see ViewExtent.
                 const uint32_t width  = m_ViewExtent.Width;
                 const uint32_t height = m_ViewExtent.Height;
+                // The render set starts at the output extent; the first frame's split resizes it
+                // (ResizeRenderTargets).
+                m_RenderExtent = m_ViewExtent;
 
                 // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N samples
                 // and the render pass resolves to single-sample for the post stack. The count follows the
@@ -275,12 +265,9 @@ namespace Desert::Graphic
 
                 // Scene systems render into the shared target framebuffer; post-process systems form an
                 // explicit chain (Mesh silhouette mask -> Jump Flood outline -> Tonemap).
-                RegisterSystem<System::SkyboxRenderer>( "SkyboxSystem", this, m_TargetFramebuffer,
-                                                        m_RenderGraphBuilder );
-                RegisterSystem<System::MeshRenderer>( "MeshSystem", this, m_TargetFramebuffer,
-                                                      m_RenderGraphBuilder );
-                RegisterSystem<System::JumpFloodOutlineRenderer>( "JumpFloodSystem", this, m_TargetFramebuffer,
-                                                                  m_RenderGraphBuilder );
+                RegisterSystem<System::SkyboxRenderer>( "SkyboxSystem", this, m_TargetFramebuffer );
+                RegisterSystem<System::MeshRenderer>( "MeshSystem", this, m_TargetFramebuffer );
+                RegisterSystem<System::JumpFloodOutlineRenderer>( "JumpFloodSystem", this, m_TargetFramebuffer );
                 return "Targets";
             }
             case 1:
@@ -307,8 +294,7 @@ namespace Desert::Graphic
             {
                 const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
                 // GPU terrain (tessellated patch grid; opaque geometry, depth-tested with the meshes).
-                RegisterSystem<System::TerrainRenderer>( "TerrainSystem", this, m_TargetFramebuffer,
-                                                         m_RenderGraphBuilder );
+                RegisterSystem<System::TerrainRenderer>( "TerrainSystem", this, m_TargetFramebuffer );
                 const auto& terrainSystem = SP_CAST( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
                 if ( const auto init = terrainSystem->Initialize(); !init )
                 {
@@ -348,7 +334,7 @@ namespace Desert::Graphic
                      SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
                 // Tonemap consumes the Jump Flood output (the outlined scene).
                 RegisterSystem<System::TonemapRenderer>(
-                     "TonemapSystem", this, jumpFloodSystem->GetSystemFramebuffer(), m_RenderGraphBuilder );
+                     "TonemapSystem", this, jumpFloodSystem->GetSystemFramebuffer() );
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
@@ -358,9 +344,9 @@ namespace Desert::Graphic
             case 6:
             {
                 // Backdrop blur: a blurred snapshot of the scene colour the UI canvas samples for "glass" panels.
-                // Runs before the UI phase (which writes into this same target, so it cannot sample it directly).
-                RegisterSystem<System::BackdropBlurRenderer>( "BackdropBlurSystem", this, m_TargetFramebuffer,
-                                                              m_RenderGraphBuilder );
+                // Runs before the UI extension point (whose passes write into this same target, so it cannot sample
+                // it directly).
+                RegisterSystem<System::BackdropBlurRenderer>( "BackdropBlurSystem", this, m_TargetFramebuffer );
                 if ( const auto& backdropSystem =
                           SP_CAST( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
                      !backdropSystem->Initialize() )
@@ -372,8 +358,7 @@ namespace Desert::Graphic
             case 7:
             {
                 // Bloom reads the HDR scene color and produces a compute mip-chain glow that tonemap adds in.
-                RegisterSystem<System::BloomRenderer>( "BloomSystem", this, m_TargetFramebuffer,
-                                                       m_RenderGraphBuilder );
+                RegisterSystem<System::BloomRenderer>( "BloomSystem", this, m_TargetFramebuffer );
                 const auto& bloomSystem = SP_CAST( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
                 if ( !bloomSystem->Initialize() )
                     LOG_ERROR(
@@ -385,8 +370,7 @@ namespace Desert::Graphic
                 // Light shafts: the atmosphere sun's screen-space streaks, masked and radially blurred from the
                 // HDR scene colour; tonemap adds them in the way it adds bloom. Non-fatal: a sky without streaks
                 // must never take a scene down.
-                RegisterSystem<System::LightShaftRenderer>( "LightShaftSystem", this, m_TargetFramebuffer,
-                                                            m_RenderGraphBuilder );
+                RegisterSystem<System::LightShaftRenderer>( "LightShaftSystem", this, m_TargetFramebuffer );
                 const auto& lightShaftSystem =
                      SP_CAST( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
                 if ( !lightShaftSystem->Initialize() )
@@ -397,8 +381,7 @@ namespace Desert::Graphic
             {
                 // Lens flare: the camera's own response to the sun disc — ghosts, halo and streak gathered from
                 // the same HDR scene colour, added in by the tonemap the way bloom is. Non-fatal, like the shafts.
-                RegisterSystem<System::LensFlareRenderer>( "LensFlareSystem", this, m_TargetFramebuffer,
-                                                           m_RenderGraphBuilder );
+                RegisterSystem<System::LensFlareRenderer>( "LensFlareSystem", this, m_TargetFramebuffer );
                 const auto& lensFlareSystem =
                      SP_CAST( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
                 if ( const auto flareInit = lensFlareSystem->Initialize(); !flareInit )
@@ -409,8 +392,7 @@ namespace Desert::Graphic
             {
                 // SSAO (fullscreen G-buffer -> AO factor). Its target is a per-frame graph transient
                 // (AddFrameSSAO); the deferred Composite reads it. Deferred only. Non-fatal.
-                RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer,
-                                                      m_RenderGraphBuilder );
+                RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer );
                 if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
                     LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
                 return "SSAO";
@@ -419,8 +401,7 @@ namespace Desert::Graphic
             {
                 // The G-buffer depth into a multisampled scene depth (Deferred: DepthExpand); nothing is built at
                 // MSAA 1.
-                RegisterSystem<System::DepthExpandRenderer>( "DepthExpandSystem", this, m_TargetFramebuffer,
-                                                             m_RenderGraphBuilder );
+                RegisterSystem<System::DepthExpandRenderer>( "DepthExpandSystem", this, m_TargetFramebuffer );
                 if ( const auto expandInit =
                           SP_CAST( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] )
                                ->Initialize();
@@ -434,7 +415,7 @@ namespace Desert::Graphic
                 // The multisampled scene depth into the 1x depth compute passes sample (Scene: DepthResolve); MSAA
                 // > 1 only.
                 RegisterSystem<System::SceneDepthResolveRenderer>( "SceneDepthResolveSystem", this,
-                                                                   m_TargetFramebuffer, m_RenderGraphBuilder );
+                                                                   m_TargetFramebuffer );
                 if ( const auto resolveInit =
                           SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] )
                                ->Initialize();
@@ -448,7 +429,7 @@ namespace Desert::Graphic
                 // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity
                 // at MSAA).
                 RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this,
-                                                                   m_TargetFramebuffer, m_RenderGraphBuilder );
+                                                                   m_TargetFramebuffer );
                 if ( const auto colorResolveInit =
                           SP_CAST( System::GraphColorResolveRenderer, m_RenderSystems["GraphColorResolveSystem"] )
                                ->Initialize();
@@ -460,36 +441,41 @@ namespace Desert::Graphic
             }
             case 14:
             {
-                RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
-                                                      m_RenderGraphBuilder );
+                RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer );
                 if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
                     LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
                 return "SceneColorCopy";
             }
             case 15:
             {
+                RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer );
+                if ( const auto velocityViewInit =
+                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )->Initialize();
+                     !velocityViewInit )
+                    LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
+                return "VelocityView";
+            }
+            case 16:
+            {
                 // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
                 // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
-                // Transparency phase, self-ordered below the particles by RenderPassOrder::AtmosphericFog.
+                // translucency, below the particles by the order of AddFrameTranslucency's calls.
                 // Non-fatal: neither must ever take a scene down.
-                RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer,
-                                                           m_RenderGraphBuilder );
+                RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer );
                 if ( const auto fogInit =
                           SP_CAST( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->Initialize();
                      !fogInit )
                     LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
                 return "HeightFog";
             }
-            case 16:
+            case 17:
             {
                 // Volumetric clouds: a march through a spherical shell, issued outside the graph
-                // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the Transparency phase,
-                // self-ordered above the fog and below the particles by RenderPassOrder::FarField. Registered
-                // after the fog so that if the two ever end up on the same rung the registration order breaks the
-                // tie the same way the phase order already does. Non-fatal: a missing sky must never take a scene
-                // down.
+                // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the translucency, above
+                // the fog and below the particles by the order of AddFrameTranslucency's calls. Non-fatal: a
+                // missing sky must never take a scene down.
                 RegisterSystem<System::VolumetricCloudRenderer>( "VolumetricCloudSystem", this,
-                                                                 m_TargetFramebuffer, m_RenderGraphBuilder );
+                                                                 m_TargetFramebuffer );
                 if ( const auto cloudInit =
                           SP_CAST( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
                                ->Initialize();
@@ -497,32 +483,30 @@ namespace Desert::Graphic
                     LOG_WARN( "[SceneRenderer] Volumetric cloud system unavailable: {}", cloudInit.GetError() );
                 return "VolumetricCloud";
             }
-            case 17:
+            case 18:
             {
-                // GPU particles: compute-simulated billboards drawn in the Transparency phase. Non-fatal.
-                RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer,
-                                                          m_RenderGraphBuilder );
+                // GPU particles: compute-simulated sprites drawn by AddFrameTranslucency. Non-fatal.
+                RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer );
                 if ( !SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->Initialize() )
                     LOG_WARN( "[SceneRenderer] Particle system unavailable." );
                 return "Particle";
             }
-            case 18:
+            case 19:
             {
                 // Deferred lighting (fullscreen G-buffer shade + debug view). Runs in the manual chain, only when
                 // RenderPath == Deferred. Non-fatal if it fails to init (deferred path is simply unavailable).
                 RegisterSystem<System::DeferredLightingRenderer>( "DeferredLightingSystem", this,
-                                                                  m_TargetFramebuffer, m_RenderGraphBuilder );
+                                                                  m_TargetFramebuffer );
                 if ( !SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
                            ->Initialize() )
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable." );
                 return "DeferredLighting";
             }
-            case 19:
+            case 20:
             {
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 // Auto-exposure measures the HDR scene luminance into a 1x1 buffer that tonemap reads.
-                RegisterSystem<System::AutoExposureRenderer>( "AutoExposureSystem", this, m_TargetFramebuffer,
-                                                              m_RenderGraphBuilder );
+                RegisterSystem<System::AutoExposureRenderer>( "AutoExposureSystem", this, m_TargetFramebuffer );
                 const auto& autoExposureSystem =
                      SP_CAST( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
                 if ( !autoExposureSystem->Initialize() )
@@ -531,29 +515,24 @@ namespace Desert::Graphic
                 tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
                 return "AutoExposure";
             }
-            case 20:
+            case 21:
             {
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 // FXAA consumes the tonemapped image (LDR). It only runs when the machine's post AA is FXAA
                 // (Common::Settings::MachineSettings::AA — it left SceneSettings with К3).
-                RegisterSystem<System::FXAARenderer>( "FXAASystem", this, tonemapSystem->GetSystemFramebuffer(),
-                                                      m_RenderGraphBuilder );
+                RegisterSystem<System::FXAARenderer>( "FXAASystem", this, tonemapSystem->GetSystemFramebuffer() );
                 if ( !SP_CAST( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Initialize() )
                     LOG_ERROR( "[SceneRenderer] FXAA did not initialise; the image is drawn without post AA." );
                 return "FXAA";
             }
-            case 21:
+            case 22:
             {
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 // SMAA consumes the same tonemapped image. Runs only when the machine's post AA is SMAA.
-                RegisterSystem<System::SMAARenderer>( "SMAASystem", this, tonemapSystem->GetSystemFramebuffer(),
-                                                      m_RenderGraphBuilder );
+                RegisterSystem<System::SMAARenderer>( "SMAASystem", this, tonemapSystem->GetSystemFramebuffer() );
                 if ( !SP_CAST( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Initialize() )
                     LOG_ERROR( "[SceneRenderer] SMAA did not initialise; the image is drawn without post AA." );
 
-                // The graph is NOT built here: RebindScene() runs immediately after and builds it once, over the
-                // engine systems above plus whatever external passes survive. Building it twice on the first Init
-                // would be the only place in the engine that did.
                 return "SMAA";
             }
             default:
@@ -563,49 +542,27 @@ namespace Desert::Graphic
 
     void SceneRenderer::RebindScene()
     {
-        // Everything below drops render systems, and a render system owns pipelines and descriptor pools
-        // the last submitted frame may still be executing against. Same rule, same reason, as the five
-        // sites that destroy a whole SceneRenderer (Desert/Tests/Engine/TeardownOrder).
+        // Everything below releases render-system state (OnSceneReplaced), and a render system owns pipelines and
+        // descriptor pools the last submitted frame may still be executing against. Same rule, same reason, as the
+        // five sites that destroy a whole SceneRenderer (Desert/Tests/Engine/TeardownOrder).
         //
-        // Paid on EVERY scene load even when there is nothing to drop. That is deliberate: the caller has
+        // Paid on EVERY scene load even when there is nothing to release. That is deliberate: the caller has
         // just cleared the entity registry and is about to destroy the RenderRegistry, so the frame that
         // was in flight when the load was requested is referencing objects on their way out either way.
         Renderer::GetInstance().WaitDeviceIdle();
 
-        // THE PREVIOUS SCENE'S EDITOR PASSES. Collected first and erased after, because ForgetRenderSystem
-        // mutates both containers being walked.
-        //
-        // Matched by the "External:" prefix that RegisterExternalPass itself stamps on — one place decides
-        // what an external pass is called and one place decides what counts as one, so a rename cannot
-        // leave this loop matching nothing while still compiling.
-        std::vector<std::string> external;
-        for ( const auto& name : m_RenderSystemOrder )
-        {
-            if ( name.starts_with( kExternalSystemPrefix ) )
-                external.push_back( name );
-        }
-        for ( const auto& name : external )
-            ForgetRenderSystem( name );
-
-        if ( !external.empty() )
-            LOG_INFO( "[SceneRenderer] Dropped {} external pass(es) belonging to the previous scene.",
-                      external.size() );
-
-        // ...and tell what is LEFT — the engine systems, which are the renderer's and stay — that the world
+        // Tell the engine systems — which are the renderer's and stay — that the world
         // they have been accumulating over is gone. Most of them do nothing with it; the ones that do are a
         // temporal history and a per-entity GPU cache, and IRenderSystem::OnSceneReplaced says why those two
         // are the only kinds that can exist here.
         //
-        // Walked over m_RenderSystemOrder rather than the map for the reason RebuildRenderGraph gives: the
-        // map's operator[] accesses elsewhere in this file insert null entries, and the order vector never
-        // holds one.
+        // Walked over m_RenderSystemOrder rather than the map: the map's operator[] accesses elsewhere in this
+        // file insert null entries, and the order vector never holds one.
         for ( const auto& name : m_RenderSystemOrder )
         {
             if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
                 it->second->OnSceneReplaced();
         }
-
-        RebuildRenderGraph();
     }
 
     void SceneRenderer::ResetTemporalHistory()
@@ -680,7 +637,8 @@ namespace Desert::Graphic
     }
 
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent )
+         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
+           m_RenderExtent( extent )
     {
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
@@ -735,6 +693,8 @@ namespace Desert::Graphic
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
 
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
+        // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
+        m_FrameExtensions = &scene.GetExtensionPasses();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -787,14 +747,11 @@ namespace Desert::Graphic
         const Common::Scalability::PathAntiAliasing aa = Common::Scalability::ResolveAntiAliasingForPath(
              quality, Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) );
         m_AAMode = aa.PostProcess;
-        // What the frame renders, handed to SceneViewState::BeginFrame: this build has no temporal pass, so the
-        // method is MSAA or the post-process filter (TAA resolves to PostProcess None -> no temporal method) at
-        // 100 % scale with no upscaler. TAA1-B step 5 replaces this with the resolved method and upscaler when it
-        // adds the ITemporalUpscaler pass.
-        m_RenderedAntiAliasing        = aa;
-        m_RenderedAntiAliasing.Method = aa.Method == Common::Scalability::AntiAliasingMethod::MSAA
-                                             ? Common::Scalability::AntiAliasingMethod::MSAA
-                                             : aa.PostProcess;
+        // What the frame renders, handed to SceneViewState::BeginFrame as resolved: TAA stays TAA (its
+        // PostProcess is None, so no FXAA/SMAA runs after it and the tonemap output is the final image).
+        m_RenderedAntiAliasing = aa;
+        m_TemporalAAQuality    = static_cast<TemporalAAQuality>(
+             quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
@@ -829,7 +786,7 @@ namespace Desert::Graphic
         }
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
-        // before the render graph, and the billboard pass draws in the Transparency phase.
+        // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
@@ -979,8 +936,8 @@ namespace Desert::Graphic
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
 
-        // Recompute CSM cascade matrices once per frame BEFORE the render graph records (intra-phase pass
-        // order is nondeterministic, so the cascade passes can't compute them themselves).
+        // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes
+        // nothing: its Declare and record only read the matrices).
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
@@ -1021,11 +978,33 @@ namespace Desert::Graphic
         inputs.CameraCut                         = m_CameraCutPending;
         inputs.SceneIdentity                     = m_SceneGeneration;
         inputs.Output                            = m_ViewExtent;
-        inputs.RenderScalePercent                = 100;
+        // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and Upscaler,
+        // the method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
+        // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
+        using Common::Scalability::Parameter;
+        const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
+             m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), m_DebugView.ScreenPercentage,
+             m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
+             [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
+             {
+                 EnsureTemporalUpscaler( method );
+                 return m_TemporalUpscaler.get();
+             } );
+        if ( !resolved )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the view's resolution is refused, frame not drawn: {}",
+                       m_ViewResources.GetName(), resolved.GetError() );
+            return;
+        }
+        if ( !resolved.GetValue().Clamped.empty() )
+            LOG_WARN( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), resolved.GetValue().Clamped );
+        inputs.RenderScalePercent                = resolved.GetValue().Split.RenderScalePercent;
         inputs.AntiAliasing                      = m_RenderedAntiAliasing;
-        inputs.Upscaler                          = Common::Scalability::Upscaler::None;
+        inputs.Upscaler                          = resolved.GetValue().Upscaler; // the view's, not the setting's
+        inputs.Quality                           = m_TemporalAAQuality;
         inputs.TimeSeconds                       = m_SceneTimeSeconds;
-        const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, nullptr );
+        m_LastRenderScalePercent                 = inputs.RenderScalePercent;
+        const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
             LOG_ERROR( "[SceneRenderer] {}: the view refused this frame: {}", m_ViewResources.GetName(),
@@ -1034,6 +1013,9 @@ namespace Desert::Graphic
         }
         m_CameraCutPending     = false;
         const ViewFrame& frame = begun.GetValue();
+        // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
+        // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
+        ResizeRenderTargets( frame.Split.Render );
         // GetViewFrame() answers `frame` from here until OnUpdate returns, by every path (the destructor clears
         // it), so a writer can never read a finished frame's view.
         struct CurrentViewFrameScope
@@ -1056,8 +1038,8 @@ namespace Desert::Graphic
         }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
-        // The view's velocity: one transient of this graph at the VIEW EXTENT (the one extent source: the scene
-        // target and the G-buffer are built and resized at m_ViewExtent too), a colour slot of the scene target
+        // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
+        // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
         // kGBufferVelocitySlot) — never of a light view (RSM, cascades) or a debug target. Created before any node
         // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
@@ -1065,11 +1047,11 @@ namespace Desert::Graphic
         if ( m_TargetFramebuffer )
         {
             const FramebufferSpecification& target = m_TargetFramebuffer->GetSpecification();
-            std::string mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height,
+            std::string mismatch = ViewTargetExtentMismatch( frame.Split.Render.Width, frame.Split.Render.Height,
                                                              "scene target", target.Width, target.Height );
             if ( mismatch.empty() && m_GBuffer )
-                mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height, "G-buffer",
-                                                     m_GBuffer->GetSpecification().Width,
+                mismatch = ViewTargetExtentMismatch( frame.Split.Render.Width, frame.Split.Render.Height,
+                                                     "G-buffer", m_GBuffer->GetSpecification().Width,
                                                      m_GBuffer->GetSpecification().Height );
             if ( !mismatch.empty() )
             {
@@ -1077,7 +1059,7 @@ namespace Desert::Graphic
                 return;
             }
             const ViewVelocity velocity = CreateViewVelocity(
-                 graph, RDG::Extent3D{ m_ViewExtent.Width, m_ViewExtent.Height, 1 }, target.Samples );
+                 graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
             textures.Transients.Velocity = velocity.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
             textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
@@ -1113,10 +1095,11 @@ namespace Desert::Graphic
 
         AddFrameCloudShadowMap( graph, textures );
 
-        // The registered systems' passes (and the editor's external passes) outside the overlay phases.
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return !RenderPhase::IsDeferredOverlay( phase ); },
-             true );
+        // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
+        // them), the scene target's sky and geometry, the outline mask.
+        AddFrameShadowDepths( graph, textures );
+        AddFrameBasePass( graph, textures );
+        AddFrameSilhouette( graph, textures );
 
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
         // the post chain.
@@ -1172,15 +1155,14 @@ namespace Desert::Graphic
         AddFrameAtmosphericFog( graph, textures );
         AddFrameVolumetricClouds( graph, textures, frame );
 
-        // Particles (Transparency phase), debug lines and the UI canvas run AFTER the deferred lighting
-        // composite so lit geometry does not paint over them, and as LOAD overlays so a CLEAR begin never
-        // wipes the depth later overlays test against (the particle top-down bug / grid-through-meshes).
-        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::Transparency ) &&
-                            RenderPhase::IsDeferredOverlay( RenderPhase::Debug ) &&
-                            RenderPhase::IsDeferredOverlay( RenderPhase::UI ),
-                       "the overlay phases added below must be the ones the main phase walk skips" );
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Transparency; }, false );
+        // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
+        // the engine that belong under every translucent layer join here.
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterOpaque, {} );
+
+        // The translucency, the debug lines and the UI canvas run AFTER the deferred lighting composite so lit
+        // geometry does not paint over them, and as LOAD nodes so a CLEAR never wipes the depth later overlays
+        // test against (the particle top-down bug / grid-through-meshes).
+        AddFrameTranslucency( graph, textures );
 
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )
@@ -1189,30 +1171,48 @@ namespace Desert::Graphic
         }
 #endif // DESERT_DEV_INSTRUMENTS
 
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false );
-
-        // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
-        // through ExternalPassSpecification::Declare), and the graph orders it after the blur.
-        if ( m_BackdropBlurNeeded )
-            AddFrameBackdropBlur( graph, textures, sceneColor() );
-
-        AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
-        // After the last node that draws the scene geometry's velocity into the scene target, before any reader
-        // of the resolved velocity (TAA). The post nodes below never write velocity (their fragment shaders do
-        // not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
+        // After the last node that draws the scene geometry's velocity into the scene target (the translucency),
+        // before its one reader, the temporal node. The overlays and post nodes below never write velocity (their
+        // fragment shaders do not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
         AddFrameGraphColorResolves( graph, textures );
 
+        // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlays draw into
+        // it - never into the history, never into the pre-resolve scene colour. Overlays (debug lines, grid,
+        // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
+        // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
+        // colour, as before.
+        const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( textures );
+        const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
+        const std::vector<RDG::TextureRef> postInput =
+             overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
+        AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+
+#if DESERT_DEV_INSTRUMENTS
+        // The engine's debug lines (bounding boxes), the first overlay.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
+#endif // DESERT_DEV_INSTRUMENTS
+       // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
+
+        // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
+        // through ExtensionPass::Declare), and the graph orders it after the blur.
+        if ( m_BackdropBlurNeeded )
+            AddFrameBackdropBlur( graph, textures, postInput );
+
+        // The UI canvas, last before the post chain.
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
+
         AddFrameJumpFlood( graph, textures );
-        AddFrameAutoExposure( graph, textures, sceneColor() );
+        AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
         if ( m_BloomEnabled )
         {
-            AddFrameBloom( graph, textures, sceneColor() );
+            AddFrameBloom( graph, textures, postInput );
         }
-        AddFrameLightShafts( graph, textures, sceneColor(), values );
-        AddFrameLensFlare( graph, textures, sceneColor(), values );
-        AddFrameTonemap( graph, textures );
+        AddFrameLightShafts( graph, textures, postInput, values );
+        AddFrameLensFlare( graph, textures, postInput, values );
+        AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 
         if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
         {
@@ -1256,6 +1256,7 @@ namespace Desert::Graphic
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
+        m_FrameExtensions = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -1331,7 +1332,7 @@ namespace Desert::Graphic
         m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
 
         // The gather is a per-frame graph transient (AddFrameGIResolve); the system reads the scene target's size.
-        RegisterSystem<System::GIResolveRenderer>( "GISystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
+        RegisterSystem<System::GIResolveRenderer>( "GISystem", this, m_TargetFramebuffer );
         if ( !SP_CAST( System::GIResolveRenderer, m_RenderSystems["GISystem"] )->Initialize() )
         {
             LOG_WARN( "[SceneRenderer] GI resolve system unavailable — RSM GI produces no indirect light." );
@@ -1363,7 +1364,7 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        RegisterSystem<System::SSRRenderer>( "SSRSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
+        RegisterSystem<System::SSRRenderer>( "SSRSystem", this, m_TargetFramebuffer );
         const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
         if ( !ssrSys->Initialize() )
         {
@@ -1417,6 +1418,26 @@ namespace Desert::Graphic
         // buffer is still recording or submitted frames are executing.
         renderer.WaitDeviceIdle();
         renderer.ResizeWindowEvent( width, height );
+        // THE OUTPUT SET (ViewTargetSet::Output): the post-process chain after the temporal resolve.
+        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Resize( width, height );
+        UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Resize( width, height );
+        UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
+        // THE RENDER SET at the last accepted frame's scale; the next frame's own split corrects it if the
+        // scale changed (OnUpdate -> ResizeRenderTargets( frame.Split.Render )).
+        if ( const auto split = MakeResolutionSplit( m_ViewExtent, m_LastRenderScalePercent ) )
+            ResizeRenderTargets( split.GetValue().Render );
+        else
+            ResizeRenderTargets( m_ViewExtent );
+    }
+
+    void SceneRenderer::ResizeRenderTargets( const ViewExtent render )
+    {
+        if ( !m_TargetFramebuffer || m_RenderExtent == render )
+            return;
+        m_RenderExtent        = render;
+        const uint32_t width  = render.Width;
+        const uint32_t height = render.Height;
+        Renderer::GetInstance().WaitDeviceIdle();
         m_TargetFramebuffer->Resize( width, height );
         if ( m_GBuffer )
             m_GBuffer->Resize( width, height );
@@ -1426,7 +1447,7 @@ namespace Desert::Graphic
         // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated
         // to the viewport. Its accumulation history is invalidated by the GI system's own size check.
 
-        // Keep the post-process chain framebuffers in lock-step with the scene target.
+        // The silhouette mask and the overdraw target are drawn with the scene's meshes: the scene's extent.
         if ( const auto& maskFb = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
                                        ->GetSilhouetteMaskFramebuffer() )
             maskFb->Resize( width, height );
@@ -1437,11 +1458,9 @@ namespace Desert::Graphic
             overdrawFb->Resize( width, height );
 #endif
 
+        // The outline's composite reads the scene target: the scene's extent.
         UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
              ->OnResize( width, height );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
     }
 
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
@@ -1621,6 +1640,119 @@ namespace Desert::Graphic
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetCascadeCount();
     }
 
+    void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )
+    {
+        const TemporalMethod held = m_TemporalUpscaler ? m_TemporalUpscaler->Method() : TemporalMethod::None;
+        if ( held != method )
+            m_TemporalUpscaler = CreateTemporalUpscaler( method );
+    }
+
+    SceneRenderer::OverlayTargets SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
+                                                                   const ViewFrame&      frame,
+                                                                   const RDG::TextureRef exposure )
+    {
+        // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and above
+        // 100 % the fixed SSAA downsample after the temporal method, or alone without one (TemporalUpscaler.hpp
+        // WHERE IT RUNS).
+        const bool spatial     = IsSpatialUpscale( frame );
+        const bool supersample = frame.Split.Mode == Common::Scalability::ScaleMode::Supersample;
+        const bool temporal    = frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr;
+        if ( !m_TargetFramebuffer || ( !spatial && !supersample && !temporal ) )
+            return {};
+        // Every refusal below renders the frame WITHOUT the resolve and says so by name: an invalid set, so the
+        // caller post-processes the scene colour and draws the overlays into the scene target.
+        const auto withoutTemporal = [this]( const std::string& why ) -> OverlayTargets
+        {
+            LOG_ERROR( "[SceneRenderer] {}: rendered without the temporal resolve this frame: {}",
+                       m_ViewResources.GetName(), why );
+            return {};
+        };
+        const uint32_t samples = m_TargetFramebuffer->GetSpecification().Samples;
+        if ( samples > 1 )
+            return withoutTemporal( std::format( "the scene target has {} samples; the overlay target set after "
+                                                 "the resolve is single-sample",
+                                                 samples ) );
+        if ( !m_PopulateSceneDepth )
+            m_PopulateSceneDepth = std::make_unique<System::PopulateSceneDepthRenderer>();
+        if ( const Common::BoolResultStr prepared = m_PopulateSceneDepth->Prepare(); !prepared )
+            return withoutTemporal( prepared.GetError() );
+        // Registered every frame the method runs: EndFrame reads which Current a fault lost. The spatial upscale
+        // and the SSAA downsample have no history.
+        const std::vector<HistoryRefs> histories =
+             temporal ? m_ViewState.History().Register( graph ) : std::vector<HistoryRefs>{};
+        const TemporalUpscalerInputs inputs{
+             .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+             .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             .Velocity   = textures.Transients.Velocity,
+             // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
+             .Exposure = exposure.IsValid() ? exposure : textures.System.White,
+             .History  = histories };
+        RDG::TextureRef resolvedColor;
+        if ( spatial )
+        {
+            const Common::ResultStr<RDG::TextureRef> upscaled =
+                 m_SpatialUpscale.AddPasses( graph, frame, inputs.SceneColor );
+            if ( !upscaled )
+                return withoutTemporal( upscaled.GetError() );
+            resolvedColor = upscaled.GetValue();
+        }
+        else
+        {
+            resolvedColor = inputs.SceneColor;
+            if ( temporal )
+            {
+                const Common::ResultStr<TemporalUpscalerOutputs> added =
+                     m_TemporalUpscaler->AddPasses( graph, frame, inputs );
+                if ( !added )
+                    return withoutTemporal( added.GetError() );
+                resolvedColor = added.GetValue().SceneColor;
+            }
+            // Above 100 % the temporal output is at RenderExtent; the downsample brings it to OutputExtent, where the
+            // overlay target set and the post chain are.
+            if ( supersample )
+            {
+                const Common::ResultStr<RDG::TextureRef> downsampled =
+                     m_SupersampleResolve.AddPasses( graph, frame, resolvedColor );
+                if ( !downsampled )
+                    return withoutTemporal( downsampled.GetError() );
+                resolvedColor = downsampled.GetValue();
+            }
+        }
+        // The post sharpen (Resolution.Sharpness) on the resolved colour, outside the history.
+        const int sharpness = m_Quality.As<int>( Common::Scalability::Parameter::UpscalerSharpness );
+        if ( SharpenRuns( frame, sharpness ) )
+        {
+            const Common::ResultStr<RDG::TextureRef> sharpened =
+                 m_Sharpen.AddPasses( graph, frame, resolvedColor, sharpness );
+            if ( !sharpened )
+                return withoutTemporal( sharpened.GetError() );
+            resolvedColor = sharpened.GetValue();
+        }
+
+        // THE OVERLAY TARGET SET (ViewTargetSet::Output): the resolved colour, and a velocity and a depth at the
+        // output extent; "Scene: PopulateSceneDepth" fills the depth from the render-extent scene depth.
+        OverlayTargets overlay;
+        overlay.Color = resolvedColor;
+        RDG::TextureDesc desc;
+        desc.Size        = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
+        desc.Format      = ViewTargetFormats::kVelocity;
+        overlay.Velocity = graph.CreateTexture( desc, "Overlay.Velocity" );
+        desc.Format      = ViewTargetFormats::kSceneDepth;
+        overlay.Depth    = graph.CreateTexture( desc, "Overlay.SceneDepth" );
+        const System::PopulateSceneDepthRenderer* populate = m_PopulateSceneDepth.get();
+        graph.AddPass(
+             "Scene: PopulateSceneDepth", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 populate->DeclareBindings( pass, inputs.SceneDepth );
+                 pass.ColorTarget( 0, overlay.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 pass.DepthTarget( overlay.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), /*write*/ true );
+             },
+             [populate]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return populate->Record( context ); } );
+        return overlay;
+    }
+
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
@@ -1649,72 +1781,6 @@ namespace Desert::Graphic
         m_SpotLight.SpotLights.push_back( spotLight );
     }
 
-    namespace
-    {
-        // Adapts an ExternalPassSpecification to the render-system interface so external passes flow
-        // through the same graph build as engine systems (phases, dependencies, same-target merging).
-        // The target framebuffer is looked up at RegisterPasses time rather than captured, so a resize
-        // that recreates it cannot leave the pass pointing at the old one.
-        //
-        // These are the SCENE's, not the renderer's: the spec closes over the editor's RenderRegistry for a
-        // particular scene, and SceneRenderer::RebindScene drops every one of them when a different scene
-        // is bound. The owner re-registers against the new scene immediately afterwards.
-        class ExternalPassSystem final : public IRenderSystem
-        {
-        public:
-            ExternalPassSystem( SceneRenderer* renderer, ExternalPassSpecification&& spec )
-                 : m_Renderer( renderer ), m_Spec( std::move( spec ) )
-            {
-            }
-
-            void RegisterPasses( RenderGraphBuilder& builder ) override
-            {
-                const auto& target = m_Renderer->GetTargetFramebuffer();
-                if ( !target || !m_Spec.Execute )
-                    return;
-
-                RenderGraphBuilder::PassConfig config;
-                config.Name        = m_Spec.Name;
-                config.Phase       = m_Spec.Phase;
-                config.ExecuteFunc = [this]( RDG::PassContext& pass, const FrameGraphRefs& refs )
-                { return m_Spec.Execute( Context( refs ), pass ); };
-                config.PipelineSpec      = m_Spec.PipelineSpecification;
-                config.TargetFramebuffer = target;
-                config.Dependencies      = m_Spec.Dependencies;
-                // What the editor's pass samples besides the scene target it draws over, in its own words.
-                if ( m_Spec.Declare )
-                    config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
-                    { m_Spec.Declare( declared, Context( refs ) ); };
-                builder.AddPass( config );
-            }
-
-        private:
-            [[nodiscard]] ExternalPassContext Context( const FrameGraphRefs& refs ) const
-            {
-                const auto&         target = m_Renderer->GetTargetFramebuffer();
-                ExternalPassContext ctx;
-                ctx.Camera       = m_Renderer->GetMainCamera();
-                ctx.Target       = target.get();
-                ctx.Depth        = target && target->GetDepthAttachmentCount() > 0
-                                        ? target->GetDepthAttachmentImage().get()
-                                        : nullptr;
-                ctx.ScenePlaying = m_Renderer->IsScenePlaying();
-                ctx.Renderer     = m_Renderer;
-                ctx.Graph        = refs;
-                return ctx;
-            }
-
-            SceneRenderer*            m_Renderer;
-            ExternalPassSpecification m_Spec;
-        };
-
-        // Namespace external passes so they can never collide with (or evict) an engine system.
-        std::string ExternalSystemKey( const std::string& name )
-        {
-            return std::string( kExternalSystemPrefix ) + name;
-        }
-    } // namespace
-
     void SceneRenderer::TrackRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )
     {
         // Replacing a system keeps the slot it already holds in the registration order: an editor tool
@@ -1733,70 +1799,14 @@ namespace Desert::Graphic
                                    m_RenderSystemOrder.end() );
     }
 
-    void SceneRenderer::RegisterExternalPass( ExternalPassSpecification&& spec )
-    {
-        DESERT_VERIFY( !spec.Name.empty() && spec.Execute );
-
-        // THE KEY IS TAKEN BEFORE THE SPEC IS MOVED, AND THAT ORDER MUST BE A STATEMENT RATHER THAN AN
-        // ARGUMENT LIST. Reading `spec.Name` and moving `spec` inside one argument list leaves the order
-        // to the compiler: clang evaluates arguments left to right, MSVC right to left, and both conform.
-        // Under MSVC the move ran first, so every external pass registered itself under the bare prefix
-        // "External:" — one key for all of them, the second registration evicting the first, and
-        // UnregisterExternalPass() looking up "External:<name>" and never finding it. Consecutive
-        // statements ARE sequenced; see Desert/Tests/Engine/ArgumentOrder for the census over the tree.
-        const std::string key = ExternalSystemKey( spec.Name );
-        TrackRenderSystem( key, std::make_shared<ExternalPassSystem>( this, std::move( spec ) ) );
-        RebuildRenderGraph();
-    }
-
-    void SceneRenderer::UnregisterExternalPass( const std::string& name )
-    {
-        const auto key = ExternalSystemKey( name );
-        if ( m_RenderSystems.find( key ) == m_RenderSystems.end() )
-            return;
-
-        ForgetRenderSystem( key );
-        RebuildRenderGraph();
-    }
-
     void SceneRenderer::RegisterRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )
     {
         TrackRenderSystem( name, std::move( system ) );
-        RebuildRenderGraph();
     }
 
     void SceneRenderer::UnregisterRenderSystem( const std::string& name )
     {
         ForgetRenderSystem( name );
-        RebuildRenderGraph();
-    }
-
-    void SceneRenderer::RebuildRenderGraph()
-    {
-        m_RenderGraphBuilder.Clear();
-
-        // Registration order, not map order: passes registered earlier draw earlier inside a phase
-        // (RenderGraphBuilder::AddPass), so walking the hash map here would have made the draw order a
-        // property of the system NAMES. Looking each name up also skips the null entries that the
-        // m_RenderSystems[...] accesses elsewhere in this file insert for systems that were never
-        // registered — the map walk used to call RegisterPasses through those.
-        for ( const auto& name : m_RenderSystemOrder )
-        {
-            const auto it = m_RenderSystems.find( name );
-            if ( it != m_RenderSystems.end() && it->second )
-                it->second->RegisterPasses( m_RenderGraphBuilder );
-        }
-
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::DepthPrePass, RenderPhase::Geometry );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Sky, RenderPhase::Geometry );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Geometry, RenderPhase::Outline );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Geometry, RenderPhase::Lighting );
-        m_RenderGraphBuilder.AddPhaseDependency( RenderPhase::Lighting, RenderPhase::PostProcess );
-
-        if ( !m_RenderGraphBuilder.Build() )
-        {
-            LOG_ERROR( "Failed to build render graph" );
-        }
     }
 
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )

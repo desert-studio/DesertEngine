@@ -15,6 +15,12 @@ namespace Desert::Runtime
     public:
         [[nodiscard]] ImageHandle Register( std::shared_ptr<Graphic::Image>&& image, ImageHandle::Type type );
         void                      Unregister( const ImageHandle& handle );
+        // Puts @p image behind the live @p handle, which keeps naming the slot: every holder of the handle
+        // resolves to the new image from the next Resolve/Share on. The old image is released through its own
+        // destructor, which defers the device objects by frame (`VulkanAllocator::RT_DestroyImage`), and a
+        // frame graph that already imported it holds it by `Share`. False, and nothing changes, when the
+        // handle is empty or stale -- the image it named is gone, so there is nothing to replace.
+        [[nodiscard]] bool        Replace( const ImageHandle& handle, std::shared_ptr<Graphic::Image>&& image );
         Graphic::Image*           Resolve( const ImageHandle& handle ) const;
         // The owning pointer behind @p handle (null exactly when Resolve is): for a holder that must keep the
         // image alive or track it (the frame graph's import), never to bypass Resolve's staleness check.

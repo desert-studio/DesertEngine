@@ -20,15 +20,19 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/View/SpatialUpscale.hpp>
+#include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Camera.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Units.hpp>
+#include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -36,6 +40,7 @@
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
+#include "Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp"
 #include "Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp"
 #include "Systems/Scene/PostProcessing/FXAARenderer.hpp"
 #include "Systems/Scene/PostProcessing/SMAARenderer.hpp"
@@ -47,6 +52,7 @@
 #include "Systems/Scene/Deferred/DeferredLightingRenderer.hpp"
 #include "Systems/Scene/Deferred/SSAORenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
+#include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
@@ -59,7 +65,7 @@
 #include <Engine/Graphic/DebugViewState.hpp>
 
 #include <Engine/Graphic/IRenderSystem.hpp>
-#include <Engine/Graphic/ExternalRenderPass.hpp>
+#include <Engine/Graphic/ExtensionPass.hpp>
 
 namespace Desert::Core
 {
@@ -148,9 +154,9 @@ namespace Desert::Graphic
         //
         // Every pipeline, framebuffer and render system in this class answers question 1 with NO: a render
         // system is constructed from a SceneRenderer* and a Framebuffer and never sees the Scene at all
-        // (Systems/RenderSystem.hpp), and the framebuffers are sized from the WINDOW. Exactly one row of
-        // m_RenderSystems answers YES — the "External:" passes the editor registers against a particular
-        // scene's RenderRegistry — and that row is what a rebind drops.
+        // (Systems/RenderSystem.hpp), and the framebuffers are sized from the WINDOW. The one thing that answers
+        // YES — the extension passes the editor registers against a particular scene — is not held here at all:
+        // the renderer reads them from the scene it is handed each BeginScene (m_FrameExtensions).
         //
         // MEASURED, Debug, on the two scenes Clouds_Protocol and Sky_PhysicalShowcase loaded alternately
         // through the control channel. Before and after INTERLEAVED across five sessions on a machine shared
@@ -194,6 +200,10 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr EndScene();
 
         void Resize( const uint32_t width, const uint32_t height );
+        // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
+        // silhouette mask, overdraw target and outline. Resize() sizes the Output set (tonemap, FXAA, SMAA) and
+        // calls this with the split of the new extent; OnUpdate calls it with the frame's split. Equal: nothing.
+        void ResizeRenderTargets( ViewExtent render );
 
         // CAMERA CUT: the next frame this view renders starts a new temporal sequence in the SAME world.
         // Every render system gets IRenderSystem::OnTemporalHistoryReset (frame indices to zero, histories
@@ -429,29 +439,17 @@ namespace Desert::Graphic
             return m_PipelineCache;
         }
 
-        void RegisterRenderPass( RenderPhaseID phase, const std::string& name, std::function<void()> executeFunc,
-                                 const GraphicsPipelineSpecification& pipeSpec = {} );
-
-        // External (editor) pass injection: wraps the specification into an internal render system so
-        // the pass participates in the normal graph build (phases, dependencies, pass merging).
-        // Re-registering the same name replaces the previous pass; both rebuild the graph.
-        void RegisterExternalPass( ExternalPassSpecification&& spec );
-        void UnregisterExternalPass( const std::string& name );
-
-        // True while the scene runs in Play mode (refreshed each BeginScene). External passes use this
+        // True while the scene runs in Play mode (refreshed each BeginScene). Extension passes use this
         // to hide authoring aids during gameplay.
         bool IsScenePlaying() const
         {
             return m_ScenePlaying;
         }
 
-        std::shared_ptr<Framebuffer> GetFramebufferForPhase( RenderPhaseID phase );
         std::shared_ptr<Texture>     GetTexture( const std::string& name );
 
         void RegisterRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system );
         void UnregisterRenderSystem( const std::string& name );
-
-        void RebuildRenderGraph();
 
         // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
         // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
@@ -491,6 +489,22 @@ namespace Desert::Graphic
         // TAA1 step 3 — THE one previous-frame source of this view (UE: FSceneViewState): every AddFrame* that
         // reads a matrix, a camera position or a previous-frame value takes the ViewFrame BeginFrame returned.
         SceneViewState m_ViewState;
+        // TAA1-B 5c — the temporal resolve of this view's frames: the implementation of the frame's
+        // TemporalMethod (CreateTemporalUpscaler), null for None. Re-created only when the method changes
+        // (EnsureTemporalUpscaler), so its lazily built pipelines survive frames; it outlives every graph that
+        // recorded its node (the graph executes inside OnUpdate). Handed to SceneViewState::BeginFrame.
+        std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
+        // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
+        std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
+        // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
+        // compute pipeline, so it lives with the view rather than in a static that would outlive the device.
+        SupersampleResolve m_SupersampleResolve;
+        // SCAL-SPATIAL1: the spatial upscale of a frame below 100 % without a temporal method, and the post
+        // sharpen after any resolve (View/SpatialUpscale.hpp). Each owns its compute pipeline, like the above.
+        SpatialUpscale m_SpatialUpscale;
+        Sharpen        m_Sharpen;
+        // ViewInputs::Quality: SCAL1 AntiAliasing.TemporalQuality, read with the rest of the quality (BeginScene).
+        TemporalAAQuality m_TemporalAAQuality = TemporalAAQuality::Medium;
         // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's
         // CurrentViewFrameScope so no exit path leaves it pointing at a finished frame.
         const ViewFrame* m_CurrentViewFrame = nullptr;
@@ -514,6 +528,15 @@ namespace Desert::Graphic
         // The surface's size: the constructor's until the first Resize(), then the last one's. The build
         // reads it and nothing reads the window, so a view never holds targets larger than its surface.
         ViewExtent m_ViewExtent;
+
+        // THE RENDER SET'S EXTENT (ViewTargetSet::Render): what the scene target, the G-buffer, the scene depth
+        // resolve, the silhouette mask, the overdraw target and the outline were last built at — the frame's
+        // ResolutionSplit::Render, set by ResizeRenderTargets. The constructor's extent until the first frame.
+        ViewExtent m_RenderExtent;
+        // The render scale the view last resolved (ResolveViewResolution): Resize() sizes the render set by it, so
+        // a resize does not rebuild the render targets at the output extent only for the next frame to shrink
+        // them.
+        int m_LastRenderScalePercent = 100;
 
         // Has EnsureRendererResources() run? Set once, never cleared — see its comment for why there is no
         // path that invalidates it.
@@ -544,14 +567,10 @@ namespace Desert::Graphic
         // dependency order) and returns its name; nullptr once there is no such stage.
         const char* BuildRendererStage( std::size_t stage );
 
-        // THE SCENE'S HALF, and it runs on EVERY Init() including the first. Releases what belonged to the
-        // scene that was here before and rebuilds the graph over what is left.
-        //
-        // What that is, exhaustively: the "External:" render systems. The editor registers its authoring
-        // passes (grid, colliders, gizmo overlays) against the scene it built its RenderRegistry for, by
-        // name; a different scene's registry re-registers its own, and the registry that owned these is
-        // destroyed by the same caller a few lines later. Leaving them would leave passes closing over a
-        // registry that no longer exists.
+        // THE SCENE'S HALF, and it runs on EVERY Init() including the first. Tells the engine systems the world
+        // they accumulated over is gone and rebuilds the graph. The renderer holds nothing of the scene's to
+        // release: the editor's extension passes (grid, colliders, gizmo overlays) live on the Scene and are read
+        // from the scene each BeginScene hands over, so a different scene's passes cannot outlive it here.
         //
         // What is deliberately NOT here: any reset of the engine systems' own state. They keep it across a
         // scene load for the same reason they keep it across a frame — every per-frame input is RESTATED by
@@ -562,23 +581,80 @@ namespace Desert::Graphic
         // Desert/Tests/Engine/RendererSceneLifetime rather than left as a claim.
         void RebindScene();
 
-        // Adds the sorted registered passes whose phase @p selects accepts, one raster node each, in sort
-        // order; consecutive passes on one framebuffer share one render pass (CLEAR iff @p clearFirst).
-        // @p samples are graph images those passes sample (the UI samples the backdrop pyramid); each render
-        // pass group's opener declares them, so their barriers land before the render pass begins.
-        void AddGraphPhasePasses( RDG::Builder& graph, FrameTextures& textures, bool ( *selects )( RenderPhaseID ),
-                                  bool clearFirst );
+        // The overlay phases' targets after the temporal resolve (ViewTargetSet::Output): the resolved colour, an
+        // overlay velocity (never read) and the overlay depth PopulateSceneDepth filled. Invalid: no resolve.
+        struct OverlayTargets
+        {
+            RDG::TextureRef    Color;
+            RDG::TextureRef    Velocity;
+            RDG::TextureRef    Depth;
+            [[nodiscard]] bool IsValid() const
+            {
+                return Color.IsValid();
+            }
+        };
+        // Adds @p passes, one raster node each, in the given order; consecutive passes on one framebuffer share
+        // one render pass (the first on each framebuffer CLEARS iff @p clearFirst, with the pass's clear values).
+        // @p overlay: when valid, the OUTPUT-extent target set the passes drawing on the scene target draw into
+        // instead of it (colour 0, the velocity slot and the depth replaced, no resolves; same formats and one
+        // sample, so the render pass stays compatible with the one their pipelines were built against) - the
+        // overlays after the temporal resolve.
+        void AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
+                               std::span<const SystemRasterPass> passes, bool clearFirst,
+                               const OverlayTargets& overlay = {} );
+        // The systems' opaque raster, called in this order by OnUpdate: the mesh renderer's cascade depths (each
+        // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
+        // the outline mask (clears).
+        void AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
+        // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
+        // declared reads; @p color / @p depth are the loads of the node's targets.
+        void AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
+                          const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
+                          const RDG::LoadOp& color, const RDG::LoadOp& depth, const OverlayTargets& overlay );
+        // One system raster pass: one LOAD node on the pass's own target (or @p overlay's set), placed by the
+        // position of this call. Nothing when the pass has no target (the system did not initialize).
+        void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
+                              const OverlayTargets& overlay = {} );
+        // The frame's translucency, in draw order by call order: the height fog apply, the cloud composite (far
+        // field), the particles, then the AfterTranslucency extension point.
+        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
+        // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
+        // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
+        // the position of this call. The frame build calls it once per point, at that point's place.
+        void AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures, RDG::ExtensionPoint point,
+                                const OverlayTargets& overlay );
+        // Makes m_TemporalUpscaler the implementation of @p method (kept when it already is; null for None).
+        void EnsureTemporalUpscaler( TemporalMethod method );
+        // The frame's temporal resolve, after the translucency: registers the view's histories and adds
+        // the upscaler's node on the scene colour, the scene depth, the resolved velocity and @p exposure (last
+        // frame's adapted luminance). Returns the temporal output - the colour every later node reads and the
+        // overlays draw into; invalid when the frame has no temporal method or the node was refused
+        // (logged with the reason), and the frame then continues on the scene colour.
+        //
+        // With the resolve it returns the OVERLAY TARGET SET at the output extent: Color = the temporal output,
+        // Velocity and Depth = transients the "Scene: PopulateSceneDepth" node fills from the render-extent scene
+        // depth (at every scale, 100 % included). A frame the resolve cannot run on (a multisampled scene target,
+        // no PopulateSceneDepth pipeline, the upscaler's refusal) is RENDERED WITHOUT IT: ERROR "rendered without
+        // the temporal resolve this frame: <why>", an invalid set, and the caller draws the overlays into the
+        // scene target and post-processes the scene colour.
+        OverlayTargets AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                         RDG::TextureRef exposure );
+        // AutoExposure's build-time step (Prepare advances its ping-pong), taken before the temporal node so that
+        // node and the exposure nodes agree on which image is last frame's: returns the imported previous
+        // adapted luminance ("AutoExposure.Previous"); invalid when no exposure runs this frame.
+        RDG::TextureRef PrepareFrameAutoExposure( FrameTextures& textures );
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
-        // and the Transparency-phase passes — the one point in the frame where the scene depth is finished in
-        // BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its apply
-        // is a graph pass in Transparency at RenderPassOrder::AtmosphericFog, BELOW the particles, so
-        // they composite over the fogged scene. When Sky Phase 3 lands, this pass composes fog OVER the
-        // aerial perspective (UE's order).
+        // and the translucency (AddFrameTranslucency) — the one point in the frame where the scene depth is
+        // finished in BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its
+        // apply is the first node of AddFrameTranslucency, BELOW the particles, so they composite over the fogged
+        // scene. When Sky Phase 3 lands, this pass composes fog OVER the aerial perspective (UE's order).
 
         // The cloud march and its noise bake. Issued immediately after the atmospheric fog: both are
         // in-frame compute and must be outside an open render pass, and by that point the scene depth is
-        // final and this frame's atmosphere LUTs have been filled. The composite itself is a graph pass in
-        // Transparency at RenderPassOrder::FarField, ABOVE the fog and BELOW the particles.
+        // final and this frame's atmosphere LUTs have been filled. The composite itself is the second node of
+        // AddFrameTranslucency, ABOVE the fog and BELOW the particles.
         // The cloud layer's shadow on the WORLD, which is a different pass at a different point in the
         // frame from the march above and belongs to a different consumer. Issued BEFORE the render graph
         // records, because the deferred lighting pass reads it and runs immediately after the graph. It
@@ -597,6 +673,9 @@ namespace Desert::Graphic
                             System::MeshRenderer* meshRenderer );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
+        // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
+        // velocity over @p target, the post input, after the temporal resolve.
+        void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
@@ -638,8 +717,9 @@ namespace Desert::Graphic
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
+        // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
-                                   const std::vector<RDG::TextureRef>& sceneColor );
+                                   const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
         void AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                             const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
@@ -648,7 +728,8 @@ namespace Desert::Graphic
         void AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<FrameValues>& values );
-        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures );
+        // @p source: the colour the post chain reads (the temporal output, or the scene colour without one).
+        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source );
         void AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures );
         // The backdrop pyramid the UI samples (invalid when the blur is not recorded this frame).
@@ -679,14 +760,17 @@ namespace Desert::Graphic
         // because the pass never sees it — the tonemap applies it, the way the shafts' tint works.
         System::LensFlareRenderer::Params m_LensFlare;
         glm::vec3                         m_LensFlareTint = glm::vec3( 1.0f );
-        // Raised by the UI canvas when it drew glass; consumed at the top of the next frame's UI phase.
+        // Raised by the UI canvas when it drew glass; consumed at the top of the next frame's UI extension point.
         bool                   m_BackdropBlurNeeded = false;
         bool                   m_ScenePlaying = false; // set per frame in BeginScene (hides authoring aids)
+        // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
+        // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
+        const ExtensionPassRegistry* m_FrameExtensions = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
         // The UI canvas raises this when it recorded a glass element; the blur pyramid is then built
-        // before the NEXT frame's UI phase. Latched per frame, so a canvas that stops using glass stops
+        // before the NEXT frame's UI extension point. Latched per frame, so a canvas that stops using glass stops
         // paying for it.
         void SetBackdropBlurNeeded( bool needed )
         {
@@ -756,15 +840,12 @@ namespace Desert::Graphic
         bool m_GIResourcesReady   = false;
         bool m_GIResourcesFailed  = false;
         bool m_SSRResourcesReady  = false;
-        bool m_SSRResourcesFailed = false;
-        RenderGraphBuilder      m_RenderGraphBuilder;
+        bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
 
-        // The names above, in the order they were first registered. RebuildRenderGraph walks THIS, not
-        // the map: the map hands its systems out in hash-bucket order, so "the pass registered first"
-        // meant "the pass whose system name happened to hash low", and it changed whenever a system was
-        // added. The render graph tie-breaks equal passes inside a phase by registration order, so this
-        // vector is what turns the order of the RegisterSystem calls in Init into the draw order.
+        // The names above, in the order they were first registered. RebindScene and ResetTemporalHistory walk
+        // THIS, not the map: the map hands its systems out in hash-bucket order and holds the null entries its
+        // operator[] inserts. The draw order is not this order: it is the order of the AddFrame* calls.
         std::vector<std::string>                                        m_RenderSystemOrder;
         PipelineCache                                                   m_PipelineCache;
 

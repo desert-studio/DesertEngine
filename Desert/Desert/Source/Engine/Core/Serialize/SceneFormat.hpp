@@ -64,7 +64,9 @@ namespace Desert::Core
     // camera keeps it set (Tools/SceneMigrator, MigratePlayerViewFlagV39ToV40).
     // v42 (PHYS-A1): RigidBody / CharacterController state CollisionProfile (a name in the project's
     // Config/CollisionProfiles.json), chosen by body Type (Tools/SceneMigrator, MigrateCollisionProfilesV41ToV42).
-    inline constexpr int kSceneVersion = 42;
+    // v43 (VFX-08): ParticleEmitter.Blend is gone; a sprite composites by its Material's blend mode
+    // (Tools/SceneMigrator, MigrateParticleSpriteMaterialsV42ToV43).
+    inline constexpr int kSceneVersion = 43;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

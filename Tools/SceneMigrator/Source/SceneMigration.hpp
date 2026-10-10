@@ -31,6 +31,9 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <glm/glm.hpp>
 
 #include <array>
 
@@ -184,7 +187,21 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionCollisionProfiles = 42;
 
-    static_assert( kSceneVersionCollisionProfiles == kSceneVersion,
+    //  43 - A PARTICLE SPRITE COMPOSITES BY ITS MATERIAL (VFX-08). ParticleEmitter.Blend (0 Additive, 1 AlphaBlend,
+    //       missing = AlphaBlend) is removed: how a sprite composites is the blend mode of the material it draws
+    //       with (UE BLEND_Additive), and ParticleEmitter.Material names that material (empty = the engine's
+    //       translucent sprite template ParticleSpriteDefault). MigrateParticleSpriteMaterialsV42ToV43: an
+    //       Additive emitter that names no material gets the shipped additive one (kParticleAdditiveMaterial*);
+    //       an AlphaBlend one stays empty. Prefab overrides alike (an override stating AlphaBlend just loses the
+    //       key, counted). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionParticleSpriteMaterial = 43;
+
+    // The engine's additive particle sprite material: Editor/Resources/Engine/Materials/M_ParticleAdditive.demat.
+    inline constexpr const char* kParticleAdditiveMaterialGuid = "6f2b9c41d8e04a57b3a1c0e9f5d27b86";
+    inline constexpr const char* kParticleAdditiveMaterialPath =
+         "engine:Engine/Materials/M_ParticleAdditive.demat";
+
+    static_assert( kSceneVersionParticleSpriteMaterial == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -294,6 +311,81 @@ namespace Desert::Migration
     // States CollisionProfile on every RigidBody / CharacterController block under the rule
     // kSceneVersionCollisionProfiles states. PURE.
     CollisionProfilesReport MigrateCollisionProfilesV41ToV42( std::vector<Assets::EntityData>& entities );
+    // What MigrateParticleSpriteMaterialsV42ToV43 did to one file.
+    struct ParticleSpriteMaterialsReport
+    {
+        std::size_t Emitters          = 0; // ParticleEmitter blocks on the file's own records
+        std::size_t MovedToAdditive   = 0; // Blend Additive -> Material = the shipped additive material
+        std::size_t OverridesAdditive = 0; // the same, in prefab overrides
+        std::size_t OverridesDropped  = 0; // prefab overrides that stated Blend AlphaBlend: the key goes
+    };
+
+    // Removes ParticleEmitter.Blend under the rule kSceneVersionParticleSpriteMaterial states. PURE.
+    ParticleSpriteMaterialsReport
+    MigrateParticleSpriteMaterialsV42ToV43( std::vector<Assets::EntityData>& entities );
+
+    // VFX-03, NOT YET CHAINED (see REMAINDER-VFX-03: it is chained, with the next scene version, in the
+    // same commit that makes the renderer draw VFXComponent and deletes ParticleEmitterComponent - chained
+    // earlier, the loader's migration would turn every emitter into a block nothing draws).
+    //
+    // A ParticleEmitter block becomes a `.dfx` system of ONE emitter whose module stack reproduces it, and the
+    // block becomes `VFX { System: {Guid, Path}, AutoActivate: true }`. The file is written next to the owner
+    // under VFX/<owner>_<entity uuid>.dfx (relative to the assets root), its GUID MigrationGuidForPath of that
+    // path, so a rerun writes the same bytes; emitters of one file with the same numbers share the first's file.
+    // System seed 0: VFXWorld seeds an emitter from (system seed, entity uuid, emitter index), and the old
+    // component's seed was (0, uuid, 0), so every random stream stays the same.
+    inline constexpr const char* kVFXConvertedCategory = "Converted";
+
+    // The v43 ParticleEmitter block's numbers, member for member, with ECS::ParticleEmitterData's v43 defaults
+    // (an absent key meant the default); frozen here because the component is deleted.
+    struct ParticleEmitterV43
+    {
+        bool                 Enabled          = true;
+        int                  MaxParticles     = 2000;
+        float                SpawnRate        = 200.0f;
+        bool                 Looping          = true;
+        bool                 WorldSpace       = true;
+        float                Lifetime         = 3.0f;
+        float                LifetimeVariance = 0.2f;
+        float                StartSpeed       = 200.0f;
+        float                SpeedVariance    = 0.3f;
+        glm::vec3            Direction        = glm::vec3( 0.0f, 1.0f, 0.0f );
+        float                ConeAngle        = 45.0f;
+        glm::vec3            Gravity          = glm::vec3( 0.0f, -200.0f, 0.0f );
+        float                StartSize        = 25.0f;
+        float                SizeCurvePower   = 1.0f;
+        float                EndSize          = 6.0f;
+        glm::vec3            StartColor       = glm::vec3( 1.0f, 0.6f, 0.15f );
+        glm::vec3            EndColor         = glm::vec3( 0.6f, 0.1f, 0.0f );
+        float                StartAlpha       = 1.0f;
+        float                EndAlpha         = 0.0f;
+        Assets::AssetGuidRef Material; ///< empty = the default sprite template
+    };
+
+    // Reads a ParticleEmitter block; a key of the wrong type is an error naming it.
+    Common::ResultStr<ParticleEmitterV43> ReadParticleEmitterV43( const rfl::Generic::Object& block );
+
+    // The size-over-life curve's key count when SizeCurvePower != 1 (Linear keys on t^power, so the curve is
+    // exact at every key; between keys it is the chord, error <= range * max|f''| / (8 * segments^2)).
+    inline constexpr int kVFXConvertedSizeSegments = 16;
+
+    // The system the emitter becomes (no header: the caller stamps it). Material: see REMAINDER-VFX-03 (the
+    // `.dfx` sprite renderer gains its Material in VFXS 2).
+    Assets::Serialization::VFXSystemData VFXSystemFromParticleEmitter( const ParticleEmitterV43& emitter );
+
+    struct ParticleEmittersToVFXReport
+    {
+        std::size_t Emitters = 0; // ParticleEmitter blocks on the file's own records, now VFX blocks
+        std::size_t Shared   = 0; // of those, how many reuse a file an earlier identical emitter minted
+        std::vector<std::pair<std::filesystem::path, std::string>> NewSystems; // absolute path, canonical text
+        // A prefab override stating ParticleEmitter keys (a partial block over the prefab's emitter, which this
+        // file does not hold) or an unreadable block: the whole file is refused, naming each.
+        std::vector<std::string> Refused;
+    };
+
+    ParticleEmittersToVFXReport MigrateParticleEmittersToVFX( std::vector<Assets::EntityData>& entities,
+                                                              const std::string&               ownerName,
+                                                              const std::filesystem::path&     assetsRoot );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -484,7 +576,11 @@ namespace Desert::Migration
         bool                    CollisionProfilesRaised = false; // below kSceneVersionCollisionProfiles
         CollisionProfilesReport CollisionProfiles;
 
+        bool                          ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
+        ParticleSpriteMaterialsReport ParticleSpriteMaterials;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
+
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
 

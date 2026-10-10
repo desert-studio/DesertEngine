@@ -168,12 +168,14 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
             // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount) and a sample count shown only under
-            // MSAA. The list is the catalog's, minus the temporal methods (TAA / FSRNative / DLAA): no pass runs
-            // them yet (TAA1), so offering them would be a dead setting.
+            // MSAA. The list is the catalog's, minus the vendor temporal methods (FSRNative / DLAA): no pass runs
+            // them in this build, so offering them would be a dead setting. TAA runs (TAA1-B) and is the method
+            // that lets Resolution.Percent go below 100 %.
             std::vector<SC::AntiAliasingMethod> methods;
             for ( const SC::AntiAliasingMethod method : catalog.AntiAliasingMethods )
                 if ( method == SC::AntiAliasingMethod::None || method == SC::AntiAliasingMethod::FXAA ||
-                     method == SC::AntiAliasingMethod::SMAA || method == SC::AntiAliasingMethod::MSAA )
+                     method == SC::AntiAliasingMethod::SMAA || method == SC::AntiAliasingMethod::MSAA ||
+                     method == SC::AntiAliasingMethod::TAA )
                     methods.push_back( method );
 
             const auto requestedMethod =
@@ -185,7 +187,9 @@ namespace Desert::Editor
                                                static_cast<SC::ParameterValue>( methods[*picked] ) );
             Utils::ImGuiUtilities::Tooltip( "FXAA and SMAA filter the finished image; MSAA renders the scene "
                                             "at several samples per pixel (forward scenes only: deferred "
-                                            "lighting shades one sample per pixel). Applies on the next frame." );
+                                            "lighting shades one sample per pixel). TAA accumulates jittered "
+                                            "frames and is the method that can upscale a lower render scale. "
+                                            "Applies on the next frame." );
             ShowFallback( resolved, SC::Parameter::AntiAliasingMethod );
 
             // What this scene's path runs: MSAA on a deferred scene runs FXAA (AA2), stated, not hidden.
@@ -197,6 +201,24 @@ namespace Desert::Editor
                 ImGui::TextDisabled( "%s", std::format( "This scene runs {}: {}.",
                                                         rfl::enum_to_string( path.Method ), path.Reason )
                                                 .c_str() );
+
+            // UE's sg.AntiAliasingQuality for the temporal method: the history's quality (Low / Medium / High).
+            // Shown only when this scene's path runs TAA - under any other method it has no reader.
+            if ( path.Method == SC::AntiAliasingMethod::TAA )
+            {
+                static constexpr std::array<const char*, 3> kTemporalQualities = { "Low", "Medium", "High" };
+                const int requestedQuality = Requested( SC::Parameter::TemporalAAQuality );
+                if ( const auto picked = ValueCombo(
+                          "Temporal AA Quality",
+                          requestedQuality >= 0 && requestedQuality < static_cast<int>( kTemporalQualities.size() )
+                               ? static_cast<std::size_t>( requestedQuality )
+                               : kTemporalQualities.size(),
+                          kTemporalQualities.size(),
+                          []( std::size_t i ) { return std::string( kTemporalQualities[i] ); } ) )
+                    SC::QualityState::SetOverride( SC::Parameter::TemporalAAQuality,
+                                                   static_cast<SC::ParameterValue>( *picked ) );
+                ShowFallback( resolved, SC::Parameter::TemporalAAQuality );
+            }
 
             if ( resolved.As<SC::AntiAliasingMethod>( SC::Parameter::AntiAliasingMethod ) ==
                  SC::AntiAliasingMethod::MSAA )
@@ -212,6 +234,63 @@ namespace Desert::Editor
                     SC::QualityState::SetOverride( SC::Parameter::AntiAliasingSamples, counts[*picked] );
                 ShowFallback( resolved, SC::Parameter::AntiAliasingSamples );
             }
+        }
+
+        if ( Utils::ImGuiUtilities::SectionHeader( "Resolution" ) )
+        {
+            // UE's r.ScreenPercentage (sg.ResolutionQuality): the scene renders at this percent of the output.
+            // The range is the device catalog's. Which upscaler runs is NOT a choice here: Scalability Resolve
+            // picks it from the AA method (TAA below 100 % -> TAAU; no temporal AA -> the spatial upscaler).
+            // Resolution.Upscaler is a vendor override (FSR / DLSS / MetalFX), offered only when the catalog lists
+            // one; Resolution.Sharpness is the post sharpen after the resolve (SceneRenderer, Graphic::Sharpen).
+            const int requestedScale =
+                 m_DraggedRenderScale.value_or( Requested( SC::Parameter::RenderScalePercent ) );
+            int scale = requestedScale;
+            if ( ImGui::SliderInt( "Render Scale", &scale, catalog.RenderScale.MinPercent,
+                                   catalog.RenderScale.MaxPercent, "%d %%", ImGuiSliderFlags_AlwaysClamp ) )
+                m_DraggedRenderScale = scale;
+            if ( ImGui::IsItemDeactivatedAfterEdit() && m_DraggedRenderScale.has_value() )
+            {
+                SC::QualityState::SetOverride( SC::Parameter::RenderScalePercent, *m_DraggedRenderScale );
+                m_DraggedRenderScale.reset();
+            }
+            Utils::ImGuiUtilities::Tooltip( "Below 100 % the scene renders smaller and TAA upscales it to the "
+                                            "output (without TAA the spatial upscaler does); above 100 % it is "
+                                            "supersampled. Applies on release." );
+            ShowFallback( resolved, SC::Parameter::RenderScalePercent );
+
+            std::vector<SC::Upscaler> vendors;
+            for ( const SC::Upscaler upscaler : catalog.Upscalers )
+                if ( upscaler != SC::Upscaler::None && upscaler != SC::Upscaler::TAAU &&
+                     upscaler != SC::Upscaler::Spatial )
+                    vendors.push_back( upscaler );
+            if ( !vendors.empty() )
+            {
+                const auto requestedUpscaler = static_cast<SC::Upscaler>( Requested( SC::Parameter::Upscaler ) );
+                std::vector<SC::Upscaler> choices{ SC::Upscaler::None };
+                choices.insert( choices.end(), vendors.begin(), vendors.end() );
+                if ( const auto picked =
+                          ValueCombo( "Upscaler Override", IndexOf( choices, requestedUpscaler ), choices.size(),
+                                      [&choices]( std::size_t i ) {
+                                          return i == 0 ? std::string( "Engine (TAAU)" )
+                                                        : std::string( rfl::enum_to_string( choices[i] ) );
+                                      } ) )
+                    SC::QualityState::SetOverride( SC::Parameter::Upscaler,
+                                                   static_cast<SC::ParameterValue>( choices[*picked] ) );
+            }
+            ImGui::TextDisabled( "%s", std::format( "Upscaler: {}", rfl::enum_to_string( resolved.As<SC::Upscaler>(
+                                                                         SC::Parameter::Upscaler ) ) )
+                                            .c_str() );
+            ShowFallback( resolved, SC::Parameter::Upscaler );
+
+            int sharpness = Requested( SC::Parameter::UpscalerSharpness );
+            if ( ImGui::SliderInt( "Sharpness", &sharpness, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp ) )
+                SC::QualityState::SetOverride( SC::Parameter::UpscalerSharpness,
+                                               static_cast<SC::ParameterValue>( sharpness ) );
+            Utils::ImGuiUtilities::Tooltip(
+                 "Post sharpen (RCAS) after TAA, TAAU or the spatial upscale; 0 is off. "
+                 "Native frames without TAA are not sharpened." );
+            ShowFallback( resolved, SC::Parameter::UpscalerSharpness );
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Textures" ) )

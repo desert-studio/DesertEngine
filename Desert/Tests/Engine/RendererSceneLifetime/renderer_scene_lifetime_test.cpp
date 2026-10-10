@@ -167,7 +167,7 @@ TEST( RendererSceneLifetime, TheRendererHalfIsGuardedAndTheSceneHalfIsNot )
 // RELATION: whatever drops render systems waits for the device first.
 //
 // The same guarantee Desert/Tests/Engine/TeardownOrder pins for the five sites that destroy a whole
-// SceneRenderer, at the one site inside it. RebindScene releases external passes (which own pipelines) and
+// SceneRenderer, at the one site inside it. RebindScene
 // calls OnSceneReplaced (whose overrides release persistent storage buffers), and the last submitted frame
 // may still be executing against both.
 TEST( RendererSceneLifetime, RebindWaitsForTheDeviceBeforeItReleasesAnything )
@@ -181,50 +181,33 @@ TEST( RendererSceneLifetime, RebindWaitsForTheDeviceBeforeItReleasesAnything )
     const std::string body = source.substr( rebind, end - rebind );
 
     const std::size_t idle     = body.find( "WaitDeviceIdle()" );
-    const std::size_t forgets  = body.find( "ForgetRenderSystem(" );
     const std::size_t replaced = body.find( "OnSceneReplaced()" );
 
     ASSERT_NE( idle, std::string::npos ) << "RebindScene no longer idles the device.";
-    ASSERT_NE( forgets, std::string::npos ) << "RebindScene no longer drops the previous scene's passes.";
     ASSERT_NE( replaced, std::string::npos ) << "RebindScene no longer tells the systems the world changed.";
 
-    EXPECT_LT( idle, forgets ) << "the wait happens AFTER the passes are released, which is the same as not "
-                                  "waiting at all.";
     EXPECT_LT( idle, replaced ) << "OnSceneReplaced overrides free persistent GPU buffers; running them "
                                    "before the wait frees memory a submitted frame is still reading.";
 }
 
-// RELATION: ONE string decides what an external pass is called and what the rebind drops.
+// RELATION: the extension passes are the SCENE's and the renderer holds none of them (ARCH1b-2).
 //
-// ExternalSystemKey stamps the prefix on; RebindScene matches on it. A prefix renamed in one of the two
-// leaves the rebind matching nothing while still compiling — and the symptom is the previous scene's grid
-// and colliders still drawing over the new one, through passes closed over a destroyed RenderRegistry.
-TEST( RendererSceneLifetime, OneConstantDecidesWhatBelongsToTheScene )
+// The editor's passes close over a RenderRegistry made for one scene. They used to be copied into each renderer
+// as "External:" render systems that RebindScene had to drop by a prefix; now they live on the Scene and the
+// renderer reads them from the scene BeginScene hands it and lets go at EndScene, so a previous scene's grid
+// cannot draw over the next one. Red if a renderer-side copy (the prefix) comes back or the bracket breaks.
+TEST( RendererSceneLifetime, TheRendererReadsExtensionPassesFromTheSceneItIsHanded )
 {
     const std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
-
-    ASSERT_NE( source.find( "kExternalSystemPrefix = \"External:\"" ), std::string::npos )
-         << "the external-pass prefix is no longer declared as one constant.";
-
-    // Both readers must go through the constant, and NEITHER may spell the literal again.
-    std::size_t literals = 0;
-    for ( std::size_t at = source.find( "\"External:\"" ); at != std::string::npos;
-          at             = source.find( "\"External:\"", at + 1 ) )
-        ++literals;
-
-    EXPECT_EQ( literals, 1u ) << "\"External:\" is spelled " << literals
-                              << " times in SceneRenderer.cpp. Exactly one of them may exist — the "
-                                 "constant's own definition — or the two readers can drift apart.";
-
-    const std::size_t key    = source.find( "ExternalSystemKey" );
-    const std::size_t rebind = source.find( "SceneRenderer::RebindScene()" );
-    ASSERT_NE( key, std::string::npos );
-    ASSERT_NE( rebind, std::string::npos );
-
-    const std::size_t end = source.find( "\n    }", rebind );
+    EXPECT_EQ( source.find( "\"External:\"" ), std::string::npos ) << "a renderer-side external-pass key is back";
+    const std::size_t begin = source.find( "SceneRenderer::BeginScene(" );
+    const std::size_t end   = source.find( "SceneRenderer::EndScene()" );
+    ASSERT_NE( begin, std::string::npos );
     ASSERT_NE( end, std::string::npos );
-    EXPECT_NE( source.substr( rebind, end - rebind ).find( "kExternalSystemPrefix" ), std::string::npos )
-         << "RebindScene no longer matches on the shared prefix constant.";
+    EXPECT_NE( source.find( "m_FrameExtensions = &scene.GetExtensionPasses();", begin ), std::string::npos )
+         << "BeginScene no longer takes the scene's extension passes";
+    EXPECT_NE( source.find( "m_FrameExtensions = nullptr;", end ), std::string::npos )
+         << "EndScene no longer lets go of the scene's extension passes";
 }
 
 // ===================================================================================================
@@ -274,6 +257,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "a function of this frame's G-buffer" },
          { "SceneColorCopySystem", "Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", false, false,
            "a copy of this frame's target" },
+         { "VelocityViewSystem", "Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp", false, false,
+           "a picture of THIS frame's velocity; it holds only the shader, its block layout and one pipeline per "
+           "target format and sample count" },
          { "HeightFogSystem", "Graphic/Systems/Scene/Fog/HeightFogRenderer.hpp", false, false,
            "SetFogSettings takes `present` and HeightFogECSSystem states the absent case explicitly" },
          { "VolumetricCloudSystem", "Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp", true, true,

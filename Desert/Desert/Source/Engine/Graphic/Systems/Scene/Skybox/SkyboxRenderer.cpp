@@ -911,20 +911,20 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void SkyboxRenderer::RegisterPasses( RenderGraphBuilder& builder )
+    SystemRasterPass SkyboxRenderer::SkyPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
-            return;
+            return {};
 
-        builder
-             .AddPass(
-                  "SkyboxPass", RenderPhase::Sky,
-                  [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-                  { return Render( context ); },
-                  m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        SystemRasterPass pass{
+             .Name        = "SkyboxPass",
+             .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+             { return Render( context ); },
+             .TargetFramebuffer = targetFb };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         { DeclareSkyDraw( declared, refs ); };
+        return pass;
     }
 
     void SkyboxRenderer::DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs )

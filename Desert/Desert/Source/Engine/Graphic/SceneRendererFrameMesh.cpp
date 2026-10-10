@@ -5,7 +5,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
-#include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -33,6 +32,7 @@
 #include <format>
 #include <cmath>
 #include <string>
+#include <span>
 #include <string_view>
 #include <optional>
 #include <vector>
@@ -77,60 +77,200 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
-                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst )
+    void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
+                                          const std::span<const SystemRasterPass> passes, const bool clearFirst,
+                                          const OverlayTargets& overlay )
     {
-        // Every registered pass of the selected phases (engine systems and the editor's external passes), in the
-        // phase graph's order, is a raster node: its targets are its framebuffer WHOLE (TargetsOf: every colour,
-        // the depth, and at MSAA the resolve images), its reads are what its PassConfig::Declare names. The GRAPH
-        // opens the render pass and merges consecutive nodes on one framebuffer into one. The first node on a
-        // framebuffer CLEARS it on the main walk (@p clearFirst: the skybox draws first and the geometry over it,
-        // neither clearing the other) with the pass's own clear values (a cascade clears its depth to 1); every
-        // other node LOADS, and the overlay phases only LOAD, so a CLEAR never wipes the depth a later overlay
-        // tests against. A pass whose target or reads the graph cannot declare is refused with its error, never
-        // half-declared. NeverCull: a pass body (the editor's external passes too) may change state outside
-        // the graph - per-frame material state, picking - which no declaration shows.
-        std::shared_ptr<Framebuffer> previous;
-        for ( const RenderGraphBuilder::PassConfig& pass : m_RenderGraphBuilder.GetSortedPasses() )
+        // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
+        // every colour, the depth, and at MSAA the resolve images), its reads are what its Declare names. The
+        // GRAPH opens the render pass and merges consecutive nodes on one framebuffer into one. With @p clearFirst
+        // the first node on each framebuffer CLEARS it with the pass's own clear values (a cascade clears its
+        // depth to 1) and the next ones on it LOAD (the sky clears the scene target, the geometry draws over it);
+        // without it every node LOADS, so a CLEAR never wipes the depth a later overlay tests against. A pass
+        // whose target or reads the graph cannot declare is refused with its error, never half-declared.
+        // NeverCull: a pass body may change state outside the graph - per-frame material state - which no
+        // declaration shows.
+        const RenderPassSpecification defaults;
+        std::shared_ptr<Framebuffer>  previous;
+        for ( const SystemRasterPass& pass : passes )
         {
-            if ( !pass.CachedRenderPass || !selects( pass.Phase ) )
+            // A system whose pipeline or target failed to build hands back a pass with no target (it logged why).
+            if ( !pass.TargetFramebuffer || !pass.ExecuteFunc )
                 continue;
-            const auto&                         spec   = pass.CachedRenderPass->GetSpecification();
-            const std::shared_ptr<Framebuffer>& target = spec.TargetFramebuffer;
+            const std::shared_ptr<Framebuffer>& target = pass.TargetFramebuffer;
             const bool                          clears = clearFirst && target != previous;
             previous                                   = target;
 
-            const auto targets = TargetsOf( textures, target, spec.DebugName, pass.Name );
-            if ( !targets )
-                continue;
-            RenderPassDeclaration declared;
-            if ( pass.Declare )
-                pass.Declare( declared, textures.GraphRefs() );
-            std::vector<RDG::TextureRef> images;
-            if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
-                continue;
-
-            const glm::vec4   clearColor = spec.ClearColor.Color;
+            const glm::vec4   clearColor = pass.ClearColor.value_or( defaults.ClearColor.Color );
             const RDG::LoadOp color =
                  clears ? RDG::LoadOp::ClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a )
                         : RDG::LoadOp::Load();
             const RDG::LoadOp depth =
-                 clears ? RDG::LoadOp::ClearDepth( spec.ClearColor.DepthStencil.x ) : RDG::LoadOp::Load();
-            const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
-            graph.AddPass(
-                 pass.Name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
-                 [&]( RDG::PassBuilder& node )
-                 {
-                     DeclareOn( node, images, declared );
-                     for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
-                         node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
-                     if ( targets->Depth.IsValid() )
-                         node.DepthTarget( targets->Depth, depth );
-                     DeclareResolves( node, targets->Resolves );
-                 },
-                 [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
-                      RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
+                 clears ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
+                        : RDG::LoadOp::Load();
+            AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
         }
+    }
+
+    void SceneRenderer::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
+                                         const SystemRasterPass& pass, const OverlayTargets& overlay )
+    {
+        AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &pass, 1 ), false, overlay );
+    }
+
+    void SceneRenderer::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // One depth-only node per cascade, cascade 0 first, each clearing its own cascade target (to 1: standard
+        // Z). NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        {
+            const std::vector<SystemRasterPass> cascades = mesh->ShadowCascadePasses();
+            AddSystemRasters( graph, textures, cascades, true );
+        }
+    }
+
+    void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour and depth),
+        // then the meshes, then the terrain, both LOADING and sharing the depth so they resolve against each
+        // other.
+        std::vector<SystemRasterPass> passes;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
+            passes.push_back( sky->SkyPass() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            passes.push_back( mesh->GeometryPass() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
+            passes.push_back( terrain->GeometryPass() );
+        AddSystemRasters( graph, textures, passes, true );
+    }
+
+    void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The outlined meshes' mask, cleared every frame so the Jump Flood outline has a fresh input.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        {
+            const SystemRasterPass silhouette = mesh->SilhouettePass();
+            AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &silhouette, 1 ), true );
+        }
+    }
+
+    void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
+        // numeric placement. The height fog apply first: it modifies the OPAQUE scene itself (every pixel gains
+        // the fog between it and the camera), so everything composited after lands over the fogged world. Then
+        // the far field, the cloud composite: everything after it is nearer the camera and paints over it.
+        // Then the particles, then the passes registered at the AfterTranslucency extension point (the editor
+        // grid). All on the scene target: the graph merges them into
+        // one render pass.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        AddSystemRaster(
+             graph, textures,
+             UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->ApplyPass() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        AddSystemRaster( graph, textures,
+                         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
+                              ->CompositePass() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] ) )
+            AddSystemRaster( graph, textures, particles->DrawPass() );
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
+    }
+
+    void SceneRenderer::AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures,
+                                           const RDG::ExtensionPoint point, const OverlayTargets& overlay )
+    {
+        // Outside a BeginScene/EndScene bracket there is no scene, so no extension passes; without a scene target
+        // there is nothing for them to draw over.
+        if ( !m_FrameExtensions || !m_TargetFramebuffer )
+            return;
+        m_FrameExtensions->ForEachAt(
+             point,
+             [&]( const ExtensionPass& extension )
+             {
+                 // The context is made when the graph calls the pass (Declare while it is built, Execute when it
+                 // runs), from this renderer's state then: the camera, the target a resize may have recreated.
+                 const auto context = [this]( const FrameGraphRefs& refs )
+                 {
+                     ExtensionPassContext ctx;
+                     ctx.Camera       = GetMainCamera();
+                     ctx.Target       = m_TargetFramebuffer.get();
+                     ctx.Depth        = m_TargetFramebuffer && m_TargetFramebuffer->GetDepthAttachmentCount() > 0
+                                             ? m_TargetFramebuffer->GetDepthAttachmentImage().get()
+                                             : nullptr;
+                     ctx.ScenePlaying = IsScenePlaying();
+                     ctx.Renderer     = this;
+                     ctx.Graph        = refs;
+                     return ctx;
+                 };
+                 // The pass's functions are COPIED into the node: the scene may replace the registration while the
+                 // graph built this frame still holds the node.
+                 SystemRasterPass node;
+                 node.Name              = extension.Name;
+                 node.TargetFramebuffer = m_TargetFramebuffer;
+                 node.ExecuteFunc =
+                      [context, execute = extension.Execute]( RDG::PassContext& pass, const FrameGraphRefs& refs )
+                 { return execute( context( refs ), pass ); };
+                 if ( extension.Declare )
+                     node.Declare = [context, declare = extension.Declare]( RenderPassDeclaration& declared,
+                                                                            const FrameGraphRefs&  refs )
+                     { declare( declared, context( refs ) ); };
+                 AddPassNode( graph, textures, node, m_TargetFramebuffer, node.Name, RDG::LoadOp::Load(),
+                              RDG::LoadOp::Load(), overlay );
+             } );
+    }
+
+    void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
+                                     const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
+                                     const RDG::LoadOp& color, const RDG::LoadOp& depth,
+                                     const OverlayTargets& overlay )
+    {
+        auto targets = TargetsOf( textures, target, debugName, pass.Name );
+        if ( !targets )
+            return;
+        // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
+        // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
+        // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
+        // PopulateSceneDepth filled; one sample, so no resolves).
+        if ( overlay.IsValid() && target == m_TargetFramebuffer )
+        {
+            if ( targets->Colors.size() != kSceneTargetVelocitySlot + 1 )
+            {
+                LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
+                           "replaces exactly colour 0 and the velocity slot",
+                           pass.Name, targets->Colors.size() );
+                return;
+            }
+            targets->Colors[0]                        = overlay.Color;
+            targets->Colors[kSceneTargetVelocitySlot] = overlay.Velocity;
+            targets->Depth                            = overlay.Depth;
+            targets->Resolves                         = {};
+        }
+        RenderPassDeclaration declared;
+        if ( pass.Declare )
+            pass.Declare( declared, textures.GraphRefs() );
+        std::vector<RDG::TextureRef> images;
+        if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
+            return;
+
+        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
+        graph.AddPass(
+             pass.Name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+             [&]( RDG::PassBuilder& node )
+             {
+                 DeclareOn( node, images, declared );
+                 for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
+                     node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
+                 if ( targets->Depth.IsValid() )
+                     node.DepthTarget( targets->Depth, depth, !pass.DepthReadOnly );
+                 DeclareResolves( node, targets->Resolves );
+             },
+             [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+                  RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,

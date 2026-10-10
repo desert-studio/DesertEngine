@@ -23,6 +23,8 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace
@@ -337,4 +339,46 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
     EXPECT_TRUE( found.count( { "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp", "m_Sources" } ) )
          << "the entity-keyed table scan no longer sees AudioECSSystem::m_Sources";
     EXPECT_GE( found.size(), 9u );
+}
+
+// PFX-REL1: a destroyed emitter's GPU state is erased mid-session (RetireDestroyedEmitters, PrepareFrame), so
+// everything that erase destroys must go through the allocator's deletion ring and never be freed while the
+// last submitted frame may still read it. The chain: the entry's StorageBuffers own MappedBufferCopy copies,
+// and its MaterialParticleBillboard owns a VulkanMaterialBackend whose sets live in VulkanViewDescriptorPools.
+// Red if PrepareFrame stops retiring, or if any link of the chain frees a Vulkan object immediately.
+TEST( RuntimeHandleCensus, ARetiredEmitterReleasesItsGpuStateThroughTheDeletionRing )
+{
+    const std::string root = RepoRoot();
+    const std::string vk   = root + "Desert/Desert/Source/Engine/Graphic/API/Vulkan/";
+
+    const std::string renderer =
+         Code( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    ASSERT_FALSE( renderer.empty() );
+    EXPECT_TRUE( Contains( renderer, "RetireDestroyedEmitters( m_Emitters, reg )" ) )
+         << "PrepareFrame no longer retires emitters whose entity is gone";
+
+    const std::string copy     = Code( root + "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan/"
+                                                  "VulkanMappedBufferCopy.cpp" );
+    const std::string material = Code( vk + "VulkanMaterialBackend.cpp" );
+    const std::string pools    = Code( vk + "VulkanViewDescriptorPools.cpp" );
+    ASSERT_FALSE( copy.empty() );
+    ASSERT_FALSE( material.empty() );
+    ASSERT_FALSE( pools.empty() );
+
+    EXPECT_TRUE( Contains( copy, "RT_DestroyBuffer(" ) ) << "a storage-buffer copy no longer defers its release";
+    EXPECT_TRUE( Contains( material, "RT_DestroyBuffer(" ) ) << "the material's dummy buffer is not deferred";
+    EXPECT_TRUE( Contains( pools, "RT_FreeDescriptorSets(" ) ) << "a view's descriptor sets are not deferred";
+    EXPECT_TRUE( Contains( pools, "RT_DestroyDescriptorPool(" ) ) << "a descriptor pool is not deferred";
+
+    for ( const auto& [name, text] :
+          { std::pair{ "VulkanMappedBufferCopy.cpp", &copy }, std::pair{ "VulkanMaterialBackend.cpp", &material },
+            std::pair{ "VulkanViewDescriptorPools.cpp", &pools } } )
+    {
+        for ( const std::string_view immediate :
+              { "vmaDestroyBuffer(", "vkDestroyBuffer(", "vkDestroyDescriptorPool(", "vkFreeDescriptorSets(" } )
+        {
+            EXPECT_FALSE( Contains( *text, immediate ) )
+                 << name << " calls " << immediate << " directly: a retired emitter would free it under the GPU";
+        }
+    }
 }

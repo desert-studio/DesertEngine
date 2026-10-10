@@ -60,10 +60,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
-
         // Whether the scene target needs an expansion and one was built for it.
         [[nodiscard]] bool IsReady() const
         {

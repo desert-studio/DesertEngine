@@ -81,9 +81,6 @@ namespace Desert::Graphic::System
         }
 
         // Not a render-graph pass — driven from SceneRenderer's manual chain after the geometry graph.
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
 
         // GRAPH BUILD (before the Composite node): the lights as two graph buffers, each uploaded by the graph's
         // upload command. No light is one zeroed entry (a storage buffer is never empty); the shader loops

@@ -520,6 +520,55 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
     EXPECT_EQ( rebuilt.Registry.Serialize(), registry.Serialize() );
 }
 
+// THE SIZE GATE BEHIND THE ROWS (GATE-SIZE1). The registry's size column is a gate only for registry kinds; a
+// shader include (`.glslh`), a `.shadingmodel`, and every other file the shader compiler or the packager reads
+// has no row. What the column guarded - "these are the bytes git stores, on every platform" - is asked here of
+// every tracked file in the two trees the packager walks, which are also the two `/** -text` rules of
+// .gitattributes (Editor/Resources and Projects): git's own line-ending class in the index against the one on
+// this disk. A Windows checkout that translated one file, of any extension, names it here.
+TEST( CookedRegistryGate, EveryPackedFileIsOnThisDiskAsGitStoresIt )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const auto census = Common::Content::TranslatedCheckouts( root, { "Editor/Resources", "Projects" } );
+    ASSERT_TRUE( census.has_value() ) << "git could not be asked how this checkout wrote its files";
+    // Hundreds of shaders, includes and assets are tracked there; a count near zero is a census that read nothing.
+    ASSERT_GT( census->Checked, 100u ) << "git listed almost nothing under the packed trees";
+
+    std::string listed;
+    for ( const Common::Content::TranslatedCheckout& file : census->Translated )
+        listed += "\n  " + file.Path + " (git stores " + file.Index + ", this disk has " + file.Worktree + ")";
+    EXPECT_TRUE( census->Translated.empty() )
+         << census->Translated.size()
+         << " tracked file(s) are not on this disk as git stores them: a line-translated checkout (add a `-text` "
+            "rule to .gitattributes, then re-checkout) or an uncommitted edit. Their size, CRC and content hash "
+            "differ from every other platform's:"
+         << listed;
+}
+
+// The census's reading of git's report, on the case it exists for: an include checked out with CRLF beside a
+// shader that was not, a binary, and a file deleted from the worktree (not this question's).
+TEST( CookedRegistryGate, ATranslatedIncludeIsNamedByTheEolCensus )
+{
+    using namespace std::string_literals;
+    const std::string listing =
+         "i/lf    w/crlf  attr/text           \tEditor/Resources/Shaders/Common/Next.glslh\0"
+         "i/lf    w/lf    attr/-text          \tEditor/Resources/Shaders/Programs/A.shader\0"
+         "i/-text w/-text attr/-text          \tProjects/Desert/Content/T.tex\0"
+         "i/lf    w/      attr/-text          \tEditor/Resources/Shaders/Gone.glslh\0"s;
+
+    const Common::Content::EolCensus census = Common::Content::TranslatedInEolListing( listing );
+    EXPECT_EQ( census.Checked, 4u );
+    ASSERT_EQ( census.Translated.size(), 1u );
+    EXPECT_EQ( census.Translated[0].Path, "Editor/Resources/Shaders/Common/Next.glslh" );
+    EXPECT_EQ( census.Translated[0].Index, "lf" );
+    EXPECT_EQ( census.Translated[0].Worktree, "crlf" );
+
+    // An answer git never gave is vacuous, not clean: nothing checked.
+    EXPECT_EQ( Common::Content::TranslatedInEolListing( "" ).Checked, 0u );
+}
+
 namespace
 {
     // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).

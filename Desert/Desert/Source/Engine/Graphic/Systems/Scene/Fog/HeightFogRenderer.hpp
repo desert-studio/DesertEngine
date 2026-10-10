@@ -35,8 +35,8 @@ namespace Desert::Graphic::System
      *                 closed-form fog integral of Common/HeightFog.glslh, samples the aerial-perspective
      *                 volume at that pixel's distance, and composes `Fog over AP`. Premultiplied
      *                 inscattering in .rgb, transmittance in .a.
-     *   S2  APPLY     a fullscreen triangle registered in RenderPhase::Transparency at
-     *                 RenderPassOrder::AtmosphericFog — below everything else the phase composites, so
+     *   S2  APPLY     a fullscreen triangle (ApplyPass), the FIRST translucency node: added by
+     *                 SceneRenderer::AddFrameTranslucency before everything else it composites, so
      *                 every particle lands OVER the fogged scene rather than under it.
      *
      * WHERE IT RUNS. S1 is an in-frame compute dispatch and must be issued OUTSIDE an open render pass,
@@ -62,7 +62,11 @@ namespace Desert::Graphic::System
         ~HeightFogRenderer() override;
 
         Common::BoolResultStr Initialize() override;
-        void                  RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The S2 apply as one raster pass on the scene target: its body, pipeline and declared fog read. Not
+        // registered with the builder: its place in the frame is the call that adds it
+        // (SceneRenderer::AddFrameTranslucency). No target framebuffer when the system failed to initialize.
+        SystemRasterPass ApplyPass();
 
         /**
          * @brief This frame's fog settings, from ECS::HeightFogECSSystem.

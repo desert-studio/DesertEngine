@@ -167,6 +167,13 @@ namespace Desert::Graphic
         return s_RendererAPI->DispatchCompute( bindings, pipeline, groupCountX, groupCountY, groupCountZ );
     }
 
+    Common::BoolResultStr Renderer::DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                             const ComputePipeline&   pipeline,
+                                                             const RDG::BufferRef args, const uint64_t offset )
+    {
+        return s_RendererAPI->DispatchComputeIndirect( bindings, pipeline, args, offset );
+    }
+
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline&  pipeline,
                                                     const MaterialExecutor*  material )
@@ -180,6 +187,14 @@ namespace Desert::Graphic
                                                     uint32_t instanceCount )
     {
         return s_RendererAPI->DrawProcedural( bindings, pipeline, material, vertexCount, instanceCount );
+    }
+
+    Common::BoolResultStr Renderer::DrawProceduralIndirect( const RDG::PassBindings& bindings,
+                                                            const GraphicsPipeline&  pipeline,
+                                                            const MaterialExecutor*  material,
+                                                            const RDG::BufferRef args, const uint64_t offset )
+    {
+        return s_RendererAPI->DrawProceduralIndirect( bindings, pipeline, material, args, offset );
     }
 
     Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings,

@@ -8,12 +8,11 @@ namespace Desert::ShaderResources::API::Vulkan
 {
     namespace
     {
-        // STORAGE ONLY. Every storage buffer also carried INDIRECT until Г25, granted for ONE caller: the
-        // grass cull compute wrote a VkDrawIndirectCommand into a storage buffer and the grass draw read it
-        // back through vkCmdDrawIndirect. That generator is gone and no draw in this engine is indirect any
-        // more, so the capability is granted to nobody - and a usage bit nothing uses is a claim about this
-        // buffer that is not true.
-        constexpr VkBufferUsageFlags kUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        // STORAGE for every reader and writer; INDIRECT because a storage buffer a compute pass fills is a draw's
+        // indirect arguments: the particle Counters (ParticleCompact writes a VkDrawIndirectCommand per emitter,
+        // ParticleRenderer::DrawPass reads it through Renderer::DrawProceduralIndirect).
+        constexpr VkBufferUsageFlags kUsage =
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     } // namespace
 
     VulkanStorageBuffer::VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,

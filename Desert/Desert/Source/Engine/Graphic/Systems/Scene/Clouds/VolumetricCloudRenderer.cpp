@@ -11,8 +11,6 @@
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
-#include <Engine/Graphic/RenderGraphSort.hpp>
-#include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -2158,15 +2156,14 @@ namespace Desert::Graphic::System
         return block;
     }
 
-    void VolumetricCloudRenderer::RegisterPasses( RenderGraphBuilder& builder )
+    SystemRasterPass VolumetricCloudRenderer::CompositePass()
     {
-        const auto target = m_TargetFramebuffer.lock();
+        SystemRasterPass               config;
+        const auto                     target = m_TargetFramebuffer.lock();
         if ( !target || !m_CompositePipeline )
-            return;
+            return config;
 
-        RenderGraphBuilder::PassConfig config;
         config.Name        = "CloudComposite";
-        config.Phase       = RenderPhase::Transparency;
         config.ExecuteFunc = [this]( RDG::PassContext&     context,
                                      const FrameGraphRefs& refs ) -> Common::BoolResultStr
         {
@@ -2180,12 +2177,7 @@ namespace Desert::Graphic::System
         };
         config.PipelineSpec      = m_CompositePipeline->GetSpecification();
         config.TargetFramebuffer = target;
-        config.Dependencies      = { RenderPassDependency( RenderPhase::Geometry ) };
 
-        // FarField: above the atmospheric fog, below everything else the Transparency phase composites.
-        // Stated here, on the pass itself, rather than implied by the order of the RegisterSystem calls —
-        // that ordering is a tie-break, not a contract, and it moves when an unrelated system is added.
-        config.OrderInPhase = RenderPassOrder::FarField;
         // The composite samples the reconstruction the resolve node wrote this frame (m_ResolvedIndex is decided
         // when the cloud nodes are declared, before this runs).
         config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
@@ -2209,6 +2201,6 @@ namespace Desert::Graphic::System
                            RDG::SamplerDesc::LinearRepeat() );
         };
 
-        builder.AddPass( config );
+        return config;
     }
 } // namespace Desert::Graphic::System

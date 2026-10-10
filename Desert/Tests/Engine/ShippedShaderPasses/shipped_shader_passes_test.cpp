@@ -719,6 +719,10 @@ TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams 
         if ( file.parent_path().filename() != "Surface" || !file.filename().string().starts_with( "Vertex_" ) )
             continue;
         ++vertexHeaders;
+        // The sprite path (MeshVertexPath::ParticleSprite) binds NO vertex buffer: it pulls each corner from the
+        // particle pool through the alive list, so it has no vertex streams to declare. Counted, not checked.
+        if ( file.filename() == "Vertex_ParticleSprite.glslh" )
+            continue;
         const std::string source = ReadFile( file );
         EXPECT_NE( source.find( "layout( location = 7 ) in vec4 a_Color;" ), std::string::npos ) << file;
         EXPECT_NE( source.find( "layout( location = 8 ) in vec2 a_TexCoord1;" ), std::string::npos ) << file;

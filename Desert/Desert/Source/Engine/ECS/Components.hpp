@@ -47,6 +47,7 @@
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <string_view>
 
 namespace Desert::Geometry
 {
@@ -944,14 +945,6 @@ namespace Desert::ECS
         SpotLightData Data;
     };
 
-    // How particle billboards composite into the scene. Additive = glowing FX (fire/sparks/magic);
-    // AlphaBlend = soft opaque puffs (smoke/dust). Reflected enum -> editor combo + serialization.
-    enum class ParticleBlendMode
-    {
-        Additive,
-        AlphaBlend
-    };
-
     // GPU-simulated billboard particle emitter. The reflected fields below are the AUTHORING parameters
     // (Details UI + scene serialization are generated from them); the actual simulation runs in a compute
     // shader and the quads are drawn camera-facing in the Transparency phase (ParticleRenderer). Emits from
@@ -1021,13 +1014,23 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "End Alpha" ), Category( "Look" ), Range( 0.0f, 1.0f ) )
         float EndAlpha = 0.0f;
 
-        // AlphaBlend (over) by default: it shows the particle colour against ANY background. Additive glow
-        // washes out against bright/lit surfaces — looked down at a sunlit floor the fountain "disappeared"
-        // even though it was drawn, while it popped against the dark sky from below. Fire/sparks presets in
-        // the Particle Editor still switch this to Additive where the scene behind them is dark.
-        PROPERTY( DisplayName( "Blend" ), Category( "Look" ) )
-        ParticleBlendMode Blend = ParticleBlendMode::AlphaBlend;
+        // The surface material each sprite is shaded with (UE: the sprite renderer's Material). Its template must
+        // declare `Usage ParticleSprites` (it draws through the template's ParticleSprite.Forward cell,
+        // MeshVertexPath::ParticleSprite), and its BLEND MODE is how the sprite composites: Translucent = laid
+        // over the scene (smoke, dust), Additive = added to it (fire, sparks;
+        // Engine/Materials/M_ParticleAdditive). Empty = the engine's translucent sprite template,
+        // ParticleSpriteDefault. A material that cannot draw sprites is named in the log and drawn as that
+        // default. Replaces the emitter's own Blend switch (scene v42, SceneMigration.hpp
+        // kSceneVersionParticleSpriteMaterial).
+        PROPERTY( DisplayName( "Material" ), Category( "Look" ), Asset<MaterialAsset> )
+        Assets::AssetHandle Material;
     };
+
+    // The engine's additive sprite material (Editor/Resources/Engine/Materials/M_ParticleAdditive.demat) by its
+    // stable key - the one the scene migrator writes (SceneMigration.hpp kParticleAdditiveMaterialPath) and the
+    // Particle Editor's glowing presets pick; its handle is Assets::AssetHandle::FromKey of this key.
+    inline constexpr std::string_view kParticleAdditiveMaterialKey =
+         "engine:Engine/Materials/M_ParticleAdditive.demat";
 
     struct ParticleEmitterComponent
     {

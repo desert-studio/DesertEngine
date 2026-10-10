@@ -6,6 +6,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/BlockoutCollision.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/BlockoutSession.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -216,16 +217,26 @@ namespace Desert::Editor::Tools
         const std::string name =
              e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag : sel->ToString();
         Common::ResultStr<uint64_t> key = Common::MakeError<uint64_t>( "it has no StaticMeshComponent" );
+        std::shared_ptr<const Geometry::DynamicMesh3> mesh;
         if ( e.HasComponent<ECS::StaticMeshComponent>() )
         {
             auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
-            key         = target.IsSuccess() ? Common::MakeSuccess( MeshKeyOf( *target.GetValue().Mesh ) )
-                                             : Common::MakeError<uint64_t>( target.GetError() );
+            if ( target.IsSuccess() )
+                mesh = target.GetValue().Mesh;
+            key = target.IsSuccess() ? Common::MakeSuccess( MeshKeyOf( *target.GetValue().Mesh ) )
+                                     : Common::MakeError<uint64_t>( target.GetError() );
         }
-        const auto* saved  = e.HasComponent<ECS::CubeGridBlockoutComponent>()
-                                  ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
-                                  : nullptr;
-        auto        opened = ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+        const auto* saved = e.HasComponent<ECS::CubeGridBlockoutComponent>()
+                                 ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
+                                 : nullptr;
+        // No voxels carried: the blocks are recovered from the mesh itself (BlockoutSession.hpp, RecoverBlockout).
+        auto open = [&]() -> Common::ResultStr<ReopenedBlockout>
+        {
+            if ( saved == nullptr && mesh )
+                return RecoverBlockout( name, *mesh, e.GetWorldTransform(), Core::ModelingState::MinCellSize );
+            return ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+        };
+        auto opened = open();
         if ( !opened.IsSuccess() )
         {
             refuse( opened.GetError() );
@@ -294,12 +305,14 @@ namespace Desert::Editor::Tools
 
         bool        changed = false;
         // Requested Block Size in world units (= centimetres, see Common::Units).
-        // UE: opening the tool with a mesh selected takes that mesh as the target - here, a blockout that
-        // carries its voxels. The palette's "Edit selected blockout" asks the same explicitly.
+        // UE: opening the tool with a mesh selected takes that mesh as the target - a blockout that carries its
+        // voxels, or any static mesh, whose blocks are recovered from its faces (refused, by reason, when it is
+        // not made of blocks). The palette's "Edit selected blockout" asks the same explicitly.
         if ( toolActive && !m_WasActive && m_Entity == Common::UUID::Null() )
             if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
                 if ( auto ref = scene.FindEntityByID( *sel );
-                     ref && ref->get().HasComponent<ECS::CubeGridBlockoutComponent>() )
+                     ref && ( ref->get().HasComponent<ECS::CubeGridBlockoutComponent>() ||
+                              ref->get().HasComponent<ECS::StaticMeshComponent>() ) )
                     ms.ReqCubeGridEditSelected = true;
         m_WasActive = toolActive;
         if ( ms.ReqCubeGridEditSelected )
@@ -1219,63 +1232,26 @@ namespace Desert::Editor::Tools
             ms.ReqAccept         = false;
             const bool endTool   = ms.ReqAcceptEndsTool;
             ms.ReqAcceptEndsTool = false;
-            if ( !( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() ) )
-            {
-                // Collision on Accept (UE's Cube Grid bakes collision with the mesh): a blockout you
-                // cannot walk into is half a blockout. This is a BOX around the piece, not a triangle
-                // mesh — the physics layer has box/sphere/capsule shapes today, so a concave blockout
-                // gets its bounding volume, and the panel says so rather than implying trimesh collision.
-                if ( ms.GenerateCollision )
-                {
-                    if ( auto ref = scene.FindEntityByID( m_Entity ) )
-                    {
-                        ECS::Entity e = ref->get();
-                        if ( e.HasComponent<ECS::StaticMeshComponent>() )
-                        {
-                            const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
-                            if ( smc.RuntimeMesh && !smc.RuntimeMesh->GetSubmeshes().empty() )
-                            {
-                                glm::vec3 bmin( FLT_MAX ), bmax( -FLT_MAX );
-                                for ( const auto& sm : smc.RuntimeMesh->GetSubmeshes() )
-                                {
-                                    bmin = glm::min( bmin, sm.BoundingBox.Min );
-                                    bmax = glm::max( bmax, sm.BoundingBox.Max );
-                                }
-                                if ( bmin.x <= bmax.x )
-                                {
-                                    auto& col            = e.HasComponent<ECS::ColliderComponent>()
-                                                                ? e.GetComponent<ECS::ColliderComponent>()
-                                                                : e.AddComponent<ECS::ColliderComponent>();
-                                    col.Data.Shape       = Physics::ShapeType::Box;
-                                    col.Data.HalfExtents = glm::max( ( bmax - bmin ) * 0.5f, glm::vec3( 1.0f ) );
-                                    col.Data.Radius =
-                                         glm::max( col.Data.HalfExtents.x,
-                                                   glm::max( col.Data.HalfExtents.y, col.Data.HalfExtents.z ) );
-
-                                    // Static body, so the collider actually participates in the sim
-                                    // (a collider alone is inert).
-                                    auto& rb     = e.HasComponent<ECS::RigidBodyComponent>()
-                                                        ? e.GetComponent<ECS::RigidBodyComponent>()
-                                                        : e.AddComponent<ECS::RigidBodyComponent>();
-                                    rb.Data.Type = Physics::BodyType::Static;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Output: Static Mesh (after the collider, which reads the EditMesh's render bounds): the blockout
-            // becomes a new asset before the creation is recorded. ONE undo step for the whole session, with
-            // the collider it just got: undo removes the entity (EditMesh included, through the scene
-            // serializer), redo brings it back under the same UUID. A refused write does NOT accept: the
-            // session and the tool stay open with the cells, and the user is told why (BlockoutSession.hpp).
+            // Collision (GiveBlockoutCollision: the piece's own triangles on a static body, never its bounding
+            // box) and then Output: Static Mesh, which makes the blockout a new asset, both before the creation
+            // is recorded. ONE undo step for the whole session, with the collider it just got: undo removes the
+            // entity (EditMesh included, through the scene serializer), redo brings it back under the same UUID.
+            // A refused write (or a refused collision) does NOT accept: the session and the tool stay open with
+            // the cells, and the user is told why (BlockoutSession.hpp).
             auto accepted = AcceptBlockout(
                  m_Entity, ms, endTool,
                  [&]( const Common::UUID& piece ) -> Common::BoolResultStr
                  {
                      if ( auto stored = StoreVoxels( scene ); !stored.IsSuccess() )
                          return stored;
+                     if ( ms.GenerateCollision )
+                     {
+                         auto ref = scene.FindEntityByID( piece );
+                         if ( !ref )
+                             return Common::MakeError<bool>( "the piece is no longer in the scene" );
+                         if ( auto given = GiveBlockoutCollision( ref->get() ); !given.IsSuccess() )
+                             return given;
+                     }
                      if ( ms.Output.Type != Core::ModelingState::OutputType::StaticMesh )
                          return Common::MakeSuccess( true );
                      auto written = Commands::OutputStaticMesh( piece, ms.Output.Folder, ms.Output.Name );

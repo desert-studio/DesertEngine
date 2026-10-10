@@ -6,6 +6,7 @@
 #include <entt/entt.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -46,8 +47,17 @@ namespace Desert::VFX
     // of the world: two viewports of one scene read the same plan, so they cannot run two different
     // simulations (§1.3-8), and a frame is a function of the scene's time, not of the wall clock.
     //
-    // Today the instances are ParticleEmitterComponents, keyed by entity UUID; the GPU state still lives
-    // per SceneRenderer until the world-owned pool (VFX-07).
+    // The render side of a world's effects (UE: FScene::FXSystem - the scene's GPU particle state), made by the
+    // renderer on first use (Graphic ParticleWorldGpu) and owned by the world, so every view of the scene shares
+    // it. Engine/VFX does not know what is in it.
+    class WorldGpuState
+    {
+    public:
+        virtual ~WorldGpuState() = default;
+    };
+
+    // Today the instances are ParticleEmitterComponents, keyed by entity UUID; their GPU state is the world's
+    // WorldGpuState (VFX-07b), one per scene, not one per view.
     class VFXWorld
     {
     public:
@@ -82,6 +92,23 @@ namespace Desert::VFX
         }
         [[nodiscard]] const EmitterInstance* FindEmitter( std::uint64_t entityUuid ) const;
 
+        // Counts Tick calls: a renderer runs one tick's simulation once, in the first view that sees its serial.
+        [[nodiscard]] std::uint64_t GetTickSerial() const
+        {
+            return m_TickSerial;
+        }
+
+        // The world's render-side state (see WorldGpuState). Const: the renderer is handed a const scene, and the
+        // GPU state is not part of the world's simulated state (nothing CPU-side reads it); Clear drops it.
+        [[nodiscard]] WorldGpuState* GetGpuState() const
+        {
+            return m_GpuState.get();
+        }
+        void SetGpuState( std::unique_ptr<WorldGpuState> state ) const
+        {
+            m_GpuState = std::move( state );
+        }
+
     private:
         void ResetInstance( EmitterInstance& instance );
 
@@ -89,5 +116,7 @@ namespace Desert::VFX
         TickPlan                                           m_Plan;
         std::unordered_map<std::uint64_t, EmitterInstance> m_Emitters;
         std::uint64_t                                      m_LastGeneration = 0;
+        std::uint64_t                                      m_TickSerial     = 0;
+        mutable std::unique_ptr<WorldGpuState>             m_GpuState;
     };
 } // namespace Desert::VFX

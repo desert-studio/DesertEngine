@@ -179,10 +179,12 @@ namespace Desert::Graphic
         // ── AND THEN IT IS WRITTEN, ONCE, AND NOT HERE ───────────────────────────────────────
         //
         // The write reads the three cubes back off the device, so what is cached is exactly what this run
-        // computed. It is for the NEXT run: nothing here waits for it. `EnvironmentCacheWriter` submits the
-        // copies, polls their fence once a tick and encodes BC6H + writes the file on a worker — that was
-        // 14.7 s of the main thread on a cold open (AL1-3). A failure costs the cache and nothing else, and
-        // is logged with the file by the writer when it lands.
+        // computed. Nothing here waits for it, and when it lands the writer puts the cube read back OUT OF
+        // THE FILE behind each handle below, so this run ends up drawing exactly what the next run loads
+        // (ENV-FIRST1: BC6H clamps above 65504 and quantises; RGBA32F does not). `EnvironmentCacheWriter` submits
+        // the copies, polls their fence once a tick and encodes BC6H + writes the file on a worker — that was 14.7
+        // s of the main thread on a cold open (AL1-3). A failure costs the cache and nothing else, and is logged
+        // with the file by the writer when it lands.
         {
             const std::string sourceKey = Common::AssetHandle::StableKeyForPath( meta.Filepath );
             const struct
@@ -190,9 +192,10 @@ namespace Desert::Graphic
                 Runtime::ImageHandle         Handle;
                 const std::filesystem::path& Path;
                 uint64_t                     Bake = 0;
-            } toWrite[] = { { radianceHandle, radiancePath, radianceBake },
-                            { diffuseIrradianceHandle, irradiancePath, irradianceBake },
-                            { prefilteredHandle, prefilterPath, prefilterBake } };
+                std::string_view             Tag;
+            } toWrite[] = { { radianceHandle, radiancePath, radianceBake, Assets::kEnvRadianceTag },
+                            { diffuseIrradianceHandle, irradiancePath, irradianceBake, Assets::kEnvIrradianceTag },
+                            { prefilteredHandle, prefilterPath, prefilterBake, Assets::kEnvPrefilterTag } };
 
             for ( const auto& entry : toWrite )
             {
@@ -204,7 +207,9 @@ namespace Desert::Graphic
                           EnvironmentCacheWriter::Get().Begin( *cube, { .Path            = entry.Path,
                                                                         .SourceKey       = sourceKey,
                                                                         .SourceSignature = sourceSignature,
-                                                                        .BakeSignature   = entry.Bake } );
+                                                                        .BakeSignature   = entry.Bake,
+                                                                        .Tag  = std::string( entry.Tag ),
+                                                                        .Live = entry.Handle } );
                      !begun )
                 {
                     LOG_ERROR( "[SceneEnvironment] '{}' was baked but will not be cached to '{}': {}",

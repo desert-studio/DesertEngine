@@ -34,6 +34,8 @@ namespace Desert::Graphic
                     return "XeSS";
                 case Scal::Upscaler::MetalFX:
                     return "MetalFX";
+                case Scal::Upscaler::Spatial:
+                    return "Spatial";
             }
             return "<unknown Upscaler>";
         }
@@ -119,10 +121,22 @@ namespace Desert::Graphic
         {
             if ( upscaler == Scal::Upscaler::TAAU )
                 return Common::MakeSuccess( TemporalMethod::TAAU );
+            // The spatial upscale has no history and no jitter: the frame's temporal method is None, and only a
+            // method without history reaches it (Scalability UpscalerForScale gives a temporal method TAAU).
+            if ( upscaler == Scal::Upscaler::Spatial )
+            {
+                if ( !Scal::IsTemporalAntiAliasing( path.Method ) )
+                    return Common::MakeSuccess( TemporalMethod::None );
+                return Common::MakeFormattedError<TemporalMethod>(
+                     "SelectTemporalMethod: Upscaler Spatial under the temporal method {} at {} % (Scalability "
+                     "UpscalerForScale never produces it: a temporal method upscales temporally)",
+                     MethodName( path.Method ), split.RenderScalePercent );
+            }
             if ( upscaler == Scal::Upscaler::None )
                 return Common::MakeFormattedError<TemporalMethod>(
                      "SelectTemporalMethod: render scale {} % with Upscaler None (Scalability Resolve never "
-                     "produces it: below 100 % an upscaler is required)",
+                     "produces it: below 100 % temporal AA upscales with TAAU, and without temporal AA the "
+                     "spatial upscaler runs)",
                      split.RenderScalePercent );
             return Common::MakeFormattedError<TemporalMethod>(
                  "SelectTemporalMethod: Upscaler {} at {} % has no implementation in this build",
@@ -132,7 +146,8 @@ namespace Desert::Graphic
         if ( upscaler != Scal::Upscaler::None )
             return Common::MakeFormattedError<TemporalMethod>(
                  "SelectTemporalMethod: Upscaler {} at render scale {} % (Scalability Resolve never produces it: "
-                 "the upscaler is None at native and supersampled scale)",
+                 "an upscaler runs only below 100 % under temporal AA; at native and supersampled scale it "
+                 "is None)",
                  UpscalerName( upscaler ), split.RenderScalePercent );
 
         switch ( path.Method )
@@ -150,8 +165,8 @@ namespace Desert::Graphic
         }
         return Common::MakeFormattedError<TemporalMethod>(
              "SelectTemporalMethod: anti-aliasing method {} ({}) at render scale {} % has no implementation in "
-             "this "
-             "build",
+             "this build (Scalability Resolve keeps it only where the device catalog offers it, and below 100 % "
+             "only as its own upscaler's pass)",
              MethodName( path.Method ), static_cast<int>( path.Method ), split.RenderScalePercent );
     }
 

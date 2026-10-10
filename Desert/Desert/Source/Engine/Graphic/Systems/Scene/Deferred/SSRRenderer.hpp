@@ -103,10 +103,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
-
         // The accumulated reflection is a reprojection of the previous frame, and the previous frame is now
         // a different world — see IRenderSystem::OnSceneReplaced, kind 1. Same argument as GIResolveRenderer
         // next door, at a blend weight of 0.88.

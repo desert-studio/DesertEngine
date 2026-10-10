@@ -51,7 +51,8 @@ namespace Desert::Graphic::System
         // program — no parameter value of any material decides a pass.
         bool IsTranslucent( const DataDrivenMaterial* material )
         {
-            return material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent;
+            // Additive is a translucency-pass mode too (UE BLEND_Additive): never into depth or the G-buffer.
+            return Core::Formats::IsTranslucentBlend( material->GetSchema().Blend );
         }
 
         // Appends one row to a buffer of rows laid end to end and returns its index there. Every lit pass
@@ -343,37 +344,34 @@ namespace Desert::Graphic::System
         }
     } // namespace MeshRendererDetail
 
-    void MeshRenderer::RegisterPasses( RenderGraphBuilder& builder )
+    SystemRasterPass MeshRenderer::GeometryPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
-            return;
+            return {};
 
         // A PASS WITHOUT ITS PIPELINE IS NOT A PASS, and this guard is what makes the refusal above
         // survivable. Before Г22 `m_StaticPipeline` could not be null (Create returned a make_shared),
         // so `m_StaticPipeline->GetSpecification()` two lines down was safe by accident; now that
         // SetupStaticPass can honestly refuse, the same line is a null dereference — the refusal became
-        // expressible and its first reader crashed on it. Registering nothing is the right answer: the
+        // expressible and its first reader crashed on it. Handing back no pass is the right answer: the
         // graph simply has no geometry pass, and the sky, terrain and post chain still draw.
         if ( !m_StaticPipeline )
         {
-            LOG_ERROR( "[MeshRenderer] no geometry pass this scene: the static-mesh pipeline was never "
-                       "built." );
-            return;
+            return {};
         }
 
-        builder
-             .AddPass( "MeshGeometryPass", RenderPhase::Geometry,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
-                       {
-                           // The draw list this node's Declare built (empty in Deferred, where the meshes go
-                           // to the G-buffer, or without a camera).
-                           (void)refs;
-                           return m_ForwardDraws.Record( context );
-                       },
-                       m_StaticPipeline->GetSpecification(), targetFb,
-                       { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        SystemRasterPass pass{ .Name        = "MeshGeometryPass",
+                               .ExecuteFunc = [this]( RDG::PassContext&     context,
+                                                      const FrameGraphRefs& refs ) -> Common::BoolResultStr
+                               {
+                                   // The draw list this node's Declare built (empty in Deferred, where the meshes
+                                   // go to the G-buffer, or without a camera).
+                                   (void)refs;
+                                   return m_ForwardDraws.Record( context );
+                               },
+                               .TargetFramebuffer = targetFb };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // The frame's forward draw list - built HERE, before any command is recorded - and one binding block
             // per material of it, the scene/view inputs bound where its shader has slots for them. Forward path
@@ -394,14 +392,7 @@ namespace Desert::Graphic::System
         // RenderGBufferManual() (called from SceneRenderer when Deferred). A graph pass targeting the G-buffer
         // would sit between the forward-target passes and break the graph's "consecutive same-framebuffer =
         // clear once" grouping, causing a spurious re-clear that wipes the sky/meshes in the scene target.
-
-        // The silhouette mask is always produced (and cleared) so the Jump Flood outline has a
-        // fresh input every frame. Outline visibility is controlled by JumpFloodOutlineRenderer.
-        RegisterSilhouettePass( builder );
-        RegisterShadowPass( builder );
-#if DESERT_DEV_INSTRUMENTS
-        RegisterDebugPass( builder );
-#endif
+        return pass;
     }
 
     SceneFrameBinding MeshRenderer::CaptureFrameState( const ViewFrame* view ) const
