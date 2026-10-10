@@ -18,6 +18,11 @@ namespace Desert::Graphic::API::Vulkan
         // order, so every row listed in DependsOn must come before the row that depends on it.
         constexpr std::array<CapabilitySpec, kCapabilityCount> kTable = { {
              { C::TessellationShader, "tessellationShader", N::Required, V10, {} },
+             // Every view pipeline blends per attachment: an integer target never blends and a slot the fragment
+             // stage does not write is masked (ShaderReflection::BuildColorBlendAttachments), so pAttachments
+             // differ (VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605). Universal on desktop and
+             // MoltenVK.
+             { C::IndependentBlend, "independentBlend", N::Required, V10, {} },
              { C::Swapchain, "swapchain", N::Required, 0, VK_KHR_SWAPCHAIN_EXTENSION_NAME },
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },

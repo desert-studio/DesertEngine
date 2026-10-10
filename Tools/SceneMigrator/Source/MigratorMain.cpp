@@ -1416,7 +1416,7 @@ namespace Desert::Migration
                     ++failed;
                     continue;
                 }
-                if ( stated.GetValue() >= 1u && stated.GetValue() <= 6u )
+                if ( stated.GetValue() >= 1u && stated.GetValue() <= 7u )
                 {
                     // The chain: each generation below the engine's takes every step from its own on.
                     using Step             = Common::ResultStr<std::string> ( * )( const std::string& );
@@ -1425,10 +1425,11 @@ namespace Desert::Migration
                                                &Desert::Migration::MigrateFoliageTypeV3ToV4,
                                                &Desert::Migration::MigrateFoliageTypeV4ToV5,
                                                &Desert::Migration::MigrateFoliageTypeV5ToV6,
-                                               &Desert::Migration::MigrateFoliageTypeV6ToV7 };
+                                               &Desert::Migration::MigrateFoliageTypeV6ToV7,
+                                               &Desert::Migration::MigrateFoliageTypeV7ToV8 };
                     std::string raisedText = text;
                     bool        stepFailed = false;
-                    for ( uint32_t from = stated.GetValue(); from <= 6u; ++from )
+                    for ( uint32_t from = stated.GetValue(); from <= 7u; ++from )
                     {
                         const auto raised = steps[from - 1u]( raisedText );
                         if ( !raised )

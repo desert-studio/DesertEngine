@@ -48,6 +48,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/Serialization/EnvironmentStaging.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Runtime/ImageHandle.hpp>
 
 #include <array>
 #include <chrono>
@@ -80,12 +81,27 @@ namespace Desert::Graphic
         uint64_t              BakeSignature   = 0;
         uint32_t              FaceSize        = 0;
         uint32_t              Mips            = 0;
+        /// The GPU image tag the cube carries once it is read back off the disk (`Assets::kEnv*Tag`).
+        std::string Tag;
+        /// The handle the running environment draws this cube through. Once the file is written the image
+        /// behind it is REPLACED by the cube read back out of that file -- see
+        /// `CacheAndReloadBakedEnvironmentCube`.
+        Runtime::ImageHandle Live;
     };
 
     /// The CPU half of the write: census, BC6H encode, container, atomic file write. Touches no device, so
     /// it runs on a worker. @p levels is the cube's chain in its own format, tightly packed in table order.
     [[nodiscard]] Common::BoolResultStr EncodeBakedEnvironmentCube( const EnvironmentCacheEntry& entry,
                                                                     const std::vector<uint8_t>&  levels );
+
+    /// THE ONE SOURCE OF TRUTH FOR WHAT A BAKED ENVIRONMENT LOOKS LIKE IS THE FILE (ENV-FIRST1). The bake
+    /// computes RGBA32F; the cache stores BC6H, which clamps everything above `kBC6HLargestValue` and quantises
+    /// the rest. A run that kept drawing its own RGBA32F cubes therefore drew a different sky from every
+    /// later run (RM1 measured up to 8/255 on 33 % of the pixels). So the write does not end at the file:
+    /// it reads the file back through `Assets::ReadBakedEnvironmentCube` -- the very read the next run's
+    /// cache hit makes -- and that is what the running environment adopts. Worker-safe: no device call.
+    [[nodiscard]] Common::ResultStr<Core::Formats::ImageCubeSpecification>
+    CacheAndReloadBakedEnvironmentCube( const EnvironmentCacheEntry& entry, const std::vector<uint8_t>& levels );
 
     /// THE WRITE, OFF THE MAIN THREAD (AL1-3). Measured on SKY_HdrOrientation: 14 668 ms of the cold open
     /// were the blocking readback plus the BC6H encode plus the file write, all on the main thread, for a
@@ -100,9 +116,11 @@ namespace Desert::Graphic
         /// Submits the readback of @p cube; the bytes become @p entry's file some ticks later.
         [[nodiscard]] Common::BoolResultStr Begin( ImageCube& cube, EnvironmentCacheEntry entry );
         /// Once a tick, beside `AsyncAssetLoader::Pump`: starts the encode of a landed readback, retires a
-        /// finished write with one line naming the file and its latency.
+        /// finished write with one line naming the file and its latency, and puts the cube read back out of
+        /// that file behind the entry's `Live` handle, so from then on this run draws what the next one loads.
         void Pump();
         /// Host teardown, while the device is alive: finishes every write in flight and releases the readbacks.
+        /// Nothing is adopted here -- no frame follows.
         void                 Drain();
         [[nodiscard]] size_t InFlight() const
         {
@@ -110,14 +128,19 @@ namespace Desert::Graphic
         }
 
     private:
+        // THE ENCODED CUBE CROSSES THE FUTURE BY POINTER. `ImageCubeSpecification` is immutable (const
+        // members), and MSVC's `std::future<T>` assigns its stored T, so a future of the spec itself does
+        // not compile there; the pointer carries the same value without loosening the type.
+        using EncodedCube = std::unique_ptr<Common::ResultStr<Core::Formats::ImageCubeSpecification>>;
+
         struct Write
         {
             EnvironmentCacheEntry                 Entry;
             std::shared_ptr<ImageReadback>        Readback;
-            std::future<Common::BoolResultStr>    Encoded;
+            std::future<EncodedCube>              Encoded;
             std::chrono::steady_clock::time_point StartedAt;
         };
-        static void Finish( Write& write );
+        static void Finish( Write& write, bool adopt );
 
         std::list<Write> m_InFlight;
     };

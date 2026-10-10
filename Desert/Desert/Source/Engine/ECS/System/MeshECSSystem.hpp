@@ -2,6 +2,7 @@
 
 #include "System.hpp"
 #include "SystemRules.hpp"
+#include "WindField.hpp"
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
@@ -432,7 +433,9 @@ namespace Desert::ECS
                          // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
                          // (one source: the paint panel's edit re-reads into the same asset). A type still being
                          // read culls nothing for those frames; one that failed says why once, in the service.
-                         // Its wind (FO-7) comes from the same file, at this frame's gameplay time.
+                         // Its wind response (FO-7) comes from the same file; the wind itself is the scene's
+                         // one query, ECS::WindAt, at the field entity's world origin (one push per draw, so one
+                         // sample per field), at this frame's gameplay time.
                          Graphic::InstanceCullDistance cullDistance;
                          Graphic::InstanceWind         wind;
                          if ( const auto* foliage = registry.try_get<FoliageComponent>( entity );
@@ -441,9 +444,12 @@ namespace Desert::ECS
                                        foliage->FoliageType ) )
                              {
                                  cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
-                                 wind         = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
-                                                                           type->Wind.Height, type->Wind.DirectionDegrees,
-                                                                           m_WindSeconds );
+                                 const glm::vec3 fieldOrigin =
+                                      glm::vec3( Entity( entity, registry ).GetWorldTransform()[3] );
+                                 const glm::vec3 air = ECS::WindAt( registry, fieldOrigin ).Velocity;
+                                 wind = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
+                                                                   type->Wind.Height, glm::vec2( air.x, air.z ),
+                                                                   m_WindSeconds );
                              }
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
                               targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,

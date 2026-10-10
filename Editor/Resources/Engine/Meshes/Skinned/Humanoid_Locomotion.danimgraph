@@ -1,0 +1,230 @@
+{
+    "Header": {
+        "Kind": "AnimGraph",
+        "Guid": "ebe752e8c0064ca198e19774936005c7",
+        "Versions": {
+            "ANGR": 4
+        },
+        "Dependencies": []
+    },
+    "Name": "Humanoid_Locomotion",
+    "TargetSkeleton": {
+        "Guid": "9d3c5e0a41b84f27b6e1a7c2d4f09e53",
+        "Path": "engine:Engine/Meshes/Skinned/Humanoid.skeleton"
+    },
+    "Parameters": [
+        {
+            "Name": "Speed",
+            "Type": 2,
+            "Default": 0.0
+        },
+        {
+            "Name": "IsFalling",
+            "Type": 0,
+            "Default": 0.0
+        }
+    ],
+    "Nodes": [
+        {
+            "Name": "Locomotion",
+            "Kind": 0,
+            "PoseInputs": [],
+            "ParameterInputs": [],
+            "Machine": {
+                "Entry": "Idle",
+                "States": [
+                    {
+                        "Name": "Idle",
+                        "Clip": "Idle",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 0.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Jump",
+                                "Blend": 0.1,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 6,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            },
+                            {
+                                "To": "Walk",
+                                "Blend": 0.2,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "Speed",
+                                        "Op": 0,
+                                        "Value": 10.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "Walk",
+                        "Clip": "Walk",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 260.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Jump",
+                                "Blend": 0.1,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 6,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            },
+                            {
+                                "To": "Idle",
+                                "Blend": 0.25,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "Speed",
+                                        "Op": 3,
+                                        "Value": 10.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            },
+                            {
+                                "To": "Run",
+                                "Blend": 0.25,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "Speed",
+                                        "Op": 0,
+                                        "Value": 450.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "Run",
+                        "Clip": "Run",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 520.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Jump",
+                                "Blend": 0.1,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 6,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            },
+                            {
+                                "To": "Walk",
+                                "Blend": 0.25,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "Speed",
+                                        "Op": 3,
+                                        "Value": 450.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "Jump",
+                        "Clip": "Jump",
+                        "Loop": false,
+                        "Speed": 1.0,
+                        "X": 260.0,
+                        "Y": 200.0,
+                        "Transitions": [
+                            {
+                                "To": "Idle",
+                                "Blend": 0.15,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 7,
+                                        "Value": 0.0
+                                    },
+                                    {
+                                        "Parameter": "Speed",
+                                        "Op": 3,
+                                        "Value": 10.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            },
+                            {
+                                "To": "Walk",
+                                "Blend": 0.15,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 7,
+                                        "Value": 0.0
+                                    },
+                                    {
+                                        "Parameter": "Speed",
+                                        "Op": 0,
+                                        "Value": 10.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ]
+                    }
+                ]
+            },
+            "X": 0.0,
+            "Y": 0.0
+        }
+    ],
+    "OutputPose": "Locomotion",
+    "OutputPoseX": 800.0,
+    "OutputPoseY": 0.0
+}

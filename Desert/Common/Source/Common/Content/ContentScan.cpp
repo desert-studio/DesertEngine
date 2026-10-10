@@ -807,6 +807,72 @@ namespace Common::Content
         return tracked;
     }
 
+    EolCensus TranslatedInEolListing( std::string_view listing )
+    {
+        EolCensus   census;
+        std::size_t start = 0;
+        while ( start < listing.size() )
+        {
+            const std::size_t      end = listing.find( '\0', start );
+            const std::string_view record =
+                 listing.substr( start, end == std::string_view::npos ? listing.size() - start : end - start );
+            start = end == std::string_view::npos ? listing.size() : end + 1;
+
+            const std::size_t tab = record.find( '\t' );
+            if ( tab == std::string_view::npos )
+                continue;
+            std::string_view       index;
+            std::string_view       worktree;
+            bool                   stated = false;
+            std::size_t            at     = 0;
+            const std::string_view head   = record.substr( 0, tab );
+            while ( at < head.size() )
+            {
+                const std::size_t      space = head.find( ' ', at );
+                const std::string_view word =
+                     head.substr( at, space == std::string_view::npos ? head.size() - at : space - at );
+                at = space == std::string_view::npos ? head.size() : space + 1;
+                if ( word.starts_with( "i/" ) )
+                {
+                    index  = word.substr( 2 );
+                    stated = true;
+                }
+                else if ( word.starts_with( "w/" ) )
+                    worktree = word.substr( 2 );
+            }
+            if ( !stated )
+                continue;
+            ++census.Checked;
+            if ( worktree.empty() || worktree == index )
+                continue;
+            census.Translated.push_back(
+                 { std::string( record.substr( tab + 1 ) ), std::string( index ), std::string( worktree ) } );
+        }
+        return census;
+    }
+
+    std::optional<EolCensus> TranslatedCheckouts( const std::filesystem::path&    repoRoot,
+                                                  const std::vector<std::string>& pathspecs )
+    {
+        // The toplevel is resolved first for TrackedContent's reason: an empty listing must mean "these
+        // pathspecs track nothing", which only a command that is known to run can say.
+        const std::string toplevelCommand = "git -C " +
+                                            QuoteForShell( WithoutTrailingSeparator( repoRoot.string() ) ) +
+                                            " rev-parse --show-toplevel 2>" + std::string( kNullDevice );
+        std::string toplevel = RunAndCapture( toplevelCommand );
+        while ( !toplevel.empty() && ( toplevel.back() == '\n' || toplevel.back() == '\r' ) )
+            toplevel.pop_back();
+        if ( toplevel.empty() )
+            return std::nullopt;
+
+        std::string command = "git -C " + QuoteForShell( WithoutTrailingSeparator( toplevel ) ) +
+                              " ls-files --eol -z --full-name --";
+        for ( const std::string& spec : pathspecs )
+            command += " " + QuoteForShell( spec );
+        command += " 2>" + std::string( kNullDevice );
+        return TranslatedInEolListing( RunAndCapture( command ) );
+    }
+
     std::vector<RegistryDisagreement> Compare( const Utils::AssetRegistry&               registry,
                                                const std::map<std::string, ContentFile>& present,
                                                std::string_view                          sourceName )

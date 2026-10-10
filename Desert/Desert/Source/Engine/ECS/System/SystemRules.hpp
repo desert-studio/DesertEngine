@@ -18,23 +18,9 @@ namespace Desert::ECS::Rules
     // The DECISIONS the gameplay systems make, as pure functions of their inputs.
     //
     // The systems themselves hold a `Core::Scene*`, and Scene drags in the renderer, so a test that wants
-    // to ask "does a character at 3 m/s pick the walk clip?" would have to link the whole graphics stack
+    // to ask "where does a socketed entity end up?" would have to link the whole graphics stack
     // and stand up a device. The rule is the part worth testing; the system is the part that fetches the
     // arguments. Same split that made the shadow cascades testable.
-
-    // Which locomotion clip a character should be playing. Ordering matters and is the rule itself:
-    // airborne wins over any ground speed, then idle / walk / run by the component's own thresholds.
-    inline const std::string& LocomotionClipFor( const LocomotionComponent& loco, float planarSpeed,
-                                                 bool onGround )
-    {
-        if ( !onGround )
-            return loco.JumpClip;
-        if ( planarSpeed < loco.WalkSpeed )
-            return loco.IdleClip;
-        if ( planarSpeed <= loco.RunSpeed )
-            return loco.WalkClip;
-        return loco.RunClip;
-    }
 
     // Where a socket-attached entity ends up: the bone's model-space transform lifted into the target's
     // world space, then the local grip offset. @p parentWorld is the attached entity's parent world matrix

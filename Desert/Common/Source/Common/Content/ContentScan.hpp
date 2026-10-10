@@ -6,7 +6,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
@@ -168,6 +170,39 @@ namespace Common::Content
     // distinction is the same one `scripts/CI/CheckTidy.sh` spends its exit code 2 on.
     [[nodiscard]] std::optional<std::map<std::string, ContentFile>>
     TrackedContent( const std::filesystem::path& repoRoot );
+
+    // ── THE BYTES ON THIS CHECKOUT ARE THE BYTES GIT STORES (GATE-SIZE1) ──────────────────────────
+    //
+    // The registry's SIZE column caught the CRLF checkout of four shaders on 09-22, but only for files that
+    // are a registry kind. A `.glslh` is not one (it is a compiler input, as UE's `.ush` is, not an asset with
+    // an identity), so its bytes reach the SPIR-V cache with no size gate behind them, and the same is true
+    // of `.shadingmodel` and of whatever extension the shader tree grows next. A row per include would make
+    // it an asset every GUID, picker and thumbnail census then has to answer for with no reader; the
+    // question the size column stood in for is simpler and covers every file at once: did git translate the
+    // file on the way to this disk. `git ls-files --eol` answers it per file — the line-ending class git
+    // stores (`i/`) against the one on disk (`w/`) — and the two differ exactly when the checkout rewrote
+    // the bytes (or a local edit changed them, which the gate SHOULD report: a file not as committed).
+    struct TranslatedCheckout
+    {
+        std::string Path;     ///< repository-relative, as git prints it
+        std::string Index;    ///< the class git stores: lf, crlf, mixed, none, -text
+        std::string Worktree; ///< the class on this disk
+    };
+
+    struct EolCensus
+    {
+        std::size_t                     Checked = 0; ///< records read: zero is a vacuous answer, never a clean one
+        std::vector<TranslatedCheckout> Translated;
+    };
+
+    // Parses `git ls-files --eol -z` output: every NUL-terminated record is `i/<a> w/<b> attr/<c>\t<path>`.
+    // A file absent from the worktree (`w/` empty) is not this question's and is skipped.
+    [[nodiscard]] EolCensus TranslatedInEolListing( std::string_view listing );
+
+    // The census over the tracked files under `pathspecs` (repository-relative). std::nullopt means the
+    // question could not be asked (no git, not a checkout), never "none translated".
+    [[nodiscard]] std::optional<EolCensus> TranslatedCheckouts( const std::filesystem::path&    repoRoot,
+                                                                const std::vector<std::string>& pathspecs );
 
     // One disagreement between the registry and the tree, as a sentence a person can act on.
     struct RegistryDisagreement

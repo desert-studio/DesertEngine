@@ -31,7 +31,7 @@ Shader "StaticMeshGlass"
             s.Refraction    = u_Material.IOR;
             const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
-                s.Normal = SampleTangentNormal( u_NormalTexture, i.UV0 );
+                s.Normal = SurfaceSampleTangentNormal( u_NormalTexture, i.UV0 );
             return s;
         }
     }

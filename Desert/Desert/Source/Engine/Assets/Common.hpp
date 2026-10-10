@@ -91,7 +91,8 @@ namespace Desert::Assets
         FoliageType,
         // A LANDSCAPE LAYER INFO (`.delayerinfo`): UE's ULandscapeLayerInfoObject — the name a landscape's
         // weight plane is keyed by and the numbers a paint stroke normalises with. A first-class asset so one
-        // "Grass" is ONE file every landscape painting it shares — see Engine/Assets/LandscapeLayerInfoAsset.hpp.
+        // "Grass" is ONE file every landscape painting it shares — see
+        // Engine/Assets/LandscapeLayerInfoAsset.hpp.
         LandscapeLayerInfo,
         // A LEVEL SEQUENCE (`.dseq`): UE's ULevelSequence — a Timeline::Sequence (host LevelSequence) whose
         // Entity bindings name entities of the scene that places it through a LevelSequenceComponent. See
@@ -107,6 +108,12 @@ namespace Desert::Assets
         // A WATER WAVE SET (`.dwaves`): UE's UWaterWavesAsset — a seeded Gerstner generator whose waves every
         // water body naming it shares. See Engine/Assets/WaterWavesAsset.hpp.
         WaterWaves,
+        // AN INPUT ACTION (`.deinputaction`): UE's UInputAction — what the player can do (Jump, Move), its value
+        // type and whether it consumes the keys mapped to it. See Engine/Assets/EnhancedInputAssets.hpp.
+        InputAction,
+        // AN INPUT MAPPING CONTEXT (`.deinputcontext`): UE's UInputMappingContext — keys mapped to actions with
+        // their modifier and trigger stacks. See Engine/Assets/EnhancedInputAssets.hpp.
+        InputMappingContext,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -203,6 +210,12 @@ namespace Desert::Assets
             // A WAVE SET IS SCENE-SCOPED for the retarget's reason: the water body that names it holds its
             // `AssetHandle`, and a wave set no live entity names displaces nothing.
             case AssetTypeID::WaterWaves:
+            // A MAPPING CONTEXT IS SCENE-SCOPED for the retarget's reason: the player's
+            // EnhancedInputPlayerComponent names it by `AssetHandle` (UE: the contexts a pawn adds at BeginPlay).
+            case AssetTypeID::InputMappingContext:
+            // AN INPUT ACTION IS SCENE-SCOPED with the context that maps it: the subsystem copies the action's
+            // data when the context is added, so an action no live context names has nothing left to drive.
+            case AssetTypeID::InputAction:
             case AssetTypeID::Count:
                 return false;
         }
@@ -275,6 +288,10 @@ namespace Desert::Assets
                 return "Fracture";
             case AssetTypeID::WaterWaves:
                 return "WaterWaves";
+            case AssetTypeID::InputAction:
+                return "InputAction";
+            case AssetTypeID::InputMappingContext:
+                return "InputMappingContext";
             case AssetTypeID::Count:
                 return "Count";
         }

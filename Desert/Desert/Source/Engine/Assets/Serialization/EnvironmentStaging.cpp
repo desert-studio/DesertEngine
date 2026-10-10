@@ -209,12 +209,12 @@ namespace Desert::Assets
         staged.IrradiancePath = EnvironmentBakePath( source, staged.IrradianceBake );
         staged.PrefilterPath  = EnvironmentBakePath( source, staged.PrefilterBake );
 
-        auto radiance   = ReadBakedEnvironmentCube( staged.RadiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
+        auto radiance   = ReadBakedEnvironmentCube( staged.RadiancePath, kEnvRadianceTag, kSkyEnvCubeFaceSize,
                                                     kSkyEnvRadianceMips, source, staged.RadianceBake );
-        auto irradiance = ReadBakedEnvironmentCube( staged.IrradiancePath, "EnvDiffuseIrradiance",
+        auto irradiance = ReadBakedEnvironmentCube( staged.IrradiancePath, kEnvIrradianceTag,
                                                     kSkyEnvIrradianceFaceSize, 1u, source, staged.IrradianceBake );
         auto prefilter =
-             ReadBakedEnvironmentCube( staged.PrefilterPath, "EnvPrefiltered", kSkyEnvPrefilterFaceSize,
+             ReadBakedEnvironmentCube( staged.PrefilterPath, kEnvPrefilterTag, kSkyEnvPrefilterFaceSize,
                                        kSkyEnvPrefilterMips, source, staged.PrefilterBake );
         if ( radiance.IsSuccess() && irradiance.IsSuccess() && prefilter.IsSuccess() )
         {

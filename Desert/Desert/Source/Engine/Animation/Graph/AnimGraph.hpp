@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Animation/AlphaBlend.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Animation/Graph/BlendSpace1D.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
@@ -119,6 +120,7 @@ namespace Desert::Animation::Graph
         LinkedInputPose     = 5, ///< UE FAnimNode_LinkedInputPose: a layer graph's input, only in one
         TwoBoneIK           = 6, ///< UE FAnimNode_TwoBoneIK: the end bone's chain reaches a goal
         LookAt              = 7, ///< UE FAnimNode_LookAt: a bone's aim axis turns to a target
+        BlendSpace1D        = 8, ///< UE FAnimNode_BlendSpacePlayer on a UBlendSpace1D: samples on the X pin's axis
     };
 
     /// Where a pose graph lives, which decides one kind: a LinkedInputPose exists only in a LAYER graph (it
@@ -222,6 +224,9 @@ namespace Desert::Animation::Graph
         std::optional<LinkedAnimLayerNode> LinkedLayer;
         std::optional<TwoBoneIKNode>       TwoBoneIK; // the payload, present exactly when Kind == TwoBoneIK
         std::optional<LookAtNode>          LookAt;    // the payload, present exactly when Kind == LookAt
+        /// The payload, present exactly when Kind == BlendSpace1D (BlendSpace1D.hpp). Absent on every other node,
+        /// which is why the files written before it read unchanged (ANGR stays 4: no file changes shape).
+        std::optional<BlendSpace1DNode>    BlendSpace;
         float                              X = 0.0f; // node editor canvas position (persisted, unused at runtime)
         float                              Y = 0.0f;
     };

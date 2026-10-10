@@ -14,6 +14,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 
@@ -30,6 +31,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cctype>
 #include <cstring>
 #include <cstddef>
@@ -418,7 +420,7 @@ TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
 TEST( VelocityTarget, InstancedViewPushCarriesTheWindAtThePreviousFrame )
 {
     using namespace Desert::Graphic;
-    const InstanceWind wind = MakeInstanceWind( 30.0f, 0.5f, 200.0f, 45.0f, 7.25 );
+    const InstanceWind wind = MakeInstanceWind( 30.0f, 0.5f, 200.0f, glm::vec2( 400.0f, 400.0f ), 7.25 );
     ASSERT_TRUE( wind.Sways() );
     const InstanceWindPush view = PackViewInstanceWind( wind, 7.0 );
     EXPECT_FLOAT_EQ( view.B.y, wind.Seconds );
@@ -968,8 +970,9 @@ TEST( VelocityTarget, SceneTargetGBufferAndVelocityShareTheViewExtent )
     const auto velocity = scene.find( "CreateViewVelocity(" );
     ASSERT_NE( velocity, std::string::npos );
     const std::string call = scene.substr( velocity, 160 );
-    EXPECT_NE( call.find( "m_ViewExtent.Width, m_ViewExtent.Height" ), std::string::npos )
-         << "the velocity is not created at the view extent: " << call;
+    // TAA1-B step 6: the velocity belongs to the RENDER extent set (with the scene target and G-buffer it is written beside).
+    EXPECT_NE( call.find( "frame.Split.Render.Width, frame.Split.Render.Height" ), std::string::npos )
+         << "the velocity is not created at the frame's render extent: " << call;
     const auto refusal =
          scene.find( "ViewTargetExtentMismatch(", scene.rfind( "if ( m_TargetFramebuffer )", velocity ) );
     ASSERT_LT( refusal, velocity ) << "the extent check must run before the velocity is created";
@@ -1057,3 +1060,102 @@ namespace
     // ShaderDir(), which derives from the engine directory (TestSupport/runner.hpp).
     const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
 } // namespace
+
+// THE VELOCITY VIEW MODE ("Debug: Velocity", VelocityView.shader) shows camera motion over static geometry, and is
+// black exactly when nothing moved. The chain, CPU side: SceneViewState gives the next frame the committed frame's
+// unjittered ViewProjection as PrevViewProjection; a static mesh's velocity is VelocityNdc( ViewProjection * p,
+// PrevViewProjection * p ) (Vertex_Static.glslh -> ObjectMotion.glslh DesertVelocity); the view samples
+// FrameTransients::Velocity at the render extent and shows it with the shader's own gain (16 px per frame = full
+// brightness). VelocityViewColour below is the CPU twin of that shader, pinned line by line.
+// Mutation: PrevViewProjection = the current matrix on an un-reset frame, the shader's gain or encoding changed
+// (e.g. no 0.5 * size, a different divisor), or the view reading another texture than the frame's velocity -> red.
+namespace VelocityTargetTest
+{
+    glm::vec3 VelocityViewColour( const glm::vec2 ndc, const glm::vec2 size )
+    {
+        const glm::vec2 pixels   = ndc * 0.5f * size;
+        const float     speed    = glm::length( pixels );
+        const float     strength = std::clamp( speed / 16.0f, 0.0f, 1.0f );
+        const float     hue      = std::atan2( pixels.y, pixels.x ) * ( 0.5f / 3.14159265f ) + 0.5f;
+        if ( !( speed > 0.0f ) )
+            return glm::vec3( 0.0f );
+        glm::vec3   rgb;
+        const float offsets[3] = { 0.0f, 2.0f / 3.0f, 1.0f / 3.0f };
+        for ( int c = 0; c < 3; ++c )
+        {
+            const float h = hue + offsets[c];
+            rgb[c]        = std::clamp( std::abs( ( h - std::floor( h ) ) * 6.0f - 3.0f ) - 1.0f, 0.0f, 1.0f );
+        }
+        return rgb * strength;
+    }
+
+    ViewInputs StillViewInputs( const glm::vec3 eye, const double time )
+    {
+        ViewInputs in;
+        in.View       = glm::lookAt( eye, eye + glm::vec3( 0.0f, 0.0f, -1.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        in.Projection = Desert::Core::MakePerspective( glm::radians( 60.0f ), 16.0f / 9.0f, 10.0f, 5'000'000.0f );
+        in.CameraPosition           = eye;
+        in.NearPlane                = 10.0f;
+        in.FarPlane                 = 5'000'000.0f;
+        in.CameraIdentity           = 7;
+        in.SceneIdentity            = 1;
+        in.Output                   = ViewExtent{ 1920, 1080 };
+        in.RenderScalePercent       = 100; // no temporal method here: below 100 % would need TAAU (SelectTemporalMethod)
+        in.AntiAliasing.Method      = ::Common::Scalability::AntiAliasingMethod::None;
+        in.AntiAliasing.PostProcess = ::Common::Scalability::AntiAliasingMethod::None;
+        in.TimeSeconds              = time;
+        return in;
+    }
+} // namespace VelocityTargetTest
+
+TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBlackWhenStill )
+{
+    SceneViewState  state;
+    const glm::vec3 eye( 0.0f, 150.0f, 0.0f );
+    const glm::vec4 staticPoint( 0.0f, 150.0f, -1000.0f, 1.0f ); // 10 m in front, world = identity, never moves
+
+    const auto first = state.BeginFrame( StillViewInputs( eye, 1.0 ), nullptr );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    state.EndFrame( RDG::ExecuteReport{} );
+
+    // The camera moved 5 cm to +x (one editor frame of a slow pan, or one `set Camera.Position`).
+    const auto moved = state.BeginFrame( StillViewInputs( eye + glm::vec3( 5.0f, 0.0f, 0.0f ), 1.016 ), nullptr );
+    ASSERT_TRUE( moved.IsSuccess() ) << moved.GetError();
+    const ViewFrame& m = moved.GetValue();
+    ASSERT_EQ( m.HistoryReset, HistoryResetReason::None );
+    const glm::vec2 size( static_cast<float>( m.Split.Render.Width ),
+                          static_cast<float>( m.Split.Render.Height ) );
+    ASSERT_GT( size.x, 0.0f );
+    const glm::vec2 v  = VelocityNdc( m.ViewProjection * staticPoint, m.PrevViewProjection * staticPoint );
+    const float     px = glm::length( v * 0.5f * size );
+    EXPECT_GT( px, 1.0f ) << "5 cm at 10 m must move a static point by more than a render pixel";
+    const glm::vec3 shown = VelocityViewColour( v, size );
+    const float     peak  = std::max( { shown.r, shown.g, shown.b } );
+    EXPECT_GE( peak * 255.0f, 8.0f ) << "the moving frame must show as colour in an 8-bit shot, peak " << peak;
+    state.EndFrame( RDG::ExecuteReport{} );
+
+    // The next frame at the same position: nothing moved, the view is exactly black (what a shot taken after the
+    // camera stopped shows).
+    const auto still = state.BeginFrame( StillViewInputs( eye + glm::vec3( 5.0f, 0.0f, 0.0f ), 1.032 ), nullptr );
+    ASSERT_TRUE( still.IsSuccess() ) << still.GetError();
+    const ViewFrame& s  = still.GetValue();
+    const glm::vec2  vs = VelocityNdc( s.ViewProjection * staticPoint, s.PrevViewProjection * staticPoint );
+    EXPECT_EQ( VelocityViewColour( vs, size ), glm::vec3( 0.0f ) );
+    state.EndFrame( RDG::ExecuteReport{} );
+
+    // The twin is the shader, and the view samples the frame's own velocity transient.
+    const auto        root   = Desert::TestSupport::RepositoryRoot();
+    const std::string shader = ReadFile( root / "Editor/Resources/Shaders/Programs/Debug/VelocityView.shader" );
+    for ( const char* line :
+          { "const vec2  ndc      = texelFetch(u_Velocity, texel, 0).xy;",
+            "const vec2  pixels   = ndc * 0.5 * vec2(size);", "const float speed    = length(pixels);",
+            "const float strength = clamp(speed / 16.0, 0.0, 1.0);",
+            "const float hue      = atan(pixels.y, pixels.x) * (0.5 / 3.14159265) + 0.5;",
+            "const vec3 k = abs(fract(vec3(hue) + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0;",
+            "oColor               = vec4(speed > 0.0 ? HueToRgb(hue) * strength : vec3(0.0), 1.0);" } )
+        EXPECT_NE( shader.find( line ), std::string::npos ) << "VelocityView.shader no longer carries: " << line;
+    const std::string node =
+         ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    EXPECT_NE( node.find( "const RDG::TextureRef velocity = textures.Transients.Velocity;" ), std::string::npos );
+    EXPECT_NE( node.find( "view->DeclareBindings( pass, velocity );" ), std::string::npos );
+}

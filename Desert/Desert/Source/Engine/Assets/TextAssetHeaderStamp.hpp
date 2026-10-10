@@ -49,7 +49,7 @@ namespace Desert::Assets
     inline constexpr uint32_t kRetargetSchemaVersion = 4;
     // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
-    inline constexpr uint32_t kFoliageTypeSchemaVersion = 7;
+    inline constexpr uint32_t kFoliageTypeSchemaVersion = 8;
     // A .dwaves: the water wave set file layout (UE UWaterWavesAsset), stated in the header from its first
     // version (WATER-W1).
     inline constexpr uint32_t kWaterWavesSchemaTag     = Common::Content::FourCC( "WAVS" );
@@ -62,6 +62,12 @@ namespace Desert::Assets
     // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02).
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
     inline constexpr uint32_t kVFXSystemSchemaVersion = 1;
+    // A .deinputaction / .deinputcontext: UE's UInputAction / UInputMappingContext, stated in the header from
+    // their first version (GP1a; Serialization/InputAssets.hpp).
+    inline constexpr uint32_t kInputActionSchemaTag             = Common::Content::FourCC( "INAC" );
+    inline constexpr uint32_t kInputActionSchemaVersion         = 1;
+    inline constexpr uint32_t kInputMappingContextSchemaTag     = Common::Content::FourCC( "INMC" );
+    inline constexpr uint32_t kInputMappingContextSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

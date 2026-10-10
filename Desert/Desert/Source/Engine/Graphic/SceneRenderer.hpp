@@ -20,6 +20,8 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/View/SpatialUpscale.hpp>
+#include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -36,6 +38,7 @@
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
+#include "Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp"
 #include "Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp"
 #include "Systems/Scene/PostProcessing/FXAARenderer.hpp"
 #include "Systems/Scene/PostProcessing/SMAARenderer.hpp"
@@ -47,6 +50,7 @@
 #include "Systems/Scene/Deferred/DeferredLightingRenderer.hpp"
 #include "Systems/Scene/Deferred/SSAORenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
+#include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
@@ -194,6 +198,10 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr EndScene();
 
         void Resize( const uint32_t width, const uint32_t height );
+        // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
+        // silhouette mask, overdraw target and outline. Resize() sizes the Output set (tonemap, FXAA, SMAA) and
+        // calls this with the split of the new extent; OnUpdate calls it with the frame's split. Equal: nothing.
+        void ResizeRenderTargets( ViewExtent render );
 
         // CAMERA CUT: the next frame this view renders starts a new temporal sequence in the SAME world.
         // Every render system gets IRenderSystem::OnTemporalHistoryReset (frame indices to zero, histories
@@ -323,6 +331,7 @@ namespace Desert::Graphic
         // This frame's volumetric cloud layer (from VolumetricCloudComponent, via the ECS). The wind
         // offset is accumulated by the ECS system, which is where the timestep lives.
         void SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
+                                  const glm::vec3&                      windDirection,
                                   const std::vector<HeroCloudInstance>& heroClouds );
 
         // The evaluated per-frame sky: sun direction and radiance, ambient above/below, night factor, the
@@ -491,6 +500,22 @@ namespace Desert::Graphic
         // TAA1 step 3 — THE one previous-frame source of this view (UE: FSceneViewState): every AddFrame* that
         // reads a matrix, a camera position or a previous-frame value takes the ViewFrame BeginFrame returned.
         SceneViewState m_ViewState;
+        // TAA1-B 5c — the temporal resolve of this view's frames: the implementation of the frame's
+        // TemporalMethod (CreateTemporalUpscaler), null for None. Re-created only when the method changes
+        // (EnsureTemporalUpscaler), so its lazily built pipelines survive frames; it outlives every graph that
+        // recorded its node (the graph executes inside OnUpdate). Handed to SceneViewState::BeginFrame.
+        std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
+        // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
+        std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
+        // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
+        // compute pipeline, so it lives with the view rather than in a static that would outlive the device.
+        SupersampleResolve m_SupersampleResolve;
+        // SCAL-SPATIAL1: the spatial upscale of a frame below 100 % without a temporal method, and the post
+        // sharpen after any resolve (View/SpatialUpscale.hpp). Each owns its compute pipeline, like the above.
+        SpatialUpscale m_SpatialUpscale;
+        Sharpen        m_Sharpen;
+        // ViewInputs::Quality: SCAL1 AntiAliasing.TemporalQuality, read with the rest of the quality (BeginScene).
+        TemporalAAQuality m_TemporalAAQuality = TemporalAAQuality::Medium;
         // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's
         // CurrentViewFrameScope so no exit path leaves it pointing at a finished frame.
         const ViewFrame* m_CurrentViewFrame = nullptr;
@@ -514,6 +539,15 @@ namespace Desert::Graphic
         // The surface's size: the constructor's until the first Resize(), then the last one's. The build
         // reads it and nothing reads the window, so a view never holds targets larger than its surface.
         ViewExtent m_ViewExtent;
+
+        // THE RENDER SET'S EXTENT (ViewTargetSet::Render): what the scene target, the G-buffer, the scene depth
+        // resolve, the silhouette mask, the overdraw target and the outline were last built at — the frame's
+        // ResolutionSplit::Render, set by ResizeRenderTargets. The constructor's extent until the first frame.
+        ViewExtent m_RenderExtent;
+        // The render scale the view last resolved (ResolveViewResolution): Resize() sizes the render set by it, so
+        // a resize does not rebuild the render targets at the output extent only for the next frame to shrink
+        // them.
+        int m_LastRenderScalePercent = 100;
 
         // Has EnsureRendererResources() run? Set once, never cleared — see its comment for why there is no
         // path that invalidates it.
@@ -562,12 +596,48 @@ namespace Desert::Graphic
         // Desert/Tests/Engine/RendererSceneLifetime rather than left as a claim.
         void RebindScene();
 
+        // The overlay phases' targets after the temporal resolve (ViewTargetSet::Output): the resolved colour, an
+        // overlay velocity (never read) and the overlay depth PopulateSceneDepth filled. Invalid: no resolve.
+        struct OverlayTargets
+        {
+            RDG::TextureRef    Color;
+            RDG::TextureRef    Velocity;
+            RDG::TextureRef    Depth;
+            [[nodiscard]] bool IsValid() const
+            {
+                return Color.IsValid();
+            }
+        };
         // Adds the sorted registered passes whose phase @p selects accepts, one raster node each, in sort
         // order; consecutive passes on one framebuffer share one render pass (CLEAR iff @p clearFirst).
         // @p samples are graph images those passes sample (the UI samples the backdrop pyramid); each render
         // pass group's opener declares them, so their barriers land before the render pass begins.
+        // @p overlay: when valid, the OUTPUT-extent target set the passes drawing on the scene target draw into
+        // instead of it (colour 0, the velocity slot and the depth replaced, no resolves; same formats and one
+        // sample, so the render pass stays compatible with the one their pipelines were built against) - the
+        // overlay phases after the temporal resolve.
         void AddGraphPhasePasses( RDG::Builder& graph, FrameTextures& textures, bool ( *selects )( RenderPhaseID ),
-                                  bool clearFirst );
+                                  bool clearFirst, const OverlayTargets& overlay = {} );
+        // Makes m_TemporalUpscaler the implementation of @p method (kept when it already is; null for None).
+        void EnsureTemporalUpscaler( TemporalMethod method );
+        // The frame's temporal resolve, after the Transparency phase: registers the view's histories and adds
+        // the upscaler's node on the scene colour, the scene depth, the resolved velocity and @p exposure (last
+        // frame's adapted luminance). Returns the temporal output - the colour every later node reads and the
+        // overlay phases draw into; invalid when the frame has no temporal method or the node was refused
+        // (logged with the reason), and the frame then continues on the scene colour.
+        //
+        // With the resolve it returns the OVERLAY TARGET SET at the output extent: Color = the temporal output,
+        // Velocity and Depth = transients the "Scene: PopulateSceneDepth" node fills from the render-extent scene
+        // depth (at every scale, 100 % included). A frame the resolve cannot run on (a multisampled scene target,
+        // no PopulateSceneDepth pipeline, the upscaler's refusal) is RENDERED WITHOUT IT: ERROR "rendered without
+        // the temporal resolve this frame: <why>", an invalid set, and the caller draws the overlays into the
+        // scene target and post-processes the scene colour.
+        OverlayTargets AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                         RDG::TextureRef exposure );
+        // AutoExposure's build-time step (Prepare advances its ping-pong), taken before the temporal node so that
+        // node and the exposure nodes agree on which image is last frame's: returns the imported previous
+        // adapted luminance ("AutoExposure.Previous"); invalid when no exposure runs this frame.
+        RDG::TextureRef PrepareFrameAutoExposure( FrameTextures& textures );
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
         // and the Transparency-phase passes — the one point in the frame where the scene depth is finished in
         // BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its apply
@@ -597,6 +667,9 @@ namespace Desert::Graphic
                             System::MeshRenderer* meshRenderer );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
+        // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
+        // velocity over @p target, the post input, after the temporal resolve.
+        void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
@@ -638,8 +711,9 @@ namespace Desert::Graphic
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
+        // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
-                                   const std::vector<RDG::TextureRef>& sceneColor );
+                                   const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
         void AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                             const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
@@ -648,7 +722,8 @@ namespace Desert::Graphic
         void AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<FrameValues>& values );
-        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures );
+        // @p source: the colour the post chain reads (the temporal output, or the scene colour without one).
+        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source );
         void AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures );
         // The backdrop pyramid the UI samples (invalid when the blur is not recorded this frame).

@@ -50,6 +50,7 @@
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
+#include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
@@ -185,9 +186,19 @@ namespace
                &MetadataTypeOf<Desert::Assets::VFXSystemAsset>, &DeclaredTypeOf<Desert::Assets::VFXSystemAsset> },
              { AssetTypeID::Fracture, "FractureAsset", &HandleOf<Desert::Assets::FractureAsset>,
                &MetadataTypeOf<Desert::Assets::FractureAsset>, &DeclaredTypeOf<Desert::Assets::FractureAsset> },
+<<<<<<< HEAD
              { AssetTypeID::WaterWaves, "WaterWavesAsset", &HandleOf<Desert::Assets::WaterWavesAsset>,
                &MetadataTypeOf<Desert::Assets::WaterWavesAsset>,
                &DeclaredTypeOf<Desert::Assets::WaterWavesAsset> },
+=======
+             { AssetTypeID::InputAction, "InputActionAsset", &HandleOf<Desert::Assets::InputActionAsset>,
+               &MetadataTypeOf<Desert::Assets::InputActionAsset>,
+               &DeclaredTypeOf<Desert::Assets::InputActionAsset> },
+             { AssetTypeID::InputMappingContext, "InputMappingContextAsset",
+               &HandleOf<Desert::Assets::InputMappingContextAsset>,
+               &MetadataTypeOf<Desert::Assets::InputMappingContextAsset>,
+               &DeclaredTypeOf<Desert::Assets::InputMappingContextAsset> },
+>>>>>>> origin/task/GP2
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1327,7 +1338,12 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::LevelSequence,
          AssetTypeID::VFXSystem,
          AssetTypeID::Fracture,
+<<<<<<< HEAD
          AssetTypeID::WaterWaves,
+=======
+         AssetTypeID::InputAction,
+         AssetTypeID::InputMappingContext,
+>>>>>>> origin/task/GP2
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1520,6 +1536,7 @@ TEST( AssetHandleStability, AVFXSystemHandleIsHandleForGuidOfItsHeader )
     fs::remove_all( dir );
 }
 
+<<<<<<< HEAD
 // WATER-W1: a water body names its wave set by handle, so the handle must be the `.dwaves` header GUID.
 TEST( AssetHandleStability, AWaterWavesHandleIsHandleForGuidOfItsHeader )
 {
@@ -1532,6 +1549,26 @@ TEST( AssetHandleStability, AWaterWavesHandleIsHandleForGuidOfItsHeader )
     data.Generator.Seed = 7;
     ASSERT_TRUE( Desert::Assets::WaterWavesAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::WaterWavesAsset>( file, Common::Content::ContentKind::WaterWaves );
+=======
+// GP1b: a mapping context names its actions by GUID and the player names its contexts by handle, so both
+// handles must be the file's header GUID.
+TEST( AssetHandleStability, InputActionAndMappingContextHandlesAreHandleForGuidOfTheirHeaders )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "GP1bInputHandles";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path action = dir / "IA_Jump.deinputaction";
+    ASSERT_TRUE(
+         Desert::Assets::InputActionAsset::Save( action, Desert::Assets::Serialization::InputActionData{} ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::InputActionAsset>( action,
+                                                                Common::Content::ContentKind::InputAction );
+    const fs::path context = dir / "IMC_Default.deinputcontext";
+    ASSERT_TRUE( Desert::Assets::InputMappingContextAsset::Save(
+         context, Desert::Assets::Serialization::InputMappingContextData{} ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::InputMappingContextAsset>(
+         context, Common::Content::ContentKind::InputMappingContext );
+>>>>>>> origin/task/GP2
     fs::remove_all( dir );
 }
 

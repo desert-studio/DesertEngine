@@ -34,7 +34,7 @@ namespace Desert::Hair
         std::span<const glm::vec3> SkinnedMeshPositions;
         std::span<const uint32_t>  SkinnedMeshTriangleIndices;
         glm::vec3                  Gravity      = { 0.0f, -980.0f, 0.0f }; // cm/s^2, from the physics world
-        glm::vec3                  WindVelocity = { 0.0f, 0.0f, 0.0f };    // cm/s; source: see ClothStepContext
+        glm::vec3                  WindVelocity = { 0.0f, 0.0f, 0.0f };    // cm/s; ECS::WindAt at the groom
     };
 
     class IGroomSimulation

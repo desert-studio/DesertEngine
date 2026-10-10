@@ -6,13 +6,18 @@
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <format>
+#include <algorithm>
+#include <array>
 #include <functional>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -74,6 +79,25 @@ namespace Desert::Editor::Tools
         Geometry::VoxelBlockout::Volume    Volume;
         Geometry::VoxelBlockout::GridFrame EntityFrame;
     };
+
+    // A grid frame has no scale: the reason an entity scaled by `world` cannot be edited on one, or nullopt.
+    [[nodiscard]] inline std::optional<std::string> ScaleRefusal( std::string_view name, const glm::mat4& world )
+    {
+        for ( int axis = 0; axis < 3; ++axis )
+            if ( const float len = glm::length( glm::vec3( world[axis] ) ); std::abs( len - 1.0f ) > 1e-3f )
+                return std::format( "'{}' is scaled ({:.3f} along axis {}), and a CubeGrid grid has no scale",
+                                    name, len, axis );
+        return std::nullopt;
+    }
+
+    // The entity's transform as the grid frame its voxels are carried into the world by.
+    [[nodiscard]] inline Geometry::VoxelBlockout::GridFrame EntityGridFrame( const glm::mat4& world )
+    {
+        Geometry::VoxelBlockout::GridFrame frame;
+        frame.Origin   = glm::vec3( world[3] );
+        frame.Rotation = glm::normalize( glm::quat_cast( glm::mat3( world ) ) );
+        return frame;
+    }
     [[nodiscard]] inline Common::ResultStr<ReopenedBlockout>
     ReopenBlockout( std::string_view name, const Geometry::VoxelBlockout::SavedBlockout* saved,
                     const Common::ResultStr<uint64_t>& meshKey, const glm::mat4& world )
@@ -90,20 +114,62 @@ namespace Desert::Editor::Tools
                  std::format( "the mesh of '{}' was edited after CubeGrid built it (key {} is now {:016x}); "
                               "reopening would overwrite that edit",
                               name, saved->MeshKey, meshKey.GetValue() ) );
-        for ( int axis = 0; axis < 3; ++axis )
-            if ( const float len = glm::length( glm::vec3( world[axis] ) ); std::abs( len - 1.0f ) > 1e-3f )
-                return Common::MakeError<ReopenedBlockout>(
-                     std::format( "'{}' is scaled ({:.3f} along axis {}), and a CubeGrid grid has no scale", name,
-                                  len, axis ) );
+        if ( auto scaled = ScaleRefusal( name, world ) )
+            return Common::MakeError<ReopenedBlockout>( std::move( *scaled ) );
         auto loaded = VB::Load( *saved );
         if ( !loaded.IsSuccess() )
             return Common::MakeError<ReopenedBlockout>( std::format( "'{}': {}", name, loaded.GetError() ) );
         if ( loaded.GetValue().m_Frozen.empty() )
             return Common::MakeError<ReopenedBlockout>( std::format( "'{}' carries an empty blockout", name ) );
         ReopenedBlockout out;
-        out.EntityFrame.Origin   = glm::vec3( world[3] );
-        out.EntityFrame.Rotation = glm::normalize( glm::quat_cast( glm::mat3( world ) ) );
-        out.Volume               = VB::Reframed( loaded.GetValue(), out.EntityFrame );
+        out.EntityFrame = EntityGridFrame( world );
+        out.Volume      = VB::Reframed( loaded.GetValue(), out.EntityFrame );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    // RECOVER (the card's "or rebuilt from an axis-aligned box mesh"): the tool opened on an entity that carries
+    // no voxels edits the blocks its mesh is made of (VoxelBlockout::FromBoxMesh) - a blockout whose scene
+    // block was lost, or a mesh of whole blocks made elsewhere. Its per-triangle material IDs are the entity's
+    // slots, as Accept stores them. There is no saved key to compare: the mesh IS the source, and Accept
+    // re-bakes it from the recovered blocks (frame-aligned UVs, merged faces) and stores their voxels beside
+    // it, so the next reopen is the ordinary one. Refused, by name and reason, when the entity is scaled or
+    // the mesh is not a closed volume of whole axis-aligned blocks no finer than `minUnit`.
+    [[nodiscard]] inline Common::ResultStr<ReopenedBlockout> RecoverBlockout( std::string_view              name,
+                                                                              const Geometry::DynamicMesh3& mesh,
+                                                                              const glm::mat4&              world,
+                                                                              float minUnit )
+    {
+        if ( auto scaled = ScaleRefusal( name, world ) )
+            return Common::MakeError<ReopenedBlockout>( std::move( *scaled ) );
+        std::vector<int>        slotOf( static_cast<size_t>( std::max( mesh.MaxVertexID(), 0 ) ), -1 );
+        std::vector<glm::dvec3> positions;
+        positions.reserve( static_cast<size_t>( mesh.VertexCount() ) );
+        for ( const int v : mesh.VertexIndicesItr() )
+        {
+            slotOf[static_cast<size_t>( v )] = static_cast<int>( positions.size() );
+            positions.push_back( mesh.GetVertex( v ) );
+        }
+        const Geometry::DynamicMeshMaterialAttribute* ids =
+             mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
+        std::vector<std::array<int, 3>> triangles;
+        std::vector<int>                materials;
+        triangles.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
+        materials.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const Geometry::Index3i tri = mesh.GetTriangle( t );
+            triangles.push_back( { slotOf[static_cast<size_t>( tri.A )], slotOf[static_cast<size_t>( tri.B )],
+                                   slotOf[static_cast<size_t>( tri.C )] } );
+            materials.push_back( ids != nullptr ? ids->GetValue( t ) : 0 );
+        }
+        auto recovered = Geometry::VoxelBlockout::FromBoxMesh( positions, triangles, materials, minUnit );
+        if ( !recovered.IsSuccess() )
+            return Common::MakeError<ReopenedBlockout>(
+                 std::format( "'{}' carries no CubeGrid voxels and its mesh is not a blockout: {}", name,
+                              recovered.GetError() ) );
+        ReopenedBlockout out;
+        out.EntityFrame = EntityGridFrame( world );
+        out.Volume      = Geometry::VoxelBlockout::Reframed( recovered.GetValue(), out.EntityFrame );
         return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Editor::Tools

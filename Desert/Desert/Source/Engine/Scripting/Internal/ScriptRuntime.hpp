@@ -20,6 +20,7 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
 #include <Engine/Scripting/Luau/LuauRuntime.hpp>
 
@@ -101,6 +102,11 @@ namespace Desert::Scripting
 
         float MouseDx = 0.0f;
         float MouseDy = 0.0f;
+
+        // The local player's Enhanced Input (Lua Input.action* / addContext / rebind read it). Begun on the
+        // first played frame (TickPlayerInput), ended when Play stops.
+        Input::LocalPlayerInput PlayerInput;
+        bool                    PlayerInputBegun = false;
 
         // Input.wasPressed() edge state (down this frame & up last frame), refreshed by NewInputFrame().
         std::unordered_map<int, bool> KeyDownPrev;

@@ -169,8 +169,8 @@ namespace
               "outliner must not freeze a cinematic or make its events a function of the outliner "
               "(UE: ALevelSequenceActor ticks regardless of bHidden)." },
          Row{ "LocomotionSystem.hpp", Verdict::MustNot,
-              "picks a clip NAME from a character's speed; hiding a character must not change which "
-              "animation it is playing when it comes back." },
+              "publishes a character's Speed / IsFalling / IsCrouched into its AnimGraph; hiding a "
+              "character must not change the state its graph is in when it comes back." },
          Row{ "MeshECSSystem.hpp", Verdict::Honours,
               "the original three sites (static, instanced, skinned) and the whole reason the flag "
               "appeared to work at all." },

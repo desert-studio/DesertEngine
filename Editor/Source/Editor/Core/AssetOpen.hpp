@@ -51,6 +51,8 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Animation: // Persona's Animation mode (ANV1a)
             case Assets::AssetTypeID::Skeleton:  // Persona's Skeleton mode (ANV1f)
             case Assets::AssetTypeID::LevelSequence: // the Sequencer's Level timeline (ANIM-LSEQ)
+            case Assets::AssetTypeID::InputAction:   // the Input Action editor (GP1d)
+            case Assets::AssetTypeID::InputMappingContext: // the Input Mapping Context editor (GP1d)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";

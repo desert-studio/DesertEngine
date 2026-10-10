@@ -114,26 +114,6 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Star Intensity" ), Category( "Night Sky" ), Range( 0.0f, 5.0f ) )
         float StarIntensity = 1.0f;
 
-        PROPERTY( DisplayName( "Drive Sun From Time Of Day" ), Category( "Time Of Day" ) )
-        bool DriveSunFromTimeOfDay = false;
-
-        PROPERTY( DisplayName( "Time Of Day" ), Category( "Time Of Day" ), Range( 0.0f, 24.0f ), Units( "h" ),
-                  EditCondition( "DriveSunFromTimeOfDay" ) )
-        float TimeOfDay = 12.0f;
-
-        PROPERTY( DisplayName( "Day Length" ), Category( "Time Of Day" ), Range( 0.0f, 86400.0f ), Units( "s" ),
-                  EditCondition( "DriveSunFromTimeOfDay" ),
-                  Tooltip( "Real seconds per in-game day. 0 freezes the sun at Time Of Day." ) )
-        float DayLengthSeconds = 600.0f;
-
-        PROPERTY( DisplayName( "Latitude" ), Category( "Time Of Day" ), Range( -90.0f, 90.0f ), Units( "deg" ),
-                  EditCondition( "DriveSunFromTimeOfDay" ) )
-        float Latitude = 45.0f;
-
-        PROPERTY( DisplayName( "North Offset" ), Category( "Time Of Day" ), Range( 0.0f, 360.0f ), Units( "deg" ),
-                  EditCondition( "DriveSunFromTimeOfDay" ) )
-        float NorthOffset = 0.0f;
-
         PROPERTY( DisplayName( "Auto Rebake" ), Category( "Environment Lighting" ), Advanced )
         bool AutoRebakeEnvironment = true;
 

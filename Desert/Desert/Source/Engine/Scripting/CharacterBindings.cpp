@@ -10,24 +10,34 @@ namespace Desert::Scripting
             return ref.Registry->try_get<ECS::CharacterControllerComponent>( ref.Entity );
         }
 
-        // forward = W/S axis, right = D/A axis (each -1..1), speed in m/s.
+        // UE AddMovementInput: camera-relative intent, forward and right each -1..1 (IA_Move's Y and X). The
+        // speed is the controller's (Max Walk Speed / Crouched / Swim), not the script's.
         int Move( lua_State* L )
         {
             if ( auto* cc = Character( L ) )
-            {
-                cc->MoveInput    = { static_cast<float>( luaL_checknumber( L, 3 ) ), static_cast<float>( luaL_checknumber( L, 2 ) ) };
-                cc->DesiredSpeed = static_cast<float>( luaL_checknumber( L, 4 ) );
-            }
+                cc->MoveInput = { static_cast<float>( luaL_checknumber( L, 3 ) ),
+                                  static_cast<float>( luaL_checknumber( L, 2 ) ) };
             return 0;
         }
+        // UE Jump: Jump Z Velocity from the ground, not while crouched.
         int Jump( lua_State* L )
         {
             if ( auto* cc = Character( L ) )
-            {
                 cc->JumpRequested = true;
-                cc->JumpStrength  = static_cast<float>( luaL_checknumber( L, 2 ) );
-            }
             return 0;
+        }
+        // UE Crouch / UnCrouch: the wish; standing up waits for head room.
+        int Crouch( lua_State* L )
+        {
+            if ( auto* cc = Character( L ) )
+                cc->CrouchRequested = lua_toboolean( L, 2 ) != 0;
+            return 0;
+        }
+        int IsCrouched( lua_State* L )
+        {
+            const auto* cc = Character( L );
+            lua_pushboolean( L, cc != nullptr && cc->IsCrouched );
+            return 1;
         }
         int IsOnGround( lua_State* L )
         {
@@ -73,7 +83,10 @@ namespace Desert::Scripting
                 return 0;
             for ( entt::entity child : rel->Children )
             {
-                if ( reg.has<ECS::CameraComponent>( child ) && reg.has<ECS::TransformComponent>( child ) )
+                // A spring arm takes the pitch (UE: the arm follows the control rotation) and swings its
+                // camera with it; without one the camera child itself tilts.
+                if ( ( reg.has<ECS::SpringArmComponent>( child ) || reg.has<ECS::CameraComponent>( child ) ) &&
+                     reg.has<ECS::TransformComponent>( child ) )
                 {
                     auto& rot = reg.get<ECS::TransformComponent>( child ).Rotation;
                     rot.x     = glm::clamp( rot.x + radians, glm::radians( -85.0f ), glm::radians( 85.0f ) );
@@ -88,6 +101,7 @@ namespace Desert::Scripting
     void RegisterCharacterBindings( lua_State* L )
     {
         for ( const luaL_Reg& method : { luaL_Reg{ "move", &Move }, luaL_Reg{ "jump", &Jump },
+                                         luaL_Reg{ "crouch", &Crouch }, luaL_Reg{ "isCrouched", &IsCrouched },
                                          luaL_Reg{ "isOnGround", &IsOnGround }, luaL_Reg{ "setSwimming", &SetSwimming },
                                          luaL_Reg{ "swim", &Swim }, luaL_Reg{ "isSwimming", &IsSwimming },
                                          luaL_Reg{ "addYaw", &AddYaw }, luaL_Reg{ "addCameraPitch", &AddCameraPitch } } )

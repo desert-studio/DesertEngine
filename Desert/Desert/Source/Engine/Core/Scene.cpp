@@ -744,9 +744,11 @@ namespace Desert::Core
         r.prepare<ECS::SpotLightComponent>();
         r.prepare<ECS::SkyboxComponent>();
         r.prepare<ECS::SkyAtmosphereComponent>();
+        r.prepare<ECS::TimeOfDayComponent>();
         r.prepare<ECS::ExponentialHeightFogComponent>();
         r.prepare<ECS::PostProcessVolumeComponent>();
         r.prepare<ECS::VolumetricCloudComponent>();
+        r.prepare<ECS::WindSourceComponent>();
         r.prepare<ECS::HeroCloudComponent>();
         r.prepare<ECS::ProceduralFoliageComponent>();
         r.prepare<ECS::ProceduralFoliageFieldComponent>();
@@ -762,9 +764,9 @@ namespace Desert::Core
         r.prepare<ECS::KillFieldComponent>();
         r.prepare<ECS::AnchorFieldComponent>();
         r.prepare<ECS::CharacterControllerComponent>();
+        r.prepare<ECS::SpringArmComponent>();
         r.prepare<ECS::PlayerStartComponent>();
         r.prepare<ECS::StreamingSourceComponent>();
-        r.prepare<ECS::LocomotionComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
         r.prepare<ECS::SocketAttachmentComponent>();

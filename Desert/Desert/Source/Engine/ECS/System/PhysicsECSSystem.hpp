@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Engine/ECS/System/System.hpp>
+#include <Engine/ECS/System/CharacterMovement.hpp>
+#include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/WaterBodyGather.hpp>
@@ -228,25 +230,15 @@ namespace Desert::ECS
                     continue;
                 const auto& transform = characters.get<TransformComponent>( entity );
 
-                Physics::CharacterDesc desc;
-                desc.Radius         = cc.Data.Radius;
-                desc.HalfHeight     = glm::max( ( cc.Data.Height - 2.0f * cc.Data.Radius ) * 0.5f, 0.01f );
-                desc.Position       = transform.Translation; // capsule center
-                desc.MaxSlopeDeg    = cc.Data.MaxSlopeDeg;
-                auto profile        = m_World->GetCollisionProfiles().Resolve( cc.Data.CollisionProfile );
-                if ( profile )
-                    desc.Profile = profile.GetValue();
-                auto created = profile ? m_World->CreateCharacter( desc )
-                                       : Common::MakeError<Physics::CharacterHandle>( profile.GetError() );
-                if ( !created )
+                if ( const auto created =
+                          CharacterMovement::CreateCharacter( cc, *m_World, transform.Translation ); // capsule centre
+                     !created )
                 {
                     m_RefusedCharacters.insert( entity );
                     LOG_ERROR( "[Physics] entity {} has no character: {}", static_cast<uint32_t>( entity ),
                                created.GetError() );
                     continue;
                 }
-                cc.RuntimeCharacter = created.GetValue();
-                cc.VerticalVelocity = 0.0f;
             }
 
             if ( !playing )
@@ -318,6 +310,10 @@ namespace Desert::ECS
                 characters.get<TransformComponent>( entity ).Translation =
                      m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter );
             }
+
+            // Spring arms after the characters moved (and after the scripts pitched them, ScriptSystem runs
+            // first): the camera is placed against this frame's pawn and this frame's world.
+            SpringArm::UpdateAll( registry, m_World.get(), ts.GetSeconds() );
         }
 
         // nullopt = the asset is still loading; an error = there is nothing to build from. Public: the editor's
@@ -425,58 +421,13 @@ namespace Desert::ECS
                 if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
                     continue;
 
-                // World move direction from the script's local intent (y = forward, x = strafe/right).
-                glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
-                if ( glm::length( wish ) > 1e-4f )
-                    wish = glm::normalize( wish );
+                // World move intent from the script's camera-relative one (y = forward, x = right); the model
+                // (walking / falling / crouch / swimming, UE CharacterMovementComponent) is CharacterMovement::Step,
+                // run on every FIXED step.
+                const glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
+                CharacterMovement::Step( cc, *m_World, wish, dt );
 
-                const bool onGround = m_World->IsCharacterOnGround( cc.RuntimeCharacter );
-                cc.OnGround         = onGround; // exposed to scripts via self:isOnGround()
-                // Gravity is authored per-character (CharacterControllerData::Gravity), not a baked constant —
-                // default ~2x real so the jump arc is SNAPPY (real 9.81 feels floaty / cartoonish).
-                const float kGravity = cc.Data.Gravity;
-
-                glm::vec3 horiz;
-                if ( cc.Swimming )
-                {
-                    // BUOYANCY: no hard gravity. Vertical follows the swim intent (up/down); when neutral the
-                    // body drifts gently up toward the surface. Full 3D control, but slower than on land.
-                    const float targetV = cc.SwimVertical * cc.DesiredSpeed;
-                    cc.VerticalVelocity = glm::mix( cc.VerticalVelocity, targetV, 0.15f );
-                    if ( glm::abs( cc.SwimVertical ) < 0.01f )
-                        cc.VerticalVelocity += 2.5f * dt; // gentle rise (float up)
-                    cc.JumpRequested = false;
-
-                    horiz          = wish * ( cc.DesiredSpeed * 0.6f ); // water drag
-                    cc.AirVelocity = { horiz.x, horiz.z };
-                }
-                else
-                {
-                    if ( onGround )
-                        cc.VerticalVelocity = cc.JumpRequested ? cc.JumpStrength : -1.0f; // jump (script) or stick
-                    else
-                        cc.VerticalVelocity -= kGravity * dt;
-                    cc.JumpRequested = false; // one-shot, consumed
-
-                    // NO AIR CONTROL: on the ground the script's input steers (and we remember that horizontal
-                    // velocity); in the air the takeoff velocity is locked, so a jump goes one direction and
-                    // there's no bunny-hop strafing.
-                    if ( onGround )
-                    {
-                        horiz          = wish * cc.DesiredSpeed;
-                        cc.AirVelocity = { horiz.x, horiz.z }; // capture for the moment we leave the ground
-                    }
-                    else
-                    {
-                        horiz = { cc.AirVelocity.x, 0.0f, cc.AirVelocity.y };
-                    }
-                }
-                const glm::vec3 vel( horiz.x, cc.VerticalVelocity, horiz.z );
-                m_World->UpdateCharacter( cc.RuntimeCharacter, vel, dt );
-
-                cc.CurrentSpeed = glm::length( glm::vec2( horiz.x, horiz.z ) ); // 0 when idle, drives anim
-
-                // NOTE: physics only PRODUCES state (cc.CurrentSpeed / cc.OnGround). Mapping that state to a
+                // NOTE: physics only PRODUCES state (cc.Velocity / cc.OnGround). Mapping that state to a
                 // locomotion clip is behaviour and lives in LocomotionSystem (runs after this), not here.
             }
         }

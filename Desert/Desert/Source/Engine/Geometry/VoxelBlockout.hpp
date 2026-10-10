@@ -307,6 +307,26 @@ namespace Desert::Geometry::VoxelBlockout
     // or the .stmesh the Static Mesh output wrote and a tool lifts back (seams split vertices, never move them).
     uint64_t MeshKey( std::vector<glm::vec3> positions, int triangleCount );
 
+    // RECOVER: the voxels of an axis-aligned box mesh that carries none (a blockout whose scene block was lost,
+    // a mesh made elsewhere of whole blocks), so the tool can be opened on any such mesh as UE's Cube Grid
+    // takes any mesh as its target. `positions` are the mesh's vertices in its own space (centimetres),
+    // `triangles` index them, `materials` is the material slot of each triangle. The lattice is found, not
+    // asked for: its origin is the mesh's lowest corner and its Block Size the largest step every vertex
+    // coordinate is a whole multiple of (to 1/100 cm, MeshKey's precision). Each lattice square a face plane
+    // holds sums the signed area of the triangles over it (+ = faces the axis's + direction), so a quad's
+    // diagonal or a greedy-merged face counts once; the X faces are swept column by column into solid cells,
+    // and the Y and Z faces must then be exactly the borders of those cells. Every exposed face of a cell
+    // takes the material of the triangle covering most of its square. One committed layer comes back, in the
+    // mesh's own space with no rotation. Refused, by reason and position, when there is nothing to recover
+    // (no triangles, no enclosed block), when a triangle is not axis-aligned (a Corner Mode slope or a
+    // non-blockout mesh), when the lattice is finer than `minUnit` (the smallest Block Size) or wider than a
+    // packed cell index, when a face plane covers part of a square or two faces overlap on it, when a column
+    // does not close, when a Y or Z face is missing from, or lies inside or outside, the swept volume, or when
+    // a material does not fit a cell face.
+    Common::ResultStr<Volume> FromBoxMesh( const std::vector<glm::dvec3>&         positions,
+                                           const std::vector<std::array<int, 3>>& triangles,
+                                           const std::vector<int>& materials, float minUnit );
+
     // Shift+E / Shift+Q: move the selection `baseCells` along the work-plane's outward normal (negative =
     // back into the surface) without editing anything, so the next Push/Pull starts from there.
     // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:878-894 (SlideSelection), adapted: the

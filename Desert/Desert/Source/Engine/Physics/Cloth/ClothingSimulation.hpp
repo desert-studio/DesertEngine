@@ -15,10 +15,10 @@
 //   * The registry is a plain object with a name lookup instead of a global modular-feature list; a missing
 //     backend is an error that names the registered ones, never a silent "no cloth".
 //
-// WIND. The step context carries a wind VELOCITY; the cloth owns no wind. Today the engine's only wind is
-// the cloud layer's (VolumetricCloudComponent::WindDirection / WindSpeed,
-// Engine/ECS/VolumetricCloudComponent.hpp); foliage has none. Where the velocity comes from is decided with CLO1 —
-// the context is the seam.
+// WIND. The step context carries a wind VELOCITY; the cloth owns no wind. The velocity is the scene's wind at
+// the cloth's component, the answer of the one query ECS::WindAt (Engine/ECS/System/WindField.hpp, over the
+// scene's WindSource entities, WIND-SRC) - the same answer the cloud layer and foliage read. The context is the
+// seam; the stepping system (CLO1) fills WindVelocity from ECS::WindAt and from nothing else.
 //
 // NOT HERE: CLO1 — the Jolt SoftBody backend (factory "JoltSoftBody"), where the registry lives (the physics
 // world is the expected owner), and the ECS system that steps simulations at the physics fixed step.

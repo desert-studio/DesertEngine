@@ -115,6 +115,19 @@ namespace Desert::Editor
                        if ( Explorer() == nullptr )
                            return Common::MakeError( "New Level Sequence: the Assets window does not exist" );
                        return Explorer()->CreateNewLevelSequence();
+                   },
+                   [this]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError( "New Input Action: the Assets window does not exist" );
+                       return Explorer()->CreateNewInputAction();
+                   },
+                   [this]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError(
+                                "New Input Mapping Context: the Assets window does not exist" );
+                       return Explorer()->CreateNewInputMappingContext();
                    } ) )
             commands.push_back( std::move( command ) );
     }

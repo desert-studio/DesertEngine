@@ -258,7 +258,7 @@ namespace Desert::Graphic::System
         // through the component beside Max Steps rather than through the material.
         layerInputs.VolumeResolution = m_Data.VolumeResolution;
         layerInputs.MaxSteps         = m_Data.MaxSteps;
-        layerInputs.WindDirection    = m_Data.WindDirection;
+        layerInputs.WindDirection    = m_WindDirection;
 
         ApplyCloudMaterialToBakeParams( m_Material, layerInputs, shapes, speciesCount, params );
 
@@ -1193,13 +1193,14 @@ namespace Desert::Graphic::System
     }
 
     void VolumetricCloudRenderer::SetCloudSettings( bool present, const ECS::VolumetricCloudData& data,
-                                                    const glm::vec3&                      windOffset,
+                                                    const glm::vec3& windOffset, const glm::vec3& windDirection,
                                                     Common::Settings::CloudQuality        quality,
                                                     const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Present    = present;
         m_Data       = data;
-        m_WindOffset = windOffset;
+        m_WindOffset    = windOffset;
+        m_WindDirection = windDirection;
         m_Quality    = quality;
 
         // RE-ARM THE WARNINGS WHEN THE ARRANGEMENT CHANGES. A latch that is never released says a thing

@@ -80,6 +80,8 @@ namespace Common::Content
         VFXSystem,
         Fracture,
         WaterWaves,
+        InputAction,
+        InputMappingContext,
         COUNT,
     };
 
@@ -171,6 +173,9 @@ namespace Common::Content
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
              // UE's UWaterWavesAsset: a seeded Gerstner generator (Engine/Assets/Serialization/WaterWaves.hpp).
              /* WaterWaves           */ { "WaterWaves", ".dwaves", &P::WATER_WAVES_PATH },
+             // UE's UInputAction and UInputMappingContext (Engine/Assets/Serialization/InputAssets.hpp).
+             /* InputAction          */ { "InputAction", ".deinputaction", &P::INPUT_PATH },
+             /* InputMappingContext  */ { "InputMappingContext", ".deinputcontext", &P::INPUT_PATH },
         } };
     }
 
