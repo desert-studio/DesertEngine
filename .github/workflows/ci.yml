@@ -722,6 +722,18 @@ jobs:
         # This leg also puts the documented developer command — `scripts/MacOS/BuildMacOS.sh Shipping`,
         # which is what the packager's own error message tells people to run — under test.
         config: [Release, Shipping]
+        # THE SHIPPING LEG BUILDS WHAT IT OBSERVES, AND NOTHING ELSE. Its steps read three binaries: the
+        # player (Symbol census), the packager that ships it (Package the sandbox game) and DShaderTool
+        # (Lint shaders). The Editor, the world/cloud bakers, SceneMigrator and the other tools are not
+        # part of what a player gets, and nothing below reads a Shipping copy of them; built anyway they
+        # were half of the leg's compile on a 3-core runner, and a cold cache put the whole workspace past
+        # the step's 50 minutes (CI 38049132064: Desert done at 28 min, timed out inside the Editor). The
+        # workspace Makefile names each project's dependencies from its own `links`, so these three pull
+        # in exactly the libraries they link. Windows Shipping still builds the whole solution in this
+        # configuration — the "does every project compile and link under Shipping" half stays there.
+        include:
+          - config: Shipping
+            projects: --project=Runtime --project=GamePackager --project=DShaderTool
 
     steps:
       # The job's own clock — see the note on the `sanitizers` job's copy of this step.
@@ -779,7 +791,7 @@ jobs:
         env:
           CCACHE_MAXSIZE: ${{ matrix.config == 'Release' && '0.8G' || '0.4G' }}
           CCACHE_DIR: ${{ runner.temp }}/ccache
-        run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }}
+        run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }} ${{ matrix.projects }}
 
       # After the build and before the tests, `always()`, `continue-on-error` — see the sanitizers job.
       - name: Save ccache
@@ -804,10 +816,34 @@ jobs:
       # with nothing split: the suites in build/TestNeedsVulkanDevice.txt are named in a ::notice unless
       # DESERT_MACOS_VULKAN_RUNNER is 'true', and RunTests.sh runs the planned list. The asan column is the
       # macOS one in the timing table; with one shard it only orders the list, heaviest first.
+      #
+      # WHETHER THIS RUNNER HAS A DEVICE IS ASKED OF THE RUNNER, NOT ONLY OF A VARIABLE. The engine boots
+      # headless once (EngineHost's boot test: instance, device, renderer) with MoltenVK logging at info,
+      # so the log names the Metal device MoltenVK found and the exact refusal — the runner's
+      # RunnerMain prints a driver's NSException name and reason instead of gtest's "Unknown C++
+      # exception". A boot that succeeds puts the Vulkan-device suites into the plan below; one that
+      # fails leaves them out with the plan's ::notice, and the probe's output above it says why.
+      # DESERT_MACOS_VULKAN_RUNNER=true still forces them in (a runner that must be held to them).
+      - name: Probe the Vulkan device
+        id: vulkan-probe
+        if: matrix.config != 'Shipping'
+        continue-on-error: true
+        env:
+          MVK_CONFIG_LOG_LEVEL: "3"
+          DYLD_FALLBACK_LIBRARY_PATH: /opt/homebrew/lib
+        run: |
+          if build/Bin/Tests/${{ matrix.config }}/EngineTests --desert-suite=EngineHost \
+               --gtest_filter=EngineHost.TheEngineBootsWithoutAWindow; then
+            echo "device=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=No Vulkan device on this runner::the headless engine boot failed on $(sysctl -n machdep.cpu.brand_string); its output in this step names the cause"
+            exit 1
+          fi
+
       - name: Plan test suites
         if: matrix.config != 'Shipping'
         env:
-          DESERT_MACOS_VULKAN_RUNNER: ${{ vars.DESERT_MACOS_VULKAN_RUNNER }}
+          DESERT_MACOS_VULKAN_RUNNER: ${{ (vars.DESERT_MACOS_VULKAN_RUNNER == 'true' || steps.vulkan-probe.outputs.device == 'true') && 'true' || 'false' }}
         run: >-
           python3 scripts/CI/TestShards.py plan --expected build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
           --column asan --shards 1 --out build/TestPlan
@@ -874,7 +910,7 @@ jobs:
       # that has one (self-hosted Apple Silicon); a crash, a non-zero exit, a missing PNG or ten minutes
       # without exiting fails the job.
       - name: Smoke-run the packaged game (Vulkan runner only)
-        if: matrix.config == 'Release' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
+        if: matrix.config == 'Release' && (vars.DESERT_MACOS_VULKAN_RUNNER == 'true' || steps.vulkan-probe.outputs.device == 'true')
         run: |
           ./build/Bin/Release/GamePackager Projects/Desert/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Release"
           app="$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 1 -name '*.app' | head -n 1)"
@@ -886,8 +922,8 @@ jobs:
           [ -s "$shot" ] || { echo "the packaged game exited 0 but wrote no PNG at $shot"; exit 1; }
 
       - name: Smoke run skipped — no Vulkan on this runner
-        if: matrix.config == 'Release' && vars.DESERT_MACOS_VULKAN_RUNNER != 'true'
-        run: echo "::notice title=Packaged game NOT started::macos-14 is a VM with no proven Metal device for MoltenVK; set DESERT_MACOS_VULKAN_RUNNER=true on a Vulkan-capable Mac runner to smoke-run the packaged .app"
+        if: matrix.config == 'Release' && !(vars.DESERT_MACOS_VULKAN_RUNNER == 'true' || steps.vulkan-probe.outputs.device == 'true')
+        run: echo "::notice title=Packaged game NOT started::no Vulkan device on this runner (see the step Probe the Vulkan device); set DESERT_MACOS_VULKAN_RUNNER=true to require one"
 
       # Surface the test reports even when a step above failed.
       - name: Upload test reports
