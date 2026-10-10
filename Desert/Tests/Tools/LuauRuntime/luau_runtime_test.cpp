@@ -42,8 +42,11 @@ namespace
 
     std::vector<LuauBinding> Self( Beacon& beacon )
     {
-        return { LuauBinding{
-             .Name = "self", .Type = BeaconType(), .Resolve = [&beacon] { return &beacon; }, .Changed = {} } };
+        return { LuauBinding{ .Name    = "self",
+                              .Type    = BeaconType(),
+                              .Resolve = [&beacon] { return &beacon; },
+                              .Changed = {},
+                              .Entity  = {} } };
     }
 
     LuauSlot MustLoad( LuauRuntime& runtime, const std::string& script, const std::string& source,
@@ -112,7 +115,8 @@ namespace
                        { LuauBinding{ .Name    = "self",
                                       .Type    = BeaconType(),
                                       .Resolve = [&]() -> void* { return alive ? &beacon : nullptr; },
-                                      .Changed = {} } } );
+                                      .Changed = {},
+                                      .Entity  = {} } } );
         alive                               = false;
         Common::BoolResultStr const touched = runtime.Call( slot, "Touch" );
         ASSERT_FALSE( touched.IsSuccess() );

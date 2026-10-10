@@ -531,8 +531,11 @@ namespace Desert::UI
                             ? p.Columns
                             : std::max( 1, static_cast<int>( ( innerW + p.Spacing ) / ( cw + p.Spacing ) ) );
                 for ( int i = 0; i < n; ++i )
+                {
+                    const int row = i / cols; // the cell's row: the integer quotient is the intent
                     out.push_back( { { x0 + static_cast<float>( i % cols ) * ( cw + p.Spacing ),
-                                       y0 + static_cast<float>( i / cols ) * ( ch + p.Spacing ), cw, ch } } );
+                                       y0 + static_cast<float>( row ) * ( ch + p.Spacing ), cw, ch } } );
+                }
                 break;
             }
             case LayoutGroupType::Wrap:
@@ -589,8 +592,9 @@ namespace Desert::UI
                                                          static_cast<float>( rows ) );
                 for ( int i = 0; i < n; ++i )
                 {
+                    const int  row = i / cols; // the cell's row: the integer quotient is the intent
                     const Rect cell{ x0 + static_cast<float>( i % cols ) * ( cellW + p.Spacing ),
-                                     y0 + static_cast<float>( i / cols ) * ( cellH + p.Spacing ), cellW, cellH };
+                                     y0 + static_cast<float>( row ) * ( cellH + p.Spacing ), cellW, cellH };
                     out.push_back( { placeIn( cell, slots[i].Pref ) } );
                 }
                 break;

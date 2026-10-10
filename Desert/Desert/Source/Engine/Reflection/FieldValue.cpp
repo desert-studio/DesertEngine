@@ -170,8 +170,10 @@ namespace Desert::Reflection
             case FieldType::Double:
                 return Common::MakeSuccess( Value::Double( Load<double>( at ) ) );
             case FieldType::String:
-                return Common::MakeSuccess(
-                     Value::String( *static_cast<const std::string*>( static_cast<const void*>( at ) ) ) );
+                // The reflected offset addresses a live std::string member of `object`: reinterpret_cast is the
+                // cast that states it (a string is not trivially copyable, so Load's memcpy cannot carry it).
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                return Common::MakeSuccess( Value::String( *reinterpret_cast<const std::string*>( at ) ) );
             case FieldType::Vec2:
                 return LoadFloats<Value::Float2>( field, at, &Value::Vec2 );
             case FieldType::Vec3:
@@ -228,7 +230,9 @@ namespace Desert::Reflection
                 Store<double>( at, *value.Get<double>() );
                 return Common::MakeSuccess( true );
             case FieldType::String:
-                *static_cast<std::string*>( static_cast<void*>( at ) ) = *value.Get<std::string>();
+                // As in the load above: the offset addresses a live std::string member, assigned in place.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                *reinterpret_cast<std::string*>( at ) = *value.Get<std::string>();
                 return Common::MakeSuccess( true );
             case FieldType::Vec2:
                 return StoreFloats( field, at, value.Get<Value::Float2>() );

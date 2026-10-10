@@ -230,8 +230,8 @@ namespace Desert::Editor::ImportOptions
                     }
                     Assets::LoadRequest request = Assets::AsyncAssetLoader::Get().Request(
                          twin,
-                         // NOLINTNEXTLINE(bugprone-exception-escape): an ordinary callback, never required
-                         // noexcept
+                         // An ordinary completion callback, never required noexcept (a false positive).
+                         // NOLINTNEXTLINE(bugprone-exception-escape)
                          [asset, path, onSettled]( const Assets::Asset<Assets::AssetBase>& read,
                                                    const Assets::LoadOutcome outcome, const std::string& error )
                          {

@@ -47,7 +47,9 @@ namespace ReflectedFunctionsFixture
         }
 
         FUNCTION( ScriptCallable )
-        [[nodiscard]] static std::string Greet( const std::string& name, Mood mood )
+        // A const MEMBER on purpose: the suite calls it through an instance to cover the const-member thunk.
+        // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+        [[nodiscard]] std::string Greet( const std::string& name, Mood mood ) const
         {
             return ( mood == Mood::Angry ? "Go away, " : "Hello, " ) + name;
         }

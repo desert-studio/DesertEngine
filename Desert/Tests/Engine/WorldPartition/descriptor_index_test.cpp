@@ -50,7 +50,7 @@ namespace
         return std::format(
              R"({{"SceneName":"World","Entities":[{},{}{}],"WorldPartition":{{"Grids":[{{"CellSize":)"
              R"(12800.0,"LoadingRange":25600.0}}]}}}})",
-             a, withB ? b + "," : std::string(), c );
+             a, withB ? std::format( "{},", b ) : std::string(), c );
     }
 
     bool Write( const TempWorld& world, const std::string& json )
