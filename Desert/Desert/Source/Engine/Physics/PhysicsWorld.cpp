@@ -1318,6 +1318,15 @@ namespace Desert::Physics
         m_Impl->Bodies->SetLinearVelocity( JPH::BodyID( handle ), ToJolt( velocity ) );
     }
 
+    void PhysicsWorld::TeleportBody( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        SetTransform( handle, position, rotation ); // also drops the interpolation pose
+        m_Impl->Bodies->SetLinearAndAngularVelocity( JPH::BodyID( handle ), JPH::Vec3::sZero(), JPH::Vec3::sZero() );
+        m_Impl->KinematicTargets.erase( handle ); // a pending MoveKinematic would drag it back
+    }
+
     void PhysicsWorld::AddImpulse( BodyHandle handle, const glm::vec3& impulse )
     {
         if ( !m_Impl || handle == kInvalidBody )
@@ -1516,5 +1525,13 @@ namespace Desert::Physics
         // What other bodies see of the character changes with it.
         character->SetInnerBodyShape( capsule );
         return true;
+    }
+
+    void PhysicsWorld::TeleportCharacter( CharacterHandle handle, const glm::vec3& position )
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return;
+        SetCharacterPosition( handle, position ); // also lands the interpolation position
+        m_Impl->Characters[handle]->SetLinearVelocity( JPH::Vec3::sZero() );
     }
 } // namespace Desert::Physics

@@ -3,10 +3,12 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/Input.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <optional>
 
 namespace Desert::Scripting
 {
@@ -32,6 +34,31 @@ namespace Desert::Scripting
                     return Common::MakeSuccess( packed.ExtractValue() );
             }
             return Common::MakeError<std::string>( std::format( "script not found: {}", path ) );
+        }
+
+        /// A `Properties` entry as an editor property: a boolean, a number or a string (anything else is not one).
+        std::optional<ScriptProperty> ToScriptProperty( const LuauTableEntry& entry )
+        {
+            ScriptProperty p;
+            p.Name = entry.Key;
+            if ( const bool* b = entry.Value.Get<bool>() )
+            {
+                p.Type = PropertyType::Bool;
+                p.Bool = *b;
+            }
+            else if ( const double* d = entry.Value.Get<double>() )
+            {
+                p.Type   = PropertyType::Number;
+                p.Number = *d;
+            }
+            else if ( const std::string* str = entry.Value.Get<std::string>() )
+            {
+                p.Type = PropertyType::String;
+                p.Str  = *str;
+            }
+            else
+                return std::nullopt;
+            return p;
         }
     } // namespace
 
@@ -74,6 +101,7 @@ namespace Desert::Scripting
                  RegisterUIBindings( L );
                  RegisterLocalizationBindings( L );
                  RegisterGameModeBindings( L );
+                 RegisterSaveGameBindings( L );
              } );
     }
 
@@ -242,6 +270,28 @@ namespace Desert::Scripting
         }
     }
 
+    void ScriptEngine::ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
+                                           std::vector<ScriptProperty>& props )
+    {
+        const LuauSlot source = m_Impl->SlotOf( entity, slot );
+        if ( source == 0 || names.empty() )
+            return;
+        for ( const LuauTableEntry& entry : m_Impl->Runtime->ReadTable( source, "Properties" ) )
+        {
+            if ( std::find( names.begin(), names.end(), entry.Key ) == names.end() )
+                continue;
+            std::optional<ScriptProperty> read = ToScriptProperty( entry );
+            if ( !read )
+                continue;
+            const auto held = std::find_if( props.begin(), props.end(),
+                                            [&]( const ScriptProperty& p ) { return p.Name == entry.Key; } );
+            if ( held == props.end() )
+                props.push_back( std::move( *read ) );
+            else
+                *held = std::move( *read );
+        }
+    }
+
     void ScriptEngine::Release( uint32_t entity )
     {
         m_Impl->ReleaseEntity( entity );
@@ -292,6 +342,36 @@ namespace Desert::Scripting
         }
     }
 
+    Common::ResultStr<std::vector<std::string>> ReadScriptSaveGameProperties( const std::string& path )
+    {
+        using Names                           = std::vector<std::string>;
+        Common::ResultStr<std::string> source = ReadScript( path );
+        if ( !source.IsSuccess() )
+            return Common::MakeError<Names>( source.GetError() );
+
+        // A throwaway runtime with no engine modules: the top level runs, the two tables are read back.
+        LuauRuntime                 runtime;
+        Common::ResultStr<LuauSlot> slot = runtime.Load( path, source.GetValue(), {} );
+        if ( !slot.IsSuccess() )
+            return Common::MakeFormattedError<Names>( "script '{}' top level failed: {}", path, slot.GetError() );
+
+        Common::ResultStr<Names> declared = runtime.ReadStringList( slot.GetValue(), "SaveGameProperties" );
+        if ( !declared.IsSuccess() )
+            return Common::MakeFormattedError<Names>( "script '{}': {}", path, declared.GetError() );
+        Names                             list       = declared.ExtractValue();
+        const std::vector<LuauTableEntry> properties = runtime.ReadTable( slot.GetValue(), "Properties" );
+        for ( const std::string& name : list )
+        {
+            const bool known = std::any_of( properties.begin(), properties.end(),
+                                            [&]( const LuauTableEntry& e ) { return e.Key == name; } );
+            if ( !known )
+                return Common::MakeFormattedError<Names>(
+                     "script '{}': SaveGameProperties names '{}', which its Properties table does not declare",
+                     path, name );
+        }
+        return Common::MakeSuccess( std::move( list ) );
+    }
+
     std::vector<ScriptProperty> ReadScriptProperties( const std::string& path )
     {
         std::vector<ScriptProperty> out;
@@ -306,28 +386,8 @@ namespace Desert::Scripting
             return out;
 
         for ( const LuauTableEntry& entry : runtime.ReadTable( slot.GetValue(), "Properties" ) )
-        {
-            ScriptProperty p;
-            p.Name = entry.Key;
-            if ( const bool* b = entry.Value.Get<bool>() )
-            {
-                p.Type = PropertyType::Bool;
-                p.Bool = *b;
-            }
-            else if ( const double* d = entry.Value.Get<double>() )
-            {
-                p.Type   = PropertyType::Number;
-                p.Number = *d;
-            }
-            else if ( const std::string* str = entry.Value.Get<std::string>() )
-            {
-                p.Type = PropertyType::String;
-                p.Str  = *str;
-            }
-            else
-                continue;
-            out.push_back( p );
-        }
+            if ( std::optional<ScriptProperty> p = ToScriptProperty( entry ) )
+                out.push_back( std::move( *p ) );
         return out;
     }
 

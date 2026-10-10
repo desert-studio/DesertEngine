@@ -158,6 +158,11 @@ namespace Desert::Scripting
         /// The string-keyed boolean / number / string entries of the slot's global `table`; empty when absent.
         [[nodiscard]] std::vector<LuauTableEntry> ReadTable( LuauSlot slot, const char* table ) const;
 
+        /// The array part (1..n) of the slot's global `table` as names: empty when the global is nil; refused
+        /// when it is not a table or an entry is not a string (the error names the entry's 1-based index).
+        [[nodiscard]] Common::ResultStr<std::vector<std::string>> ReadStringList( LuauSlot slot,
+                                                                                  const char* table ) const;
+
         /// THE CONSOLE (REPL): runs `code` as an expression first, then as a statement, in one sandbox that
         /// keeps its globals between lines. Everything printed and the expression's values land in `output`.
         [[nodiscard]] Common::BoolResultStr Eval( const std::string& code, std::string& output );

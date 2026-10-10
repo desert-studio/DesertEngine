@@ -85,6 +85,11 @@ namespace Desert::Reflection
         // names.
         bool Preview = false;
 
+        // PROPERTY(SaveGame) — the field is part of the player's progress (UE's UPROPERTY(SaveGame)): a
+        // SaveGame slot (Runtime/SaveGame.hpp) writes and restores ONLY fields carrying this flag. A field
+        // without it is level data and is never touched by a slot load.
+        bool SaveGame = false;
+
         // PROPERTY(EditCondition("Foo")) — the row is greyed while the bool field `Foo` of the SAME block
         // is false ("!Foo" inverts it). Unlike Hidden the field stays VISIBLE: the setting exists, it just
         // has no effect yet, and hiding it would only make people wonder where it went.

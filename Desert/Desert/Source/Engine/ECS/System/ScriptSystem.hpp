@@ -139,10 +139,19 @@ namespace Desert::ECS
                                        loaded.GetError() );
                             continue;
                         }
-                        m_Engine.ApplyProperties( id, slot, script.Properties ); // editor overrides -> env
+                        // The SaveGame names come from the file the slot just loaded (a hot-reload re-reads them).
+                        auto saveGame = Scripting::ReadScriptSaveGameProperties( file );
+                        if ( !saveGame )
+                            LOG_ERROR( "[Script] '{}': {}; none of its properties is saved", script.ScriptKey,
+                                       saveGame.GetError() );
+                        script.SaveGameProperties = saveGame ? saveGame.GetValue() : std::vector<std::string>{};
+                        // Editor overrides and a loaded save game's values -> env, BEFORE OnStart: the hook a
+                        // restored SaveGame property is first visible in.
+                        m_Engine.ApplyProperties( id, slot, script.Properties );
                         m_Engine.CallStart( id, slot );
                         if ( !registry.valid( entity ) )
                             break; // OnStart destroyed its own entity; see the check after CallUpdate
+                        ReadBackSaveGame( registry, entity, slot );
                     }
                     // Re-apply every frame so editing a property in Details updates the running script LIVE.
                     m_Engine.ApplyProperties( id, slot, script.Properties );
@@ -154,6 +163,7 @@ namespace Desert::ECS
                     // entity, which asserts in Debug — the first run of PHYS_DestroyWitness (WP6) died here.
                     if ( !registry.valid( entity ) )
                         break;
+                    ReadBackSaveGame( registry, entity, slot );
                 }
                 if ( !registry.valid( entity ) )
                     continue;
@@ -295,6 +305,18 @@ namespace Desert::ECS
                 m_HookedRegistry->on_destroy<ScriptComponent>().disconnect( this );
             registry.on_destroy<ScriptComponent>().connect<&ScriptSystem::OnScriptComponentDestroyed>( this );
             m_HookedRegistry = &registry;
+        }
+
+        // The slot's SaveGame properties as the script left them -> the slot (what a save captures). Looked up
+        // again: a script that spawned a scripted entity may have moved the ScriptComponent storage.
+        void ReadBackSaveGame( entt::registry& registry, entt::entity entity, uint32_t slot )
+        {
+            if ( !registry.has<ScriptComponent>( entity ) )
+                return;
+            auto& scripts = registry.get<ScriptComponent>( entity ).Scripts;
+            if ( slot < scripts.size() )
+                m_Engine.ReadBackProperties( static_cast<uint32_t>( entity ), slot,
+                                             scripts[slot].SaveGameProperties, scripts[slot].Properties );
         }
 
         void OnScriptComponentDestroyed( entt::registry&, entt::entity entity )

@@ -201,4 +201,5 @@ namespace Desert::Scripting
     void RegisterUIBindings( lua_State* L );           // ui table (data store, collections, toasts)
     void RegisterLocalizationBindings( lua_State* L ); // loc table (text/plural/number/money/date/language)
     void RegisterGameModeBindings( lua_State* L );     // gameMode.kill/pawn/controller/respawnIn
+    void RegisterSaveGameBindings( lua_State* L );     // savegame.save/load/exists/delete/list/scene
 } // namespace Desert::Scripting

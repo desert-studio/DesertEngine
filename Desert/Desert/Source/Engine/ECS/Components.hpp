@@ -1716,6 +1716,9 @@ namespace Desert::ECS
         std::vector<Scripting::ScriptProperty> Properties;
 
         bool Started = false; // transient: OnStart already called for this instance
+        // Transient: the script's SaveGame property names (Scripting::ReadScriptSaveGameProperties), read
+        // from the file each time the slot loads; ScriptSystem reads those properties back after the script ran.
+        std::vector<std::string> SaveGameProperties;
     };
 
     // One entity can run MANY scripts (EnTT allows only one component of a type per entity, so multiple

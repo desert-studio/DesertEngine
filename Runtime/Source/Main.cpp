@@ -25,6 +25,7 @@
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/EntryPoint.hpp>
+#include <Engine/Core/SaveGame.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Project/StartupLayout.hpp>
 
@@ -338,6 +339,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // the working directory, not into the install folder, which a player cannot write.
     Common::Logger::RelocateLogFile(
          Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "Logs" );
+    // Save games follow the game as well (GP5, Core/SaveGame.hpp THE ROOT): UE shipping's per-user SaveGames,
+    // never the install folder; the editor's Play keeps <project>/Saved/SaveGames.
+    Desert::Core::SetSaveGameRoot(
+         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "SaveGames" );
 
 #if DESERT_DEV_INSTRUMENTS
     if ( crashTest.has_value() && crashTest->Stage == Desert::Player::CrashTestStage::Mounted )
