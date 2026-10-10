@@ -47,7 +47,7 @@ namespace
     EntityData Emitter( uint64_t uuid, double spawnRate )
     {
         EntityData entity;
-        entity.id                            = Desert::Common::UUID( uuid );
+        entity.id                            = Common::UUID( uuid );
         entity.Tag                           = "Torch";
         entity.Components["ParticleEmitter"] = rfl::Generic( Block( spawnRate ) );
         return entity;
@@ -129,9 +129,9 @@ TEST( ParticleEmitterToVFX, NameAndGuidAreDeterministicAndARerunWritesTheSameFil
     const auto vfx = a[0].Components.get( "VFX" ).value().to_object().value();
     const auto ref = vfx.get( "System" ).value().to_object().value();
     EXPECT_EQ( ref.get( "Path" ).value().to_string().value(),
-               "VFX/Level_" + Desert::Common::UUID( 0x1234 ).ToString() + ".dfx" );
+               "VFX/Level_" + Common::UUID( 0x1234 ).ToString() + ".dfx" );
     EXPECT_EQ( ref.get( "Guid" ).value().to_string().value(),
-               Desert::Common::Content::AssetGuidToText(
+               Common::Content::AssetGuidToText(
                     Migration::MigrationGuidForPath( ref.get( "Path" ).value().to_string().value() ) ) );
     EXPECT_TRUE( vfx.get( "AutoActivate" ).value().to_bool().value() );
 
@@ -170,7 +170,7 @@ TEST( ParticleEmitterToVFX, IdenticalEmittersShareOneSystem )
 TEST( ParticleEmitterToVFX, APrefabOverrideOfTheEmitterRefusesTheFile )
 {
     EntityData instance;
-    instance.id = Desert::Common::UUID( 9 );
+    instance.id = Common::UUID( 9 );
     PrefabOverrideData   override_;
     rfl::Generic::Object partial;
     partial["SpawnRate"]                    = rfl::Generic( 5.0 );

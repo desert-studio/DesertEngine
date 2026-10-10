@@ -83,7 +83,7 @@ TEST( SceneParticleSpriteMaterialMigration, AdditiveEmittersMoveOntoTheAdditiveM
          << "an AlphaBlend emitter draws with the default translucent sprite material: no material stated";
     EXPECT_FALSE( MaterialGuid( EmitterOf( entities[2].Components ) ).has_value() );
     for ( const auto& entity : entities )
-        EXPECT_FALSE( EmitterOf( entity.Components ).get( "Blend" ).has_value() ) << entity.Tag;
+        EXPECT_FALSE( EmitterOf( entity.Components ).get( "Blend" ).has_value() ) << entity.Tag.value_or( "" );
 }
 
 // Red when an emitter that already names a material has it replaced, or a prefab override's Blend survives
