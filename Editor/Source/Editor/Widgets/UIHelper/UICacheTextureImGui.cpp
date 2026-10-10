@@ -64,7 +64,7 @@ namespace Desert::Editor::UI
 
         return m_Ids.Acquire(
              image, vulkanImage->GetResourceGeneration(),
-             [&res]() -> ImTextureID
+             [&res, &vulkanImage]() -> ImTextureID
              {
                  // ImGui samples the image in its fragment shader: the descriptor names the layout of that
                  // declared access, not the layout the image happens to record when it is first shown (a
@@ -73,7 +73,9 @@ namespace Desert::Editor::UI
                  // image as SampledGraphics.
                  const VkImageLayout sampled = Graphic::API::Vulkan::RdgVulkanLayout(
                       Graphic::RDG::GetAccessState( Graphic::RDG::Access::SampledGraphics ).Layout );
-                 return ImGui_ImplVulkan_AddTexture( res.Sampler, res.ImageView, sampled );
+                 // ImGui draws into a display-encoded UNORM target: an sRGB texture shows its stored bytes through
+                 // the UNORM alias, not their linear decode (which would draw it darker).
+                 return ImGui_ImplVulkan_AddTexture( res.Sampler, vulkanImage->GetEncodedView(), sampled );
              },
              retire );
     }

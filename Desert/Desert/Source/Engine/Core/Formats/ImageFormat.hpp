@@ -1,4 +1,6 @@
 #pragma once
+#include <iterator>
+#include <string_view>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
@@ -119,6 +121,42 @@ namespace Desert::Core::Formats
         // cast-in integer, and the switches stay exhaustive over the enum either way.
         Count
     };
+
+    /// THE COLOUR SPACE A TEXTURE'S STORED VALUES ARE IN (UE `UTexture::SRGB`). Authored per texture asset
+    /// (`TextureImportSettings::ColorSpace`), recorded in the cooked container (TextureBinary `Flags` bit 0) and
+    /// honoured by the GPU image's view format: `SRGB` creates the `*_SRGB` variant of the storage format, so
+    /// the sampler returns linear values and no shader decodes by hand. Orthogonal to `TextureIntent` and to
+    /// the storage format: an RGBA8 or BC7 image is the same bytes either way, only their meaning differs.
+    /// The numbers are written into files: append only.
+    enum class TextureColorSpace : uint32_t
+    {
+        Linear = 0, // the values ARE the quantity: normals, masks, ORM, data, HDR radiance, render targets
+        SRGB   = 1, // the values are sRGB-encoded colour: albedo, emissive, UI art
+        Count
+    };
+    inline constexpr std::string_view kTextureColorSpaceNames[] = { "Linear", "sRGB" };
+    static_assert( std::size( kTextureColorSpaceNames ) == static_cast<size_t>( TextureColorSpace::Count ) );
+
+    [[nodiscard]] constexpr std::string_view TextureColorSpaceName( const TextureColorSpace space )
+    {
+        return static_cast<uint32_t>( space ) < static_cast<uint32_t>( TextureColorSpace::Count )
+                    ? kTextureColorSpaceNames[static_cast<uint32_t>( space )]
+                    : std::string_view( "<not a colour space>" );
+    }
+    /// `TextureColorSpace::Count` for a word this build does not know (the reader refuses it, listing both).
+    [[nodiscard]] constexpr TextureColorSpace TextureColorSpaceFromName( const std::string_view name )
+    {
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( TextureColorSpace::Count ); ++i )
+            if ( kTextureColorSpaceNames[i] == name )
+                return static_cast<TextureColorSpace>( i );
+        return TextureColorSpace::Count;
+    }
+    /// Does @p format have an sRGB view (`VK_FORMAT_*_SRGB`)? Only 8-bit-per-channel colour does; a texture
+    /// marked sRGB in any other format is refused at cook and at decode, never silently drawn linear.
+    [[nodiscard]] constexpr bool HasSRGBVariant( const ImageFormat format )
+    {
+        return format == ImageFormat::RGBA8F || format == ImageFormat::BGRA8F || format == ImageFormat::BC7_UNORM;
+    }
 
     // Derived, never written down. The exhaustiveness guard further down walks 0..Count and
     // constant-evaluates every format lookup for each value, so a format added without a case in one of
@@ -608,6 +646,9 @@ namespace Desert::Core::Formats
         // declares `Zero` here and the backend clears it once at creation; every other data-less image must
         // be written before it is read, which DESERT_POISON_NEW_MEMORY checks. Refused together with `Data`.
         ImageInitialContent InitialContent = ImageInitialContent::Undefined;
+
+        /// SRGB views the image through the `*_SRGB` variant of `Format` (hardware decode on sample).
+        TextureColorSpace ColorSpace = TextureColorSpace::Linear;
     };
 
     /// THE PIXELS ARE THE IMAGE'S INITIAL CONTENT, NOT A SECOND COPY KEPT BESIDE IT. The backend image holds

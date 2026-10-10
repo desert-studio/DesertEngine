@@ -1,5 +1,7 @@
 #include "TextureBinary.hpp"
 
+#include <cmath>
+#include <array>
 #include <Engine/Core/Formats/BlockCompression.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -45,7 +47,7 @@ namespace Desert::Assets::Serialization
             uint32_t Height;
             uint32_t Format; // an ImageFormat enumerator, travelling at a width the file fixes
             uint32_t LevelCount;
-            uint32_t Flags; // no version defines one; a non-zero value is REFUSED, see below
+            uint32_t Flags; // bit 0 = sRGB (kTextureFlagSRGB); any other bit is REFUSED, see below
             uint32_t SourceKeyLength;
             uint32_t SourceKeyOffset; // from file start
             uint64_t SourceContentHash;
@@ -201,6 +203,57 @@ namespace Desert::Assets::Serialization
         /// One 2x2 box step, in the component type the format stores. The source block is CLAMPED
         /// rather than assumed even: at an odd extent the pair degenerates to a single texel, so the
         /// last row or column contributes instead of being dropped.
+        // sRGB transfer function (IEC 61966-2-1), the same curve VK_FORMAT_*_SRGB decodes with.
+        float SRGBToLinear( const float c )
+        {
+            return c <= 0.04045f ? c / 12.92f : std::pow( ( c + 0.055f ) / 1.055f, 2.4f );
+        }
+        unsigned char LinearToSRGBByte( const float l )
+        {
+            const float c = l <= 0.0031308f ? l * 12.92f : 1.055f * std::pow( l, 1.0f / 2.4f ) - 0.055f;
+            return static_cast<unsigned char>( std::clamp( c * 255.0f + 0.5f, 0.0f, 255.0f ) );
+        }
+
+        // The 2x2 box of BoxDownsample over RGBA8 sRGB texels, averaged in LINEAR LIGHT: RGB decoded through
+        // a 256-entry table, averaged, re-encoded; alpha is coverage and is averaged as stored, rounded.
+        void SRGBBoxDownsample( const unsigned char* src, const uint32_t srcW, const uint32_t srcH,
+                                unsigned char* dst, const uint32_t dstW, const uint32_t dstH )
+        {
+            static const std::array<float, 256> kDecode = []
+            {
+                std::array<float, 256> table{};
+                for ( uint32_t i = 0; i < 256; ++i )
+                    table[i] = SRGBToLinear( static_cast<float>( i ) / 255.0f );
+                return table;
+            }();
+            for ( uint32_t y = 0; y < dstH; ++y )
+            {
+                const uint32_t y0 = std::min( y * 2u, srcH - 1u );
+                const uint32_t y1 = std::min( y * 2u + 1u, srcH - 1u );
+                for ( uint32_t x = 0; x < dstW; ++x )
+                {
+                    const uint32_t x0      = std::min( x * 2u, srcW - 1u );
+                    const uint32_t x1      = std::min( x * 2u + 1u, srcW - 1u );
+                    const size_t   taps[4] = { ( static_cast<size_t>( y0 ) * srcW + x0 ) * 4u,
+                                               ( static_cast<size_t>( y0 ) * srcW + x1 ) * 4u,
+                                               ( static_cast<size_t>( y1 ) * srcW + x0 ) * 4u,
+                                               ( static_cast<size_t>( y1 ) * srcW + x1 ) * 4u };
+                    unsigned char* out     = dst + ( static_cast<size_t>( y ) * dstW + x ) * 4u;
+                    for ( uint32_t c = 0; c < 3; ++c )
+                    {
+                        float sum = 0.0f;
+                        for ( const size_t t : taps )
+                            sum += kDecode[src[t + c]];
+                        out[c] = LinearToSRGBByte( sum * 0.25f );
+                    }
+                    uint32_t alpha = 0;
+                    for ( const size_t t : taps )
+                        alpha += src[t + 3];
+                    out[3] = static_cast<unsigned char>( ( alpha + 2u ) / 4u );
+                }
+            }
+        }
+
         template <typename Component, typename Accumulator>
         void BoxDownsample( const Component* src, const uint32_t srcW, const uint32_t srcH, Component* dst,
                             const uint32_t dstW, const uint32_t dstH, const uint32_t components )
@@ -277,9 +330,10 @@ namespace Desert::Assets::Serialization
     }
 
     Common::ResultStr<std::vector<TextureLevel>> BuildMipChain( const uint32_t width, const uint32_t height,
-                                                                const Core::Formats::ImageFormat  format,
-                                                                const std::vector<unsigned char>& base,
-                                                                std::vector<unsigned char>&       chainOut )
+                                                                const Core::Formats::ImageFormat       format,
+                                                                const std::vector<unsigned char>&      base,
+                                                                std::vector<unsigned char>&            chainOut,
+                                                                const Core::Formats::TextureColorSpace space )
     {
         using Fmt = Core::Formats::ImageFormat;
 
@@ -296,6 +350,14 @@ namespace Desert::Assets::Serialization
             // kind of wrong answer that draws.
             return Common::MakeFormattedError<std::vector<TextureLevel>>(
                  "the cook builds mip chains for RGBA8F and RGBA32F only; format {} was asked for.",
+                 static_cast<uint32_t>( format ) );
+        }
+
+        const bool srgb = space == Core::Formats::TextureColorSpace::SRGB;
+        if ( srgb && format != Fmt::RGBA8F )
+        {
+            return Common::MakeFormattedError<std::vector<TextureLevel>>(
+                 "an sRGB mip chain is built from RGBA8F only; format {} was asked for.",
                  static_cast<uint32_t>( format ) );
         }
 
@@ -326,7 +388,11 @@ namespace Desert::Assets::Serialization
             const uint32_t dstH = HalfExtent( srcH );
 
             std::vector<unsigned char> next( static_cast<size_t>( dstW ) * dstH * bpp );
-            if ( format == Fmt::RGBA8F )
+            if ( srgb )
+            {
+                SRGBBoxDownsample( scratch.back().data(), srcW, srcH, next.data(), dstW, dstH );
+            }
+            else if ( format == Fmt::RGBA8F )
             {
                 BoxDownsample<unsigned char, uint32_t>( scratch.back().data(), srcW, srcH, next.data(), dstW, dstH,
                                                         4u );
@@ -650,7 +716,7 @@ namespace Desert::Assets::Serialization
         header.LayerCount         = layerCount;
         header.Kind               = static_cast<uint32_t>( data.Kind );
         header.Intent             = static_cast<uint32_t>( data.Intent );
-        header.Flags             = 0;
+        header.Flags = data.ColorSpace == Core::Formats::TextureColorSpace::SRGB ? kTextureFlagSRGB : 0u;
         header.SourceKeyLength   = static_cast<uint32_t>( data.SourcePath.size() );
         header.SourceKeyOffset   = static_cast<uint32_t>( keyOffset );
         header.SourceContentHash = data.SourceContentHash;
@@ -736,17 +802,15 @@ namespace Desert::Assets::Serialization
                      who, header.HeaderSize, kTextureBinaryVersion, sizeof( FileHeader ) );
             }
 
-            // FORWARD-COMPATIBILITY GUARDS, NOT DEAD FIELDS. Version 1 defines no flag and has no
-            // encoder, so both of these are written as zero. A file that sets either was produced by a
-            // build that knows something this one does not — an sRGB marking it would have to honour,
-            // an encoder whose output it cannot interpret — and the only safe answer is to say so.
-            // Ignoring them would be the silent wrong answer: the texture would decode and draw, in the
-            // wrong colour space or from the wrong bytes.
-            if ( header.Flags != 0 )
+            // FORWARD-COMPATIBILITY GUARD, NOT DEAD SPACE. Bit 0 is the sRGB marking (kTextureFlagSRGB)
+            // and is honoured below. A file that sets any other bit was produced by a build that knows
+            // something this one does not, and the only safe answer is to say so: ignoring it would
+            // decode and draw the texture from a meaning this build cannot apply, silently.
+            if ( ( header.Flags & ~kTextureFlagSRGB ) != 0 )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                     "'{}' sets content flags {:#010x}; version {} defines none and cannot honour them. "
-                     "Re-cook it with a build that does.",
+                     "'{}' sets content flags {:#010x}; version {} defines only bit 0 (sRGB) and cannot honour "
+                     "the others. Re-cook it with a build that does.",
                      who, header.Flags, kTextureBinaryVersion );
             }
             // `EncoderHash` IS NO LONGER REFUSED, AND THAT IS A v3 DECISION WITH AN ARGUMENT. v1 and v2
@@ -996,6 +1060,16 @@ namespace Desert::Assets::Serialization
             info.LayerCount         = header.LayerCount;
             info.Kind               = kind;
             info.Intent             = static_cast<Core::Formats::TextureIntent>( header.Intent );
+            info.ColorSpace = ( header.Flags & kTextureFlagSRGB ) != 0 ? Core::Formats::TextureColorSpace::SRGB
+                                                                       : Core::Formats::TextureColorSpace::Linear;
+            if ( info.ColorSpace == Core::Formats::TextureColorSpace::SRGB &&
+                 !Core::Formats::HasSRGBVariant( format ) )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' is marked sRGB and its format {} has no sRGB view; the marking cannot be honoured. "
+                     "Re-cook it.",
+                     who, static_cast<uint32_t>( format ) );
+            }
             info.PayloadBytes       = header.PayloadBytes;
             info.StoredPayloadBytes = header.StoredPayloadBytes;
             info.FileSize           = header.FileSize;
@@ -1094,6 +1168,7 @@ namespace Desert::Assets::Serialization
         data.LayerCount           = layerCount;
         data.Kind                 = info.GetValue().Kind;
         data.Intent               = info.GetValue().Intent;
+        data.ColorSpace           = info.GetValue().ColorSpace;
 
         const auto extents = LevelExtents( info.GetValue().Width, info.GetValue().Height, levelCount );
         data.Levels.resize( table.size() );

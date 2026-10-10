@@ -336,6 +336,11 @@ namespace Desert::Graphic::Render2D
         {
             Image2D* img      = cmd.Texture != nullptr ? ImageOfTextureId( cmd.Texture ) : m_WhiteImage;
             exec              = ExecutorFor( m_Executors, m_Shader, "u_Texture", cmd.Texture, img );
+            // The UI layer is RGBA8 holding display-encoded values: an sRGB texture is drawn from its
+            // stored bytes (TEX-SRGB), as before the colour space existed, not from its linear decode.
+            if ( exec != nullptr )
+                if ( auto texProp = exec->GetTexture2DProperty( "u_Texture" ) )
+                    texProp->SetSamplesEncoded( true );
             resolved.Pipeline = m_Pipeline.get();
             resolved.Layout   = &m_PlainLayout;
         }

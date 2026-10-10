@@ -6,7 +6,10 @@
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 #include <Engine/Assets/AssetMetadata.hpp>
 
+#include <Engine/Core/Formats/ImageFormat.hpp>
+
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <ImGui/imgui.h>
@@ -32,7 +35,10 @@ namespace Desert::Editor
      * because the asset holds only the source path and the identity; the cooked format is decided by the cook
      * and is only knowable from what was actually uploaded.
      *
-     * A VIEWER, NOT AN EDITOR: nothing here writes the file, so the document answers Clean and offers no save.
+     * ONE AUTHORED SETTING, THE COLOUR SPACE (UE UTexture::SRGB). It is written to the `.detex` at once (as UE's
+     * texture editor applies a setting) through ApplyColorSpace, the one path the toolbar combo and the control
+     * channel's `set ColorSpace` both take; the built GPU image is evicted so the next Get re-cooks under the new
+     * DDC key. Every other fact here is read-only, so the document answers Clean and offers no save.
      *
      * NO RENDERER SLOT, NOW OR LATER. The picture is the image the texture service already owns, drawn through
      * the ImGui descriptor cache; no PreviewViewport, no Scene and no SceneRenderer is created, so the six-slot
@@ -72,7 +78,19 @@ namespace Desert::Editor
             return DiskState::Clean;
         }
 
+        // `ColorSpace` (int: 0 = Linear, 1 = sRGB; Timing "Rebake") — the asset's authored colour space.
+        [[nodiscard]] std::vector<EditableProperty> EditableProperties() const override;
+        [[nodiscard]] Common::BoolResultStr         SetEditableProperty( const std::string&        name,
+                                                                         const std::vector<float>& value ) override;
+
     private:
+        // THE ONE WRITE: Assets::SetTextureColorSpace on the `.detex`, then evict the built image (re-cook).
+        [[nodiscard]] Common::BoolResultStr ApplyColorSpace( ::Desert::Core::Formats::TextureColorSpace space );
+        // The `.detex` path from the asset's metadata; empty when the asset is gone.
+        [[nodiscard]] std::string AssetFile() const;
+        // Read from the file on first need and kept in step by ApplyColorSpace.
+        [[nodiscard]] Common::ResultStr<::Desert::Core::Formats::TextureColorSpace> CurrentColorSpace() const;
+
         // Zoom about `pivot` (a screen position inside the canvas) so the texel under it stays under it.
         void ZoomAbout( float newZoom, const ImVec2& pivot, const ImVec2& canvasCentre );
 
@@ -81,6 +99,7 @@ namespace Desert::Editor
         bool                          m_Fit  = true; // zoom follows the canvas until the user zooms or pans
         float                         m_Zoom = 1.0f; // screen pixels per texel
         ImVec2                        m_Pan  = ImVec2( 0.0f, 0.0f ); // image centre offset from canvas centre
+        mutable std::optional<::Desert::Core::Formats::TextureColorSpace> m_ColorSpace;
     };
 
     // The `.detex` path opener: find-or-create the TextureAsset, load it, hand it to the texture service (which

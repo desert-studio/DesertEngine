@@ -70,7 +70,7 @@ Shader "Toon"
             if ( u_Material.AlphaCutoff > 0.0 && mask < u_Material.AlphaCutoff )
                 discard;
             s.BaseColor = SurfaceBaseColor( u_Material.AlbedoColor.rgb,
-                                        pow( texture( u_AlbedoTexture, uv ).rgb, vec3( 2.2 ) ), vec3( 1.0 ) );
+                                        texture( u_AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
             const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
                 s.Normal = SurfaceScaleTangentNormal( SampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
@@ -79,7 +79,7 @@ Shader "Toon"
             s.Metallic          = orm.z;
             s.Roughness         = orm.y;
             s.AmbientOcclusion  = orm.x;
-            s.Emissive          = SurfaceEmission( pow( texture( u_EmissiveTexture, uv ).rgb, vec3( 2.2 ) ),
+            s.Emissive          = SurfaceEmission( texture( u_EmissiveTexture, uv ).rgb,
                                                u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = u_Material.ReceiveSunShadows;

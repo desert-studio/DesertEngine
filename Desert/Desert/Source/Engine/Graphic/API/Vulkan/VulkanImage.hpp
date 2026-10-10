@@ -66,6 +66,11 @@ namespace Desert::Graphic::API::Vulkan
 
     // Resolves the device-dependent depth entry and defers to Utils::GetVulkanFormat.
     VkFormat GetImageVulkanFormat( const Core::Formats::ImageFormat& format );
+    // The view/storage format of an image whose values are in @p space: the `*_SRGB` variant for SRGB (the
+    // sampler then decodes to linear in hardware, UE TexCreate_SRGB). VK_FORMAT_UNDEFINED when @p format has
+    // no sRGB variant (Core::Formats::HasSRGBVariant) -- the caller refuses, never draws it linear.
+    VkFormat GetImageVulkanFormat( const Core::Formats::ImageFormat& format,
+                                   Core::Formats::TextureColorSpace  space );
 
     /**
      * @brief Base interface for Vulkan-specific image operations.
@@ -192,6 +197,15 @@ namespace Desert::Graphic::API::Vulkan
             m_Resource.RecordLayouts( std::move( layouts ) );
         }
 
+        /// The view that reads the image's STORED encoding, without a decode: for an sRGB image the UNORM
+        /// alias of its `*_SRGB` view (the image is created VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT for it), for any
+        /// other image its one view. A display-encoded target (the editor's ImGui, the runtime UI's RGBA8 layer)
+        /// samples through this one, so an sRGB texture shows the bytes it holds, not their linear decode.
+        [[nodiscard]] VkImageView GetEncodedView() const noexcept
+        {
+            return m_EncodedView != VK_NULL_HANDLE ? m_EncodedView : m_Resource.ImageView;
+        }
+
         /// Which view and sampler a descriptor written from this image was written against: process-wide
         /// unique, minted whenever CreateResource or RecreateSampler replaces them. A cache keyed on the
         /// image (the editor's UI texture ids) compares it instead of trusting a recyclable VkImageView.
@@ -211,6 +225,7 @@ namespace Desert::Graphic::API::Vulkan
         Core::Formats::Image2DSpecification m_Specification;
         VulkanImageResource                 m_Resource;
         std::vector<VkImageView>            m_MipViews;
+        VkImageView                         m_EncodedView        = VK_NULL_HANDLE; // sRGB images only
         bool                                m_IsLoaded           = false;
         uint64_t                            m_ResourceGeneration = 0;
     };

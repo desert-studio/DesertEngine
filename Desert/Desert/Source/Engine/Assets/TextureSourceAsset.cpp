@@ -8,6 +8,7 @@
 // per-platform format version are not ported (we build one layer for one platform format family).
 // The asset layout itself follows UE's order "source inside the asset -> platform data derived from it"
 // (UTexture::Source -> FTexturePlatformData), adapted to AF1's envelope sections.
+#include <cstring>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
@@ -24,7 +25,7 @@ namespace Desert::Assets
 
     namespace
     {
-        constexpr uint32_t kImportInfoVersion = 1;
+        constexpr uint32_t kImportInfoVersion = 2; // 1 = without ColorSpace (UpgradeTextureSourceAsset only)
 
         void PutU32( std::vector<std::byte>& out, const uint32_t v )
         {
@@ -85,20 +86,25 @@ namespace Desert::Assets
             PutString( out, info.SourceFile );
             PutU64( out, info.SourceHash );
             PutString( out, Core::Formats::TextureIntentName( info.Settings.Intent ) );
+            PutString( out, Core::Formats::TextureColorSpaceName( info.Settings.ColorSpace ) );
             return out;
         }
 
-        Common::ResultStr<TextureImportInfo> DecodeImportInfo( std::span<const std::byte> bytes )
+        // @p expected is kImportInfoVersion everywhere but the version-1 upgrade, which reads the layout
+        // without ColorSpace and leaves the field for the caller to decide.
+        Common::ResultStr<TextureImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
+                                                               const uint32_t expected = kImportInfoVersion )
         {
             Reader            r{ bytes };
             TextureImportInfo info;
             const auto        version = static_cast<uint32_t>( r.Get( 4 ) );
-            if ( r.Ok && version != kImportInfoVersion )
+            if ( r.Ok && version != expected )
                 return Common::MakeFormattedError<TextureImportInfo>(
-                     "texture ImportInfo version {} is not the {} this build reads", version, kImportInfoVersion );
+                     "texture ImportInfo version {} is not the {} this build reads", version, expected );
             info.SourceFile              = r.String();
             info.SourceHash              = r.Get( 8 );
             const std::string intentName = r.String();
+            const std::string spaceName  = expected >= 2 ? r.String() : std::string( "sRGB" );
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<TextureImportInfo>(
                      "texture ImportInfo is truncated or has trailing bytes" );
@@ -106,6 +112,11 @@ namespace Desert::Assets
             if ( info.Settings.Intent == Core::Formats::TextureIntent::Count )
                 return Common::MakeFormattedError<TextureImportInfo>(
                      "texture ImportInfo names intent '{}', which this build does not know", intentName );
+            info.Settings.ColorSpace = Core::Formats::TextureColorSpaceFromName( spaceName );
+            if ( info.Settings.ColorSpace == Core::Formats::TextureColorSpace::Count )
+                return Common::MakeFormattedError<TextureImportInfo>(
+                     "texture ImportInfo names colour space '{}'; this build knows 'Linear' and 'sRGB'",
+                     spaceName );
             return Common::MakeSuccess( std::move( info ) );
         }
 
@@ -315,6 +326,7 @@ namespace Desert::Assets
         std::vector<std::byte> out;
         PutU32( out, static_cast<uint32_t>( settings.Import.Intent ) );
         PutU32( out, settings.EncoderVersion );
+        PutU32( out, static_cast<uint32_t>( settings.Import.ColorSpace ) );
         return out;
     }
 
@@ -446,4 +458,88 @@ namespace Desert::Assets
                  Common::DDC::RelativePath( kTextureDeriver, key.GetValue().DerivedDataKey ).generic_string() );
         return builder( asset );
     }
+    Core::Formats::TextureColorSpace DefaultTextureColorSpace( const Core::Formats::TextureIntent intent,
+                                                               std::span<const std::byte>         sourceBytes )
+    {
+        const auto startsWith = [&]( const std::string_view magic )
+        {
+            return sourceBytes.size() >= magic.size() &&
+                   std::memcmp( sourceBytes.data(), magic.data(), magic.size() ) == 0;
+        };
+        // OpenEXR's magic is 0x76 0x2f 0x31 0x01; its values are scene-linear floats (UE forces SRGB off for
+        // them).
+        if ( startsWith( "#?RADIANCE" ) || startsWith( "#?RGBE" ) ||
+             startsWith( std::string_view( "v/1\x01", 4 ) ) )
+            return Core::Formats::TextureColorSpace::Linear;
+        return intent == Core::Formats::TextureIntent::Colour ||
+                         intent == Core::Formats::TextureIntent::Unspecified
+                    ? Core::Formats::TextureColorSpace::SRGB
+                    : Core::Formats::TextureColorSpace::Linear;
+    }
+
+    Common::ResultStr<std::optional<std::vector<std::byte>>>
+    UpgradeTextureSourceAsset( std::span<const std::byte> file )
+    {
+        using Out = std::optional<std::vector<std::byte>>;
+        if ( DecodeTextureSourceAsset( file ).IsSuccess() )
+            return Common::MakeSuccess( Out{} );
+        const CC::SubsystemVersion v1[]     = { { kTextureAssetSubsystemTag, 1 } };
+        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
+        if ( !envelope.IsSuccess() )
+            return Common::MakeError<Out>( envelope.GetError() );
+        const CC::AssetEnvelope& e = envelope.GetValue();
+        if ( e.Asset.Kind != CC::ContentKind::Texture && e.Asset.Kind != CC::ContentKind::Skybox )
+            return Common::MakeFormattedError<Out>( "the envelope is kind '{}', not a texture",
+                                                    CC::KindName( e.Asset.Kind ) );
+        TextureSourceAsset asset;
+        asset.Kind      = e.Asset.Kind;
+        asset.Guid      = e.Asset.Guid;
+        bool haveImport = false, haveSource = false;
+        for ( const CC::EnvelopeSectionData& s : e.Sections )
+        {
+            if ( s.Tag == CC::EnvelopeSection::Meta )
+            {
+                auto meta = CC::DecodeEnvelopeMeta( s.Bytes );
+                if ( !meta.IsSuccess() )
+                    return Common::MakeError<Out>( meta.GetError() );
+                asset.Name = meta.GetValue().Name;
+            }
+            else if ( s.Tag == CC::EnvelopeSection::ImportInfo )
+            {
+                auto info = DecodeImportInfo( s.Bytes, 1 );
+                if ( !info.IsSuccess() )
+                    return Common::MakeError<Out>( info.GetError() );
+                asset.Import = info.GetValue();
+                haveImport   = true;
+            }
+            else if ( s.Tag == CC::EnvelopeSection::Source )
+            {
+                asset.Source = s.Bytes;
+                haveSource   = true;
+            }
+        }
+        if ( !haveImport || !haveSource )
+            return Common::MakeError<Out>( "a version-1 texture asset without IMPT or SRCE cannot be raised" );
+        asset.Import.Settings.ColorSpace = DefaultTextureColorSpace( asset.Import.Settings.Intent, asset.Source );
+        auto encoded                     = EncodeTextureSourceAsset( asset );
+        if ( !encoded.IsSuccess() )
+            return Common::MakeError<Out>( encoded.GetError() );
+        return Common::MakeSuccess( Out{ encoded.ExtractValue() } );
+    }
+
+    Common::ResultStr<bool> SetTextureColorSpace( const std::filesystem::path&           path,
+                                                  const Core::Formats::TextureColorSpace space )
+    {
+        auto read = ReadTextureSourceAssetFile( path );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<bool>( read.GetError() );
+        TextureSourceAsset asset = read.ExtractValue();
+        if ( asset.Import.Settings.ColorSpace == space )
+            return Common::MakeSuccess( false );
+        asset.Import.Settings.ColorSpace = space;
+        if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
+            return Common::MakeError<bool>( written.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
 } // namespace Desert::Assets
