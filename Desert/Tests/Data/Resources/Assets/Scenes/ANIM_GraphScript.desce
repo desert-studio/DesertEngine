@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "a8b98e82066b336a19f729bde6b25331",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 43,
             "UNIT": 1
         },
         "Dependencies": []
@@ -40,15 +40,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "Skybox": {
-                "SkyboxHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "Intensity": 1.0,
-                "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
-            },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
@@ -97,6 +88,15 @@
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             }
         },
         {
@@ -119,12 +119,6 @@
             "Translation": [0.0, -137.5, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
-                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
-            },
             "Animation": {
                 "CurrentClip": "",
                 "Playing": true,
@@ -154,6 +148,12 @@
                         ]
                     }
                 ]
+            },
+            "SkinnedMesh": {
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
         {
@@ -163,12 +163,6 @@
             "Translation": [1400.0, -137.5, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
-                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
-            },
             "Animation": {
                 "CurrentClip": "",
                 "Playing": true,
@@ -198,6 +192,12 @@
                         ]
                     }
                 ]
+            },
+            "SkinnedMesh": {
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
         {
@@ -247,6 +247,13 @@
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],

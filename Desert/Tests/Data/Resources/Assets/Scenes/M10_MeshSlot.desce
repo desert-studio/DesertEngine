@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "a04bf3ba2301b7795ecd486ea5a5af32",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 43,
             "UNIT": 1
         },
         "Dependencies": []
@@ -78,6 +78,13 @@
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],

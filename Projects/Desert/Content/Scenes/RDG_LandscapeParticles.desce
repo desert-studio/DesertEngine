@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "d151afad1e7a464c9801bf8086cac8a1",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
         "Dependencies": []
@@ -438,7 +438,7 @@
                 "EndColor": [1.0, 0.44999998807907104, 0.0],
                 "StartAlpha": 1.0,
                 "EndAlpha": 0.0,
-                "Blend": 1
+                "Material": ""
             }
         },
         {
@@ -468,7 +468,7 @@
                 "EndColor": [0.0, 0.8500000238418579, 1.0],
                 "StartAlpha": 1.0,
                 "EndAlpha": 0.0,
-                "Blend": 1
+                "Material": ""
             }
         },
         {
@@ -518,6 +518,13 @@
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],

@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "2da2387a87064ed6bd33c61d6d5a7fc7",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
         "Dependencies": []
@@ -46,15 +46,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [100.0, 100.0, 100.0],
-            "Skybox": {
-                "SkyboxHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "Intensity": 1.0,
-                "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
-            },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
@@ -103,6 +94,15 @@
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             }
         },
         {
@@ -214,11 +214,6 @@
             "Translation": [0.0, -10.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [24.0, 0.20000000298023224, 24.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
-            },
             "Collider": {
                 "Shape": 0,
                 "HalfExtents": [1200.0, 10.0, 1200.0],
@@ -233,6 +228,11 @@
                 "Friction": 0.5,
                 "Restitution": 0.10000000149011612,
                 "CollisionProfile": "BlockAll"
+            },
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
+                "Primitive": "Cube"
             }
         },
         {
@@ -454,6 +454,13 @@
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],
