@@ -133,12 +133,10 @@ namespace Desert::Settings
                 return Refuse( "the game user settings were not applied: " + moved.GetError() );
         // VSync goes through the swapchain's present pacing (Window::SetDisplay rebuilds it only on a change);
         // the rest of that pacing is kept as it is.
-        if ( const std::shared_ptr<Graphic::SwapChain> swapChain = window.GetWindowSwapChain() )
-        {
-            Common::Scalability::DisplaySettings pacing = swapChain->Display();
-            pacing.VSync                                = display.VSync;
-            window.SetDisplay( pacing );
-        }
+        const std::shared_ptr<Graphic::SwapChain> swapChain = window.GetWindowSwapChain();
+        Common::Scalability::DisplaySettings pacing = swapChain ? swapChain->Display() : Common::Scalability::DisplaySettings{};
+        pacing.VSync = display.VSync;
+        window.SetDisplay( pacing );
         pacer.SetLimit( display.FrameRateLimit );
 
         Audio::AudioMix& mix = Audio::AudioMix::Get();
