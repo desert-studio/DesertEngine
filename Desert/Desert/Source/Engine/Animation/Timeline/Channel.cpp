@@ -227,6 +227,33 @@ namespace Desert::Animation::Timeline
         return static_cast<ChannelKind>( channel.index() );
     }
 
+    bool HasKeys( const Channel& channel )
+    {
+        const auto vec = []( const VectorChannel& v ) { return !v.X.Keys.empty() || !v.Y.Keys.empty() || !v.Z.Keys.empty(); };
+        const auto rot = []( const RotationChannel& r ) {
+            return !r.X.Keys.empty() || !r.Y.Keys.empty() || !r.Z.Keys.empty() || !r.W.Keys.empty();
+        };
+        return std::visit(
+             [&]<typename C>( const C& c ) -> bool {
+                 if constexpr ( std::is_same_v<C, FloatChannel> )
+                     return !c.Keys.empty();
+                 else if constexpr ( std::is_same_v<C, VectorChannel> )
+                     return vec( c );
+                 else if constexpr ( std::is_same_v<C, RotationChannel> )
+                     return rot( c );
+                 else if constexpr ( std::is_same_v<C, TransformChannel> )
+                     return vec( c.Translation ) || rot( c.Rotation ) || vec( c.Scale );
+                 else if constexpr ( std::is_same_v<C, BoolChannel> )
+                     return !c.Bits.Keys.empty();
+                 else
+                 {
+                     static_assert( std::is_same_v<C, EventChannel> );
+                     return !c.Keys.empty();
+                 }
+             },
+             channel );
+    }
+
     Channel MakeChannel( const ChannelKind kind )
     {
         // Each struct's default member initialisers ARE the rest values (W = 1, Scale = 1), so a

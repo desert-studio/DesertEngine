@@ -9,9 +9,13 @@
 
 #include "SequencerPanel.hpp"
 #include "LevelMaterialProperties.hpp"
+#include "TrackFilter.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/EditorPreferences.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -46,6 +50,7 @@
 #include <filesystem>
 #include <format>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Editor
@@ -515,6 +520,10 @@ namespace Desert::Editor
         }
         ImGui::SameLine();
         DrawLevelTransport( sequence );
+        ImGui::SameLine();
+        DrawLevelTrackFilters();
+        const Sequencer::TrackFilters filters{ EditorPreferences::Get().SequencerFilterSelected,
+                                               EditorPreferences::Get().SequencerFilterKeyed };
 
         // ── THE RULER: the display-frame grid, scrubbed by a click or a drag on it ──────────────────
         constexpr float gutter              = 320.0f;
@@ -554,6 +563,15 @@ namespace Desert::Editor
         {
             if ( binding.Kind != LevelTL::BindingKind::Entity )
                 continue;
+            // The Selected filter asks the level's selection — the binding's locator IS the entity's UUID.
+            const bool selected = Editor::Core::SelectionManager::IsSelected( Common::UUID( binding.Locator ) );
+            if ( !Sequencer::BindingPasses( sequence, binding, selected, filters ) )
+                continue;
+            // A track of this actor shows when it exists and passes the active filters.
+            const auto shows = [&]( const std::string_view property ) {
+                const LevelTL::Track* track = LevelTL::FindTrack( sequence, binding.Guid, property );
+                return track != nullptr && Sequencer::TrackPasses( *track, selected, filters );
+            };
             ImGui::PushID( binding.Locator.c_str() );
             const auto  entity = BoundEntity( *scene, binding );
             const float rowY   = ImGui::GetCursorScreenPos().y;
@@ -625,7 +643,8 @@ namespace Desert::Editor
             const float nextY = ImGui::GetCursorScreenPos().y;
             // The Animation track: one bar per section, labelled with the clip it plays (under the keys).
             if ( const LevelTL::Track* track =
-                      LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceAnimationProperty ) )
+                      LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceAnimationProperty );
+                 track != nullptr && shows( ECS::kLevelSequenceAnimationProperty ) )
             {
                 const auto clips = LevelAnimationClips( binding.Guid );
                 for ( const auto& section : track->Sections )
@@ -645,14 +664,15 @@ namespace Desert::Editor
                     draw->AddText( ImVec2( x0 + 4, rowY + 3 ), IM_COL32( 240, 240, 240, 255 ), label.c_str() );
                 }
             }
-            if ( LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceTransformProperty ) != nullptr )
+            if ( shows( ECS::kLevelSequenceTransformProperty ) )
                 DrawLevelKeyLane( sequence, binding.Guid, laneX0, laneW, rowY, rowH );
             ImGui::SetCursorScreenPos( ImVec2( contentX0, std::max( nextY, rowY + rowH + 4.0f ) ) );
 
             // The Visibility track, a row under its actor (UE: the property track nested in the binding): the
             // checkbox shows the value at the playhead and toggling it keys the new value there; the lane
             // shades where the actor is hidden and draws each key (filled = visible, hollow = hidden).
-            if ( const auto shown = ECS::VisibilityAt( sequence, binding.Guid, m_LevelTick ) )
+            if ( const auto shown = ECS::VisibilityAt( sequence, binding.Guid, m_LevelTick );
+                 shown && shows( ECS::kLevelSequenceVisibilityProperty ) )
             {
                 const float visY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, visY ) );
@@ -698,6 +718,8 @@ namespace Desert::Editor
                                                                : LevelMaterialSlots( binding.Guid );
             for ( const auto& [parameter, kind] : materialTracks )
             {
+                if ( !shows( ECS::LevelSequenceMaterialProperty( parameter ) ) )
+                    continue;
                 const auto value = ECS::MaterialParameterAt( sequence, binding.Guid, parameter, m_LevelTick );
                 if ( !value )
                     continue;
@@ -757,7 +779,7 @@ namespace Desert::Editor
                 ImGui::PopID();
             }
             // The actor's Event track, a row under it (UE: an Event track on the binding).
-            if ( ECS::HasEventTrack( sequence, binding.Guid ) )
+            if ( ECS::HasEventTrack( sequence, binding.Guid ) && shows( ECS::kLevelSequenceEventProperty ) )
                 DrawLevelEventRow( sequence, binding.Guid, ICON_MDI_FLAG " Events", contentX0, laneX0, laneW );
             ImGui::PopID();
         }
@@ -765,7 +787,9 @@ namespace Desert::Editor
         // The Camera Cut track (sequence level): one bar per cut, labelled with the camera binding.
         for ( const auto& track : sequence.Tracks )
         {
-            if ( track.Property != ECS::kLevelSequenceCameraCutProperty )
+            // A sequence-level track is bound to no actor: Selected hides it, Keyed asks its keys (a cut has none).
+            if ( track.Property != ECS::kLevelSequenceCameraCutProperty ||
+                 !Sequencer::TrackPasses( track, false, filters ) )
                 continue;
             const float rowY = ImGui::GetCursorScreenPos().y;
             ImGui::AlignTextToFramePadding();
@@ -786,7 +810,10 @@ namespace Desert::Editor
         }
 
         // The sequence's own Event track (UE: an Event track added at the sequence's root).
-        if ( ECS::HasEventTrack( sequence, ECS::LevelSequenceMasterBinding() ) )
+        if ( const LevelTL::Track* master = LevelTL::FindTrack( sequence, ECS::LevelSequenceMasterBinding(),
+                                                                 ECS::kLevelSequenceEventProperty );
+             master != nullptr && ECS::HasEventTrack( sequence, ECS::LevelSequenceMasterBinding() ) &&
+             Sequencer::TrackPasses( *master, false, filters ) )
             DrawLevelEventRow( sequence, ECS::LevelSequenceMasterBinding(), ICON_MDI_FLAG " Sequence Events",
                                contentX0, laneX0, laneW );
 
@@ -889,6 +916,32 @@ namespace Desert::Editor
         ImGui::SameLine();
         const double perFrame = TicksPerDisplayFrame( sequence );
         ImGui::Text( "Frame %d", static_cast<int>( std::floor( m_LevelTick.Value / perFrame ) ) );
+    }
+
+    void SequencerPanel::DrawLevelTrackFilters()
+    {
+        // UE's Filters ▸ Selected / Keyed (SequencerTrackFilterCommands.h ToggleFilter_Selected, _Keyed): a lit
+        // button is an active filter. The state is the user's — EditorPreferences, saved on the click.
+        auto& prefs  = EditorPreferences::Get();
+        const auto toggle = [&]( const char* label, const char* tooltip, bool& on ) {
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            const bool pressed = ImGui::SmallButton( label );
+            if ( on )
+                ImGui::PopStyleColor();
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "%s", tooltip );
+            if ( pressed )
+            {
+                on = !on;
+                EditorPreferences::Save();
+            }
+        };
+        ImGui::TextDisabled( ICON_MDI_FILTER );
+        ImGui::SameLine();
+        toggle( "Selected##LevelFilter", "Show only actors selected in the level", prefs.SequencerFilterSelected );
+        ImGui::SameLine();
+        toggle( "Keyed##LevelFilter", "Show only tracks that hold a key", prefs.SequencerFilterKeyed );
     }
 
     void SequencerPanel::SetLevelRecord( const bool on )

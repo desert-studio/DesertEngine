@@ -385,4 +385,14 @@ namespace Desert::Animation::Timeline
         track.Sections[index].Weight.clear();
         return Common::MakeSuccess( true );
     }
+
+    bool HasKeys( const Track& track )
+    {
+        return std::ranges::any_of( track.Sections, []( const Section& section ) {
+            if ( !section.Weight.empty() )
+                return true;
+            const auto* channel = std::get_if<Channel>( &section.Content );
+            return channel != nullptr && HasKeys( *channel );
+        } );
+    }
 } // namespace Desert::Animation::Timeline

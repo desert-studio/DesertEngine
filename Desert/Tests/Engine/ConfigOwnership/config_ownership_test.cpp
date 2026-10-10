@@ -252,6 +252,7 @@ namespace
     // ------------------------------------------------------------------------------------------------
 
     constexpr const char* kEditorLayer    = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kSequencerTimeline = "Editor/Source/Editor/Panels/Sequencer/LevelSequenceTimeline.cpp";
     constexpr const char* kDockLayout     = "Editor/Source/Editor/LevelEditor/DockLayout.cpp";
     constexpr const char* kPrefsImpl      = "Editor/Source/Editor/Core/EditorPreferences.cpp";
     constexpr const char* kGizmoState     = "Editor/Source/Editor/Core/GizmoState.cpp";
@@ -350,6 +351,11 @@ namespace
          { "PackageOutputDir", Owner::Machine, kBuildPanel },
          { "PackageConfig", Owner::Machine, kBuildPanel },
          { "PackageAppBundle", Owner::Machine, kBuildPanel },
+
+         // The level Sequencer's track filters (UE keeps them in the per-user USequencerSettings): what one
+         // person wants to see of a sequence, never a fact about the sequence.
+         { "SequencerFilterSelected", Owner::Machine, kSequencerTimeline },
+         { "SequencerFilterKeyed", Owner::Machine, kSequencerTimeline },
     };
 
     // ------------------------------------------------------------------------------------------------

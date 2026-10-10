@@ -181,6 +181,13 @@ namespace Desert::Editor
         std::string PackageConfig    = "Shipping";
         bool        PackageAppBundle = true; // macOS: <Name>.app with MoltenVK inside
 
+        // --- Sequencer ------------------------------------------------------------------------------
+        // The level Sequencer's track filters (UE: Filters ▸ Selected / Keyed, kept in USequencerSettings — the
+        // user's, not the sequence's: two people opening one sequence want different rows). Read and toggled by
+        // the timeline header (Panels/Sequencer/LevelSequenceTimeline.cpp); the rule is Sequencer/TrackFilter.hpp.
+        bool SequencerFilterSelected = false;
+        bool SequencerFilterKeyed    = false;
+
         // --- Details panel ------------------------------------------------------------------------
         // Fields the user pinned to the top of Details, as "TypeName.FieldName" (e.g. "PointLightData.
         // Intensity"). Only reflected fields can be pinned — a hand-written component widget has no

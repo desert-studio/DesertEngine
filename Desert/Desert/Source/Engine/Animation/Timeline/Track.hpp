@@ -110,4 +110,14 @@ namespace Desert::Animation::Timeline
 
     /// Every weight key gone: the section is back at full weight, not at silence.
     [[nodiscard]] Common::BoolResultStr ClearSectionWeight( Track& track, size_t index );
+
+    /**
+     * @brief True when any section of @p track holds a key — of its content channel or of its weight.
+     *
+     * UE's Keyed track filter (SequencerTrackFilter_Keyed.cpp): a track passes when any channel of any of its
+     * sections' channel proxies has a key; a section's weight is one of those channels (the skeletal animation
+     * section's "Weight"), so an Animation track with a keyed fade is keyed and one without is not. A Camera
+     * Cut section has no channel and never passes.
+     */
+    [[nodiscard]] bool HasKeys( const Track& track );
 } // namespace Desert::Animation::Timeline
