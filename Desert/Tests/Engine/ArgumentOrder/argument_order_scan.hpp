@@ -46,6 +46,7 @@
 // `static_cast<T&&>`. The first two are what Г24's name-based census exists for; the third has no
 // instance in this tree and would be caught by review, because nobody writes it by accident.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <algorithm>
@@ -393,8 +394,8 @@ namespace Desert::Tests::ArgumentOrder
     /// stopped being scanned is the exact way Г24's census went blind.
     inline std::vector<std::string> SourceRoots()
     {
-        return { "Desert/Desert/Source", "Desert/Common/Source", "Desert/Tests",
-                 "Editor/Source",        "Runtime/Source",       "Tools" };
+        return Desert::TestSupport::LibraryRootsAnd(
+             { "Desert/Tests", "Editor/Source", "Runtime/Source", "Tools" } );
     }
 
     inline std::vector<Finding> ScanRepository( const std::string& root, ScanCounts& counts )

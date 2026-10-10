@@ -62,6 +62,7 @@
 // COMMENTS ARE STRIPPED BEFORE ANYTHING IS SEARCHED FOR — this file's own prose names every token it
 // looks for, and a census that shoots at prose gets switched off, twice here already.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Core/DeveloperOnlyShaders.hpp>
 
 #include <gtest/gtest.h>
@@ -203,8 +204,7 @@ namespace
     // packaged game.
     const std::vector<std::string>& PlayerSourceRoots()
     {
-        static const std::vector<std::string> roots = { "Desert/Desert/Source", "Desert/Common/Source",
-                                                        "Runtime/Source" };
+        static const std::vector<std::string> roots = Desert::TestSupport::LibraryRootsAnd( { "Runtime/Source" } );
         return roots;
     }
 

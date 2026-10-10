@@ -27,6 +27,7 @@
 //      133 MB to under 4 MB: the failure mode of a too-small package is not a crash, it is a game
 //      that starts and shows nothing.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <Editor/Core/AssetReferences.hpp>
@@ -416,7 +417,7 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
     std::vector<std::string> undeclared;
     std::size_t              scanned = 0;
     std::size_t              callers = 0;
-    for ( const char* dir : { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+    for ( const std::string& dir : Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
     {
         for ( const auto& e : fs::recursive_directory_iterator( root / dir ) )
         {

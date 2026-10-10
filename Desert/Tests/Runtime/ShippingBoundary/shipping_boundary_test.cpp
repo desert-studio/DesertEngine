@@ -58,6 +58,7 @@
 // — twice in one week here, once taking a real finding down with it — and this file's own paragraphs
 // name every token it forbids.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -259,8 +260,7 @@ namespace
     // not a violation of anything and listing editor exceptions would be a register nobody could finish.
     const std::vector<std::string>& PlayerSourceRoots()
     {
-        static const std::vector<std::string> roots = { "Desert/Desert/Source", "Desert/Common/Source",
-                                                        "Runtime/Source" };
+        static const std::vector<std::string> roots = Desert::TestSupport::LibraryRootsAnd( { "Runtime/Source" } );
         return roots;
     }
 

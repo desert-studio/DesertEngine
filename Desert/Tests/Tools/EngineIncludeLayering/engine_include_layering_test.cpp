@@ -12,6 +12,7 @@
 // The directories are the ones that were clean on 2026-10-06 (measured over the whole tree, not chosen).
 // A directory that is mostly CPU-side but holds a GPU-side file lists that file, with what it is for.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include "../../TestSupport/scratch_dir.hpp"
@@ -72,12 +73,12 @@ namespace
     }
 
     // Resolves include paths the way the engine's include directories do: next to the including file, then
-    // Desert/Desert/Source, then Desert/Common/Source. Third-party headers do not resolve and are not walked.
+    // every library tree (TestSupport/source_roots.hpp). Third-party headers do not resolve and are not walked.
     class IncludeGraph
     {
     public:
         explicit IncludeGraph( const fs::path& root )
-             : m_Roots{ root / "Desert" / "Desert" / "Source", root / "Desert" / "Common" / "Source" }
+             : m_Roots( Desert::TestSupport::Under( root, Desert::TestSupport::LibraryRoots() ) )
         {
         }
 

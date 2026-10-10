@@ -30,6 +30,7 @@
 // totals below are DERIVED from the rows and then confirmed against the scan, in both directions: a new
 // call is a row nobody wrote, and a deleted call is a row that no longer matches anything.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -181,8 +182,8 @@ namespace
                                              "BlocksAcross",
                                              "BlocksDown" };
 
-    constexpr const char* kSearchedRoots[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source",
-                                               "Runtime/Source", "Tools" };
+    const std::vector<std::string> kSearchedRoots =
+         Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } );
 
     struct Site
     {
@@ -201,7 +202,7 @@ namespace
         EXPECT_FALSE( root.empty() ) << "the census cannot find the repository from the working directory";
 
         std::set<Site> found;
-        for ( const char* searched : kSearchedRoots )
+        for ( const std::string& searched : kSearchedRoots )
         {
             std::error_code             ec;
             const std::filesystem::path base = root + searched;
@@ -634,7 +635,7 @@ TEST( ImageByteSizeCensus, NobodyOutsideTheFormatTableSpellsItsOwnBytesPerPixel 
     ASSERT_FALSE( root.empty() );
 
     std::vector<std::string> offenders;
-    for ( const char* searched : kSearchedRoots )
+    for ( const std::string& searched : kSearchedRoots )
     {
         std::error_code             ec;
         const std::filesystem::path base = root + searched;

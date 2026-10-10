@@ -4,6 +4,7 @@
 // compiles the RDG sources directly with no Vulkan include path, and the census below proves the sources
 // never ask for one.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
@@ -3251,7 +3252,7 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
          R"(|BeginSwapChainRenderPass)" );
     std::vector<std::string> found;
     size_t                   scanned = 0;
-    for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )
+    for ( const std::string& tree : Desert::TestSupport::EngineRootsAnd( { "Editor/Source" } ) )
     {
         ASSERT_TRUE( fs::is_directory( root / tree ) ) << tree << " is gone";
         for ( const fs::directory_entry& entry : fs::recursive_directory_iterator( root / tree ) )

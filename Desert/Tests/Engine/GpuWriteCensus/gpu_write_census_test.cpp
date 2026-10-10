@@ -40,6 +40,7 @@
 // (BufferGrowth.hpp), asserted at the bottom of this file. The text rules say the channel exists; that one
 // says the channel carries the right answer.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Engine/ShaderResources/BufferGrowth.hpp>
@@ -95,8 +96,8 @@ namespace
     std::vector<fs::path> ProjectSources( const std::string& root )
     {
         std::vector<fs::path> out;
-        for ( const char* tree :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+        for ( const std::string& tree :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
         {
             std::error_code ec;
             const fs::path  base = fs::path( root ) / tree;

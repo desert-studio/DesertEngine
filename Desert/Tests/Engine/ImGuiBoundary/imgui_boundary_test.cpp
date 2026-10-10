@@ -30,6 +30,7 @@
 // The include scan reads a text with comments removed and LITERALS KEPT, on purpose: `#include "..."`
 // is a string literal, and a census that blanked it would be blind to exactly half the spellings.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -50,16 +51,9 @@ namespace
     // The trees that must be free of the toolkit. `Desert/Common/Source` is here and not only the two the
     // instruction named: the macro `EBABLE_IMGUI` lived in Common/Core/Core.hpp, so leaving Common out
     // would leave the hole this task closed unguarded.
-    constexpr const char* kForbiddenTrees[] = {
-         "Desert/Desert/Source",
-         "Desert/Common/Source",
-         // The UI framework and the recorded 2D drawing left Desert/Desert/Source in UI-FW-4; they ship in the
-         // runtime all the same.
-         "Desert/UI/Source",
-         "Desert/Render2DCore/Source",
-         "Desert/CoreReflection/Source",
-         "Runtime/Source",
-    };
+    // Every library tree (TestSupport/source_roots.hpp: the UI framework and the recorded 2D drawing left
+    // Desert/Desert/Source in UI-FW-4 and ship in the runtime all the same) and the runtime's own.
+    const std::vector<std::string> kForbiddenTrees = Desert::TestSupport::LibraryRootsAnd( { "Runtime/Source" } );
 
     // THE PROSE ROWS -- the negative control, as named files rather than as a count. Each must contain a
     // forbidden token in its RAW text (or the control proves nothing) and none after stripping.
@@ -175,7 +169,7 @@ namespace
         std::string Raw;
     };
 
-    std::vector<Source> SourcesOf( const fs::path& root, const char* subtree )
+    std::vector<Source> SourcesOf( const fs::path& root, const std::string& subtree )
     {
         std::vector<Source> out;
         const fs::path      base = root / subtree;
@@ -250,7 +244,7 @@ TEST( ImGuiBoundary, NoEngineOrRuntimeSourceIncludesTheToolkit )
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
 
     std::vector<std::string> offenders;
-    for ( const char* subtree : kForbiddenTrees )
+    for ( const std::string& subtree : kForbiddenTrees )
     {
         for ( const Source& source : SourcesOf( root, subtree ) )
         {
@@ -272,7 +266,7 @@ TEST( ImGuiBoundary, NoEngineOrRuntimeSourceNamesAToolkitIdentifier )
     ASSERT_FALSE( root.empty() );
 
     std::vector<std::string> offenders;
-    for ( const char* subtree : kForbiddenTrees )
+    for ( const std::string& subtree : kForbiddenTrees )
     {
         for ( const Source& source : SourcesOf( root, subtree ) )
         {
@@ -295,7 +289,7 @@ TEST( ImGuiBoundary, TheEngineNeverIncludesAnEditorHeader )
     ASSERT_FALSE( root.empty() );
 
     std::vector<std::string> offenders;
-    for ( const char* subtree : kForbiddenTrees )
+    for ( const std::string& subtree : kForbiddenTrees )
     {
         for ( const Source& source : SourcesOf( root, subtree ) )
         {

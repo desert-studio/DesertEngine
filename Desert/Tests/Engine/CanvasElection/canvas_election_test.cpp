@@ -24,6 +24,7 @@
 // (count, which cannot pick a winner) and UI::SoleCanvas (refuse, by name and with the count, when there is
 // not exactly one).
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -143,8 +144,8 @@ namespace
     std::vector<fs::path> SourceFiles( const std::string& root )
     {
         std::vector<fs::path> files;
-        for ( const char* dir :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+        for ( const std::string& dir :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) )
         {
             const fs::path base = fs::path( root ) / dir;
             if ( !fs::exists( base ) )

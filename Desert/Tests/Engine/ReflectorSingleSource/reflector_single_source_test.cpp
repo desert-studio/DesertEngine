@@ -35,6 +35,7 @@
 // This file names every symbol it is about, and a census that counted its own prose would be worthless
 // — it would find a specialisation in itself and report the defect it was written to prevent.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -84,9 +85,8 @@ namespace
     /// `Reflector` legitimately, and vendored code is not ours to hold to this rule.
     const std::vector<std::string>& OurSourceRoots()
     {
-        static const std::vector<std::string> roots = { "Desert/Common/Source", "Desert/Desert/Source",
-                                                        "Desert/Tests",         "Editor/Source",
-                                                        "Runtime/Source",       "Tools" };
+        static const std::vector<std::string> roots = Desert::TestSupport::LibraryRootsAnd(
+             { "Desert/Tests", "Editor/Source", "Runtime/Source", "Tools" } );
         return roots;
     }
 

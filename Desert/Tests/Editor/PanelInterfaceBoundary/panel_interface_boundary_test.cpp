@@ -34,6 +34,7 @@
 // the shape that bites. That property is turned into the negative control here rather than worked
 // around: the header's RAW text must keep naming the toolkit, and its stripped text must not.
 
+#include "TestSupport/source_roots.hpp"
 #include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Editor/Panels/IPanel.hpp>
@@ -166,7 +167,7 @@ namespace
     std::vector<fs::path> RepoHeadersOpenedBy( const fs::path& root, const fs::path& header )
     {
         static const std::regex kInclude( R"(^\s*#\s*include\s*[<"]([^>"]+)[>"])" );
-        const fs::path          kRoots[] = { "Editor/Source", "Desert/Desert/Source", "Desert/Common/Source" };
+        const std::vector<std::string> kRoots = Desert::TestSupport::LibraryRootsAnd( { "Editor/Source" } );
 
         std::vector<fs::path> order{ header };
         for ( std::size_t next = 0; next < order.size(); ++next )
@@ -181,7 +182,7 @@ namespace
                     continue;
                 const fs::path        named = match[1].str();
                 std::vector<fs::path> candidates{ current.parent_path() / named };
-                for ( const fs::path& base : kRoots )
+                for ( const fs::path base : kRoots )
                     candidates.push_back( base / named );
                 for ( const fs::path& candidate : candidates )
                 {

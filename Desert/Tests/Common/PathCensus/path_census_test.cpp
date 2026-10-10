@@ -9,6 +9,7 @@
 // What is deliberately NOT tested: the on-disk .deproj format and the folders a new project is
 // scaffolded with — that census lives with the project format and has its own suite.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 
@@ -360,8 +361,8 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
 
     const std::set<std::string> extensions = { ".hpp", ".cpp", ".h", ".inl", ".mm" };
     std::set<std::string>       found;
-    for ( const char* top :
-          { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+    for ( const std::string& top :
+          Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) )
     {
         std::error_code ec;
         if ( !fs::exists( repo / top, ec ) )

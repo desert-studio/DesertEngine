@@ -31,6 +31,7 @@
 // the third — that a cleared handle resolves to nothing rather than to whatever occupies slot 0 — is
 // pure CPU inside `Runtime::ImageService`, which this suite compiles directly.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
@@ -146,8 +147,8 @@ namespace
     /// reading it as text, which is what this file does.
     const std::vector<std::string>& ProductionRoots()
     {
-        static const std::vector<std::string> roots = { "Desert/Desert/Source", "Desert/Common/Source",
-                                                        "Editor/Source", "Runtime/Source", "Tools" };
+        static const std::vector<std::string> roots =
+             Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } );
         return roots;
     }
 

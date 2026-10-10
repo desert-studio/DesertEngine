@@ -49,6 +49,7 @@
 // the source for a census has precedent here: Desert/Tests/Engine/DeviceLostCensus does the same thing
 // for the same reason, and shares the reader this file includes.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
@@ -1940,8 +1941,7 @@ TEST( PreferenceOwnershipFavourites, OnlyOnePlaceInTheEditorAndTheEngineComposes
     ASSERT_FALSE( root.empty() );
 
     std::vector<std::string> composers;
-    for ( const char* tree :
-          { "Editor/Source", "Desert/Desert/Source", "Desert/Common/Source", "Runtime/Source" } )
+    for ( const std::string& tree : Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + tree ) )
         {
             if ( !entry.is_regular_file() )
