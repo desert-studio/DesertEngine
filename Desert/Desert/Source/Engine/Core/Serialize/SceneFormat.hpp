@@ -75,7 +75,9 @@ namespace Desert::Core
     // MigrateSoundRefsV45ToV46).
     // v47 (VFX-08): ParticleEmitter.Blend is gone; a sprite composites by its Material's blend mode
     // (Tools/SceneMigrator, MigrateParticleSpriteMaterialsV46ToV47).
-    inline constexpr int kSceneVersion = 47;
+    // v48 (SSR1B): PostProcessSettings.EnableSSR defaults to true; every PostProcessVolume states true where
+    // v47 stated the old default false (Tools/SceneMigrator, MigrateSSRDefaultOnV47ToV48).
+    inline constexpr int kSceneVersion = 48;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
