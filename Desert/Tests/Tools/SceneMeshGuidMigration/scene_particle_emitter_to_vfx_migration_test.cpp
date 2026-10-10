@@ -76,7 +76,7 @@ namespace
 // shader's speed = S * (1 - v * r) / life = L * (1 - w * r).
 TEST( ParticleEmitterToVFX, TheEmitterBecomesAStackWithEqualParameters )
 {
-    const auto read = Migration::ReadParticleEmitterV42( Block( 120.0 ) );
+    const auto read = Migration::ReadParticleEmitterV43( Block( 120.0 ) );
     ASSERT_TRUE( read ) << read.GetError();
     const S::VFXSystemData system = Migration::VFXSystemFromParticleEmitter( read.GetValue() );
     ASSERT_EQ( system.Emitters.size(), 1u );

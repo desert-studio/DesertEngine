@@ -51,9 +51,9 @@ namespace
 } // namespace
 
 // Red when the step is not the newest generation the engine requires.
-TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterUIAnimationSequences )
+TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterCollisionProfiles )
 {
-    EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Migration::kSceneVersionUIAnimationSequences + 1 );
+    EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Migration::kSceneVersionCollisionProfiles + 1 );
     EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
 }
 
@@ -63,7 +63,7 @@ TEST( SceneParticleSpriteMaterialMigration, AdditiveEmittersMoveOntoTheAdditiveM
 {
     std::vector<EntityData> entities = { Emitter( "Fire", 0 ), Emitter( "Smoke", 1 ),
                                          Emitter( "Dust", std::nullopt ) };
-    const auto              report   = Migration::MigrateParticleSpriteMaterialsV41ToV42( entities );
+    const auto              report   = Migration::MigrateParticleSpriteMaterialsV42ToV43( entities );
 
     EXPECT_EQ( report.Emitters, 3u );
     EXPECT_EQ( report.MovedToAdditive, 1u );
@@ -106,7 +106,7 @@ TEST( SceneParticleSpriteMaterialMigration, AStatedMaterialIsKeptAndOverridesMov
     instance.PrefabOverrides           = std::vector<PrefabOverrideData>{ additive, over };
 
     std::vector<EntityData> entities = { named, instance };
-    const auto              report   = Migration::MigrateParticleSpriteMaterialsV41ToV42( entities );
+    const auto              report   = Migration::MigrateParticleSpriteMaterialsV42ToV43( entities );
 
     EXPECT_EQ( MaterialGuid( EmitterOf( entities[0].Components ) ),
                std::optional<std::string>( "00112233445566778899aabbccddeeff" ) );
