@@ -27,7 +27,7 @@ namespace Desert::Editor
              {
                  // One cooker per worker thread: Assimp importers are not reentrant.
                  thread_local ImportManager s_ThreadImporter;
-                 return s_ThreadImporter.Import( source );
+                 return s_ThreadImporter.Import( source, ImportPass::Cook );
              },
              []( std::function<void()> job ) { Common::JobSystem::Get().Submit( std::move( job ) ); } );
         m_BackgroundCookStart = std::chrono::steady_clock::now();
@@ -122,8 +122,11 @@ namespace Desert::Editor
 
         if ( m_ImportManager )
         {
-            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::MESH_PATH, /*force=*/true );
-            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH, /*force=*/true );
+            // The user's command: an import (it rewrites the sources' assets), not the cook that only reads them.
+            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::MESH_PATH, ImportPass::Import,
+                                                     /*force=*/true );
+            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH, ImportPass::Import,
+                                                     /*force=*/true );
             // AND THE TEXTURES DIRECTORY, WHICH THIS COMMAND DID NOT REACH. Loose textures are cooked
             // only as a mesh's dependency or by a drag-and-drop, so `Assets/Textures/` — the checker
             // floor's texture and the sky panoramas — was the one place "Rebuild
