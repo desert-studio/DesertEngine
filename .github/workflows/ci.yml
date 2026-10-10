@@ -691,7 +691,7 @@ jobs:
   # the check, not a duplicate of this job. Debug is therefore already covered there, so this job builds
   # Release + Shipping and nothing in Debug.)
   macos:
-    name: macOS ${{ matrix.config }}
+    name: macOS ${{ matrix.config }}${{ matrix.leg == 'tests' && ' tests' || '' }}
     needs: [ format ]
     runs-on: macos-14 # Apple Silicon (arm64) — matches the supported platform
     timeout-minutes: 60
@@ -722,17 +722,35 @@ jobs:
         # This leg also puts the documented developer command — `scripts/MacOS/BuildMacOS.sh Shipping`,
         # which is what the packager's own error message tells people to run — under test.
         config: [Release, Shipping]
-        # THE SHIPPING LEG BUILDS WHAT IT OBSERVES, AND NOTHING ELSE. Its steps read three binaries: the
-        # player (Symbol census), the packager that ships it (Package the sandbox game) and DShaderTool
-        # (Lint shaders). The Editor, the world/cloud bakers, SceneMigrator and the other tools are not
-        # part of what a player gets, and nothing below reads a Shipping copy of them; built anyway they
-        # were half of the leg's compile on a 3-core runner, and a cold cache put the whole workspace past
-        # the step's 50 minutes (CI 38049132064: Desert done at 28 min, timed out inside the Editor). The
-        # workspace Makefile names each project's dependencies from its own `links`, so these three pull
-        # in exactly the libraries they link. Windows Shipping still builds the whole solution in this
-        # configuration — the "does every project compile and link under Shipping" half stays there.
-        include:
+        leg: [tests, package]
+        exclude:
           - config: Shipping
+            leg: tests
+        # EACH LEG BUILDS WHAT ITS OWN STEPS READ, AND NOTHING ELSE (BuildMacOS.sh --project; the
+        # workspace Makefile adds every library a named project links). The whole workspace in one job
+        # is more than a 3-core runner compiles in the step's 50 minutes on a cold cache: CI 38049132064
+        # (Shipping: engine library done at 28 min, timed out inside the Editor) and 38053530655
+        # (Release: engine library done at 26 min, timed out with the test runners, the Editor and the
+        # Runtime still compiling side by side). Every first run of a branch after dev moves is cold.
+        #   Release tests   - the five test runners the test step executes (build/TestManifest.txt) and
+        #                     DShaderTool (Lint shaders).
+        #   Release package - the engine drop Package.sh assembles (Editor, Runtime, PakTool,
+        #                     DShaderTool, AssetClosure) and GamePackager for the packaged-game smoke run.
+        #   Shipping        - the player (Symbol census), the packager that ships it, DShaderTool.
+        # The bakers, WorldGen, SceneMigrator and the image tools are read by no step of this job; their
+        # Release build is the Windows Release leg's, and Windows Shipping builds the whole solution.
+        # The two Release legs compile the engine library each, in parallel, instead of one runner
+        # compiling everything after it in series. The ccache key carries the leg: each leg's dev run
+        # warms exactly the objects that leg's branch runs compile.
+        include:
+          - config: Release
+            leg: tests
+            projects: --project=EngineTests --project=EditorTests --project=ToolsTests --project=CommonTests --project=RuntimeTests --project=DShaderTool
+          - config: Release
+            leg: package
+            projects: --project=Editor --project=Runtime --project=PakTool --project=DShaderTool --project=AssetClosure --project=GamePackager
+          - config: Shipping
+            leg: package
             projects: --project=Runtime --project=GamePackager --project=DShaderTool
 
     steps:
@@ -774,22 +792,23 @@ jobs:
       # THE SAME CACHE AS THE sanitizers JOB, PER CONFIGURATION (the flags differ, nothing hits across
       # them): restored by every run from dev's newest entry, written by a push to dev ONLY — see the
       # notes on the sanitizers job's Restore ccache. Without it Release compiled cold on every run and
-      # reached the job's 60-minute ceiling (CI-SPEED, 2026-10-10). Ceilings 0.8G / 0.4G: Shipping has
-      # no test projects, so it compiles about half of what Release does.
+      # reached the job's 60-minute ceiling (CI-SPEED, 2026-10-10). Ceilings 0.5G per Release leg / 0.4G
+      # Shipping: the whole Release workspace filled 0.3 GB compressed (CI 38049132064), and each leg is
+      # a part of it. The key carries the leg, so the legs never overwrite each other's set.
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/ccache
-          key: ccache-macos14-${{ matrix.config }}-${{ github.sha }}
+          key: ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-${{ github.sha }}
           restore-keys: |
-            ccache-macos14-${{ matrix.config }}-
+            ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-
 
       # A STEP timeout under the job's 60, for the same reason as the sanitizers build: a step that runs
       # out leaves the job alive, so Save ccache keeps every object a cold dev build finished.
       - name: Build ${{ matrix.config }}
         timeout-minutes: 50
         env:
-          CCACHE_MAXSIZE: ${{ matrix.config == 'Release' && '0.8G' || '0.4G' }}
+          CCACHE_MAXSIZE: ${{ matrix.config == 'Release' && '0.5G' || '0.4G' }}
           CCACHE_DIR: ${{ runner.temp }}/ccache
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }} ${{ matrix.projects }}
 
@@ -800,7 +819,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/ccache
-          key: ccache-macos14-${{ matrix.config }}-${{ github.sha }}
+          key: ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-${{ github.sha }}
 
       # Not in Shipping: the test projects are removed from that configuration in
       # Desert/Tests/premake5.lua, so build/Bin/Tests/Shipping is never created and there is nothing to
@@ -826,7 +845,7 @@ jobs:
       # DESERT_MACOS_VULKAN_RUNNER=true still forces them in (a runner that must be held to them).
       - name: Probe the Vulkan device
         id: vulkan-probe
-        if: matrix.config != 'Shipping'
+        if: matrix.leg == 'tests'
         continue-on-error: true
         env:
           MVK_CONFIG_LOG_LEVEL: "3"
@@ -841,7 +860,7 @@ jobs:
           fi
 
       - name: Plan test suites
-        if: matrix.config != 'Shipping'
+        if: matrix.leg == 'tests'
         env:
           DESERT_MACOS_VULKAN_RUNNER: ${{ (vars.DESERT_MACOS_VULKAN_RUNNER == 'true' || steps.vulkan-probe.outputs.device == 'true') && 'true' || 'false' }}
         run: >-
@@ -850,7 +869,7 @@ jobs:
           --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_MACOS_VULKAN_RUNNER
 
       - name: Run tests
-        if: matrix.config != 'Shipping'
+        if: matrix.leg == 'tests'
         env:
           TEST_LIST: build/TestPlan/shard-1.txt
         run: ./scripts/MacOS/RunTests.sh "$PWD" ${{ matrix.config }}
@@ -910,7 +929,7 @@ jobs:
       # that has one (self-hosted Apple Silicon); a crash, a non-zero exit, a missing PNG or ten minutes
       # without exiting fails the job.
       - name: Smoke-run the packaged game (Vulkan runner only)
-        if: matrix.config == 'Release' && (vars.DESERT_MACOS_VULKAN_RUNNER == 'true' || steps.vulkan-probe.outputs.device == 'true')
+        if: matrix.config == 'Release' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
         run: |
           ./build/Bin/Release/GamePackager Projects/Desert/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Release"
           app="$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 1 -name '*.app' | head -n 1)"
@@ -922,12 +941,12 @@ jobs:
           [ -s "$shot" ] || { echo "the packaged game exited 0 but wrote no PNG at $shot"; exit 1; }
 
       - name: Smoke run skipped — no Vulkan on this runner
-        if: matrix.config == 'Release' && !(vars.DESERT_MACOS_VULKAN_RUNNER == 'true' || steps.vulkan-probe.outputs.device == 'true')
-        run: echo "::notice title=Packaged game NOT started::no Vulkan device on this runner (see the step Probe the Vulkan device); set DESERT_MACOS_VULKAN_RUNNER=true to require one"
+        if: matrix.config == 'Release' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER != 'true'
+        run: echo "::notice title=Packaged game NOT started::macos-14 is a VM with no proven Metal device for MoltenVK (the Release tests leg's step Probe the Vulkan device says why); set DESERT_MACOS_VULKAN_RUNNER=true on a Vulkan-capable Mac runner to smoke-run the packaged .app"
 
       # Surface the test reports even when a step above failed.
       - name: Upload test reports
-        if: always()
+        if: always() && matrix.leg == 'tests'
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ matrix.config }}
@@ -955,11 +974,11 @@ jobs:
       # tree shipped twice. Three places asserted the same wrong thing (both scripts and this line);
       # if a fourth appears, it is the same defect, not a new one.
       - name: Package build
-        if: matrix.config == 'Release'
+        if: matrix.config == 'Release' && matrix.leg == 'package'
         run: ./scripts/MacOS/Package.sh Release
 
       - name: Upload packaged build
-        if: matrix.config == 'Release'
+        if: matrix.config == 'Release' && matrix.leg == 'package'
         uses: actions/upload-artifact@v4
         with:
           name: DesertEngine-macOS-Release
