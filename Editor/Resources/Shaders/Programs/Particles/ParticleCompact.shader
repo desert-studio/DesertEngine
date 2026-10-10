@@ -55,7 +55,7 @@ Shader "ParticleCompact"
                     return;
                 i = base + t;
                 if ( ( u_Range.w & 1u ) != 0u )
-                    u_Particles[i] = Particle( vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ) );
+                    u_Particles[i] = Particle( vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ) );
             }
             else
             {

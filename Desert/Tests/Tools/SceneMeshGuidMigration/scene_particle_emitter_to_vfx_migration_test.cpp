@@ -161,8 +161,8 @@ TEST( ParticleEmitterToVFX, IdenticalEmittersShareOneSystem )
              .value()
              .get( "Path" );
     };
-    EXPECT_EQ( path( entities[0] ).value().to_string(), path( entities[1] ).value().to_string() );
-    EXPECT_NE( path( entities[0] ).value().to_string(), path( entities[2] ).value().to_string() );
+    EXPECT_EQ( path( entities[0] ).value().to_string().value(), path( entities[1] ).value().to_string().value() );
+    EXPECT_NE( path( entities[0] ).value().to_string().value(), path( entities[2] ).value().to_string().value() );
 }
 
 // Red if a prefab override's partial ParticleEmitter block is converted on its own (it would lose the prefab's

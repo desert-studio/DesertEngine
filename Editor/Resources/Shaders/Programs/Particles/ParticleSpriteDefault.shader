@@ -17,7 +17,7 @@ Shader "ParticleSpriteDefault"
 
     State
     {
-        Cull Off
+        Cull None
         ZTest LEqual
         ZWrite Off
     }

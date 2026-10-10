@@ -17,7 +17,7 @@ Shader "ParticleSpriteAdditive"
 
     State
     {
-        Cull Off
+        Cull None
         ZTest LEqual
         ZWrite Off
     }
