@@ -16,6 +16,42 @@ namespace Desert::Assets
             AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
+    SkeletonAsset::SkeletonAsset( const AssetMetadata& identity, ReloadTwinTag )
+         : AssetBase( identity.Filepath, GetTypeID() )
+    {
+        m_Metadata = identity;
+        // A HANDLE OF ITS OWN: AsyncAssetLoader joins requests by handle (one asset object per handle), and
+        // the twin is a second object for this file - under the live asset's handle a request for the live
+        // one would wait on the twin's read and be told its own, unread, object had loaded. The load reads
+        // the file by path, so the handle names only this request.
+        m_Metadata.Handle = Common::UUID::Generate();
+    }
+
+    std::shared_ptr<AssetBase> SkeletonAsset::MakeReloadTarget() const
+    {
+        return std::make_shared<SkeletonAsset>( m_Metadata, ReloadTwinTag{} );
+    }
+
+    Common::BoolResultStr SkeletonAsset::AdoptReloaded( AssetBase& twin )
+    {
+        auto* read = dynamic_cast<SkeletonAsset*>( &twin );
+        if ( read == nullptr || !read->m_Skeleton )
+            return Common::MakeFormattedError<bool>( "'{}': the reloaded twin holds no rig",
+                                                     m_Metadata.Filepath.string() );
+        // LoadFromFile's commit, moved here from the worker: the rig at THIS address (its readers hold it),
+        // the signature of what is now in memory, a new bind revision, the references the file states.
+        if ( m_Skeleton )
+            *m_Skeleton = std::move( *read->m_Skeleton );
+        else
+            m_Skeleton = std::move( read->m_Skeleton );
+        read->m_Skeleton.reset();
+        m_Signature = m_Skeleton->GetSignature();
+        ++m_BindRevision;
+        m_PreviewMesh         = read->m_PreviewMesh;
+        m_CompatibleSkeletons = std::move( read->m_CompatibleSkeletons );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr SkeletonAsset::LoadFromFile()
     {
         // The old path of a moved asset reads the file where it now lives, through the registry - the same
@@ -32,9 +68,10 @@ namespace Desert::Assets
         // UObject). Its readers hold the object itself — SkinnedMesh's `const Skeleton*`, Animator's
         // `const Skeleton&` — so replacing it would leave every one of them on freed memory. What tells them
         // the bones moved is the signature below: AnimationECSSystem rebuilds an Animator whose
-        // `AnimationComponent::BuiltSkeletonSignature` no longer matches. `Load()` on a loaded rig IS the
-        // reload (ImportOptionsDialog's ReloadLoaded), exactly as it is for AnimationAsset's clip; `Unload`
-        // first would free the object. Written only after the file parsed, so a failed reload keeps the rig.
+        // `AnimationComponent::BuiltSkeletonSignature` no longer matches. `Load()` on a loaded rig IS a
+        // reload (a Reimport reads into a twin off the frame and AdoptReloaded writes it here the same way);
+        // `Unload` first would free the object. Written only after the file parsed, so a failed reload keeps the
+        // rig.
         if ( m_Skeleton )
             *m_Skeleton = Animation::Skeleton( std::move( data.Bones ) );
         else

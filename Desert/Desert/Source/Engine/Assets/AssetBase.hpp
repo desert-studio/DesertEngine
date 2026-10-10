@@ -9,6 +9,9 @@
 #include "AssetMetadata.hpp"
 #include "SyncLoadLedger.hpp"
 
+#include <format>
+#include <memory>
+
 namespace Desert::Assets
 {
     class MeshAsset;
@@ -99,6 +102,33 @@ namespace Desert::Assets
         virtual bool IsReloadableFromFile() const
         {
             return true;
+        }
+
+        // A RELOAD THAT DOES NOT STOP A FRAME, IN TWO HALVES (REIMPORT-ASYNC; UE: a reimport's asset is rebuilt
+        // by FAssetCompilingManager off the game thread and swapped in by FinishCompilation, the old one
+        // serving every reader until then). `Load()` on a loaded asset rebuilds it IN PLACE, which is the only
+        // reload its readers survive (they hold the object) and also why it cannot run on a worker: the
+        // Animator reading the clip would read it half-replaced. So the read goes into a DETACHED TWIN:
+        //
+        //   1. `MakeReloadTarget()` (main thread) - an empty asset of the same type and identity, registered
+        //      nowhere and read nowhere. It reads nothing in its constructor; the file is read by its
+        //      `Load()`, which the caller hands to `AsyncAssetLoader` (a worker, outside the in-frame ledger).
+        //   2. `AdoptReloaded( twin )` (main thread, in the loader's completion) - the twin's payload moves
+        //      into this asset at this asset's address, exactly as an in-place `Load()` would have written
+        //      it (the same revision bumps), so every reader sees the old value until this call and the new
+        //      one after it, never a mix.
+        //
+        // Only a type whose reload is asked for off the frame implements them; any other one REFUSES by name
+        // (null twin, error from the adoption) rather than pretending to have reloaded.
+        [[nodiscard]] virtual std::shared_ptr<AssetBase> MakeReloadTarget() const
+        {
+            return nullptr;
+        }
+
+        [[nodiscard]] virtual Common::BoolResultStr AdoptReloaded( AssetBase& /*twin*/ )
+        {
+            return Common::MakeFormattedError<bool>( "'{}' has no off-frame reload (AssetBase::AdoptReloaded)",
+                                                     m_Metadata.Filepath.string() );
         }
 
         // LOADING AND RESOLVING ARE ONE STEP, and this is the only entry point that says so.

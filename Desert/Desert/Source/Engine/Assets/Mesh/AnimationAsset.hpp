@@ -12,11 +12,21 @@ namespace Desert::Assets
 {
     class AnimationAsset : public AssetBase
     {
+        struct ReloadTwinTag; // see the private section
+
     public:
         AnimationAsset( const Common::Filepath& filepath );
+        // THE RELOAD TWIN (MakeReloadTarget): this asset's identity, no header read - the twin's Load reads
+        // the file. Public for make_shared; its tag is private, so no one else can name it.
+        AnimationAsset( const AssetMetadata& identity, ReloadTwinTag );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
+
+        // THE OFF-FRAME RELOAD (AssetBase::MakeReloadTarget / AdoptReloaded): a clip read on a worker into a
+        // twin, moved in here on the main thread with a new track revision - what an in-place Load writes.
+        [[nodiscard]] std::shared_ptr<AssetBase> MakeReloadTarget() const override;
+        [[nodiscard]] Common::BoolResultStr      AdoptReloaded( AssetBase& twin ) override;
 
         const Animation::AnimationClip& GetClip() const
         {
@@ -85,6 +95,11 @@ namespace Desert::Assets
         }
 
     private:
+        // Names the twin's constructor; private, so only MakeReloadTarget can call it.
+        struct ReloadTwinTag
+        {
+        };
+
         Animation::AnimationClip m_Clip;
 
         /**
