@@ -473,7 +473,7 @@ TEST( PipelineCacheKey, EveryFieldOfTheSpecificationIsAccountedFor )
     auto& [shader, framebuffer, targetLayout, renderpass, layout, pullingConfig, depthTest, depthCompare,
            stencilTest, stencilFront, stencilBack, cullMode, depthWrite, blendEnable, srcBlend, dstBlend,
            useLoadRenderPass, depthBiasConstant, depthBiasSlope, lineWidth, topology, polygonMode,
-           patchControlPoints, debugName] = spec;
+           patchControlPoints, debugName]                                   = spec;
 
     // Touch the two inert ones so the census also states WHICH members were excused, rather than leaving a
     // reader to infer it from an unused-variable warning.
