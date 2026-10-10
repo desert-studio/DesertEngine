@@ -153,15 +153,14 @@ namespace Desert::Editor::Tools
 
         // Edges are keyed by POSITION, not vertex index: the generators split vertices along hard edges
         // (a box face owns its four corners), so two faces meet at an edge whose index pairs differ.
-        using Key = std::array<int64_t, 3>;
-        const auto key = []( const glm::vec3& p ) -> Key
-        {
+        using Key      = std::array<int64_t, 3>;
+        const auto key = []( const glm::vec3& p ) -> Key {
             return { std::llround( p.x * 1000.0f ), std::llround( p.y * 1000.0f ), std::llround( p.z * 1000.0f ) };
         };
         std::map<std::pair<Key, Key>, std::vector<uint32_t>> shared;
         for ( uint32_t t = 0; t < m_Preview.Indices.size(); ++t )
         {
-            const auto&                    tri = m_Preview.Indices[t];
+            const auto&                   tri = m_Preview.Indices[t];
             const std::array<uint32_t, 3> v   = { tri.V1, tri.V2, tri.V3 };
             for ( int e = 0; e < 3; ++e )
             {
@@ -179,9 +178,9 @@ namespace Desert::Editor::Tools
             const glm::vec3 p1   = m_Preview.Vertices[tri.V2].Position;
             const glm::vec3 p2   = m_Preview.Vertices[tri.V3].Position;
             const auto      find = [&]( const Key& k ) { return key( p0 ) == k ? p0 : key( p1 ) == k ? p1 : p2; };
-            const bool      border  = tris.size() != 2;
-            const bool      grouped = !border && !m_Preview.Groups.empty() &&
-                                 m_Preview.Groups[tris[0]] != m_Preview.Groups[tris[1]];
+            const bool      border = tris.size() != 2;
+            const bool      grouped =
+                 !border && !m_Preview.Groups.empty() && m_Preview.Groups[tris[0]] != m_Preview.Groups[tris[1]];
             m_Edges.push_back( { find( edge.first ), find( edge.second ), tris.front(),
                                  border ? tris.front() : tris[1], border || grouped } );
         }
@@ -204,7 +203,7 @@ namespace Desert::Editor::Tools
         faces.reserve( m_Preview.Indices.size() );
         for ( size_t t = 0; t < m_Preview.Indices.size(); ++t )
         {
-            const auto&                    tri = m_Preview.Indices[t];
+            const auto&                   tri = m_Preview.Indices[t];
             const std::array<uint32_t, 3> v   = { tri.V1, tri.V2, tri.V3 };
             glm::vec3                     centre( 0.0f );
             glm::vec3                     normal( 0.0f );
@@ -278,7 +277,8 @@ namespace Desert::Editor::Tools
 
         // Alt + LMB is the camera's orbit, not a placement.
         const ImGuiIO& io = ::ImGui::GetIO();
-        if ( hovered && !::ImGui::IsAnyItemActive() && !io.KeyAlt && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+        if ( hovered && !::ImGui::IsAnyItemActive() && !io.KeyAlt &&
+             ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
         {
             if ( auto placed = Place( scene, settings, ms.Output, *point ); !placed.IsSuccess() )
                 LOG_ERROR( "[CreateShape] {0}", placed.GetError() );

@@ -69,8 +69,8 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
-        commands.push_back( { "Modeling", "Create shape: place at the viewport centre", []
-                              { return Editor::ViewportPanel::PlaceShapeInActiveViewport(); } } );
+        commands.push_back( { "Modeling", "Create shape: place at the viewport centre",
+                              [] { return Editor::ViewportPanel::PlaceShapeInActiveViewport(); } } );
     }
 
     void AppendModelingCommands( std::vector<PaletteCommand>&                  commands,

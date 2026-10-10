@@ -30,9 +30,9 @@ namespace Desert::Editor::Tools
         // The preview follows the cursor while it is over the viewport and a click places there; otherwise
         // the preview stands where the viewport centre looks (`centreRay`), which is where the palette's
         // "place at the viewport centre" puts the shape - the tool is never invisible while it is active.
-        void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const Common::Math::Ray& centreRay,
-                     const glm::mat4& viewProj, const glm::vec2& viewportPos, const glm::vec2& viewportSize,
-                     bool interactive );
+        void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
+                     const Common::Math::Ray& centreRay, const glm::mat4& viewProj, const glm::vec2& viewportPos,
+                     const glm::vec2& viewportSize, bool interactive );
 
         // The palette's placement: the active tool's shape where `ray` meets the scene or the ground, at the
         // current settings. Refused - with the reason, nothing placed - when Create Shape is not the active
