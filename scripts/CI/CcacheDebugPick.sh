@@ -64,13 +64,20 @@ for stem in "$(printf '%s\n' "$common" | head -1)" "$(printf '%s\n' "$desert" | 
     mkdir -p "$dest"
     base="$(basename "$stem")"
     found=0
+    texts=0
     for f in "$src/$(dirname "$stem")/$base".*.ccache-input-text "$src/$(dirname "$stem")/$base".*.ccache-log; do
         [ -f "$f" ] || continue
         cp "$f" "$dest/"
         found=$((found + 1))
+        case "$f" in *.ccache-input-text) texts=$((texts + 1)) ;; esac
     done
     if [ "$found" -eq 0 ]; then
         echo "::error::$stem has no .ccache-input-text/.ccache-log files" >&2
+        exit 1
+    fi
+    # The hash input is the point of the artifact; ccache writes it only at CCACHE_DEBUGLEVEL >= 2.
+    if [ "$texts" -eq 0 ]; then
+        echo "::error::$stem has a .ccache-log but no .ccache-input-text: CCACHE_DEBUGLEVEL is below 2" >&2
         exit 1
     fi
 done

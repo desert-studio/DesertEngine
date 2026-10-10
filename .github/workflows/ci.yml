@@ -470,14 +470,17 @@ jobs:
       # printed success and no cache appeared. Run 37701712354 (int/b3, cold) built for 85 min and was
       # cancelled at the ceiling; the steps before the build took 5 min, Save of a 2G cache needs ~2, so
       # 78 leaves a dev push's cold build its cache and the next run its hits.
-      # workflow_dispatch input ccache_debug only — see its note at the top of the file. Level 1 writes
-      # .ccache-input-text and .ccache-log alone (not the binary hash inputs nor the preprocessed
-      # text), so ~2000 objects' worth fits on this job's disk.
+      # workflow_dispatch input ccache_debug only — see its note at the top of the file. Level 2, NOT 1:
+      # ccache 4.14 writes .ccache-input-text only at debug_level >= 2 (ccache.cpp, do_cache_compilation
+      # and init_hash_debug; manual "Cache debugging"); level 1 is the .ccache-log alone, which names the
+      # manifest key but not what went into it (runs 38029077512/38035058047 came back with logs only).
+      # Level 2 adds the small binary .ccache-input-c/-d next to it (no -p: depend mode never runs the
+      # preprocessor), so ~2000 objects' worth still fits on this job's disk.
       - name: ccache debug mode
         if: inputs.ccache_debug
         run: |
           mkdir -p "$RUNNER_TEMP/ccache-debug"
-          { echo "CCACHE_DEBUG=1"; echo "CCACHE_DEBUGLEVEL=1"; echo "CCACHE_DEBUGDIR=$RUNNER_TEMP/ccache-debug"; } >> "$GITHUB_ENV"
+          { echo "CCACHE_DEBUG=1"; echo "CCACHE_DEBUGLEVEL=2"; echo "CCACHE_DEBUGDIR=$RUNNER_TEMP/ccache-debug"; } >> "$GITHUB_ENV"
 
       - name: Build Debug with sanitizers
         timeout-minutes: 78
@@ -1149,7 +1152,7 @@ jobs:
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\ccache-debug" | Out-Null
           @(
             "CCACHE_DEBUG=1"
-            "CCACHE_DEBUGLEVEL=1"
+            "CCACHE_DEBUGLEVEL=2"
             "CCACHE_DEBUGDIR=$env:RUNNER_TEMP\ccache-debug"
           ) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
