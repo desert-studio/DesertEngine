@@ -4,6 +4,8 @@
 #include <Engine/VFX/VFXDataChannel.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
 
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
+
 #include <glm/glm.hpp>
 
 #include <entt/entt.hpp>
@@ -59,6 +61,17 @@ namespace Desert::VFX
     /// when the plan holds engine:SpawnFromChannel - this frame's entries of its channel in @p channels gathered
     /// for an emitter at @p emitterCm, all joining the first step (none runs: they count as Overflow). Ids are
     /// reserved for every spawn, channel spawns included.
+    // One placed system (a VFXComponent), keyed by entity UUID: the system data its plans were built from (a new
+    // pointer = reloaded or renamed: the instance starts over), each emitter's spawn plan and instance.
+    struct SystemInstance
+    {
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
+        std::vector<VFXSpawnPlan>                                   Plans;
+        std::vector<bool>                                           Runs; // enabled and its plan compiled
+        std::vector<EmitterInstance>                                Emitters;
+        bool                                                        Seen = false;
+    };
+
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
                            double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm );
 
@@ -76,8 +89,8 @@ namespace Desert::VFX
         virtual ~WorldGpuState() = default;
     };
 
-    // Today the instances are ParticleEmitterComponents, keyed by entity UUID; their GPU state is the world's
-    // WorldGpuState (VFX-07b), one per scene, not one per view.
+    // The instances are VFXComponents' systems, keyed by entity UUID (one EmitterInstance per emitter); their GPU
+    // state is the world's WorldGpuState (VFX-07b), one per scene, not one per view.
     class VFXWorld
     {
     public:
@@ -86,7 +99,7 @@ namespace Desert::VFX
         }
 
         // One scene update. `seconds` is the scene's own time for this update: the editor delta in Edit,
-        // the gameplay delta in Play, zero while paused. Consumes ParticleEmitterComponent::RequestRestart and
+        // the gameplay delta in Play, zero while paused. Consumes VFXComponent::RequestRestart and
         // the data channels' entries written since the last tick.
         void Tick( entt::registry& registry, double seconds );
 
@@ -111,7 +124,7 @@ namespace Desert::VFX
         {
             return m_Plan;
         }
-        [[nodiscard]] const EmitterInstance* FindEmitter( std::uint64_t entityUuid ) const;
+        [[nodiscard]] const SystemInstance* FindSystem( std::uint64_t entityUuid ) const;
 
         // The scene's data channels (VFX-10): gameplay registers channels and writes entries here (C++ Write,
         // Lua VFX.writeChannel); the next Tick spawns from them and clears them.
@@ -146,7 +159,7 @@ namespace Desert::VFX
 
         Clock                                              m_Clock;
         TickPlan                                           m_Plan;
-        std::unordered_map<std::uint64_t, EmitterInstance> m_Emitters;
+        std::unordered_map<std::uint64_t, SystemInstance>  m_Systems;
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;
         VFXDataChannels                                    m_Channels;

@@ -945,101 +945,32 @@ namespace Desert::ECS
         SpotLightData Data;
     };
 
-    // GPU-simulated billboard particle emitter. The reflected fields below are the AUTHORING parameters
-    // (Details UI + scene serialization are generated from them); the actual simulation runs in a compute
-    // shader and the quads are drawn camera-facing in the Transparency phase (ParticleRenderer). Emits from
-    // the entity's transform. Runtime GPU buffers live on the render system, keyed by the entity — not here.
-    struct ParticleEmitterData
+    /**
+     * @brief THE EFFECT AN ENTITY PLAYS (UE UNiagaraComponent): a `.dfx` system and whether it starts by itself.
+     *
+     * Every emitter of the system simulates on the GPU through its compiled module stack (Engine/VFX
+     * VFXStackCompiler -> the ParticleSimulate host program), born by the emitter's spawn plan
+     * (CompileSpawnPlan), at the entity's transform. Empty System = the entity plays nothing.
+     */
+    struct VFXComponentData
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Enabled" ), Category( "Emitter" ) )
-        bool Enabled = true;
+        PROPERTY( DisplayName( "System" ), Category( "VFX" ), Asset<VFXSystemAsset>,
+                  Tooltip( "The .dfx effect this entity plays" ) )
+        Assets::AssetHandle System;
 
-        PROPERTY( DisplayName( "Max Particles" ), Category( "Emitter" ), Range( 1.0f, 100000.0f ) )
-        int MaxParticles = 2000;
-
-        PROPERTY( DisplayName( "Spawn Rate" ), Category( "Emitter" ), Range( 0.0f, 10000.0f ), Units( "/s" ),
-                  Summary )
-        float SpawnRate = 200.0f; // particles per second
-
-        PROPERTY( DisplayName( "Looping" ), Category( "Emitter" ) )
-        bool Looping = true;
-
-        PROPERTY( DisplayName( "Simulate In World" ), Category( "Emitter" ) )
-        bool WorldSpace = true; // world = particles trail behind a moving emitter; local = ride with it
-
-        PROPERTY( DisplayName( "Lifetime" ), Category( "Particle" ), Range( 0.01f, 60.0f ), Units( "s" ), Summary )
-        float Lifetime = 3.0f; // seconds
-
-        PROPERTY( DisplayName( "Lifetime Variance" ), Category( "Particle" ), Range( 0.0f, 1.0f ) )
-        float LifetimeVariance = 0.2f;
-
-        PROPERTY( DisplayName( "Start Speed" ), Category( "Motion" ), Range( 0.0f, 100.0f ) )
-        float StartSpeed = 200.0f;
-
-        PROPERTY( DisplayName( "Speed Variance" ), Category( "Motion" ), Range( 0.0f, 1.0f ) )
-        float SpeedVariance = 0.3f;
-
-        PROPERTY( DisplayName( "Emit Direction" ), Category( "Motion" ) )
-        glm::vec3 Direction = glm::vec3( 0.0f, 1.0f, 0.0f ); // normalized emit axis
-
-        PROPERTY( DisplayName( "Cone Angle" ), Category( "Motion" ), Range( 0.0f, 180.0f ), Units( "deg" ) )
-        float ConeAngle = 45.0f; // degrees of spread around Direction (wide enough to read from any angle)
-
-        PROPERTY( DisplayName( "Gravity" ), Category( "Motion" ) )
-        glm::vec3 Gravity = glm::vec3( 0.0f, -200.0f, 0.0f );
-
-        PROPERTY( DisplayName( "Start Size" ), Category( "Look" ), Range( 0.0f, 1000.0f ), Length )
-        float StartSize = 25.0f;
-
-        // Size-over-life ease: the compute shader raises the normalized age t to this power before lerping
-        // Start->End size. 1 = linear; <1 = fast then slow (puffs); >1 = slow then fast (shrinking sparks).
-        // Authored as a curve in the Particle Editor.
-        PROPERTY( DisplayName( "Size Curve Power" ), Category( "Look" ), Range( 0.1f, 8.0f ) )
-        float SizeCurvePower = 1.0f;
-
-        PROPERTY( DisplayName( "End Size" ), Category( "Look" ), Range( 0.0f, 1000.0f ), Length )
-        float EndSize = 6.0f; // keep a sliver of size so particles stay readable instead of vanishing mid-life
-
-        PROPERTY( DisplayName( "Start Color" ), Category( "Look" ), Color )
-        glm::vec3 StartColor = glm::vec3( 1.0f, 0.6f, 0.15f );
-
-        PROPERTY( DisplayName( "End Color" ), Category( "Look" ), Color )
-        glm::vec3 EndColor = glm::vec3( 0.6f, 0.1f, 0.0f );
-
-        PROPERTY( DisplayName( "Start Alpha" ), Category( "Look" ), Range( 0.0f, 1.0f ) )
-        float StartAlpha = 1.0f;
-
-        PROPERTY( DisplayName( "End Alpha" ), Category( "Look" ), Range( 0.0f, 1.0f ) )
-        float EndAlpha = 0.0f;
-
-        // The surface material each sprite is shaded with (UE: the sprite renderer's Material). Its template must
-        // declare `Usage ParticleSprites` (it draws through the template's ParticleSprite.Forward cell,
-        // MeshVertexPath::ParticleSprite), and its BLEND MODE is how the sprite composites: Translucent = laid
-        // over the scene (smoke, dust), Additive = added to it (fire, sparks;
-        // Engine/Materials/M_ParticleAdditive). Empty = the engine's translucent sprite template,
-        // ParticleSpriteDefault. A material that cannot draw sprites is named in the log and drawn as that
-        // default. Replaces the emitter's own Blend switch (scene v42, SceneMigration.hpp
-        // kSceneVersionParticleSpriteMaterial).
-        PROPERTY( DisplayName( "Material" ), Category( "Look" ), Asset<MaterialAsset> )
-        Assets::AssetHandle Material;
+        // UE bAutoActivate: false = the system is placed but bears no particles until it is activated.
+        PROPERTY( DisplayName( "Auto Activate" ), Category( "VFX" ) )
+        bool AutoActivate = true;
     };
 
-    // The engine's additive sprite material (Editor/Resources/Engine/Materials/M_ParticleAdditive.demat) by its
-    // stable key - the one the scene migrator writes (SceneMigration.hpp kParticleAdditiveMaterialPath) and the
-    // Particle Editor's glowing presets pick; its handle is Assets::AssetHandle::FromKey of this key.
-    inline constexpr std::string_view kParticleAdditiveMaterialKey =
-         "engine:Engine/Materials/M_ParticleAdditive.demat";
-
-    struct ParticleEmitterComponent
+    struct VFXComponent
     {
-        COMPONENT( Key( "ParticleEmitter" ), Block( Data ), Run( ActorsAndUI ) )
-        ParticleEmitterData Data;
+        COMPONENT( Key( "VFX" ), Block( Data ), Run( ActorsAndUI ) )
+        VFXComponentData Data;
 
-        // One-shot "restart" from the editor's transport, consumed by ParticleRenderer::PrepareFrame:
-        // it zeroes the emitter's particle state (every particle dead -> respawned from scratch) without
-        // destroying the GPU buffer. Transient — not reflected, so it never reaches a scene file.
+        // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
     };
 

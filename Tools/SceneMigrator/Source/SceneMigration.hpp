@@ -196,12 +196,18 @@ namespace Desert::Migration
     //       key, counted). Scenes and prefabs alike.
     inline constexpr int kSceneVersionParticleSpriteMaterial = 43;
 
+    //  44 - THE PARTICLE EMITTER IS A VFX SYSTEM (VFX-HOST). Every ParticleEmitter block becomes a `.dfx` system of
+    //       one emitter whose module stack reproduces it, played by `VFX { System, AutoActivate: true }`
+    //       (MigrateParticleEmittersToVFX); the component is deleted. A prefab override stating ParticleEmitter
+    //       keys refuses the file. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionParticleEmittersToVFX = 44;
+
     // The engine's additive particle sprite material: Editor/Resources/Engine/Materials/M_ParticleAdditive.demat.
     inline constexpr const char* kParticleAdditiveMaterialGuid = "6f2b9c41d8e04a57b3a1c0e9f5d27b86";
     inline constexpr const char* kParticleAdditiveMaterialPath =
          "engine:Engine/Materials/M_ParticleAdditive.demat";
 
-    static_assert( kSceneVersionParticleSpriteMaterial == kSceneVersion,
+    static_assert( kSceneVersionParticleEmittersToVFX == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -324,11 +330,7 @@ namespace Desert::Migration
     ParticleSpriteMaterialsReport
     MigrateParticleSpriteMaterialsV42ToV43( std::vector<Assets::EntityData>& entities );
 
-    // VFX-03, NOT YET CHAINED (see REMAINDER-VFX-03: it is chained, with the next scene version, in the
-    // same commit that makes the renderer draw VFXComponent and deletes ParticleEmitterComponent - chained
-    // earlier, the loader's migration would turn every emitter into a block nothing draws).
-    //
-    // A ParticleEmitter block becomes a `.dfx` system of ONE emitter whose module stack reproduces it, and the
+    // The v44 step (kSceneVersionParticleEmittersToVFX). A ParticleEmitter block becomes a `.dfx` system of ONE emitter whose module stack reproduces it, and the
     // block becomes `VFX { System: {Guid, Path}, AutoActivate: true }`. The file is written next to the owner
     // under VFX/<owner>_<entity uuid>.dfx (relative to the assets root), its GUID MigrationGuidForPath of that
     // path, so a rerun writes the same bytes; emitters of one file with the same numbers share the first's file.
@@ -579,6 +581,9 @@ namespace Desert::Migration
         bool                          ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
         ParticleSpriteMaterialsReport ParticleSpriteMaterials;
 
+        bool                        ParticleEmittersToVFXRaised = false; // below kSceneVersionParticleEmittersToVFX
+        ParticleEmittersToVFXReport ParticleEmittersToVFX;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
 
         bool                       UIAnimationTimelinesRaised = false;
@@ -589,7 +594,8 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised;
+                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
+                   ParticleSpriteMaterialsRaised || ParticleEmittersToVFXRaised;
         }
     };
 

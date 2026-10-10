@@ -11,7 +11,6 @@
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Panels/Clouds/CloudsPanel.hpp>
-#include <Editor/Panels/Particles/ParticleEditorPanel.hpp>
 #include <Editor/Panels/UI/UIEditorPanel.hpp>
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 
@@ -124,8 +123,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ControlRigComponent, Data, "
 // everything behind it — binding the source rig by signature, resolving both rigs' names, building the
 // retargeter, rebuilding it when either side moves — belongs to AnimationECSSystem.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RetargetComponent, Data, "RetargetData", "Retarget" )
-// Particle Emitter is a CUSTOM entry: the reflected fields plus a transport (play / pause / restart),
-// because "is it emitting right now" is a state you drive, not a value you type. See MakeEmitterEntry.
+// VFX is a CUSTOM entry: the reflected fields plus a transport (activate / deactivate / restart), because
+// "is it playing right now" is a state you drive, not a value you type. See MakeVFXEntry.
 // UI Canvas is a CUSTOM entry: the reflected fields PLUS "Open in UI Editor", which is what the UI Editor
 // becoming a document (U7-2) bought. The window used to be a tool that drew the FIRST canvas in the scene,
 // so a button here could only ever have said "reveal that window", never "edit THIS canvas". Ю1 removed the
@@ -617,16 +616,16 @@ namespace Desert::Editor
         return e;
     }
 
-    // Particle emitter: transport first, then the reflected parameters. Pause writes Enabled (the same
-    // field the renderer reads, so nothing new can drift out of sync) and Restart raises the component's
-    // one-shot flag that ParticleRenderer consumes next frame.
-    static ComponentEditorEntry MakeEmitterEntry()
+    // VFX: transport first, then the reflected fields. Deactivate writes AutoActivate (the same field VFXWorld
+    // reads, so nothing new can drift out of sync) and Restart raises the component's one-shot flag that VFXWorld
+    // consumes next tick.
+    static ComponentEditorEntry MakeVFXEntry()
     {
-        using C = ::Desert::ECS::ParticleEmitterComponent;
+        using C = ::Desert::ECS::VFXComponent;
         ComponentEditorEntry e;
-        e.Name              = "Particle Emitter";
+        e.Name              = "VFX";
         e.CanRemove         = true;
-        e.ReflectedTypeName = "ParticleEmitterData";
+        e.ReflectedTypeName = "VFXComponentData";
         e.Has               = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
         e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
         e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
@@ -638,32 +637,18 @@ namespace Desert::Editor
             if ( !ctx.FieldFilter )
             {
                 const float w = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
-                if ( ImGui::Button( c.Data.Enabled ? ICON_MDI_PAUSE "  Pause" : ICON_MDI_PLAY "  Play",
+                if ( ImGui::Button( c.Data.AutoActivate ? ICON_MDI_PAUSE "  Deactivate" : ICON_MDI_PLAY "  Activate",
                                     ImVec2( w, 0.0f ) ) )
-                    c.Data.Enabled = !c.Data.Enabled;
+                    c.Data.AutoActivate = !c.Data.AutoActivate;
                 ImGui::SameLine();
                 if ( ImGui::Button( ICON_MDI_RESTART "  Restart", ImVec2( -1.0f, 0.0f ) ) )
                     c.RequestRestart = true;
                 ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
-                     "Kill every live particle and start emitting from scratch" );
-
-                // OPEN THE EMITTER'S OWN EDITOR, ON THIS ENTITY. The Particle Editor used to be a window
-                // in the View menu that drew whatever was selected, and its own RequestOpen inbox had no
-                // callers at all — there was no button here because a button could only have said "reveal
-                // that window", never "edit THIS emitter". A document is asked for by subject, so now it
-                // can. Open-or-focus falls out of the subject: pressing it twice brings the window that is
-                // already on this emitter forward rather than making a second one.
-                if ( ImGui::Button( ICON_MDI_CREATION "  Open in Particle Editor", ImVec2( -1.0f, 0.0f ) ) )
-                {
-                    ::Desert::Editor::Core::SubjectOpenRequests::Request(
-                         ::Desert::Editor::ParticleEditorPanel::SubjectFor( ::Desert::Editor::EntityId( en ) ) );
-                }
-                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
-                     "Presets, the colour-over-life gradient and the size curve, in a window of their own" );
+                     "Kill every live particle of the system and start it from scratch" );
                 ImGui::Spacing();
             }
 
-            PropertyEditorBuilder::Draw( &c.Data, "ParticleEmitterData", ctx.AssetMgr(), ctx.UIHelper,
+            PropertyEditorBuilder::Draw( &c.Data, "VFXComponentData", ctx.AssetMgr(), ctx.UIHelper,
                                          ctx.FieldFilter );
         };
         return e;
@@ -2252,7 +2237,7 @@ namespace Desert::Editor
 namespace
 {
     const int _desert_emitter_component_reg =
-         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeEmitterEntry() );
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeVFXEntry() );
 
     const int _desert_dirlight_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
          ::Desert::Editor::MakeDirectionalLightEntry() );

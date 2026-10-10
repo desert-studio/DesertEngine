@@ -5,6 +5,12 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/VFX/VFXCurveLUT.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+
+#include <format>
 
 #include <Common/Core/Logger.hpp>
 
@@ -24,9 +30,49 @@ namespace Desert::Graphic::System
         return state;
     }
 
-    ParticleEmitterGpu& ParticleWorldGpu::GetOrCreate( const uint32_t entityId, const uint32_t stepCapacity )
+    namespace
     {
-        auto& e = m_Emitters[entityId];
+        // The attributes the host draws from, each with the one type it reads it as (Generated/VFXEmitterStack.glslh).
+        struct DrawnAttribute
+        {
+            std::string_view Name;
+            std::string_view Define;
+            VFX::VFXValueType Type;
+        };
+        constexpr DrawnAttribute kDrawnAttributes[] = {
+             { "Position", "VFX_ATTR_POSITION", VFX::VFXValueType::Vec3 },
+             { "SpriteSize", "VFX_ATTR_SPRITESIZE", VFX::VFXValueType::Vec2 },
+             { "Color", "VFX_ATTR_COLOR", VFX::VFXValueType::Vec4 },
+             { "Age", "VFX_ATTR_AGE", VFX::VFXValueType::Float },
+             { "Lifetime", "VFX_ATTR_LIFETIME", VFX::VFXValueType::Float },
+             { "Velocity", "VFX_ATTR_VELOCITY", VFX::VFXValueType::Vec3 },
+        };
+
+        // The bytes Generated/VFXEmitterStack.glslh becomes for one compiled stack: its Particle block, then where
+        // the host finds each attribute it draws from.
+        Common::ResultStr<std::string> StackHostSource( const VFX::VFXCompiledEmitter& compiled )
+        {
+            const auto parsed = Core::Preprocess::DShaderParser::Parse( compiled.ShaderText );
+            if ( !parsed.IsSuccess() )
+                return Common::MakeError<std::string>( parsed.GetError() );
+            std::string source = parsed.GetValue().Meta.ParticleSource;
+            source += '\n';
+            for ( const DrawnAttribute& drawn : kDrawnAttributes )
+                if ( const auto* a = compiled.Layout.Find( drawn.Name ); a != nullptr && a->Type == drawn.Type )
+                    source += std::format( "#define {} {}u\n", drawn.Define, a->FloatStart );
+            return Common::MakeSuccess( std::move( source ) );
+        }
+
+        std::shared_ptr<ShaderResources::StorageBuffer> Columns( const char* name, uint32_t capacity,
+                                                                 uint32_t columns, uint32_t binding )
+        {
+            return ShaderResources::StorageBuffer::Create( name, std::max( 1u, capacity * columns ) * 4u, binding,
+                                                           /*persistent=*/true );
+        }
+    } // namespace
+
+    bool ParticleWorldGpu::EnsureTickBuffers( ParticleEmitterGpu& e, const uint32_t stepCapacity )
+    {
         if ( !e.Counters )
             e.Counters = ShaderResources::StorageBuffer::Create( "ParticleCounters",
                                                                  kParticleDrawSlots * kParticleDrawSlotStride, 1 );
@@ -45,7 +91,83 @@ namespace Desert::Graphic::System
             e.Steps        = ShaderResources::StorageBuffer::Create(
                  "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
         }
-        return e;
+        return e.Steps && e.Counters && e.DispatchArgs && e.ChannelSpawns && e.AttributeFloats &&
+               e.AttributeInts && e.Params && e.Curves;
+    }
+
+    std::shared_ptr<ComputePipeline> ParticleWorldGpu::ProgramFor( const uint64_t key, const std::string& name,
+                                                                    const std::string& hostSource )
+    {
+        if ( const auto found = m_Programs.find( key ); found != m_Programs.end() )
+            return found->second;
+        std::shared_ptr<ComputePipeline>& program = m_Programs[key];
+        auto* shaders = Runtime::ResourceRegistry::GetShaderService();
+        if ( shaders == nullptr )
+            return nullptr;
+        Core::ShaderVariant variant;
+        variant.VirtualSources.push_back( { "Generated/VFXEmitterStack.glslh", hostSource } );
+        const auto shader = shaders->AcquireVariant( "ParticleSimulate", variant );
+        if ( !shader )
+        {
+            LOG_ERROR( "[VFX] stack {} has no host program: ParticleSimulate is not registered", name );
+            return nullptr;
+        }
+        const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
+        if ( !made )
+        {
+            LOG_ERROR( "[VFX] stack {} does not simulate: {}", name, made.GetError() );
+            return nullptr;
+        }
+        program = made.GetValue();
+        return program;
+    }
+
+    void ParticleWorldGpu::BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
+                                         const std::size_t index, const uint32_t entityId )
+    {
+        const auto& emitter = system.Emitters[index];
+        gpu.Capacity        = emitter.Enabled ? emitter.Capacity : 0u;
+        gpu.Local           = emitter.Space == Assets::Serialization::VFXSimulationSpace::Local;
+        if ( gpu.Capacity == 0 )
+            return;
+        const auto refuse = [&]( const std::string& why )
+        {
+            LOG_ERROR( "[VFX] entity {} emitter {} '{}' does not simulate: {}", entityId, index, emitter.Name, why );
+            gpu.Capacity = 0;
+            gpu.Pipeline = nullptr;
+        };
+
+        const auto compiled = VFX::CompileEmitterStack( system, index, VFX::EngineModuleDir() );
+        if ( !compiled.IsSuccess() )
+            return refuse( compiled.GetError() );
+        const auto curves = VFX::BuildCurveAtlas( system );
+        if ( !curves.IsSuccess() )
+            return refuse( curves.GetError() );
+        auto params = VFX::BuildEmitterParams( compiled.GetValue(), system, index, curves.GetValue() );
+        if ( !params.IsSuccess() )
+            return refuse( params.GetError() );
+        const auto source = StackHostSource( compiled.GetValue() );
+        if ( !source.IsSuccess() )
+            return refuse( source.GetError() );
+
+        gpu.Pipeline = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
+        if ( !gpu.Pipeline )
+            return refuse( "its host program did not build (logged above)" );
+        gpu.ParamRows    = std::move( params.GetValue() );
+        gpu.CurveFloats  = curves.GetValue().Floats;
+        gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents;
+        gpu.IntColumns   = compiled.GetValue().Layout.TotalIntComponents;
+        if ( gpu.ParamRows.empty() )
+            gpu.ParamRows.emplace_back( 0.0f );
+        if ( gpu.CurveFloats.empty() )
+            gpu.CurveFloats.push_back( 0.0f );
+        gpu.AttributeFloats = Columns( "VFXAttributeFloats", gpu.Capacity, gpu.FloatColumns, 6 );
+        gpu.AttributeInts   = Columns( "VFXAttributeInts", gpu.Capacity, gpu.IntColumns, 7 );
+        gpu.Params          = ShaderResources::StorageBuffer::Create(
+             "VFXStackParams", static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ), 8 );
+        gpu.Curves = ShaderResources::StorageBuffer::Create(
+             "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
+        gpu.NeedsReset = true;
     }
 
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles )
@@ -69,8 +191,9 @@ namespace Desert::Graphic::System
             return false;
         }
         m_Pool.Capacity = capacity;
-        for ( auto& [key, gpu] : m_Emitters )
-            gpu.NeedsReset = true;
+        for ( auto& [key, system] : m_Systems )
+            for ( ParticleEmitterGpu& gpu : system.Emitters )
+                gpu.NeedsReset = true;
         return true;
     }
 
@@ -88,33 +211,71 @@ namespace Desert::Graphic::System
 
         const auto& reg = scene.GetRegistry();
 
-        const std::size_t retired = RetireDestroyedEmitters( m_Emitters, reg );
+        const std::size_t retired = RetireDestroyedEmitters( m_Systems, reg );
         if ( retired > 0 )
-            LOG_INFO( "[Particles] Released {} emitter(s) whose entity is gone.", retired );
-        m_Ranges.ReleaseUnless( [this]( const uint32_t key ) { return m_Emitters.contains( key ); } );
+            LOG_INFO( "[Particles] Released {} system(s) whose entity is gone.", retired );
+        m_Ranges.ReleaseUnless( [this]( const uint32_t key ) { return m_Systems.contains( key ); } );
+        // The random streams' step: unique per fixed step of the world's life (u_Stack.x + step).
+        const auto stepSerial = static_cast<uint32_t>( world.GetTickSerial() * std::max( 1u, stepCapacity ) );
 
-        auto view = reg.view<const ECS::ParticleEmitterComponent, const ECS::TransformComponent,
-                             const ECS::UUIDComponent>();
+        auto view = reg.view<const ECS::VFXComponent, const ECS::TransformComponent, const ECS::UUIDComponent>();
         view.each(
-             [&]( entt::entity entity, const ECS::ParticleEmitterComponent& emitter,
-                  const ECS::TransformComponent& transform, const ECS::UUIDComponent& id )
+             [&]( entt::entity entity, const ECS::VFXComponent&, const ECS::TransformComponent& transform,
+                  const ECS::UUIDComponent& id )
              {
-                 const auto& d = emitter.Data;
-                 if ( !d.Enabled || d.MaxParticles <= 0 )
-                     return;
+                 const VFX::SystemInstance* instances = world.FindSystem( static_cast<uint64_t>( id.UUID ) );
+                 if ( instances == nullptr || !instances->System )
+                     return; // no system, or not read yet
 
-                 const VFX::EmitterInstance* instance = world.FindEmitter( static_cast<uint64_t>( id.UUID ) );
-                 if ( instance == nullptr )
-                     return;
+                 const auto         entityId = static_cast<uint32_t>( entity );
+                 ParticleSystemGpu& system   = m_Systems[entityId];
+                 if ( system.System != instances->System )
+                 {
+                     // A new system for this entity: every emitter is compiled again (programs are shared by key).
+                     system.System = instances->System;
+                     system.Emitters.clear();
+                     system.Emitters.resize( instances->System->Emitters.size() );
+                     for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                         BuildEmitter( system.Emitters[k], *instances->System, k, entityId );
+                 }
 
-                 const auto          entityId = static_cast<uint32_t>( entity );
-                 ParticleEmitterGpu& gpu      = GetOrCreate( entityId, stepCapacity );
-                 if ( !gpu.Steps || !gpu.Counters || !gpu.DispatchArgs || !gpu.ChannelSpawns )
+                 // One range of the pool per system, each emitter a slice of it in emitter order.
+                 uint32_t total = 0;
+                 for ( const ParticleEmitterGpu& gpu : system.Emitters )
+                     total += gpu.Capacity;
+                 if ( total == 0 )
                      return;
+                 const ParticlePoolRange systemRange = m_Ranges.Acquire( entityId, total );
+                 const glm::vec3         worldPos    = glm::vec3( transform.GetTransform()[3] );
 
+                 uint32_t offset = 0;
+                 for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                 {
+                     ParticleEmitterGpu& gpu = system.Emitters[k];
+                     if ( gpu.Capacity == 0 || k >= instances->Emitters.size() )
+                         continue;
+                     const VFX::EmitterInstance* instance = &instances->Emitters[k];
+                     const ParticlePoolRange     range{ systemRange.Base + offset, gpu.Capacity };
+                     offset += gpu.Capacity;
+                     if ( !EnsureTickBuffers( gpu, stepCapacity ) )
+                         continue;
+                     if ( !PrepareEmitter( gpu, *instance, range, entityId, worldPos, stepSeconds, stepSerial ) )
+                         continue;
+                 }
+             } );
+
+        if ( !m_FrameEmitters.empty() && !EnsurePoolCapacity( m_Ranges.End() ) )
+            m_FrameEmitters.clear();
+        return true;
+    }
+
+    bool ParticleWorldGpu::PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
+                                           const ParticlePoolRange& range, const uint32_t entityId,
+                                           const glm::vec3& worldPos, const float stepSeconds,
+                                           const uint32_t stepSerial )
+    {
+        const VFX::EmitterInstance* instance = &emitter;
                  // The emitter's range of the pool; a new or moved range starts dead.
-                 const ParticlePoolRange range =
-                      m_Ranges.Acquire( entityId, static_cast<uint32_t>( d.MaxParticles ) );
                  if ( range.Base != gpu.Range.Base || range.Count != gpu.Range.Count )
                      gpu.NeedsReset = true;
                  gpu.Range = range;
@@ -135,11 +296,18 @@ namespace Desert::Graphic::System
                                       instance->Steps[s].ChannelFirst, instance->Steps[s].ChannelCount };
                      const auto uploaded = gpu.Steps->SetData(
                           table.data(), stepCount * static_cast<uint32_t>( sizeof( ParticleStepGpu ) ) );
-                     if ( !uploaded.IsSuccess() )
+                     const auto params = gpu.Params->SetData(
+                          gpu.ParamRows.data(), static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ) );
+                     const auto curves = gpu.Curves->SetData(
+                          gpu.CurveFloats.data(), static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ) );
+                     if ( !uploaded.IsSuccess() || !params.IsSuccess() || !curves.IsSuccess() )
                      {
-                         LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its step table did "
-                                    "not upload: {}",
-                                    entityId, uploaded.GetError() );
+                         LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its step table, parameters "
+                                    "or curves did not upload: {}",
+                                    entityId,
+                                    !uploaded.IsSuccess() ? uploaded.GetError()
+                                                          : ( !params.IsSuccess() ? params.GetError()
+                                                                                  : curves.GetError() ) );
                          stepCount = 0;
                      }
                  }
@@ -170,7 +338,7 @@ namespace Desert::Graphic::System
                               "[Particles] emitter {} sits out this tick, the buffer of its {} channel spawns "
                               "was not created",
                               entityId, needed );
-                         return;
+                         return false;
                      }
                      const auto uploaded =
                           gpu.ChannelSpawns->SetData( channel.data(), needed * kParticleChannelSpawnStride );
@@ -184,7 +352,7 @@ namespace Desert::Graphic::System
                      }
                  }
                  if ( !gpu.ChannelSpawns )
-                     return;
+                     return false;
 
                  // Both draw slots start empty: compact 0 fills slot 0 from the pool, so the counters need no
                  // history (ParticleCompact). Slot h draws alive half h: six vertices per entry from 6 x its
@@ -197,34 +365,19 @@ namespace Desert::Graphic::System
                  {
                      LOG_ERROR( "[Particles] emitter {} sits out this tick, its counters did not upload: {}",
                                 entityId, counted.GetError() );
-                     return;
+                     return false;
                  }
 
-                 const glm::vec3 worldPos = glm::vec3( transform.GetTransform()[3] );
-                 glm::vec3       dir      = d.Direction;
-                 if ( glm::dot( dir, dir ) < 1e-6f )
-                     dir = glm::vec3( 0.0f, 1.0f, 0.0f );
-                 dir = glm::normalize( dir );
-
                  ParticleFrameEmitter fe;
-                 fe.EntityId        = entityId;
-                 fe.Gpu             = &gpu;
-                 fe.Material        = d.Material;
-                 fe.StepCount       = stepCount;
+                 fe.EntityId     = entityId;
+                 fe.Gpu          = &gpu;
+                 fe.Pipeline     = gpu.Pipeline.get();
+                 fe.StepCount    = stepCount;
                  fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
-                 fe.Push.Gravity    = glm::vec4( d.Gravity, 0.0f );
-                 fe.Push.Direction  = glm::vec4( dir, glm::radians( d.ConeAngle ) );
-                 fe.Push.Params     = glm::vec4( d.StartSpeed, d.SpeedVariance, d.Lifetime, d.LifetimeVariance );
-                 fe.Push.StartColor = glm::vec4( d.StartColor, d.StartAlpha );
-                 fe.Push.EndColor   = glm::vec4( d.EndColor, d.EndAlpha );
-                 fe.Push.Sizes      = glm::vec4( d.StartSize, d.EndSize, d.SizeCurvePower, 0.0f );
-                 fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, d.WorldSpace ? 0u : 1u );
-
+                 fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
+                 fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
                  m_FrameEmitters.push_back( fe );
-             } );
-
-        if ( !m_FrameEmitters.empty() && !EnsurePoolCapacity( m_Ranges.End() ) )
-            m_FrameEmitters.clear();
-        return true;
+                 return true;
     }
+
 } // namespace Desert::Graphic::System

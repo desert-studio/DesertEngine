@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 
@@ -22,16 +23,12 @@ namespace Desert::Core
 namespace Desert::Graphic::System
 {
     // Push constant for ParticleSimulate (must match the shader's 128-byte block).
+    // ParticleSimulate.shader's PushConstants, field for field.
     struct ParticleSimPush
     {
-        glm::vec4  EmitterPos; // xyz world pos, w the fixed step length (seconds)
-        glm::vec4  Gravity;    // xyz gravity, w unused
-        glm::vec4  Direction;  // xyz dir, w cone half-angle (rad)
-        glm::vec4  Params;     // startSpeed, speedVar, lifetime, lifetimeVar
-        glm::vec4  StartColor; // rgb + start alpha
-        glm::vec4  EndColor;   // rgb + end alpha
-        glm::vec4  Sizes;      // startSize, endSize, size-curve power, 0
+        glm::vec4  EmitterPos; // xyz world pos (cm), w the fixed step length (seconds)
         glm::uvec4 Counts;     // range count, step index into the step table, range pool base, local-space
+        glm::uvec4 Stack;      // x = the world's serial of this tick's step 0, yzw 0
     };
 
     // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = flags
@@ -97,6 +94,21 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> DispatchArgs; // Spawn+Update's and the next compact's
         std::shared_ptr<ShaderResources::StorageBuffer> ChannelSpawns; // this tick's Spawn from Channel particles
 
+        // VFX-HOST: the emitter's compiled stack - its host program, its attribute columns (SoA, Count rows per
+        // component), its parameter rows and its system's curve atlas (re-uploaded every tick: the copies are
+        // per frame in flight).
+        std::shared_ptr<ComputePipeline>                Pipeline; // null = the stack was refused, it sits out
+        std::shared_ptr<ShaderResources::StorageBuffer> AttributeFloats;
+        std::shared_ptr<ShaderResources::StorageBuffer> AttributeInts;
+        std::shared_ptr<ShaderResources::StorageBuffer> Params;
+        std::shared_ptr<ShaderResources::StorageBuffer> Curves;
+        std::vector<glm::vec4>                          ParamRows;
+        std::vector<float>                              CurveFloats;
+        uint32_t                                        Capacity    = 0;
+        uint32_t                                        FloatColumns = 0;
+        uint32_t                                        IntColumns   = 0;
+        bool                                            Local       = false;
+
         ParticlePoolRange Range;
         uint32_t          StepCapacity    = 0;
         uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
@@ -110,8 +122,9 @@ namespace Desert::Graphic::System
         uint32_t            EntityId = 0;
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
-        // The emitter's ParticleEmitterData::Material (null = the default sprite template); the drawing view
-        // resolves its ParticleSprite.Forward cell and reads the blend mode off it.
+        ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
+        // The sprite renderer's material (null = the default sprite template; a `.dfx` sprite row names none yet,
+        // VFXS 1); the drawing view resolves its ParticleSprite.Forward cell and reads the blend mode off it.
         Common::AssetHandle Material;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
@@ -130,6 +143,13 @@ namespace Desert::Graphic::System
     // prepare a VFXWorld tick claims it, uploads the tick's step tables and counters and adds the simulation
     // nodes; every other view of that tick only draws the same pool (ParticleRenderer::DrawPass). Dropped with the
     // world (VFXWorld::Clear, the scene's destruction); the buffers go through the allocator's deletion ring.
+    // One placed system's GPU state (per entity): an emitter state per emitter of the system it was built from.
+    struct ParticleSystemGpu
+    {
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
+        std::vector<ParticleEmitterGpu>                             Emitters;
+    };
+
     class ParticleWorldGpu final : public VFX::WorldGpuState
     {
     public:
@@ -153,9 +173,21 @@ namespace Desert::Graphic::System
     private:
         // Grows the pool to hold @p particles (recreating it: every emitter restarts); false when it failed.
         bool                EnsurePoolCapacity( uint32_t particles );
-        ParticleEmitterGpu& GetOrCreate( uint32_t entityId, uint32_t stepCapacity );
+        // Uploads emitter @p emitter's tick into @p gpu and adds its frame emitter; false = it sits out this tick.
+        bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
+                             const ParticlePoolRange& range, uint32_t entityId, const glm::vec3& worldPos,
+                             float stepSeconds, uint32_t stepSerial );
+        // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits out.
+        static bool EnsureTickBuffers( ParticleEmitterGpu& gpu, uint32_t stepCapacity );
+        // Compiles emitter @p index of @p system into @p gpu (program, columns, parameters, curves).
+        void BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
+                           std::size_t index, uint32_t entityId );
+        // The host program for one compiled stack, by its key (null = refused, said once).
+        std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
+                                                     const std::string& hostSource );
 
-        std::unordered_map<uint32_t, ParticleEmitterGpu> m_Emitters;
+        std::unordered_map<uint32_t, ParticleSystemGpu>                m_Systems;
+        std::unordered_map<uint64_t, std::shared_ptr<ComputePipeline>> m_Programs;
         std::vector<ParticleFrameEmitter>                m_FrameEmitters;
         ParticlePoolRanges                               m_Ranges;
         ParticlePoolBuffers                              m_Pool;

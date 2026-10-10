@@ -540,11 +540,11 @@ namespace Desert::Core::Rules
          { "Locomotion", ComponentLoading::Spatial },
          { "Material", ComponentLoading::Spatial },
          { "Morph", ComponentLoading::Spatial },
-         { "ParticleEmitter", ComponentLoading::Spatial },
          { "PointLight", ComponentLoading::Spatial }, // has a radius; the sun is the global light
          { "Projectile", ComponentLoading::Spatial },
          { "Retarget", ComponentLoading::Spatial },
          { "RigidBody", ComponentLoading::Spatial },
+         { "VFX", ComponentLoading::Spatial },
          // A script's reach is whatever it does, which no file states. Spatial, and a game-manager script
          // is exactly what the author's AlwaysLoaded marker is for.
          { "Script", ComponentLoading::Spatial },

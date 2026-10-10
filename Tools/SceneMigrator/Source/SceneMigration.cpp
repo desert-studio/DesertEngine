@@ -2208,6 +2208,18 @@ namespace Desert::Migration
                 report.ParticleSpriteMaterials       = MigrateParticleSpriteMaterialsV42ToV43( entities );
             }
 
+            // The particle emitter is a VFX system (VFX-HOST): each block becomes a `.dfx` and a VFX block.
+            if ( statedSceneVersion < kSceneVersionParticleEmittersToVFX )
+            {
+                report.ParticleEmittersToVFXRaised = true;
+                report.ParticleEmittersToVFX       = MigrateParticleEmittersToVFX( entities, name, assetsRoot );
+                if ( !report.ParticleEmittersToVFX.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.ParticleEmittersToVFX.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;

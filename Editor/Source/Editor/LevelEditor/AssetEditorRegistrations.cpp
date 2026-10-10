@@ -17,7 +17,6 @@
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
 #include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
-#include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
@@ -324,18 +323,6 @@ namespace Desert::Editor
                                return ActiveEntityHasComponent<ECS::AnimationComponent>( workspace,
                                                                                          subject.Owner );
                            } } );
-        documents.SubjectEditors().Register(
-             Editor::ParticleEditorPanel::SubjectType(),
-             Registration{
-                  Editor::ParticleEditorPanel::kComponentTypeName, ICON_MDI_CREATION,
-                  [&documents, &workspace]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
-                  {
-                      return std::make_unique<Editor::ParticleEditorPanel>(
-                           subject, documents.SubjectEntityName( subject, "Particles" ), workspace.ActiveScene() );
-                  },
-                  [&workspace]( const SubjectId& subject ) {
-                      return ActiveEntityHasComponent<ECS::ParticleEmitterComponent>( workspace, subject.Owner );
-                  } } );
         // THE UI CANVAS. Its window owns a Framebuffer and a Render2D rather than a SceneRenderer, so it
         // takes none of the six renderer slots and says so (UIEditorPanel::ClaimsView) — a document
         // that renders is not automatically a document that costs a slot.

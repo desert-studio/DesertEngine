@@ -2,21 +2,14 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <unordered_map>
 
 namespace Desert::VFX
 {
-    namespace
-    {
-        // A ParticleEmitterComponent is a system of ONE emitter that has no seed field of its own, so its
-        // seed is the entity's identity alone (system seed 0, emitter index 0). The `.dfx` system asset
-        // (VFX-02) carries the system seed and the emitter index for real.
-        constexpr std::uint32_t kComponentSystemSeed   = 0;
-        constexpr std::uint32_t kComponentEmitterIndex = 0;
-    } // namespace
-
     void VFXWorld::ResetInstance( EmitterInstance& instance )
     {
         instance.Generation = ++m_LastGeneration;
@@ -28,17 +21,17 @@ namespace Desert::VFX
     {
         m_Clock = Clock( m_Clock.GetSettings() );
         m_Plan  = {};
-        m_Emitters.clear();
+        m_Systems.clear();
         m_GpuState.reset(); // the scene's GPU particle state goes with its instances
         m_Channels.Clear();
         // m_LastGeneration is NOT reset: a renderer may still hold GPU state stamped with an old
         // generation, and a fresh instance must never be mistaken for it.
     }
 
-    const EmitterInstance* VFXWorld::FindEmitter( std::uint64_t entityUuid ) const
+    const SystemInstance* VFXWorld::FindSystem( std::uint64_t entityUuid ) const
     {
-        const auto it = m_Emitters.find( entityUuid );
-        return it != m_Emitters.end() ? &it->second : nullptr;
+        const auto it = m_Systems.find( entityUuid );
+        return it != m_Systems.end() ? &it->second : nullptr;
     }
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, const std::uint32_t stepCount,
@@ -86,55 +79,84 @@ namespace Desert::VFX
         m_Plan = m_Clock.Advance( seconds );
 
         if ( m_Plan.Reset )
-            for ( auto& entry : m_Emitters )
-                ResetInstance( entry.second );
+            for ( auto& entry : m_Systems )
+                for ( EmitterInstance& emitter : entry.second.Emitters )
+                    ResetInstance( emitter );
 
         const double stepSeconds = m_Clock.GetSettings().StepSeconds;
 
-        for ( auto& entry : m_Emitters )
+        for ( auto& entry : m_Systems )
             entry.second.Seen = false;
 
-        auto view = registry.view<ECS::ParticleEmitterComponent, ECS::UUIDComponent>();
+        Runtime::VFXSystemService* systems = Runtime::ResourceRegistry::GetVFXSystemService();
+        auto                       view    = registry.view<ECS::VFXComponent, ECS::UUIDComponent>();
         view.each(
-             [&]( entt::entity entity, ECS::ParticleEmitterComponent& emitter, const ECS::UUIDComponent& id )
+             [&]( entt::entity entity, ECS::VFXComponent& vfx, const ECS::UUIDComponent& id )
              {
-                 const std::uint64_t uuid  = id.UUID;
-                 auto [it, created]        = m_Emitters.try_emplace( uuid );
-                 EmitterInstance& instance = it->second;
-                 if ( created )
-                 {
-                     instance.Seed = MakeEmitterSeed( kComponentSystemSeed, uuid, kComponentEmitterIndex );
-                     ResetInstance( instance );
-                 }
-                 instance.Seen = true;
-                 instance.Steps.clear();
-
-                 // The editor's Restart: this instance alone starts over. Consumed before the enabled check
-                 // so a disabled emitter also comes back empty.
-                 if ( emitter.RequestRestart )
-                 {
-                     emitter.RequestRestart = false;
-                     ResetInstance( instance );
-                 }
-
-                 const auto& d = emitter.Data;
-                 if ( !d.Enabled || d.MaxParticles <= 0 )
+                 if ( static_cast<uint64_t>( vfx.Data.System ) == 0 )
+                     return; // an empty slot plays nothing
+                 // Pending = not yet read (the system starts when it lands); a failed read is logged once by the
+                 // service, naming the handle.
+                 const auto resolved = systems->Get( vfx.Data.System );
+                 if ( !resolved.IsSuccess() || !resolved.GetValue() )
                      return;
+                 const auto& data = resolved.GetValue();
 
-                 // The component is an emitter of one SpawnRate module that runs forever; a non-looping one has
-                 // no loop duration to spawn over, so it bears nothing. A `.dfx` emitter's plan comes from
-                 // CompileSpawnPlan over its lifecycle and EmitterUpdate group.
-                 VFXSpawnPlan plan;
-                 plan.Lifecycle.Loop = Assets::Serialization::VFXLoopBehavior::Infinite;
-                 plan.Rate           = d.Looping ? std::max( static_cast<double>( d.SpawnRate ), 0.0 ) : 0.0;
+                 const std::uint64_t uuid   = id.UUID;
+                 SystemInstance&     system = m_Systems[uuid];
+                 if ( system.System != data )
+                 {
+                     // A new system (first sight, renamed, reloaded): every emitter starts over from its plan.
+                     const std::size_t count = data->Emitters.size();
+                     system.System           = data;
+                     system.Plans.assign( count, {} );
+                     system.Runs.assign( count, false );
+                     system.Emitters.assign( count, {} );
+                     for ( std::size_t k = 0; k < count; ++k )
+                     {
+                         auto plan = CompileSpawnPlan( *data, k );
+                         if ( !plan.IsSuccess() )
+                             LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
+                                        data->Emitters[k].Name, plan.GetError() );
+                         else
+                         {
+                             system.Plans[k] = plan.GetValue();
+                             system.Runs[k]  = data->Emitters[k].Enabled;
+                         }
+                         system.Emitters[k].Seed =
+                              MakeEmitterSeed( data->Seed, uuid, static_cast<std::uint32_t>( k ) );
+                         ResetInstance( system.Emitters[k] );
+                     }
+                 }
+                 system.Seen = true;
+
+                 // The editor's Restart: this system alone starts over.
+                 if ( vfx.RequestRestart )
+                 {
+                     vfx.RequestRestart = false;
+                     for ( EmitterInstance& emitter : system.Emitters )
+                         ResetInstance( emitter );
+                 }
 
                  const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
                  const glm::vec3 emitterCm =
                       transform ? glm::vec3( transform->GetTransform()[3] ) : glm::vec3( 0.0f );
-                 PlanEmitterSteps( instance, plan, m_Plan.StepCount, stepSeconds, m_Channels, emitterCm );
+                 for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                 {
+                     EmitterInstance& emitter = system.Emitters[k];
+                     if ( !system.Runs[k] || !vfx.Data.AutoActivate )
+                     {
+                         // Not active (UE bAutoActivate false) or refused: no births, the instance is kept.
+                         emitter.Steps.clear();
+                         emitter.ChannelSpawns.clear();
+                         continue;
+                     }
+                     PlanEmitterSteps( emitter, system.Plans[k], m_Plan.StepCount, stepSeconds, m_Channels,
+                                       emitterCm );
+                 }
              } );
 
-        std::erase_if( m_Emitters, []( const auto& entry ) { return !entry.second.Seen; } );
+        std::erase_if( m_Systems, []( const auto& entry ) { return !entry.second.Seen; } );
         m_Channels.ClearEntries(); // a channel holds one frame of entries (UE: a data channel is cleared per tick)
     }
 } // namespace Desert::VFX

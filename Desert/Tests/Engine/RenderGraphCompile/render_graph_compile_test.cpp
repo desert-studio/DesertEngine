@@ -3392,19 +3392,23 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
                                ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
                                ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)"
+                               ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"AttributeInts\",ve.IntsRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"StackParams\",ve.ParamsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"StackCurves\",ve.CurvesRef,RDG::Access::StorageRead)"
                                ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
                                "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
     // Sized by the GPU counts: Spawn+Update and every compact after the first dispatch indirect; the CPU sizes
     // only Dispatch Args (one thread) and compact 0 (the range's full scan).
-    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_SimPipeline,ve.ArgsRef,"
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*ve.Frame->Pipeline,ve.ArgsRef,"
                                "kParticleSimulateArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_CompactPipeline,ve.ArgsRef,"
                                "kParticleCompactArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "renderer.DispatchCompute(bindings,*m_ArgsPipeline,1,1,1)" ), std::string::npos );
-    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
+    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*ve.Frame->Pipeline" ), std::string::npos )
          << "Spawn+Update is dispatched over a CPU count";
     EXPECT_NE( particles.find( "Renderer::DrawProceduralIndirect(bindings,*sprite.Pipeline,"
                                "sprite.Material->GetMaterialExecutor(),ve.CountersRef,slot)" ),
@@ -5390,7 +5394,7 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
     const std::string shader =
          SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
     EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
-    EXPECT_NE( shader.find( "boolfromChannel=t<u_Steps[step].ChannelCount;" ), std::string::npos );
+    EXPECT_NE( shader.find( "if(t<u_Steps[step].ChannelCount)" ), std::string::npos );
     EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
          << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
 }

@@ -131,6 +131,12 @@ namespace Desert::Runtime
         return &fractureService;
     }
 
+    VFXSystemService* ResourceRegistry::GetVFXSystemService()
+    {
+        static VFXSystemService vfxSystemService;
+        return &vfxSystemService;
+    }
+
     WaterWavesService* ResourceRegistry::GetWaterWavesService()
     {
         static WaterWavesService waterWavesService;
@@ -152,6 +158,7 @@ namespace Desert::Runtime
         GetFoliageTypeService()->BindAssetManager( assets );
         GetFractureService()->BindAssetManager( assets );
         GetWaterWavesService()->BindAssetManager( assets );
+        GetVFXSystemService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -176,6 +183,7 @@ namespace Desert::Runtime
         GetFoliageTypeService()->Clear();
         GetFractureService()->Clear();
         GetWaterWavesService()->Clear();
+        GetVFXSystemService()->Clear();
         GetImageService()->Clear();
     }
 

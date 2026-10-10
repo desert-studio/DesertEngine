@@ -341,7 +341,7 @@ TEST( EntityDestroy, DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRin
     const auto addEmitter = [&]( bool enabled )
     {
         const entt::entity e                                         = Make( reg, index );
-        reg.emplace<ECS::ParticleEmitterComponent>( e ).Data.Enabled = enabled;
+        reg.emplace<ECS::VFXComponent>( e ).Data.AutoActivate = enabled;
         emitters[static_cast<uint32_t>( e )]                         = { std::make_shared<int>( 0 ) };
         return e;
     };
@@ -358,11 +358,11 @@ TEST( EntityDestroy, DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRin
     ASSERT_EQ( emitters.size(), 4u );
 
     Core::DestroyEntityTree( reg, index, doomed );
-    reg.remove<ECS::ParticleEmitterComponent>( stripped );
+    reg.remove<ECS::VFXComponent>( stripped );
 
     // The destroyed entity's slot is recycled at once: the new entity must not inherit the old state.
     const entt::entity recycled = Make( reg, index );
-    reg.emplace<ECS::ParticleEmitterComponent>( recycled );
+    reg.emplace<ECS::VFXComponent>( recycled );
     EXPECT_NE( static_cast<uint32_t>( recycled ), static_cast<uint32_t>( doomed ) );
 
     EXPECT_EQ( Graphic::System::RetireDestroyedEmitters( emitters, reg ), 2u );

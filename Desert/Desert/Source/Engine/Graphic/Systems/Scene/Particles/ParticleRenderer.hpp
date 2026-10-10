@@ -169,6 +169,14 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         ArgsImport;
             RDG::ExternalBuffer         ChannelImport; // Spawn from Channel particles, read by Spawn+Update
             RDG::BufferRef              ChannelRef;
+            RDG::ExternalBuffer         FloatsImport; // the emitter's stack: attribute columns, parameters, curves
+            RDG::ExternalBuffer         IntsImport;
+            RDG::ExternalBuffer         ParamsImport;
+            RDG::ExternalBuffer         CurvesImport;
+            RDG::BufferRef              FloatsRef;
+            RDG::BufferRef              IntsRef;
+            RDG::BufferRef              ParamsRef;
+            RDG::BufferRef              CurvesRef;
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
@@ -191,7 +199,6 @@ namespace Desert::Graphic::System
         SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
                                    EmitterMaterial& material );
 
-        std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<ComputePipeline>  m_CompactPipeline;
         std::shared_ptr<ComputePipeline>  m_ArgsPipeline;
         std::shared_ptr<ComputePipeline>  m_SortPipeline;
@@ -199,7 +206,8 @@ namespace Desert::Graphic::System
         RDG::BufferRef                    m_SortKeysRef;
         RDG::BufferRef                    m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
-        mutable ShaderBindingLayoutCache m_SimLayout;
+        // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
+        mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;
         mutable ShaderBindingLayoutCache m_CompactLayout;
         mutable ShaderBindingLayoutCache m_ArgsLayout;
 

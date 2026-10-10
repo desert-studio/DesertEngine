@@ -22,6 +22,7 @@
 #include "Services/Foliage/FoliageTypeService.hpp"
 #include "Services/Destruction/FractureService.hpp"
 #include "Services/Water/WaterWavesService.hpp"
+#include "Services/VFX/VFXSystemService.hpp"
 
 namespace Desert::Runtime
 {
@@ -70,6 +71,7 @@ namespace Desert::Runtime
         // The `.dwaves` wave sets water bodies name (WATER-W2): read on demand, each generated into its Gerstner
         // waves once per load and shared by every body naming it.
         static WaterWavesService* GetWaterWavesService();
+        static VFXSystemService*  GetVFXSystemService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,

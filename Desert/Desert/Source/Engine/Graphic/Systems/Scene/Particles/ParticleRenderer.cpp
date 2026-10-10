@@ -67,10 +67,10 @@ namespace Desert::Graphic::System
         if ( !shaderService )
             return false;
 
-        // The three compute programs of the simulation (Spawn+Update, Compact, Dispatch Args) and the per-view
+        // The compute programs of the simulation every emitter shares (Compact, Dispatch Args) and the per-view
         // translucent sort.
-        for ( const auto& [name, into] : { std::pair{ "ParticleSimulate", &m_SimPipeline },
-                                           std::pair{ "ParticleCompact", &m_CompactPipeline },
+        // Spawn+Update is the emitter's own stack host program (ParticleWorldGpu::ProgramFor).
+        for ( const auto& [name, into] : { std::pair{ "ParticleCompact", &m_CompactPipeline },
                                            std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
                                            std::pair{ "ParticleSort", &m_SortPipeline } } )
         {
@@ -130,7 +130,7 @@ namespace Desert::Graphic::System
 
     uint32_t ParticleRenderer::SimulationStepCount() const
     {
-        if ( !m_Simulates || !m_SimPipeline || !m_CompactPipeline || !m_ArgsPipeline )
+        if ( !m_Simulates || !m_CompactPipeline || !m_ArgsPipeline )
             return 0; // the nodes dispatch nothing either
         uint32_t steps = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
@@ -141,7 +141,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::RunsStep( const ViewEmitter& ve, const uint32_t step ) const
     {
-        return m_Simulates && ve.Declared && step < ve.Frame->StepCount;
+        return m_Simulates && ve.Declared && ve.Frame->Pipeline != nullptr && step < ve.Frame->StepCount;
     }
 
     bool ParticleRenderer::RunsCompact( const ViewEmitter& ve, const uint32_t compact ) const
@@ -245,9 +245,6 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr ParticleRenderer::Simulate( const RDG::PassContext& context, const uint32_t step )
     {
-        if ( !m_SimPipeline )
-            return BOOLSUCCESS;
-
         uint32_t block = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
@@ -259,7 +256,7 @@ namespace Desert::Graphic::System
             bindings.PushConstants( &push, sizeof( push ) );
             // As many groups as the step's Dispatch Args wrote: max(alive, spawned) threads.
             const Common::BoolResultStr dispatched = Renderer::DispatchComputeIndirect(
-                 bindings, *m_SimPipeline, ve.ArgsRef, kParticleSimulateArgsOffset );
+                 bindings, *ve.Frame->Pipeline, ve.ArgsRef, kParticleSimulateArgsOffset );
             if ( !dispatched )
                 return dispatched;
         }
@@ -268,20 +265,23 @@ namespace Desert::Graphic::System
 
     void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass, const uint32_t step ) const
     {
-        if ( !m_SimPipeline )
-            return; // Simulate dispatches nothing either
-        const auto& layout = m_SimLayout.Get( m_SimPipeline->GetSpecification().Shader );
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
             if ( !RunsStep( ve, step ) )
                 continue; // Simulate skips it the same way
-            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_SimPipeline ) )
+            const ComputePipeline& program = *ve.Frame->Pipeline;
+            const auto&            layout  = m_SimLayouts[&program].Get( program.GetSpecification().Shader );
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) )
                  .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
                  .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
                  .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
                  .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
+                 .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageWrite )
+                 .Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageWrite )
+                 .Storage( "StackParams", ve.ParamsRef, RDG::Access::StorageRead )
+                 .Storage( "StackCurves", ve.CurvesRef, RDG::Access::StorageRead )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -334,17 +334,31 @@ namespace Desert::Graphic::System
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
                 const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
-                if ( !steps || !args || !chan )
+                const Common::BoolResultStr stack =
+                     Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport ) &&
+                               Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport ) &&
+                               Renderer::ImportBuffer( gpu.Params, ve.ParamsImport ) &&
+                               Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport )
+                          ? BOOLSUCCESS
+                          : Common::MakeError( "its stack buffers (attributes, parameters, curves) are not" );
+                if ( !steps || !args || !chan || !stack )
                 {
                     LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table, dispatch arguments or "
                                "channel spawns are not in the frame graph: {}",
-                               i, !steps ? steps.GetError() : ( !args ? args.GetError() : chan.GetError() ) );
+                               i,
+                               !steps ? steps.GetError()
+                                      : ( !args ? args.GetError() : ( !chan ? chan.GetError() : stack.GetError() ) ) );
                     continue;
                 }
                 ve.ChannelRef =
                      graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
                 ve.StepsRef = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
                 ve.ArgsRef  = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
+                ve.FloatsRef =
+                     graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
+                ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
+                ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
+                ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.Declared    = true;

@@ -66,7 +66,9 @@ namespace Desert::Core
     // Config/CollisionProfiles.json), chosen by body Type (Tools/SceneMigrator, MigrateCollisionProfilesV41ToV42).
     // v43 (VFX-08): ParticleEmitter.Blend is gone; a sprite composites by its Material's blend mode
     // (Tools/SceneMigrator, MigrateParticleSpriteMaterialsV42ToV43).
-    inline constexpr int kSceneVersion = 43;
+    // v44 (VFX-HOST): ParticleEmitter is gone; each block became a `.dfx` system played by a VFX block
+    // (Tools/SceneMigrator, MigrateParticleEmittersToVFX).
+    inline constexpr int kSceneVersion = 44;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
