@@ -3,6 +3,7 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/Commands/AnimGraphEdit.hpp>
+#include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
 #include <Editor/Panels/Animation/PoseGraphEdit.hpp>
@@ -10,6 +11,9 @@
 #include <Common/Core/UUID.hpp>
 
 #include <cstdint>
+#include <filesystem>
+
+#include <glm/glm.hpp>
 
 #include <Engine/Assets/Common.hpp>
 
@@ -53,10 +57,14 @@ namespace Desert::Editor::UI
 namespace Desert::Editor
 {
     class PreviewViewport;
+    namespace UI
+    {
+        class UIHelper;
+    }
 
-    // ── THE ANIM GRAPH OF ONE ENTITY: A DOCUMENT, NOT A TOOL ──────────────────────────────────────────
+    // ── THE ANIM GRAPH OF ONE `.danimgraph`: A DOCUMENT, NOT A TOOL ──────────────────────────────────
     //
-    // An imgui-node-editor canvas over ONE AnimationComponent's graph — STATES are nodes, TRANSITIONS are
+    // An imgui-node-editor canvas over ONE anim-graph asset — STATES are nodes, TRANSITIONS are
     // links. A side panel edits the selected state (clip/loop/speed/entry) or transition
     // (blend/exit-time/conditions), plus parameters with live value controls.
     //
@@ -67,31 +75,32 @@ namespace Desert::Editor
     // window is about that entity for as long as it exists — which is what the owner asked for when he
     // said these tabs should open FROM the thing rather than sit in a menu.
     //
-    // THE SUBJECT IS A COMPONENT, NOT A FILE. There is no anim-graph asset: the graph lives in
-    // ECS::AnimationComponent and is serialized with the scene. That is exactly the case the old seam
-    // could not express, and Editor/Core/EditorSubject.hpp is the answer to it.
+    // THE SUBJECT IS THE FILE (ANIM-FIX8), as in UE's Animation Blueprint Editor: the window is about the
+    // `.danimgraph`, opened by double-clicking it in the Content Browser or from the Animation component's
+    // Details button, and needs no entity in any scene. It used to be keyed by the entity whose
+    // AnimationComponent named the graph — after the graph became an asset that was the wrong identity: two
+    // characters on one graph opened two windows over the same file, and a graph no entity named could not
+    // be opened at all. What the window drives is its own PREVIEW INSTANCE (UE: the preview AnimInstance):
+    // an AnimationComponent the document owns, bound to this asset's shared graph.
     class AnimGraphPanel final : public ISubjectDocument
     {
     public:
-        // The subject type this editor is registered under. Named here rather than spelled at the
-        // registration and at the Details button separately: two literals that must agree is the shape
-        // that drifts, and a component whose facet is written out twice is a button that opens nothing.
-        static constexpr const char* kComponentTypeName = "AnimationComponent";
-
+        // The subject type this editor is registered under: the asset type, like every other asset editor —
+        // so Core::RequestOpenAsset reaches it from a double-click and the Details button sends the same key.
         [[nodiscard]] static SubjectTypeKey SubjectType()
         {
-            return ComponentSubjectType( kComponentTypeName );
+            return AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::AnimGraph ) );
         }
 
-        // The subject for ONE entity's anim graph — what a Details button sends.
-        [[nodiscard]] static SubjectId SubjectFor( const Common::UUID& entity )
+        // The subject for ONE `.danimgraph` — what a Details button sends (and the browser, through the
+        // asset route, arrives at).
+        [[nodiscard]] static SubjectId SubjectFor( const Assets::AssetHandle graph )
         {
-            return ComponentSubject( entity, kComponentTypeName );
+            return AssetSubject( graph, static_cast<uint32_t>( Assets::AssetTypeID::AnimGraph ) );
         }
 
         AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
-                        const std::shared_ptr<::Desert::Core::Scene>& scene, Animation::AnimationLibrary* library,
-                        Assets::AssetManager* assetManager );
+                        Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
         ~AnimGraphPanel() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -108,43 +117,39 @@ namespace Desert::Editor
         // document action. This entry runs the SAME function the button runs.
         [[nodiscard]] std::vector<DocumentAction> Actions() override;
 
-        // The entity, in the scene this document was opened over, still carrying an AnimationComponent.
-        // All three have to hold: deleting the entity, removing the component, or closing the scene are
-        // three ways for this window's subject to stop existing and the user experiences them as one.
-        [[nodiscard]] bool IsSubjectAlive() const override
+        // The `.danimgraph` is still registered: deleting the file is the way this window's subject stops
+        // existing. Same answer as the registration's liveness test, and ResolveComponent rests on it.
+        [[nodiscard]] bool IsSubjectAlive() const override;
+
+        // THE PREVIEW VIEWPORT COSTS ONE RENDERER SLOT (UE: the Animation Blueprint Editor's viewport). The
+        // window holds a PreviewViewport — a SceneRenderer — from its first drawn frame until ReleaseView,
+        // which destroys it; the canvas and the side panel keep working without it on the document's own
+        // instance. Same contract as the Animation Editor (AnimationEditorIdentity).
+        [[nodiscard]] bool HoldsView() const override
         {
-            return ResolveComponent() != nullptr;
+            return m_Preview != nullptr;
         }
-
-        // THE PREVIEW VIEWPORT IS A RENDERER SLOT (UE Persona: the asset window owns a preview world). The
-        // canvas is ImGui geometry, but the pane beside it is a Scene and a SceneRenderer of its own, so the
-        // window claims one of the six, holds it while the preview lives, and gives it back on ReleaseView.
-        [[nodiscard]] bool HoldsView() const override;
-
-        [[nodiscard]] bool ClaimsView() const override
+        void               ReleaseView() override;
+        [[nodiscard]] bool HasPreview() const override
         {
             return true;
         }
+        void SetPreviewViewpoint( const PreviewViewpoint& viewpoint ) override;
+        void OnPreUpdate() override;
 
-        void ReleaseView() override;
-
-        // DELIBERATELY A NO-OP, AND NOT AN OVERSIGHT. The scene fanout (EditorLayer::SetActiveScene) exists
-        // so the Outliner, Details and Settings follow whichever viewport has the focus. A document must
-        // NOT follow it: its subject is an entity UUID, and UUIDs belong to one registry — repointing this
-        // window at another scene would either find nothing or, worse, find a different entity that
-        // happens to share the id. This window is about the entity it was opened on, in the scene it was
-        // opened in, and when that scene goes away IsSubjectAlive says so and the document closes.
+        // A NO-OP: the scene fanout (EditorLayer::SetActiveScene) is for the Outliner, Details and Settings.
+        // This window's subject is a file, which belongs to no scene, so there is nothing to repoint.
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& /*scene*/ ) override
         {
         }
 
     private:
-        // The component this window edits, or nullptr when it is gone. ONE resolution, used by the draw
-        // and by the liveness answer, so "the window found something to draw" and "the subject is alive"
-        // cannot disagree.
+        // The preview instance this window drives, bound to the asset's shared graph (`Graph` re-pointed at
+        // every resolution, so a reload of the file is followed), or nullptr when the asset is gone or not
+        // loaded. ONE resolution, used by the draw and the actions.
         [[nodiscard]] ECS::AnimationComponent* ResolveComponent() const;
-        /// The subject entity's SkinnedMeshComponent::MeshHandle (null without one): the mesh whose skeleton
-        /// reference decides which clips this graph's states can name.
+        /// The preview character's mesh (null until there is one): the mesh whose skeleton reference decides
+        /// which clips this graph's states can name.
         [[nodiscard]] Assets::AssetHandle ResolveMeshHandle() const;
 
         /// @p width and @p height are passed rather than taken from the child window that used to wrap
@@ -183,8 +188,8 @@ namespace Desert::Editor
         /// drawn height that are computed separately are two numbers that drift by a pixel a release.
         [[nodiscard]] static float WarningStripHeight( size_t count );
 
-        // The `.danimgraph` this entity names, or nullptr. ONE resolution, so "what the canvas draws" and
-        // "what Save writes" can never be two different graphs.
+        // The `.danimgraph` this window is about (its subject), or nullptr. ONE resolution, so "what the canvas
+        // draws" and "what Save writes" can never be two different graphs.
         [[nodiscard]] Assets::Asset<Assets::AnimGraphAsset> ResolveAsset() const;
 
         // "The object you are holding was just changed." Bumps the ASSET's revision, which is what makes
@@ -270,21 +275,37 @@ namespace Desert::Editor
         bool DrawPinBinding( Animation::Graph::AnimGraph& graph, Animation::Graph::PoseNode& node,
                              const std::string& pin );
 
-        // WEAK, not shared. A document that held its scene alive would keep a closed level in memory for
-        // as long as its window was open, and — worse — would then answer "my subject is alive" about an
-        // entity in a registry nothing else can reach. Expiry IS one of the ways this document's subject
-        // dies, and a weak_ptr is what makes it visible rather than invisible.
-        std::weak_ptr<::Desert::Core::Scene> m_Scene;
-        Animation::AnimationLibrary*         m_Library      = nullptr;
+        // THE PREVIEW INSTANCE (UE: the editor's preview AnimInstance): owned by this document, never a
+        // scene entity's component — editing a graph must not need, or disturb, a character in the level.
+        // Its `GraphAsset` is the subject and its `Graph` the asset's shared object.
+        /// The preview pane: created on the first frame the window is drawn, its target given the chosen
+        /// skeletal mesh and an AnimationComponent naming this graph (PreviewViewport::SetGraphCharacter).
+        void EnsurePreview();
+        void SetPreviewMesh( size_t candidate );
+        void TogglePreview();
+        void DrawPreviewPane( float width, float height );
+
+        std::unique_ptr<PreviewViewport>   m_Preview;
+        std::unique_ptr<UI::UIHelper>      m_UIHelper;
+        std::vector<std::filesystem::path> m_MeshCandidates; // every registered .skmesh (ContentRegistry rows)
+        size_t                             m_MeshIndex = 0;
+        Assets::AssetHandle                m_PreviewMesh{ static_cast<uint64_t>( 0 ) };
+        glm::uvec2                         m_RenderSize{ 0u };
+        bool                               m_DrewThisFrame = false;
+        std::optional<glm::vec2>           m_PendingOrbitDegrees;
+        // The instance the canvas edits while no preview character exists (before the first frame, after
+        // ReleaseView, headless): bound to the same shared graph. Once the preview exists, ResolveComponent
+        // answers the preview target's AnimationComponent — the one the AnimationECSSystem evaluates.
+        std::unique_ptr<ECS::AnimationComponent> m_Instance;
+        Animation::AnimationLibrary*             m_Library      = nullptr;
         Assets::AssetManager*                m_AssetManager = nullptr;
         std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;
 
         // THE ● OF THE §8.2 HEADER: the asset revision as of the last write to disk. Unset until the
-        // first frame, because the asset is reached through the scene and the scene is not resolvable at
-        // construction. The ASSET's revision and not a flag of this window's own, so that an edit made in
-        // a second window over the SAME .danimgraph also shows here — which is the whole point of a graph
-        // being one shared object (§5.1).
+        // first frame that resolves the asset (it may still be loading at construction). The ASSET's revision and
+        // not a flag of this window's own, so that an edit made in a second window over the SAME .danimgraph also
+        // shows here — which is the whole point of a graph being one shared object (§5.1).
         //
         // IT IS CONSERVATIVE IN ONE DIRECTION, said out loud: `AnimGraphAsset::Load` bumps the revision
         // too, so re-loading the file from disk under an open window shows the dot until the next Save.
@@ -333,13 +354,7 @@ namespace Desert::Editor
         // The preview world (AnimGraphPanelPreview.cpp): the subject's skinned mesh playing this graph live, and
         // the translate gizmo on the selected skeletal-control node's goal. Rebuilt when the mesh or graph
         // changes.
-        void                             DrawPreview( ECS::AnimationComponent& anim, float width, float height );
         void                             DrawGoalGizmo( const glm::vec2& origin, const glm::vec2& size );
-        void                             DestroyPreview();
-        std::unique_ptr<PreviewViewport> m_Preview;
-        std::unique_ptr<UI::UIHelper>    m_UIHelper;
-        uint64_t                         m_PreviewMesh       = 0;
-        uint64_t                         m_PreviewGraph      = 0;
         bool                             m_GizmoHovered      = false;
         bool        m_PoseSelectPending = false; // a document action picked the node
         glm::vec2   m_PoseMenuAt{};              // where the context menu was opened
@@ -351,4 +366,10 @@ namespace Desert::Editor
         // re-issues both canvases' ids, so the restored X/Y are pushed into the node editor, not pulled over.
         std::optional<uint32_t> m_SeenRevision;
     };
+    // The `.danimgraph` path opener (UE: double-click an Animation Blueprint in the Content Browser):
+    // find-or-create the AnimGraphAsset, load it, then open it through the one handle route,
+    // Core::RequestOpenAsset. Any other extension is NotMine.
+    [[nodiscard]] SubjectEditorRegistry::PathOpenOutcome
+    RequestAnimGraphDocument( Assets::AssetManager* assets, const std::string& path,
+                              const SubjectEditorRegistry& editors );
 } // namespace Desert::Editor

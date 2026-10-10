@@ -51,6 +51,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Animation: // Persona's Animation mode (ANV1a)
             case Assets::AssetTypeID::Skeleton:  // Persona's Skeleton mode (ANV1f)
             case Assets::AssetTypeID::LevelSequence: // the Sequencer's Level timeline (ANIM-LSEQ)
+            case Assets::AssetTypeID::AnimGraph:     // the Anim Graph window over the `.danimgraph` (ANIM-FIX8)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
@@ -60,7 +61,6 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::StringTable:
             case Assets::AssetTypeID::ControlRig:
             case Assets::AssetTypeID::ShaderGraph:
-            case Assets::AssetTypeID::AnimGraph:
             case Assets::AssetTypeID::Retarget:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel

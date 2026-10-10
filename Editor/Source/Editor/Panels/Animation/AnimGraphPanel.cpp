@@ -1,12 +1,18 @@
 #include "AnimGraphPanel.hpp"
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
+#include <Editor/Widgets/PreviewInput.hpp>
+#include <Editor/Widgets/PreviewViewport.hpp>
+#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
+#include <Common/Content/ContentKinds.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 
 #include <format>
 
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Panels/PanelContext.hpp>
-#include <Editor/Widgets/PreviewViewport.hpp>
-#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
+#include <Editor/Core/AssetOpen.hpp>
 
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -18,13 +24,13 @@
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Graph/AnimGraphValidation.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/ECS/Entity.hpp>
 
+#include <ImGuizmo.h>
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <cmath>
 #include <functional>
 #include <cstdint>
@@ -99,10 +105,9 @@ namespace Desert::Editor
     } // namespace
 
     AnimGraphPanel::AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
-                                    const std::shared_ptr<::Desert::Core::Scene>& scene,
                                     Animation::AnimationLibrary* library, Assets::AssetManager* assetManager )
-         : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library ),
-           m_AssetManager( assetManager )
+         : ISubjectDocument( displayName, subject ), m_Instance( std::make_unique<ECS::AnimationComponent>() ),
+           m_Library( library ), m_AssetManager( assetManager )
     {
         ed::Config config;
         config.SettingsFile = nullptr; // node positions live in the graph (State.X/Y), not a stray json
@@ -112,7 +117,6 @@ namespace Desert::Editor
 
     AnimGraphPanel::~AnimGraphPanel()
     {
-        DestroyPreview();
         if ( m_Context != nullptr )
             ed::DestroyEditor( m_Context );
         if ( m_PoseContext != nullptr )
@@ -124,40 +128,172 @@ namespace Desert::Editor
     // is asked for BY SUBJECT — Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( entity ) ) —
     // and the Details button beside the Animation component sends exactly that.
 
+    bool AnimGraphPanel::IsSubjectAlive() const
+    {
+        return m_AssetManager != nullptr &&
+               m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) ) != nullptr;
+    }
+
     ECS::AnimationComponent* AnimGraphPanel::ResolveComponent() const
     {
-        const auto scene = m_Scene.lock();
-        if ( !scene )
-            return nullptr; // the scene this document was opened over has been closed
+        const auto asset = ResolveAsset();
+        if ( !asset || !asset->GetGraph() )
+            return nullptr; // the file is gone, or not loaded (yet)
 
-        const auto entOpt = scene->FindEntityByID( Subject().Owner );
-        if ( !entOpt )
-            return nullptr; // the entity was deleted
-
-        auto& entity = entOpt->get();
-        if ( !entity.HasComponent<ECS::AnimationComponent>() )
-            return nullptr; // the component was removed from under the window
-
-        return &entity.GetComponent<ECS::AnimationComponent>();
+        // The preview character's component when the pane exists (the one the AnimationECSSystem evaluates, so
+        // the Live/Active line and the clip list are the running instance's); the document's own otherwise.
+        ECS::AnimationComponent* instance = m_Instance.get();
+        if ( m_Preview )
+            if ( auto* previewed = m_Preview->GetAnimationComponent() )
+                instance = previewed;
+        instance->GraphAsset = asset->GetMetadata().Handle;
+        if ( instance->Graph != asset->GetGraph() )
+        {
+            instance->Graph = asset->GetGraph();
+            instance->GraphEvaluator.reset();
+        }
+        return instance;
     }
 
     Assets::AssetHandle AnimGraphPanel::ResolveMeshHandle() const
     {
-        const auto scene = m_Scene.lock();
-        if ( !scene )
-            return {};
-        const auto entOpt = scene->FindEntityByID( Subject().Owner );
-        if ( !entOpt || !entOpt->get().HasComponent<ECS::SkinnedMeshComponent>() )
-            return {}; // no mesh = no skeleton reference: IdentifyMeshHandle refuses every clip
-        return entOpt->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
+        return m_PreviewMesh;
+    }
+
+    void AnimGraphPanel::EnsurePreview()
+    {
+        if ( m_Preview || m_AssetManager == nullptr )
+            return;
+        m_MeshCandidates.clear();
+        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh ) )
+            m_MeshCandidates.push_back( row.Path );
+        std::ranges::sort( m_MeshCandidates );
+
+        m_Preview  = std::make_unique<PreviewViewport>();
+        m_UIHelper = std::make_unique<UI::UIHelper>();
+        m_UIHelper->Init();
+        m_Preview->EnableAnimationSystem( m_Library, m_AssetManager );
+        if ( m_PendingOrbitDegrees )
+        {
+            m_Preview->SetOrbit( glm::radians( m_PendingOrbitDegrees->x ),
+                                 glm::radians( m_PendingOrbitDegrees->y ) );
+            m_PendingOrbitDegrees.reset();
+        }
+        SetPreviewMesh( m_MeshIndex );
+    }
+
+    void AnimGraphPanel::SetPreviewMesh( const size_t candidate )
+    {
+        if ( !m_Preview )
+            return;
+        const Assets::AssetHandle graph( Subject().Owner );
+        m_PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        std::vector<Assets::AssetHandle> slots;
+        if ( candidate < m_MeshCandidates.size() )
+        {
+            const auto& path = m_MeshCandidates[candidate];
+            auto        mesh = m_AssetManager->CreateAsset<Assets::SkinnedMeshAsset>( path, false );
+            if ( !mesh )
+            {
+                m_Status = std::format( "skeletal mesh '{}' could not be registered", path.generic_string() );
+                m_StatusIsError = true;
+            }
+            else if ( const auto loaded = mesh->EnsureLoaded( *m_AssetManager ); !loaded )
+            {
+                m_Status        = std::format( "skeletal mesh '{}' would not load: {}", path.generic_string(),
+                                               loaded.GetError() );
+                m_StatusIsError = true;
+            }
+            else
+            {
+                m_MeshIndex       = candidate;
+                m_PreviewMesh     = mesh->GetMetadata().Handle;
+                const auto& owned = mesh->GetMaterialHandles();
+                slots.assign( owned.begin(), owned.end() );
+            }
+        }
+        m_Preview->SetGraphCharacter( m_PreviewMesh, slots, graph );
+    }
+
+    void AnimGraphPanel::TogglePreview()
+    {
+        EnsurePreview();
+        if ( m_Preview )
+            m_Preview->SetGraphPlaying( !m_Preview->IsGraphPlaying() );
+    }
+
+    void AnimGraphPanel::ReleaseView()
+    {
+        m_Preview.reset();
+        m_UIHelper.reset();
+        m_PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+    }
+
+    void AnimGraphPanel::SetPreviewViewpoint( const PreviewViewpoint& viewpoint )
+    {
+        if ( !m_Preview )
+        {
+            m_PendingOrbitDegrees = glm::vec2( viewpoint.YawDegrees, viewpoint.PitchDegrees );
+            return;
+        }
+        m_Preview->SetOrbit( glm::radians( viewpoint.YawDegrees ), glm::radians( viewpoint.PitchDegrees ) );
+    }
+
+    void AnimGraphPanel::OnPreUpdate()
+    {
+        if ( !m_DrewThisFrame )
+            return;
+        m_DrewThisFrame = false;
+        EnsurePreview();
+        if ( !m_Preview || m_RenderSize.x == 0u || m_RenderSize.y == 0u )
+            return;
+        (void)ResolveComponent(); // the character's component follows a reload of the file before the tick
+        PreviewEnvironment::ApplyTo( *m_Preview, m_AssetManager );
+        m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
+    }
+
+    void AnimGraphPanel::DrawPreviewPane( const float width, const float height )
+    {
+        m_DrewThisFrame         = true;
+        const std::string shown = m_MeshIndex < m_MeshCandidates.size()
+                                       ? m_MeshCandidates[m_MeshIndex].filename().string()
+                                       : std::string( "(no skeletal mesh)" );
+        ImGui::SetNextItemWidth( width );
+        if ( ImGui::BeginCombo( "##agPreviewMesh", shown.c_str() ) )
+        {
+            for ( size_t i = 0; i < m_MeshCandidates.size(); ++i )
+                if ( ImGui::Selectable( m_MeshCandidates[i].filename().string().c_str(), i == m_MeshIndex ) )
+                    SetPreviewMesh( i );
+            ImGui::EndCombo();
+        }
+        Utils::ImGuiUtilities::Tooltip( "Preview mesh: the character this graph plays on in the pane below" );
+        const ImVec2 size( width, std::max( 64.0f, height - ImGui::GetFrameHeightWithSpacing() ) );
+        m_RenderSize = glm::uvec2( static_cast<uint32_t>( size.x ), static_cast<uint32_t>( size.y ) );
+        if ( !m_Preview || !m_UIHelper )
+        {
+            ImGui::Dummy( size );
+            return;
+        }
+        // The selected Two Bone IK / Look At node's goal is dragged in the pane (ANIM-FIX10b): the gizmo draws
+        // over the image, and while it is hovered or held the orbit leaves the mouse to it.
+        const ImVec2 origin   = ImGui::GetCursorScreenPos();
+        ImDrawList*  drawList = ImGui::GetWindowDrawList();
+        drawList->ChannelsSplit( 2 );
+        drawList->ChannelsSetCurrent( 1 );
+        m_GizmoHovered = false;
+        DrawGoalGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( size.x, size.y ) );
+        drawList->ChannelsSetCurrent( 0 );
+        (void)m_Preview->Draw(
+             *m_UIHelper, size,
+             PreviewInteractionUnderTool( m_GizmoHovered, ImGuizmo::IsUsing(), ImGui::IsAnyItemActive() ) );
+        drawList->ChannelsMerge();
     }
 
     Assets::Asset<Assets::AnimGraphAsset> AnimGraphPanel::ResolveAsset() const
     {
-        const ECS::AnimationComponent* anim = ResolveComponent();
-        if ( !anim || !anim->GraphAsset || m_AssetManager == nullptr )
+        if ( m_AssetManager == nullptr )
             return nullptr;
-        return m_AssetManager->FindByHandle<Assets::AnimGraphAsset>( anim->GraphAsset );
+        return m_AssetManager->FindByHandle<Assets::AnimGraphAsset>( Assets::AssetHandle( Subject().Owner ) );
     }
 
     void AnimGraphPanel::MarkEdited()
@@ -320,6 +456,7 @@ namespace Desert::Editor
              // press it — which is why "two presses make two parameters nothing can tell apart" had
              // survived as long as the state one had.
              { "Add Parameter", [this] { AddParameter(); } },
+             { "Preview", [this] { TogglePreview(); } },
         };
 
         // ── ONE ENTRY PER FINDING, AND IT IS THE SAME CALL THE STRIP'S CLICK MAKES ────────────────────
@@ -357,14 +494,13 @@ namespace Desert::Editor
 
     void AnimGraphPanel::OnUIRender()
     {
-        // NO "SELECT AN ENTITY" EMPTY STATE any more: this window is about one entity for its whole life.
-        // A null here is a subject that has just died, and the editor closes the document for it on the
-        // same frame (EditorLayer::CloseDocumentsWhoseSubjectIsGone) — so the message says what happened
-        // rather than asking the user to fix it.
+        // NO "SELECT AN ENTITY" EMPTY STATE: this window is about one `.danimgraph` for its whole life. A
+        // null here is a file that has just died (the editor closes the document for it on the same frame,
+        // EditorLayer::CloseDocumentsWhoseSubjectIsGone) or one whose load has not finished.
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( !anim )
         {
-            ImGui::TextDisabled( "This entity, its Animation component or its scene is gone — closing." );
+            ImGui::TextDisabled( "This anim graph's file is gone or not loaded." );
             return;
         }
 
@@ -385,17 +521,6 @@ namespace Desert::Editor
             }
         }
 
-        if ( !anim->Graph )
-        {
-            // NO "Create AnimGraph" BUTTON HERE ANY MORE, and its absence is the point. A graph is a FILE
-            // now, and creating one means writing it, registering it and pointing this entity's slot at
-            // it — three steps that can each fail and that belong where the SLOT is, in Details. A second
-            // creator here would be a second way to make a graph and the two would drift; what stood here
-            // could only ever make an unsaved one, which is precisely the storage §5.1 removed.
-            ImGui::TextWrapped( "This entity names no anim graph, or the file it names is not loaded. "
-                                "Pick or create one in Details > Animation > AnimGraph." );
-            return;
-        }
         if ( m_EditingMachine && ResolveMachine( *anim->Graph ) == nullptr )
         {
             if ( ImGui::Button( ICON_MDI_ARROW_LEFT "  AnimGraph" ) )
@@ -426,6 +551,12 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_CONTENT_SAVE "  Save" ) )
             SaveGraph();
         Utils::ImGuiUtilities::Tooltip( "Write this graph back to its .danimgraph" );
+        ImGui::SameLine();
+        const bool previewing = m_Preview && m_Preview->IsGraphPlaying();
+        if ( ImGui::Button( previewing ? ICON_MDI_PAUSE "  Preview" : ICON_MDI_PLAY "  Preview" ) )
+            TogglePreview();
+        Utils::ImGuiUtilities::Tooltip(
+             "Play this graph on the preview character (the editor clock advances it)" );
         if ( unsaved )
         {
             // NOT A COSMETIC DOT. Dragging a state is an edit to the FILE (§7.2: the drag authors
@@ -507,8 +638,7 @@ namespace Desert::Editor
         // The preview pane takes the left two fifths of what the side panel leaves (UE Persona's viewport
         // beside the graph); the canvas the rest.
         const float graphW   = std::max( 320.0f, ImGui::GetContentRegionAvail().x - kSideW );
-        const float previewW = std::floor( graphW * 0.4f );
-        const float canvasW  = std::max( 160.0f, graphW - previewW - ImGui::GetStyle().ItemSpacing.x );
+        const float canvasW  = std::max( 160.0f, graphW );
 
         // WHAT IS WRONG WITH THIS GRAPH, DECIDED BY A UNIT WITH NO IMGUI IN IT. The clip list is handed
         // over as "Known" only when there was an Animator to ask: an entity whose skeleton has not been
@@ -519,8 +649,6 @@ namespace Desert::Editor
 
         const float stripH  = WarningStripHeight( warnings.size() );
         const float canvasH = std::max( 80.0f, ImGui::GetContentRegionAvail().y - stripH );
-        DrawPreview( *anim, previewW, canvasH );
-        ImGui::SameLine();
         if ( m_EditingMachine )
             DrawCanvas( *anim, canvasW, canvasH );
         else
@@ -528,15 +656,18 @@ namespace Desert::Editor
 
         ImGui::SameLine();
         ImGui::BeginGroup();
-        // THE SAME HEIGHT THE CANVAS GOT, and not `0` meaning "the rest of the window". A height-0 child
-        // here reaches the bottom of the document, so it swallowed the space reserved for the warning
-        // strip and the strip was laid out BELOW the visible area: computed every frame, drawn nowhere.
-        // Found in the editor, on the frame that was supposed to photograph the strip -- which is the
+        constexpr float kPreviewH = 240.0f;
+        DrawPreviewPane( 290.0f, kPreviewH );
+        const float sideH = std::max( 80.0f, canvasH - kPreviewH - ImGui::GetStyle().ItemSpacing.y );
+        // THE SAME HEIGHT THE CANVAS GOT (less the preview pane above it), and not `0` meaning "the rest of the
+        // window". A height-0 child here reaches the bottom of the document, so it swallowed the space reserved
+        // for the warning strip and the strip was laid out BELOW the visible area: computed every frame, drawn
+        // nowhere. Found in the editor, on the frame that was supposed to photograph the strip -- which is the
         // whole argument for taking the frame.
         if ( m_EditingMachine )
-            DrawSidePanel( *anim, clipNames, canvasH );
+            DrawSidePanel( *anim, clipNames, sideH );
         else
-            DrawPoseSidePanel( *anim, clipNames, canvasH );
+            DrawPoseSidePanel( *anim, clipNames, sideH );
         ImGui::EndGroup();
 
         DrawWarningStrip( *anim->Graph, warnings );
@@ -1136,4 +1267,38 @@ namespace Desert::Editor
             MarkEdited();
     }
 
+    SubjectEditorRegistry::PathOpenOutcome RequestAnimGraphDocument( Assets::AssetManager*        assets,
+                                                                     const std::string&           path,
+                                                                     const SubjectEditorRegistry& editors )
+    {
+        using Outcome = SubjectEditorRegistry::PathOpenOutcome;
+        std::error_code ec;
+        if ( assets == nullptr || std::filesystem::path( path ).extension() != Assets::kAnimGraphExtension ||
+             !std::filesystem::exists( path, ec ) )
+            return Outcome::NotMine;
+
+        auto asset = assets->FindByPath<Assets::AnimGraphAsset>( path );
+        if ( !asset )
+            asset = assets->CreateAsset<Assets::AnimGraphAsset>( path );
+        if ( !asset )
+        {
+            LOG_ERROR( "[Assets] '{}' could not be registered as an anim graph — no Anim Graph window was opened.",
+                       path );
+            return Outcome::Failed;
+        }
+        if ( const auto loaded = asset->EnsureLoaded( *assets ); !loaded )
+        {
+            LOG_ERROR( "[Assets] '{}' would not load as an anim graph — no Anim Graph window was opened: {}", path,
+                       loaded.GetError() );
+            return Outcome::Failed;
+        }
+        const auto handle = asset->GetMetadata().Handle;
+        if ( const auto opened = Core::RequestOpenAsset( assets->FindMetadataByHandle( handle ), handle, editors );
+             !opened.IsSuccess() )
+        {
+            LOG_ERROR( "[Assets] '{}': {}", path, opened.GetError() );
+            return Outcome::Failed;
+        }
+        return Outcome::Requested;
+    }
 } // namespace Desert::Editor
