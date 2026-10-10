@@ -54,7 +54,6 @@ void main()
     v_Surface.UV1            = v_Surface.UV0;
     v_Surface.VertexColor    = p.Color;
     v_Surface.TBN            = mat3( right, -up, facing );
-    v_Surface.CameraPosition = cameraUB.CameraPos;
     // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
