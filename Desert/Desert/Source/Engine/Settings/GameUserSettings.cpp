@@ -5,6 +5,7 @@
 #include <Engine/Audio/AudioMix.hpp>
 #include <Engine/Core/FramePacer.hpp>
 #include <Engine/Core/Window.hpp>
+#include <Engine/Graphic/SwapChain.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 
@@ -130,10 +131,14 @@ namespace Desert::Settings
             if ( const auto moved = window.SetWindowMode( display.Mode, display.ResolutionX, display.ResolutionY );
                  !moved )
                 return Refuse( "the game user settings were not applied: " + moved.GetError() );
-        // VSync rebuilds the swapchain, so it is set only when it changes.
-        const std::shared_ptr<Graphic::SwapChain> swapChain = window.GetWindowSwapChain();
-        if ( !swapChain || swapChain->IsVSyncEnabled() != display.VSync )
-            window.SetVSync( display.VSync );
+        // VSync goes through the swapchain's present pacing (Window::SetDisplay rebuilds it only on a change);
+        // the rest of that pacing is kept as it is.
+        if ( const std::shared_ptr<Graphic::SwapChain> swapChain = window.GetWindowSwapChain() )
+        {
+            Common::Scalability::DisplaySettings pacing = swapChain->Display();
+            pacing.VSync                                = display.VSync;
+            window.SetDisplay( pacing );
+        }
         pacer.SetLimit( display.FrameRateLimit );
 
         Audio::AudioMix& mix = Audio::AudioMix::Get();
