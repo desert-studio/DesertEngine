@@ -39,6 +39,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -185,3 +187,37 @@ TEST( ViewportCameraPreset, ADegenerateDirectionIsRefusedRatherThanGuessed )
     // right answer here for the wrong reason — so it is refused explicitly instead.
     EXPECT_FALSE( PresetOfDirection( glm::vec3( 0.0f ), true ).has_value() );
 }
+
+TEST( ViewportCameraPreset, EveryTriadTipIsHeldExactlyOnItsAxis )
+{
+    // THE VIEW-AXIS TRIAD'S CLICK. Each of its six tips must yield a basis looking FROM the tip toward the
+    // origin at an angle of exactly zero — the same exactness the presets have, for the same reason: the
+    // tip used to be aimed through `SnapToDirection`, and its pitch clamp left the Y tips about 1° off.
+    for ( const glm::vec3& axis :
+          { glm::vec3( 1.0f, 0.0f, 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, 1.0f ) } )
+        for ( const float sign : { 1.0f, -1.0f } )
+        {
+            const glm::vec3 tip   = axis * sign;
+            const auto      basis = Desert::Editor::ViewAxisTipBasisOf( tip );
+            ASSERT_TRUE( basis.has_value() ) << "tip (" << tip.x << ", " << tip.y << ", " << tip.z
+                                             << ") has no axis basis, so it would be aimed through the orbit";
+
+            const float cosine = glm::dot( glm::normalize( basis->Forward ), -tip );
+            EXPECT_EQ( glm::degrees( std::acos( glm::clamp( cosine, -1.0f, 1.0f ) ) ), 0.0f )
+                 << "tip (" << tip.x << ", " << tip.y << ", " << tip.z << ") is not looked along exactly";
+            EXPECT_NEAR( glm::length( glm::cross( basis->Forward, basis->Up ) ), 1.0f, 1e-5f );
+
+            // The control: the orbit's answer for the same tip, through the camera's own clamp, misses the
+            // Y tips — which is what this row would have to accept if the click went back through it.
+            if ( axis.y != 0.0f )
+            {
+                const glm::vec3 orbit = Desert::Core::OrbitForwardFor( -tip );
+                EXPECT_GT( glm::degrees( std::acos( glm::clamp( glm::dot( orbit, -tip ), -1.0f, 1.0f ) ) ), 0.5f );
+            }
+        }
+
+    // Not an axis: refused, never guessed into the nearest one.
+    EXPECT_FALSE(
+         Desert::Editor::ViewAxisTipBasisOf( glm::normalize( glm::vec3( 1.0f, 1.0f, 0.0f ) ) ).has_value() );
+}
+
