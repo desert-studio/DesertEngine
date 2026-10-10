@@ -13,7 +13,7 @@ namespace Desert::Editor
                                                 bool showHidden )
     {
         std::vector<std::size_t> order;
-        if ( !dir )
+        if ( dir == nullptr )
             return order;
         const auto& children = dir->Children;
         order.reserve( children.size() );

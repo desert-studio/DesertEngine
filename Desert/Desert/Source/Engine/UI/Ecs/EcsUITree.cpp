@@ -180,9 +180,20 @@ namespace Desert::UI
 
     void* EcsUITree::FindState( NodeId n, ArgKind kind )
     {
-        if ( !IsStateKind( kind ) )
+        if ( !IsStateKind( kind ) || !Valid( n ) )
             return nullptr;
-        return const_cast<void*>( Find( n, kind ) );
+        const entt::entity e = ToEntity( n );
+        return Dispatch( kind,
+                         [this, e]<class R>( R ) -> void*
+                         {
+                             if constexpr ( std::is_same_v<R, std::nullptr_t> )
+                                 return nullptr;
+                             else
+                             {
+                                 auto* c = m_Reg->try_get<typename R::Component>( e );
+                                 return c != nullptr ? &c->Data : nullptr;
+                             }
+                         } );
     }
 
     void EcsUITree::Roots( ArgKind kind, std::vector<NodeId>& out ) const

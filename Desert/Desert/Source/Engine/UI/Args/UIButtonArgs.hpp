@@ -55,7 +55,7 @@ namespace Desert::UI
         UIButtonAction Action = UIButtonAction::SendEvent;
 
         PROPERTY( DisplayName( "Action Target" ), Category( "UI Button" ) )
-        std::string OnClickMessage = ""; // scene path / message name / URL, depending on Action
+        std::string OnClickMessage; // scene path / message name / URL, depending on Action
 
         // All three carry Asset<TextureAsset> for the reason UIPanelData::Sprite states in full: the
         // annotation is what names the asset TYPE to the serializer, and without it the resolver wrote

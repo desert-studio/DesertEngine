@@ -29,6 +29,7 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -184,8 +185,8 @@ namespace
             for ( std::size_t at = source.find( needle ); at != std::string::npos;
                   at             = source.find( needle, at + 1 ) )
             {
-                if ( at > 0 &&
-                     ( std::isalnum( static_cast<unsigned char>( source[at - 1] ) ) || source[at - 1] == '_' ) )
+                if ( at > 0 && ( std::isalnum( static_cast<unsigned char>( source[at - 1] ) ) != 0 ||
+                                 source[at - 1] == '_' ) )
                     continue;
                 const std::size_t nameStart = at + needle.size();
                 const std::size_t close     = source.find( '>', nameStart );
@@ -193,7 +194,7 @@ namespace
                      source.compare( close - 4, 4, "Data" ) != 0 )
                     continue;
                 const std::string kind = source.substr( nameStart, close - 4 - nameStart );
-                const std::string row  = ", " + kind + ">";
+                const std::string row  = std::format( ", {}>", kind );
                 for ( std::size_t r = adapter.find( row ); r != std::string::npos; r = adapter.find( row, r + 1 ) )
                 {
                     const std::size_t open = adapter.rfind( "Row<ECS::", r );

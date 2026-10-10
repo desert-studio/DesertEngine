@@ -256,7 +256,7 @@ namespace Desert::Editor
 
         // Crash recovery: the pop-up for the previous session's autosave after an unclean exit, then this
         // session's lock (SessionRecovery::OfferAndArm); a clean shutdown (OnDetach) removes it.
-        m_Recovery.OfferAndArm( m_Dock );
+        SessionRecovery::OfferAndArm( m_Dock );
     }
 
     EditorLayer::~EditorLayer() = default;
@@ -716,7 +716,8 @@ namespace Desert::Editor
         m_LevelCommands.HandleShortcuts( ::ImGui::GetIO() );
 
         // The menu bar, which is the window's title bar (MainMenu::DrawBar).
-        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, m_ImGuiHost.Chrome() ? &*m_ImGuiHost.Chrome() : nullptr );
+        auto& chrome = m_ImGuiHost.Chrome();
+        m_MainMenu.DrawBar( m_Toolbar, m_Profiler, chrome.has_value() ? &*chrome : nullptr );
 
         m_Dock.BeginHost();
 

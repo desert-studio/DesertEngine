@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,8 +44,7 @@ namespace Desert::Editor
                     const std::string label = std::filesystem::path( fav ).filename().string();
                     ImGui::PushID( fav.c_str() );
                     if ( ImGui::Selectable(
-                              ( std::string( "  " ) + ICON_MDI_FOLDER " " + ( label.empty() ? fav : label ) )
-                                   .c_str() ) )
+                              std::format( "  " ICON_MDI_FOLDER " {}", label.empty() ? fav : label ).c_str() ) )
                         m_On.OnFavouriteSelected( fav );
                     AcceptMoveDropOnLastItem( fav ); // a pinned folder is a drop target, as in UE's Favorites
                     if ( ImGui::BeginPopupContextItem( "##favctx" ) )
@@ -63,7 +63,7 @@ namespace Desert::Editor
         ImGui::EndChild();
     }
 
-    void ContentBrowserPathView::AcceptMoveDropOnLastItem( const std::string& targetFolder )
+    void ContentBrowserPathView::AcceptMoveDropOnLastItem( const std::string& targetFolder ) const
     {
         if ( !ImGui::BeginDragDropTarget() )
             return;
@@ -88,6 +88,8 @@ namespace Desert::Editor
         ImGui::EndDragDropTarget();
     }
 
+    // A directory tree is walked by its own depth, which the file system bounds.
+    // NOLINTNEXTLINE(misc-no-recursion)
     void ContentBrowserPathView::DrawFolder( const ContentDirectoryModel& model,
                                              const DirectoryInformation* current, DirectoryInformation* dirInfo,
                                              bool defaultOpen )
@@ -112,8 +114,7 @@ namespace Desert::Editor
 
             nodeFlags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 
-            const bool isOpen = ImGui::TreeNodeEx(
-                 reinterpret_cast<void*>( reinterpret_cast<intptr_t>( dirInfo ) ), nodeFlags, "" );
+            const bool isOpen = ImGui::TreeNodeEx( static_cast<const void*>( dirInfo ), nodeFlags, "" );
             if ( ImGui::IsItemClicked() )
                 m_On.OnFolderSelected( dirInfo );
             AcceptMoveDropOnLastItem( dirInfo->AssetPath ); // the node row spans the width: drop onto it
@@ -152,8 +153,10 @@ namespace Desert::Editor
                         horizontalTreeLineSize *= 0.5f;
                     DrawFolder( model, current, child );
 
-                    const ImRect childRect =
-                         ImRect( currentPos, currentPos + ImVec2( 0.0f, ImGui::GetFontSize() ) );
+                    // Spelled per component: in a Windows unity blob imgui.h may arrive first without
+                    // IMGUI_DEFINE_MATH_OPERATORS, and ImVec2 then has no operator+.
+                    const ImRect childRect( currentPos,
+                                            ImVec2( currentPos.x, currentPos.y + ImGui::GetFontSize() ) );
 
                     const float midpoint = ( childRect.Min.y + childRect.Max.y ) * 0.5f;
                     drawList->AddLine( ImVec2( verticalLineStart.x, midpoint ),

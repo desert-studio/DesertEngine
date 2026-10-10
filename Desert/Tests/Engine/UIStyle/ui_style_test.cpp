@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <format>
+#include <iterator>
 #include <string>
 #include <limits>
 #include <unordered_set>
@@ -158,9 +160,9 @@ TEST( UIStyleSlots, EverySlotIsReadByTheCanvasWalk )
             "Widgets/ProgressBar.cpp", "Widgets/ScrollList.cpp", "Widgets/Slider.cpp", "Widgets/Text.cpp",
             "Widgets/Toggle.cpp" } )
     {
-        const std::string text = ReadFile( root + "Desert/Desert/Source/Engine/UI/" + file );
+        const std::string text = ReadFile( std::format( "{}Desert/Desert/Source/Engine/UI/{}", root, file ) );
         ASSERT_FALSE( text.empty() ) << file << " could not be read";
-        walk += text + "\n";
+        std::format_to( std::back_inserter( walk ), "{}\n", text );
     }
 
     std::vector<std::string> unread;

@@ -28,14 +28,14 @@ namespace Desert::UI::Walk
 {
     void DrawTextWidget( ElementFrame& frame )
     {
-        auto& ctx     = frame.Ctx;
-        auto& tree    = frame.Tree;
-        auto& e       = frame.E;
-        auto& scale   = frame.Scale;
-        auto& dl      = frame.Dl;
-        auto& st      = frame.St;
-        auto& rect    = frame.ElementRect;
-        auto& binding = frame.Binding;
+        auto&       ctx     = frame.Ctx;
+        auto&       tree    = frame.Tree;
+        auto&       e       = frame.E;
+        auto&       scale   = frame.Scale;
+        auto&       dl      = frame.Dl;
+        const auto& st      = frame.St;
+        auto&       rect    = frame.ElementRect;
+        const auto& binding = frame.Binding;
 
         // A bound label draws the store's string, and a keyed one draws its translation, both
         // without the component ever being touched — the authored text is never written back.
@@ -55,12 +55,12 @@ namespace Desert::UI::Walk
 
     void DrawIconWidget( ElementFrame& frame )
     {
-        auto& ctx  = frame.Ctx;
-        auto& tree = frame.Tree;
-        auto& e    = frame.E;
-        auto& dl   = frame.Dl;
-        auto& st   = frame.St;
-        auto& rect = frame.ElementRect;
+        auto&       ctx  = frame.Ctx;
+        auto&       tree = frame.Tree;
+        auto&       e    = frame.E;
+        auto&       dl   = frame.Dl;
+        const auto& st   = frame.St;
+        auto&       rect = frame.ElementRect;
 
         UIIconData icon = *tree.Get<UIIconData>( e );
         icon.Color      = st.Color( StyleSlot::IconColor, icon.Color );

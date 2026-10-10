@@ -10,6 +10,7 @@
 
 #include <Engine/UI/UITree.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -79,10 +80,7 @@ namespace Desert::UI
         // Was @p key pressed (or auto-repeated) at least once this frame?
         NO_DISCARD bool Pressed( Common::KeyCode key ) const
         {
-            for ( const UIKeyEvent& k : Keys )
-                if ( k.Key == key )
-                    return true;
-            return false;
+            return std::ranges::any_of( Keys, [key]( const UIKeyEvent& k ) { return k.Key == key; } );
         }
     };
 

@@ -23,7 +23,7 @@ namespace Desert::Editor::ContentBrowserImport
                      const DirectoryInformation* folder )
     {
         std::error_code ec;
-        if ( !assetManager || source.empty() || !std::filesystem::exists( source, ec ) ||
+        if ( assetManager == nullptr || source.empty() || !std::filesystem::exists( source, ec ) ||
              std::filesystem::is_directory( source, ec ) )
             return false;
 

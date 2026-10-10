@@ -105,7 +105,7 @@ namespace Desert::Editor
                         .OnNewFolder =
                              [this]
                         {
-                            if ( m_CurrentDir )
+                            if ( m_CurrentDir != nullptr )
                                 m_NewAssetMenu.CreateNewFolder( *m_CurrentDir );
                         },
                         .OnImport =
@@ -222,7 +222,7 @@ namespace Desert::Editor
         // Not loaded yet (e.g. a favorite from a previous session): expand the tree from the project
         // root down to `path`, matching one segment at a time.
         DirectoryInformation* cur = m_Model.Root();
-        if ( !cur )
+        if ( cur == nullptr )
             return false;
         const std::filesystem::path base = cur->AssetPath;
         std::error_code             ec;
@@ -245,7 +245,7 @@ namespace Desert::Editor
                     next = ch;
                     break;
                 }
-            if ( !next )
+            if ( next == nullptr )
                 return false; // path no longer exists
             m_Model.Open( next );
             cur = next;
@@ -271,11 +271,10 @@ namespace Desert::Editor
 
     ImVec2 GetAspectCorrectedSize( const ImVec2& originalSize, float maxSize )
     {
-        float aspect = originalSize.x / originalSize.y;
+        const float aspect = originalSize.x / originalSize.y;
         if ( aspect > 1.0f )
             return { maxSize, maxSize / aspect }; // Wider than tall
-        else
-            return { maxSize * aspect, maxSize }; // Taller than wide or square
+        return { maxSize * aspect, maxSize };     // Taller than wide or square
     }
 
     void FileExplorerPanel::OnUIRender()
@@ -323,7 +322,7 @@ namespace Desert::Editor
         // RIGHT PANE.
         ImGui::BeginChild( "##cb_right", ImVec2( 0.0f, 0.0f ), false );
         m_Toolbar.Draw( m_ViewState, m_History, m_CurrentDir, m_Model.Root() );
-        if ( m_CurrentDir )
+        if ( m_CurrentDir != nullptr )
             m_AssetView.Draw( *m_CurrentDir, m_ViewState, m_Model.ShowsHiddenFiles() );
         ImGui::EndChild(); // ##cb_right
     }
@@ -369,7 +368,7 @@ namespace Desert::Editor
         if ( ImGui::Selectable( "Refresh" ) )
             QueueRefresh();
 
-        if ( m_CurrentDir )
+        if ( m_CurrentDir != nullptr )
             m_NewAssetMenu.Draw( *m_CurrentDir );
     }
 

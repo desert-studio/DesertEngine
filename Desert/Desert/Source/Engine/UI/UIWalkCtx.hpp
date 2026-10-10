@@ -85,9 +85,9 @@ namespace Desert::UI::Walk
     // An open dropdown whose option list is drawn AFTER the whole tree, so it overlays everything.
     struct PopupInfo
     {
-        NodeId Entity;
-        Rect   Box;   // the dropdown's box rect (screen px)
-        float  Scale; // canvas scale for its text
+        NodeId Entity = NodeId::Null;
+        Rect   Box;          // the dropdown's box rect (screen px)
+        float  Scale = 1.0f; // canvas scale for its text
         // The style the BOX was drawn with, carried here rather than re-resolved after the walk. The
         // open list is the same control as the closed box and must be the same colours; resolving it a
         // second time would be a second answer that happens to agree today.
@@ -100,7 +100,7 @@ namespace Desert::UI::Walk
     struct CanvasFit
     {
         Rect  Root;
-        float Scale;
+        float Scale = 1.0f;
     };
 
     // ONE ELEMENT, RESOLVED. DrawElement computes every value below exactly once — the style, the final

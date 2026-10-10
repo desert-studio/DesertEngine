@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <unordered_map>
 #include <vector>
 
@@ -30,7 +31,8 @@ namespace Desert::UI::Walk
     {
         if ( !dl.HasTransform() )
             return r;
-        glm::vec2 mn, mx;
+        glm::vec2 mn;
+        glm::vec2 mx;
         Graphic::Render2D::TransformedAABB2D( dl.GetTransform(), { r.X, r.Y }, { r.X + r.W, r.Y + r.H }, mn, mx );
         return Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y };
     }
@@ -88,7 +90,7 @@ namespace Desert::UI::Walk
         const UIStyleData* authored = tree.Has<UIStyleData>( e ) ? tree.Get<UIStyleData>( e ) : nullptr;
 
         if ( authored != nullptr && authored->Source == UIStyleSource::Local )
-            return ElementStyle( nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() );
+            return { nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() };
 
         // A copy rather than a reference: the alternative binds a reference to a temporary built from
         // the default-name constant. "Default" fits in a std::string's small buffer, so it costs no
@@ -166,19 +168,21 @@ namespace Desert::UI::Walk
                 return t < 0.5f ? 4.0f * t * t * t : 1.0f - std::pow( -2.0f * t + 2.0f, 3.0f ) * 0.5f;
             case UIEasing::BackOut:
             {
-                constexpr float c1 = 1.70158f, c3 = c1 + 1.0f;
+                constexpr float c1 = 1.70158f;
+                constexpr float c3 = c1 + 1.0f;
                 return 1.0f + c3 * std::pow( t - 1.0f, 3.0f ) + c1 * std::pow( t - 1.0f, 2.0f );
             }
             case UIEasing::ElasticOut:
             {
                 if ( t <= 0.0f || t >= 1.0f )
                     return t;
-                constexpr float c4 = 2.0f * 3.14159265f / 3.0f;
+                constexpr float c4 = 2.0f * std::numbers::pi_v<float> / 3.0f;
                 return std::pow( 2.0f, -10.0f * t ) * std::sin( ( t * 10.0f - 0.75f ) * c4 ) + 1.0f;
             }
             case UIEasing::BounceOut:
             {
-                constexpr float n1 = 7.5625f, d1 = 2.75f;
+                constexpr float n1 = 7.5625f;
+                constexpr float d1 = 2.75f;
                 if ( t < 1.0f / d1 )
                     return n1 * t * t;
                 if ( t < 2.0f / d1 )
@@ -305,7 +309,7 @@ namespace Desert::UI::Walk
                 // turn every numeric binding into a C-locale string and lose the count.
                 if ( const auto n = store.Number( b.Key ) )
                 {
-                    out.Number = *n;
+                    out.Number = n;
                     break;
                 }
                 if ( const auto t = store.Text( b.Key ) )
@@ -386,7 +390,7 @@ namespace Desert::UI::Walk
     // Does this target accept the payload in flight? An empty filter takes anything.
     bool Accepts( const UIDropTargetData& t, const std::string& payload )
     {
-        return t.Accepts.empty() || payload.rfind( t.Accepts, 0 ) == 0;
+        return t.Accepts.empty() || payload.starts_with( t.Accepts );
     }
 
     // Split a ';'-separated option string into its items (empty items skipped).
@@ -399,19 +403,19 @@ namespace Desert::UI::Walk
     {
         std::vector<std::string> out;
         std::string              cur;
-        for ( char c : s )
+        for ( const char c : s )
         {
             if ( c == ';' )
             {
                 if ( !cur.empty() )
-                    out.push_back( text.Resolve( cur ).Text );
+                    out.push_back( text.Resolve( cur, std::nullopt ).Text );
                 cur.clear();
             }
             else
                 cur += c;
         }
         if ( !cur.empty() )
-            out.push_back( text.Resolve( cur ).Text );
+            out.push_back( text.Resolve( cur, std::nullopt ).Text );
         return out;
     }
 
@@ -444,7 +448,7 @@ namespace Desert::UI::Walk
         if ( !HandleSet( handle ) )
             return nullptr;
 
-        if ( !ctx.View.Materials )
+        if ( ctx.View.Materials == nullptr )
         {
             if ( ctx.View.WarnedMaterial != handle )
             {
@@ -528,8 +532,8 @@ namespace Desert::UI::Walk
         }
 
         const void* tex  = img.Id;
-        const float tw   = static_cast<float>( img.Width );
-        const float th   = static_cast<float>( img.Height );
+        const auto  tw   = static_cast<float>( img.Width );
+        const auto  th   = static_cast<float>( img.Height );
         const bool  nine = tw > 0.0f && th > 0.0f &&
                           ( srcBorder.x > 0.0f || srcBorder.y > 0.0f || srcBorder.z > 0.0f || srcBorder.w > 0.0f );
         if ( !nine )
@@ -538,9 +542,12 @@ namespace Desert::UI::Walk
             return;
         }
 
-        const float hw = ( mx.x - mn.x ) * 0.5f, hh = ( mx.y - mn.y ) * 0.5f;
-        const float pl = std::min( srcBorder.x * scale, hw ), pt = std::min( srcBorder.y * scale, hh );
-        const float pr = std::min( srcBorder.z * scale, hw ), pb = std::min( srcBorder.w * scale, hh );
+        const float hw    = ( mx.x - mn.x ) * 0.5f;
+        const float hh    = ( mx.y - mn.y ) * 0.5f;
+        const float pl    = std::min( srcBorder.x * scale, hw );
+        const float pt    = std::min( srcBorder.y * scale, hh );
+        const float pr    = std::min( srcBorder.z * scale, hw );
+        const float pb    = std::min( srcBorder.w * scale, hh );
         const float xs[4] = { mn.x, mn.x + pl, mx.x - pr, mx.x };
         const float ys[4] = { mn.y, mn.y + pt, mx.y - pb, mx.y };
         const float us[4] = { 0.0f, srcBorder.x / tw, 1.0f - srcBorder.z / tw, 1.0f };

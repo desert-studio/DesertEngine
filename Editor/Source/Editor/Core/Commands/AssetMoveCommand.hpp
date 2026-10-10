@@ -7,8 +7,10 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <filesystem>
+#include <ranges>
 #include <map>
 #include <memory>
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -143,8 +145,8 @@ namespace Desert::Editor
         bool Undo() override
         {
             bool all = true;
-            for ( auto it = m_Records.rbegin(); it != m_Records.rend(); ++it )
-                if ( const auto restored = Assets::ContentRegistry::RestoreTrashed( *it ); !restored )
+            for ( const auto& record : std::views::reverse( m_Records ) )
+                if ( const auto restored = Assets::ContentRegistry::RestoreTrashed( record ); !restored )
                 {
                     LOG_ERROR( "[Trash] {}", restored.GetError() );
                     all = false;
@@ -196,8 +198,9 @@ namespace Desert::Editor
         }
         if ( !records.empty() )
         {
-            std::string label = records.size() == 1 ? "Delete " + records.front().From.filename().string()
-                                                    : "Delete " + std::to_string( records.size() ) + " assets";
+            std::string label = records.size() == 1
+                                     ? std::format( "Delete {}", records.front().From.filename().string() )
+                                     : std::format( "Delete {} assets", records.size() );
             CommandHistory::Get().PushCommand(
                  std::make_unique<AssetTrashCommand>( std::move( records ), std::move( label ) ) );
         }

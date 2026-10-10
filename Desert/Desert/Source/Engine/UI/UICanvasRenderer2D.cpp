@@ -40,16 +40,24 @@ namespace Desert::UI
         template <typename F>
         void ForEachScreenName( IUITree& tree, NodeId e, F&& fn )
         {
-            if ( !tree.Valid( e ) )
-                return;
-            if ( tree.Has<UIScreenData>( e ) )
+            // An explicit stack, pre-order: children are pushed last-first so they pop in draw order.
+            std::vector<NodeId> pending{ e };
+            while ( !pending.empty() )
             {
-                const std::string& n = tree.Get<UIScreenData>( e )->Name;
-                if ( !n.empty() )
-                    fn( n );
+                const NodeId n = pending.back();
+                pending.pop_back();
+                if ( !tree.Valid( n ) )
+                    continue;
+                if ( tree.Has<UIScreenData>( n ) )
+                {
+                    const std::string& name = tree.Get<UIScreenData>( n )->Name;
+                    if ( !name.empty() )
+                        fn( name );
+                }
+                const ChildRange children = ChildrenOf( tree, n );
+                for ( std::size_t i = children.size(); i > 0; --i )
+                    pending.push_back( children[i - 1] );
             }
-            for ( NodeId c : ChildrenOf( tree, e ) )
-                ForEachScreenName( tree, c, fn );
         }
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
@@ -405,7 +413,7 @@ namespace Desert::UI
                     if ( focusables )
                         focusables->push_back(
                              { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
-                    if ( focused && *focused == e && !tree.Has<UIInputFieldData>( e ) )
+                    if ( focused != nullptr && *focused == e && !tree.Has<UIInputFieldData>( e ) )
                         dl.AddRect(
                              mn, mx,
                              glm::vec4( st.Color( StyleSlot::FocusRing, glm::vec3( 0.30f, 0.62f, 0.98f ) ), 1.0f ),
@@ -561,7 +569,7 @@ namespace Desert::UI
 
         Rect  canvasRect;
         float scale;
-        if ( canvasData.RenderMode == UICanvasRenderMode::WorldSpace && worldViewProj &&
+        if ( canvasData.RenderMode == UICanvasRenderMode::WorldSpace && worldViewProj != nullptr &&
              tree.WorldOrigin( canvasEntity ).has_value() )
         {
             // Billboard: project the canvas entity's world position to the screen, centre + distance-scale it
@@ -774,7 +782,7 @@ namespace Desert::UI
         // A context menu and a modal are the opposite: capturing the pointer IS what they are for.
         const bool inert = overlay != nullptr &&
                            ( overlay->Kind == UIOverlayKind::Tooltip || overlay->Kind == UIOverlayKind::Toast );
-        for ( NodeId c : ChildrenOf( tree, canvasEntity ) )
+        for ( const NodeId c : ChildrenOf( tree, canvasEntity ) )
             if ( tree.Valid( c ) )
                 DrawElement( ctx, tree, c, childRoot, scale, dl, input, outClicked, focused, &popups,
                              inert ? nullptr : &ctx.View.Focusables, rootClip, HitScope{ !inert } );

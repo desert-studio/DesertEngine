@@ -542,8 +542,11 @@ namespace Desert::UI
             child.Xform        = xform;
             child.Depth        = scope.Depth + 1;
             child.ParentEntity = e;
-            child.Elect     = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly );
-            child.SkippedBy = scope.SkippedBy != NodeId::Null ? scope.SkippedBy : node.Drawn ? NodeId::Null : e;
+            child.Elect = scope.Elect && ( hitTest == UIHitTest::All || hitTest == UIHitTest::ChildrenOnly );
+            if ( scope.SkippedBy != NodeId::Null )
+                child.SkippedBy = scope.SkippedBy;
+            else
+                child.SkippedBy = node.Drawn ? NodeId::Null : e;
             child.Row       = scope.Row;
             child.RowIndex  = scope.RowIndex;
 

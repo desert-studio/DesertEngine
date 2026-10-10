@@ -748,14 +748,17 @@ namespace
     // this census can see.
     std::string DeclaredName( std::string head )
     {
-        // Preprocessor lines inside the head are not part of the declaration.
+        // Preprocessor lines inside the head are not part of the declaration. The rest is joined into ONE
+        // line: MSVC's std::regex lets `^`/`$` match at every line break, libc++'s only at the ends, so a
+        // head that kept its newlines read differently per platform — `Common::BoolResultStr\nWrittenOrError(`
+        // yielded `BoolResultStr` on Windows and `WrittenOrError` on macOS (int/b5, CI 38009939399).
         std::string        kept;
         std::istringstream lines( head );
         std::string        line;
         while ( std::getline( lines, line ) )
         {
             if ( Trimmed( line ).rfind( "#", 0 ) != 0 )
-                kept += line + "\n";
+                kept.append( line ).append( " " );
         }
         head = Trimmed( kept );
         static const std::regex skip(
@@ -763,7 +766,6 @@ namespace
         static const std::regex type(
              R"(^(template\s*<[^>]*>\s*)?(struct|class|enum\s+class|enum|union)\s+(\w+))" );
         static const std::regex alias( R"(^using\s+(\w+)\s*=)" );
-        static const std::regex lastWord( R"((\w+)\s*$)" );
         static const std::regex variable( R"(^[^=]*?\b(\w+)\s*(\[[^\]]*\])?\s*(=|$))" );
         std::smatch             m;
         if ( head.empty() || std::regex_search( head, skip ) )
@@ -775,10 +777,17 @@ namespace
         const std::size_t paren = head.find( '(' );
         if ( paren != std::string::npos && head.substr( 0, paren ).find( '=' ) == std::string::npos )
         {
-            const std::string before = head.substr( 0, paren );
-            if ( !std::regex_search( before, m, lastWord ) )
+            // The function's name is the identifier right before its `(`, whatever precedes it.
+            std::size_t end = paren;
+            while ( end > 0 && std::isspace( static_cast<unsigned char>( head[end - 1] ) ) != 0 )
+                --end;
+            std::size_t begin = end;
+            while ( begin > 0 && ( std::isalnum( static_cast<unsigned char>( head[begin - 1] ) ) != 0 ||
+                                   head[begin - 1] == '_' ) )
+                --begin;
+            if ( begin == end )
                 return {};
-            const std::string name = m[1];
+            const std::string name = head.substr( begin, end - begin );
             for ( const char* keyword : { "if", "for", "while", "switch", "sizeof", "decltype", "static_assert" } )
             {
                 if ( name == keyword )
@@ -938,6 +947,34 @@ TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
             "to kUnityDuplicateRegister:"
          << Listed( unregistered );
     EXPECT_TRUE( stale.empty() ) << "Register rows that are no longer duplicates; delete them:" << Listed( stale );
+}
+
+// The census above must read a definition the same way on every platform. A return type on its own line
+// is the shape that read as the type's name under MSVC (int/b5: two `Common::BoolResultStr` helpers
+// reported as one duplicate); a definition head is always handed over with its newlines intact here.
+TEST( ReservedIdentifiers, TheInternalNameCensusReadsTheNameBeforeTheParenthesis )
+{
+    const std::set<std::string> names    = InternalNames( "namespace Desert::Editor\n"
+                                                             "{\n"
+                                                             "    static Common::BoolResultStr\n"
+                                                             "    ImportHeightmap( int a )\n"
+                                                             "    {\n"
+                                                             "        return {};\n"
+                                                             "    }\n"
+                                                             "    namespace\n"
+                                                             "    {\n"
+                                                             "        Common::BoolResultStr\n"
+                                                             "             WrittenOrError( int b )\n"
+                                                             "        {\n"
+                                                             "            return {};\n"
+                                                             "        }\n"
+                                                             "        constexpr int\n"
+                                                             "             kLimit = 4;\n"
+                                                             "    }\n"
+                                                             "}\n" );
+    const std::set<std::string> expected = { "Desert::Editor::ImportHeightmap", "Desert::Editor::WrittenOrError",
+                                             "Desert::Editor::kLimit" };
+    EXPECT_EQ( names, expected );
 }
 
 // THE NAMES windows.h TURNS INTO OTHER NAMES (class (b), CIW6).

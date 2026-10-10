@@ -125,7 +125,7 @@ namespace Desert::Physics
                  : m_Profiles( profiles ), m_Self( self )
             {
             }
-            bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
+            [[nodiscard]] bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
             {
                 return m_Profiles.PhysicsResponse( m_Self, ProfileOf( inLayer ) ) == CollisionResponse::Block;
             }
@@ -142,7 +142,7 @@ namespace Desert::Physics
             explicit QueryableLayerFilter( const CollisionProfiles& profiles ) : m_Profiles( profiles )
             {
             }
-            bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
+            [[nodiscard]] bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
             {
                 return m_Profiles.IsQueryable( ProfileOf( inLayer ) );
             }

@@ -83,25 +83,25 @@ namespace Desert::UI::Walk
 
     void DrawInputFieldWidget( ElementFrame& frame )
     {
-        auto& ctx         = frame.Ctx;
-        auto& tree        = frame.Tree;
-        auto& e           = frame.E;
-        auto& scale       = frame.Scale;
-        auto& dl          = frame.Dl;
-        auto& input       = frame.Input;
-        auto& focused     = frame.Focused;
-        auto& st          = frame.St;
-        auto& rect        = frame.ElementRect;
-        auto& interactive = frame.Interactive;
-        auto& mn          = frame.Mn;
-        auto& mx          = frame.Mx;
-        auto& hot         = frame.Hot;
+        auto&       ctx         = frame.Ctx;
+        auto&       tree        = frame.Tree;
+        auto&       e           = frame.E;
+        auto&       scale       = frame.Scale;
+        auto&       dl          = frame.Dl;
+        auto&       input       = frame.Input;
+        auto&       focused     = frame.Focused;
+        const auto& st          = frame.St;
+        auto&       rect        = frame.ElementRect;
+        const auto& interactive = frame.Interactive;
+        auto&       mn          = frame.Mn;
+        auto&       mx          = frame.Mx;
+        auto&       hot         = frame.Hot;
 
         auto&                 f     = *tree.GetState<UIInputFieldData>( e );
         UITextEditState&      edit  = ctx.Canvas.TextEdit[e];
         const UITextEditRules rules = UITextEditRules::Of( f );
         auto&                 res   = ctx.View.Resources();
-        const bool            hover = input && hot;
+        const bool            hover = input != nullptr && hot;
 
         // The field's own slots, resolved once: the text colour is read by the glyphs AND by the
         // caret, and the size by the glyphs AND by the caret's x — two lookups each would be two
@@ -150,13 +150,13 @@ namespace Desert::UI::Walk
         if ( hover && input && input->MouseReleased && focused )
             *focused = e; // click to focus
 
-        const bool isFocused = interactive && focused && *focused == e;
+        const bool isFocused = interactive && focused != nullptr && *focused == e;
         auto       send      = [&]( const std::string& message )
         {
             if ( !message.empty() )
                 ctx.View.WalkMessages.push_back( message + "|" + f.Text );
         };
-        if ( isFocused && input )
+        if ( isFocused && input != nullptr )
         {
             const UITextEditOutcome outcome =
                  edit.Apply( f.Text, rules, input->TypedText, input->Keys, input->Clipboard );
@@ -221,7 +221,7 @@ namespace Desert::UI::Walk
         // The PLACEHOLDER is authored and therefore localisable; `f.Text` is what the player
         // typed and is drawn exactly as typed — translating a person's own input would be
         // absurd, and it is the one string on a canvas that must never go through the table.
-        td.Text     = showPlaceholder ? res.Text().Resolve( f.Placeholder ).Text
+        td.Text     = showPlaceholder ? res.Text().Resolve( f.Placeholder, std::nullopt ).Text
                                       : UITextDisplayString( f.Text, f.Password );
         td.FontSize = fieldSize;
         td.Color    = showPlaceholder ? st.Color( StyleSlot::InputPlaceholder, f.PlaceholderColor ) : fieldText;
