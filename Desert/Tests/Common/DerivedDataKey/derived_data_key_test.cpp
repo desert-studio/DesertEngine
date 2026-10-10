@@ -331,7 +331,7 @@ TEST( DerivedDataKey, NoDerivedCacheIsSpelledUnderTheCookedTree )
                                                 "IconCache",   "EnvironmentCache", "Thumbnails" };
     const fs::path                   repo   = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    for ( const char* root : kEngineSourceRoots )
+    for ( const std::string& root : kEngineSourceRoots )
         for ( const fs::path& file : SourcesUnder( repo / root ) )
         {
             std::istringstream lines( ReadText( file ) );

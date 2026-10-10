@@ -187,7 +187,7 @@ namespace
 
                 std::vector<fs::path> candidates;
                 candidates.push_back( f.parent_path() / name );
-                for ( const char* r : roots )
+                for ( const std::string& r : roots )
                     candidates.push_back( fs::path( root ) / r / name );
                 for ( const auto& c : candidates )
                 {
