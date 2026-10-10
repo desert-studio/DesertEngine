@@ -230,6 +230,8 @@ namespace Desert::Tests::CloudFieldRef
             /// Voxels above is the single-level bake, read only by tests of that bake itself.
             std::array<ModellingVoxels, Desert::Assets::kCloudProceduralClipLevels> Levels;
             std::array<glm::vec2, Desert::Assets::kCloudProceduralClipLevels>       LevelOriginKm{};
+            /// The far path's statistics of the coarsest level (CloudProceduralClipmap::FarStatistics).
+            Desert::Assets::CloudProceduralFarStatistics Far{};
         };
 
         ModellingVolumeState& ModellingVolume()
@@ -388,6 +390,10 @@ namespace Desert::Tests::CloudFieldRef
                 state.LevelOriginKm[level] =
                      Desert::Assets::CloudProceduralLevelOriginKm( state.Params, level, 0.0f, 0.0f );
             }
+            const ModellingVoxels& last = state.Levels[Desert::Assets::kCloudProceduralClipLevels - 1u];
+            state.Far = last ? Desert::Assets::CloudProceduralFarStatisticsOf( *last,
+                                                                               Desert::Assets::kCloudProceduralVolumeSide )
+                             : Desert::Assets::CloudProceduralFarStatistics{};
         }
 
         /// The parameters this suite bakes with: one region, centred on the origin, at the component's
@@ -591,6 +597,13 @@ namespace Desert::Tests::CloudFieldRef
                 params.ProceduralLevel[level] =
                      vec4( state.LevelOriginKm[level].x, state.LevelOriginKm[level].y,
                            1.0f / Desert::Assets::CloudProceduralLevelSideKm( state.Params, level ), 0.0f );
+            }
+            // The far path, as CloudUnpackFieldParams unpacks u_CloudWeather.x and u_CloudFar*.
+            params.FarScale = Desert::Assets::CloudFarWeatherUniform( state.Params ).x;
+            for ( std::uint32_t band = 0; band < Desert::Assets::kCloudFarBands; ++band )
+            {
+                params.FarPresence[band] = state.Far.Presence[band];
+                params.FarProfile[band]  = state.Far.Profile[band];
             }
         }
 

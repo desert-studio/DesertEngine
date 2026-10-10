@@ -109,6 +109,13 @@ namespace Desert::Graphic
         /// level k: p * z (REPEAT), equivalently (p - xy) * z + fract( xy * z ).
         std::array<glm::vec4, kLevels> LevelUniforms() const;
 
+        /// The far path's statistics of the last level ON THE DEVICE (Assets::CloudProceduralFarStatisticsOf),
+        /// taken from the same bytes the image holds whenever that level lands; zero before the first shape.
+        const Assets::CloudProceduralFarStatistics& FarStatistics() const
+        {
+            return m_FarStatistics;
+        }
+
         /// The last level's corner on the device, km — the periodic region the rest of the sky reads.
         glm::vec2 RegionOriginKm() const;
 
@@ -154,6 +161,7 @@ namespace Desert::Graphic
         Assets::CloudProceduralFieldParams m_DeviceParams{};
         std::array<glm::ivec2, kLevels>    m_DeviceOrigin{};
         bool                               m_Valid = false;
+        Assets::CloudProceduralFarStatistics m_FarStatistics{};
 
         Assets::CloudProceduralFieldParams             m_ShapeParams{};
         bool                                           m_ShapeInFlight = false;

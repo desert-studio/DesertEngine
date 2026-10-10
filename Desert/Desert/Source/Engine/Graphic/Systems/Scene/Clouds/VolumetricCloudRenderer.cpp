@@ -848,7 +848,9 @@ namespace Desert::Graphic::System
                                    CloudRegionBinding{ m_Clipmap.LevelUniforms(),
                                                        Assets::CloudFarWeatherUniform( m_ModellingParams ),
                                                        Assets::CloudLayoutPlaceUniform( m_ModellingParams ),
-                                                       Assets::CloudLayoutStrengthUniform( m_ModellingParams ) },
+                                                       Assets::CloudLayoutStrengthUniform( m_ModellingParams ),
+                                                       m_Clipmap.FarStatistics().Presence,
+                                                       m_Clipmap.FarStatistics().Profile },
                                    quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
         return true;
     }

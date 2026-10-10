@@ -16,6 +16,8 @@ namespace Desert::Graphic
 {
     static_assert( kCloudClipLevelSlots == Assets::kCloudProceduralClipLevels,
                    "the payload carries one u_CloudLevel per clip level" );
+    static_assert( kCloudFarBandSlots == Assets::kCloudFarBands,
+                   "the payload carries one u_CloudFarPresence / u_CloudFarProfile per far band" );
 
     namespace
     {
@@ -341,6 +343,8 @@ namespace Desert::Graphic
                     m_Valid = false;
                     return Common::MakeError<Result>( wrote.GetError() );
                 }
+                m_FarStatistics =
+                     Assets::CloudProceduralFarStatisticsOf( m_ShapeLanded[kLastLevel]->Boxes.front(), side );
                 for ( auto& landed : m_ShapeLanded )
                     landed.reset();
 
@@ -388,6 +392,9 @@ namespace Desert::Graphic
             for ( uint32_t level = 0; level < kLevels; ++level )
                 if ( bytes[level] )
                 {
+                    if ( level == kLastLevel )
+                        m_FarStatistics = Assets::CloudProceduralFarStatisticsOf( bytes[level]->Boxes.front(),
+                                                                                  m_DeviceParams.VolumeSideVoxels );
                     m_DeviceOrigin[level] = m_Scroll[level]->Origin;
                     m_Scroll[level].reset();
                 }

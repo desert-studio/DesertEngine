@@ -21,6 +21,8 @@ namespace Desert::Graphic
     /// Assets::kCloudProceduralClipLevels in CloudProceduralClipmap.cpp; a number here because this header
     /// is the GPU layout and does not pull the bake in.
     inline constexpr uint32_t kCloudClipLevelSlots = 3u;
+    /// The far path's height bands (Assets::kCloudFarBands; the renderer asserts the two agree).
+    inline constexpr uint32_t kCloudFarBandSlots = 8u;
 
     /**
      * The GPU side of VolumetricCloudData, and the ONLY place the component is turned into bytes.
@@ -132,7 +134,7 @@ namespace Desert::Graphic
 
         // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
         // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
-        // x and z unread (kCloudUnreadSlots). The march remaps the baked profile by the W this decides —
+        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z unread (kCloudUnreadSlots). The march remaps the baked profile by the W this decides —
         // Assets::CloudProceduralCoverRemap is the CPU half of the same remap. Before the trailing vec3 for the
         // reason Albedo is.
         glm::vec4 Weather;
@@ -151,6 +153,13 @@ namespace Desert::Graphic
         // Layout does, reading kCloudLayoutPatternBinding / kCloudLayoutMaskBinding through these.
         glm::vec4 LayoutPlace;
         glm::vec4 LayoutStrength;
+
+        // THE FAR PATH (CLOUD-SEAM24), Assets::CloudProceduralFarStatistics of the coarsest clip level on the
+        // device: per height band, per species channel, the share of the level's voxels that are cloud and
+        // the mean profile where they are. Past that level's window the march draws a world column field
+        // against these (Common/CloudField.glslh CloudSampleProceduralFar) instead of repeating its torus.
+        glm::vec4 FarPresence[kCloudFarBandSlots];
+        glm::vec4 FarProfile[kCloudFarBandSlots];
 
         // A vec3 AND LAST, which is the only shape in which three values can be three values. It was a
         // vec4 whose fourth slot carried the cloud type's variance, and then briefly the domain warp's
@@ -188,7 +197,9 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 336 );
     static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 352 );
     static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 368 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 384 );
+    static_assert( offsetof( CloudGpuPayload, FarPresence ) == 384 );
+    static_assert( offsetof( CloudGpuPayload, FarProfile ) == 512 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 640 );
     // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
     // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
@@ -209,8 +220,10 @@ namespace Desert::Graphic
     // reaching the march at all; until it was paid, three of a layer's four slots could name a volume the frame
     // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
     // the smallest shape three contiguous components fit in.
-    static_assert( sizeof( CloudGpuPayload ) == 396,
-                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s and a vec3 — the shader reads exactly this and "
+    //
+    // AND IT GREW BY 256 FOR THE FAR PATH (CLOUD-SEAM24): two vec4[8] of the coarsest level's statistics.
+    static_assert( sizeof( CloudGpuPayload ) == 652,
+                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s, two vec4[8] and a vec3 — the shader reads exactly this and "
                    "nothing more." );
 
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
@@ -244,14 +257,11 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 4> kCloudUnreadSlots = {
+    inline constexpr std::array<CloudUnreadSlot, 3> kCloudUnreadSlots = {
          { { "u_CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
            { "u_CloudLayoutStrength", 'w', "as z" },
-           { "u_CloudWeather", 'x',
-             "held the Coverage slider while the march cut clusters by rank; the bake chooses them now "
-             "(CUT-AT-BAKE), and the weather's two numbers keep their own slots y and w" },
            { "u_CloudWeather", 'z', "held the cover's softness past a rank; the bake's since CUT-AT-BAKE" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
@@ -663,6 +673,10 @@ namespace Desert::Graphic
         /// (the default) reads no painting.
         glm::vec4 LayoutPlace{ 0.0f };
         glm::vec2 LayoutStrength{ 0.0f };
+        /// The far path's statistics of the coarsest level on the device (CloudProceduralClipmap::
+        /// FarStatistics). Zero (the default) draws no cloud past that level's window.
+        std::array<glm::vec4, kCloudFarBandSlots> FarPresence{};
+        std::array<glm::vec4, kCloudFarBandSlots> FarProfile{};
     };
 
     /**
@@ -1029,6 +1043,11 @@ namespace Desert::Graphic
         p.Weather        = region.Weather;
         p.LayoutPlace    = region.LayoutPlace;
         p.LayoutStrength = glm::vec4( region.LayoutStrength, 0.0f, 0.0f );
+        for ( uint32_t band = 0; band < kCloudFarBandSlots; ++band )
+        {
+            p.FarPresence[band] = region.FarPresence[band];
+            p.FarProfile[band]  = region.FarProfile[band];
+        }
 
         p.Aerial = glm::vec3( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                               atmosphere.AerialPerspectiveVolume != nullptr ? 1.0f : 0.0f );

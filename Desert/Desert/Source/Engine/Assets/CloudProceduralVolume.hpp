@@ -9,6 +9,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -777,9 +778,41 @@ namespace Desert::Assets
     /// What the march needs to read the world weather W, as the GPU block carries it (CloudGpuPayload::Weather
     /// / u_CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
     /// down (no strength, or a painted pattern is the weather, exactly as CloudProceduralLocalWeather
-    /// decides), w 1 / kCloudFarWeatherPeriodKm. x and z are zero and unread (Graphic::kCloudUnreadSlots):
-    /// the Coverage slider and its softness are the bake's since CUT-AT-BAKE.
+    /// decides), w 1 / kCloudFarWeatherPeriodKm, x CloudFarFieldScale (the far path's own read of the same
+    /// map). z is zero and unread (Graphic::kCloudUnreadSlots): the cover's softness is the bake's since
+    /// CUT-AT-BAKE.
     glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
+
+    /// THE FAR PATH (CLOUD-SEAM24): past the coarsest clip level's window nothing is baked, and reading the
+    /// level's periodic torus there REPEATED the 48 km region at the horizon. Unreal's Volumetric Cloud has no
+    /// such edge because its shape is a function of a world weather map at every distance; the far path is
+    /// that function here: a world column field u(x, z), uniform on [0, 1], drawn from the world weather map
+    /// itself read at cloud scale (two reads, CLOUD_FAR_READ_* in Common/CloudField.glslh), and per height
+    /// band and species the share of the coarsest level's voxels that are cloud. A column is cloud at a
+    /// height where u is below that share, so the far sky has the level's own coverage at every height — the
+    /// two meet in the level's blend band with the same statistics and no period inside the view.
+    inline constexpr uint32_t kCloudFarBands = 8u;
+
+    /// Per height band b (the layer's height fraction cut into kCloudFarBands, band centres at
+    /// (b + 0.5) / kCloudFarBands) and per species channel: Presence the share of voxels whose profile is
+    /// above zero, Profile the mean profile over those voxels (0 where there are none).
+    struct CloudProceduralFarStatistics
+    {
+        std::array<glm::vec4, kCloudFarBands> Presence{};
+        std::array<glm::vec4, kCloudFarBands> Profile{};
+    };
+
+    /// The statistics of one baked level (@p levelBytes, RGBA8, kCloudProceduralVolumeHeight rows, @p side
+    /// squared columns — the layout BakeCloudProceduralBox and the cached whole-region bake return). Order of
+    /// the columns does not matter, so torus order and window order give the same answer. Zero for bytes of
+    /// the wrong size: no far cloud rather than a guess.
+    CloudProceduralFarStatistics CloudProceduralFarStatisticsOf( const std::vector<unsigned char>& levelBytes,
+                                                                 uint32_t                          side );
+
+    /// The far path's read scale of the world weather map, 1/km: the map holds wavelengths PatchTileKm ..
+    /// 2 PatchTileKm over kCloudFarWeatherPeriodKm, and the far read compresses them onto the species'
+    /// lattice — the mean CellKm of the live species — so the far columns are spaced like the baked clusters.
+    float CloudFarFieldScale( const CloudProceduralFieldParams& params );
 
     /// WHERE THE PAINTING LIES, as the GPU block carries it (CloudGpuPayload::LayoutPlace): xy the
     /// placement's OffsetKm, zw `(cos, sin) * Repeats / RegionSize` of its quarter turn — exact, so the

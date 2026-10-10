@@ -517,7 +517,8 @@ Shader "CloudRaymarch"
             //      > 0); R is at most B, since air is never cloud (CUT-CORE).
             //   3: at the ray's entry into the layer — which clip level of the modelling volume answers there
             //      (CloudProceduralLevelOf): level 0 red, 1 green, 2 blue, and inside a blend band the
-            //      coarser level's colour mixed in by the blend weight, so the bands read as gradients.
+            //      coarser level's colour mixed in by the blend weight, so the bands read as gradients; past
+            //      level 2's window the far path (CloudSampleProceduralFar) grey, level 2's band blue into it.
             int visualize = int(u_CloudVisualize.x + 0.5f);
             if (visualize != 0)
             {
@@ -529,9 +530,8 @@ Shader "CloudRaymarch"
                     int   level     = CloudProceduralLevelOf(params, column);
                     vec3  colours[3] = vec3[3](vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f));
                     shown           = colours[level];
-                    if (level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1)
-                        shown = mix(colours[level + 1], colours[level],
-                                    CloudProceduralLevelWeight(params, level, column));
+                    vec3  coarser   = level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1 ? colours[level + 1] : vec3(0.5f);
+                    shown           = mix(coarser, colours[level], CloudProceduralLevelWeight(params, level, column));
                 }
                 else if (visualize == 1)
                 {

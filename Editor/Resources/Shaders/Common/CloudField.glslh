@@ -74,6 +74,8 @@
 // [32k, 32k + 32)). Assets::kCloudProceduralClipLevels is the same number on the C++ side, and
 // Desert/Tests/Engine/CloudField asserts the two agree.
 #define CLOUD_PROCEDURAL_CLIP_LEVELS 3
+// The far path's height bands — Assets::kCloudFarBands, asserted by Desert/Tests/Engine/CloudField.
+#define CLOUD_FAR_BANDS 8
 
 // What every producer returns and what the whole renderer consumes.
 //
@@ -146,6 +148,13 @@ struct CloudFieldParams
     // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
     // as macros; every block value arrives here through CloudUnpackFieldParams.
     vec2 Weather;
+    // THE FAR PATH (CLOUD-SEAM24): FarScale the read scale of the world weather map that draws the far
+    // column field, 1/km (Assets::CloudFarFieldScale); per height band, per species, the coarsest level's
+    // share of cloud voxels and their mean profile (Assets::CloudProceduralFarStatistics). Zero draws no
+    // far cloud.
+    float FarScale;
+    vec4  FarPresence[CLOUD_FAR_BANDS];
+    vec4  FarProfile[CLOUD_FAR_BANDS];
     vec4 LayoutPlace;    // Assets::CloudLayoutPlaceUniform: xy offset km, zw (cos, sin) * repeats / region
     vec2 LayoutStrength; // Assets::CloudLayoutStrengthUniform: x pattern, y mask (0 = not read)
 
@@ -352,9 +361,8 @@ struct CloudFieldParams
 // i mod 256 (Assets::CloudProceduralLevelTexel), so a camera move re-bakes only the entering columns and the
 // address is the world position over the level's side, REPEAT-wrapped by the sampler. The window corner is
 // not part of the address at all — it only decides which level answers (CloudProceduralLevelWeight). Past
-// the coarsest window the fetch wraps onto texels that hold the other side of the window: the degenerate
-// far path of §3 point 3, at a distance where a cloud's angular size is already below what the march
-// resolves (§4.5).
+// the coarsest window no level is read at all: the far path answers (CloudSampleProceduralFar, CLOUD-SEAM24)
+// — the wrap onto the other side of the window that stood there repeated the region at the horizon.
 //
 // VERTICALLY IT IS CLAMPED TO THE LEVEL'S OWN TEXEL CENTRES, and that is not symmetry-breaking for its own
 // sake: a level spans the shell exactly and its rows sit directly on the next level's, so without the clamp
@@ -389,7 +397,7 @@ float CloudProceduralLevelWeight( CloudFieldParams params, int level, vec2 windP
 }
 
 // THE FINEST LEVEL THAT HOLDS @p windPosXz — the first whose weight is above zero — or the coarsest, which
-// answers everywhere (inside its window from its own bake, beyond it through the far path above).
+// answers everywhere (inside its window from its own bake, beyond it through CloudSampleProceduralFar).
 int CloudProceduralLevelOf( CloudFieldParams params, vec2 windPosXz )
 {
     for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1; ++level )
@@ -404,23 +412,86 @@ int CloudProceduralLevelOf( CloudFieldParams params, vec2 windPosXz )
      defined( CLOUD_SAMPLE_WEATHER ) &&                                                                          \
      defined( CLOUD_SAMPLE_LAYOUT_PATTERN ) && defined( CLOUD_SAMPLE_LAYOUT_MASK )
 
+// THE FAR PATH (CLOUD-SEAM24) — what answers past the coarsest level's window, where nothing is baked.
+//
+// IT USED TO BE THE COARSEST LEVEL'S TORUS, wrapped by REPEAT: the 48 km region repeated at the horizon, and
+// every period of it was the same sky. Unreal's Volumetric Cloud has no such edge because its shape is a
+// function of a WORLD weather map at every distance; this is that function. A world column field u(x, z),
+// uniform on [0, 1], is drawn from the world weather map itself (N(0, 1), CLOUD_SAMPLE_WEATHER) read at cloud
+// scale: two reads, the second turned by asin(0.6) and scaled by the golden ratio, so neither read's period
+// (1 / FarScale ~ 100 km, and ~62 km) is a period of their sum inside the view, and their normalised sum is
+// still N(0, 1). Each species gets its own blend of the two reads (cos, sin of a quarter-turn step), so the
+// kinds of cloud do not all stand in the same columns. A column is that species' cloud at a height where u
+// is below the coarsest level's share of cloud voxels there (FarPresence), so the far sky has the level's
+// own coverage at every height and the two meet in the level's blend band with the same statistics; how
+// far below sets the depth, scaled so the mean profile is the level's (FarProfile). Taller columns are the
+// ones further under the share, so the far bodies are domes over the level's own base — the shape of the
+// level's height statistics, not of any one of its bodies.
+#define CLOUD_FAR_READ_TURN_COS 0.8f
+#define CLOUD_FAR_READ_TURN_SIN 0.6f
+#define CLOUD_FAR_READ_SCALE    1.6180339887f
+
+float CloudNormalCdf( float x );
+
+// The band table at height fraction @p heightFraction: linear between band centres, flat past the outer two.
+vec4 CloudFarBand( vec4 table[CLOUD_FAR_BANDS], float heightFraction )
+{
+    float at    = clamp( heightFraction * float( CLOUD_FAR_BANDS ) - 0.5f, 0.0f, float( CLOUD_FAR_BANDS - 1 ) );
+    int   below = min( int( at ), CLOUD_FAR_BANDS - 2 );
+    float t     = at - float( below );
+    return table[below] * ( 1.0f - t ) + table[below + 1] * t;
+}
+
+vec4 CloudSampleProceduralFar( CloudFieldParams params, float heightFraction, vec2 windPosXz )
+{
+    vec4 result = vec4( 0.0f );
+    if ( params.FarScale <= 0.0f )
+        return result;
+
+    vec2  a     = vec2( windPosXz.x * params.FarScale, windPosXz.y * params.FarScale );
+    vec2  b     = vec2( CLOUD_FAR_READ_TURN_COS * a.x - CLOUD_FAR_READ_TURN_SIN * a.y,
+                        CLOUD_FAR_READ_TURN_SIN * a.x + CLOUD_FAR_READ_TURN_COS * a.y ) *
+             CLOUD_FAR_READ_SCALE;
+    float first  = CLOUD_SAMPLE_WEATHER( a );
+    float second = CLOUD_SAMPLE_WEATHER( b );
+
+    vec4 presence = CloudFarBand( params.FarPresence, heightFraction );
+    vec4 profile  = CloudFarBand( params.FarProfile, heightFraction );
+    for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
+    {
+        float share = presence[slot];
+        if ( share <= 0.0f )
+            continue;
+        // Species k blends the two reads at angle k * pi / 4: cos^2 + sin^2 = 1 keeps it N(0, 1).
+        float angle = float( slot ) * 0.7853981634f;
+        float u     = CloudNormalCdf( cos( angle ) * first + sin( angle ) * second );
+        float depth = clamp( ( share - u ) / share, 0.0f, 1.0f );
+        // depth is uniform on [0, 1] inside the share, so 2 * mean * depth has the level's mean profile.
+        result[slot] = depth > 0.0f ? min( 2.0f * profile[slot] * depth, 1.0f ) : 0.0f;
+    }
+    return result;
+}
+
 // THE ONE READ OF THE PROCEDURAL MODELLING VOLUME (CLIP-3): every consumer — the march, the shadow map and
 // the sky occlusion bake through SampleCloudField, the diagnostic view — asks this and never addresses a
 // level itself. The finest level that holds the column answers; inside its blend band it is lerped toward
-// the next coarser level, so a second fetch is paid only in the band. Returns the four species channels.
+// the next coarser level — and the coarsest toward the far path (CLOUD-SEAM24) — so a second read is paid
+// only in a band. Returns the four species channels.
 vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction, vec3 windPos )
 {
-    vec2 column = vec2( windPos.x, windPos.z );
-    int  level  = CloudProceduralLevelOf( params, column );
-    vec4 fine   = CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level, heightFraction, windPos ) );
-    if ( level == CLOUD_PROCEDURAL_CLIP_LEVELS - 1 )
-        return fine;
-
+    vec2  column = vec2( windPos.x, windPos.z );
+    int   level  = CloudProceduralLevelOf( params, column );
     float weight = CloudProceduralLevelWeight( params, level, column );
+    if ( level == CLOUD_PROCEDURAL_CLIP_LEVELS - 1 && weight <= 0.0f )
+        return CloudSampleProceduralFar( params, heightFraction, column );
+
+    vec4 fine = CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level, heightFraction, windPos ) );
     if ( weight >= 1.0f )
         return fine;
 
-    vec4 coarse = CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level + 1, heightFraction, windPos ) );
+    vec4 coarse = level == CLOUD_PROCEDURAL_CLIP_LEVELS - 1
+                       ? CloudSampleProceduralFar( params, heightFraction, column )
+                       : CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level + 1, heightFraction, windPos ) );
     return mix( coarse, fine, weight );
 }
 

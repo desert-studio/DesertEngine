@@ -116,7 +116,7 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // 268 in Graphic::CloudGpuPayload — a silent divergence between the two halves of one layout, which is
     // the failure this whole file exists to prevent. Same reason the species array is where it is.
     vec4  u_CloudAlbedo;    // rgb scattering albedo, w Sky Light Cloud Bottom Occlusion (CloudLighting.glslh)
-    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y rho, z not read since
+    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x the far path's read scale, y rho, z not read since
     // CUT-AT-BAKE, w 1 / the weather's period in km. Unpacked into
     // CloudFieldParams::Weather for Common/CloudField.glslh's procedural producer. Before u_CloudAerial for
     // the reason u_CloudAlbedo is.
@@ -132,6 +132,11 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // not read (Graphic::kCloudUnreadSlots). Before u_CloudAerial for the reason u_CloudAlbedo is.
     vec4  u_CloudLayoutPlace;
     vec4  u_CloudLayoutStrength;
+    // THE FAR PATH (Graphic::CloudGpuPayload::FarPresence / FarProfile, CLOUD-SEAM24): per height band, per
+    // species, the coarsest clip level's share of cloud voxels and their mean profile. Before u_CloudAerial
+    // for the reason u_CloudAlbedo is.
+    vec4  u_CloudFarPresence[8];
+    vec4  u_CloudFarProfile[8];
     // x = aerial-perspective volume far extent (km), y = its read-side view-distance scale,
     // z = 1 when the volume exists and must be sampled.
     //
@@ -188,6 +193,12 @@ CloudFieldParams CloudUnpackFieldParams()
     for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
         p.ProceduralLevel[level] = u_CloudLevel[level];
     p.Weather         = u_CloudWeather.yw;
+    p.FarScale        = u_CloudWeather.x;
+    for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
+    {
+        p.FarPresence[band] = u_CloudFarPresence[band];
+        p.FarProfile[band]  = u_CloudFarProfile[band];
+    }
     p.LayoutPlace     = u_CloudLayoutPlace;
     p.LayoutStrength  = u_CloudLayoutStrength.xy;
 

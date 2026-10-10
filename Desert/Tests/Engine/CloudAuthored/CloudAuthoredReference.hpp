@@ -151,6 +151,8 @@ namespace Desert::Tests::CloudAuthoredRef
             std::array<std::vector<unsigned char>, Desert::Assets::kCloudProceduralClipLevels> Levels;
             std::array<glm::vec2, Desert::Assets::kCloudProceduralClipLevels>                  LevelOriginKm{};
             Desert::Assets::CloudProceduralFieldParams                                         Params;
+            /// The far path's statistics of the coarsest level (CloudProceduralClipmap::FarStatistics).
+            Desert::Assets::CloudProceduralFarStatistics Far{};
         };
 
         /// The sky the seam's OTHER producer is putting up, at a given coverage.
@@ -206,6 +208,8 @@ namespace Desert::Tests::CloudAuthoredRef
                 if ( baked )
                     built.Levels[level] = baked.GetValue();
             }
+            built.Far = Desert::Assets::CloudProceduralFarStatisticsOf(
+                 built.Levels[Desert::Assets::kCloudProceduralClipLevels - 1u], Desert::Assets::kCloudProceduralVolumeSide );
 
             return cache.emplace( key, std::move( built ) ).first->second;
         }
@@ -536,7 +540,15 @@ namespace Desert::Tests::CloudAuthoredRef
                      vec4( sky.LevelOriginKm[level].x, sky.LevelOriginKm[level].y,
                            1.0f / Desert::Assets::CloudProceduralLevelSideKm( sky.Params, level ), 0.0f );
             }
-            params.Weather        = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
+            // As CloudUnpackFieldParams unpacks u_CloudWeather: .yw the weather, .x the far path's read scale.
+            const vec4 farWeather = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
+            params.Weather        = vec2( farWeather.y, farWeather.w );
+            params.FarScale       = farWeather.x;
+            for ( std::uint32_t band = 0; band < Desert::Assets::kCloudFarBands; ++band )
+            {
+                params.FarPresence[band] = Procedural( BoundCoverage() ).Far.Presence[band];
+                params.FarProfile[band]  = Procedural( BoundCoverage() ).Far.Profile[band];
+            }
             params.LayoutPlace    = Desert::Assets::CloudLayoutPlaceUniform( Procedural( BoundCoverage() ).Params );
             params.LayoutStrength = Desert::Assets::CloudLayoutStrengthUniform( Procedural( BoundCoverage() ).Params );
 

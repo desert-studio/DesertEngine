@@ -2720,7 +2720,65 @@ namespace Desert::Assets
         const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
         const float live     = ( painted || strength <= 1e-4f ) ? 0.0f : strength;
 
-        return glm::vec4( 0.0f, live, 0.0f, 1.0f / kCloudFarWeatherPeriodKm );
+        return glm::vec4( CloudFarFieldScale( params ), live, 0.0f, 1.0f / kCloudFarWeatherPeriodKm );
+    }
+
+    float CloudFarFieldScale( const CloudProceduralFieldParams& params )
+    {
+        double cellKm = 0.0;
+        for ( const CloudProceduralSpecies& species : params.Species )
+            cellKm += static_cast<double>( species.CellKm );
+        if ( params.Species.empty() || cellKm <= 0.0 || params.PatchTileKm <= 0.0f )
+            return 0.0f;
+        cellKm /= static_cast<double>( params.Species.size() );
+        // A map wave of PatchTileKm spans PatchTileKm / Period of the map's uv; read at `worldKm * scale` it
+        // spans (PatchTileKm / Period) / scale km of the world, which is set to one lattice cell.
+        return static_cast<float>( static_cast<double>( params.PatchTileKm ) /
+                                   ( static_cast<double>( kCloudFarWeatherPeriodKm ) * cellKm ) );
+    }
+
+    CloudProceduralFarStatistics CloudProceduralFarStatisticsOf( const std::vector<unsigned char>& levelBytes,
+                                                                 uint32_t                          side )
+    {
+        CloudProceduralFarStatistics out;
+        const size_t rows    = kCloudProceduralVolumeHeight;
+        const size_t columns = static_cast<size_t>( side ) * side;
+        if ( side == 0u || levelBytes.size() != columns * rows * kCloudProceduralBytesPerVoxel )
+            return out;
+
+        std::array<std::array<uint64_t, 4>, kCloudFarBands> count{};
+        std::array<std::array<uint64_t, 4>, kCloudFarBands> sum{};
+        std::array<uint64_t, kCloudFarBands>                voxels{};
+        // ((z * rows + y) * side + x) * 4 + channel: a row of a slice is side contiguous voxels.
+        for ( size_t z = 0; z < side; ++z )
+            for ( size_t y = 0; y < rows; ++y )
+            {
+                const size_t         band = y * kCloudFarBands / rows;
+                const unsigned char* row  = levelBytes.data() + ( z * rows + y ) * side * kCloudProceduralBytesPerVoxel;
+                voxels[band] += side;
+                for ( size_t x = 0; x < side; ++x )
+                    for ( size_t c = 0; c < 4; ++c )
+                    {
+                        const unsigned char v = row[x * kCloudProceduralBytesPerVoxel + c];
+                        if ( v == 0u )
+                            continue;
+                        ++count[band][c];
+                        sum[band][c] += v;
+                    }
+            }
+
+        for ( size_t band = 0; band < kCloudFarBands; ++band )
+            for ( glm::length_t c = 0; c < 4; ++c )
+            {
+                const uint64_t n = count[band][static_cast<size_t>( c )];
+                out.Presence[band][c] =
+                     voxels[band] ? static_cast<float>( static_cast<double>( n ) / static_cast<double>( voxels[band] ) )
+                                  : 0.0f;
+                out.Profile[band][c] =
+                     n ? static_cast<float>( static_cast<double>( sum[band][static_cast<size_t>( c )] ) / ( 255.0 * n ) )
+                       : 0.0f;
+            }
+        return out;
     }
 
     glm::vec4 CloudLayoutPlaceUniform( const CloudProceduralFieldParams& params )
