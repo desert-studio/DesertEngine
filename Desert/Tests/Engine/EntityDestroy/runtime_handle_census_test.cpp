@@ -313,9 +313,9 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
             for ( const std::string& member : EntityKeyedMembers( Code( e.path() ) ) )
             {
                 found.insert( { rel, member } );
-                const bool registered = std::any_of(
-                     kEntityTables.begin(), kEntityTables.end(),
-                     [&]( const EntityTableRow& r ) { return r.File == rel && r.Member == member; } );
+                const bool registered =
+                     std::any_of( kEntityTables.begin(), kEntityTables.end(),
+                                  [&]( const EntityTableRow& r ) { return r.File == rel && r.Member == member; } );
                 EXPECT_TRUE( registered ) << rel << ": `" << member
                                           << "` is keyed by entt::entity and has no row in "
                                              "runtime_handle_register.hpp. Say how a destroyed entity leaves it.";
