@@ -1,11 +1,11 @@
 #pragma once
 
-// A MOCK OF THE RESOURCES A CANVAS WALK DRAWS WITH (Engine/UI/UICanvasResources.hpp). It answers nothing --
+// A MOCK OF THE RESOURCES A CANVAS WALK DRAWS WITH (UI/UICanvasResources.hpp). It answers nothing --
 // no sprite resolves, no font or icon exists, no theme is set -- which is the headless walk every UI suite
 // wants: a sprite draws its flat colour, text and icons draw nothing. A suite that is ABOUT a resolved image
 // tells the mock which animated-sprite handle answers with which image.
 
-#include <Engine/UI/UICanvasResources.hpp>
+#include <UI/UICanvasResources.hpp>
 #include <Engine/UI/Ecs/LocalizationUITextSource.hpp>
 #include <Engine/UI/Ecs/UIAnimationPlayback.hpp>
 

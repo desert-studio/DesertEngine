@@ -6,7 +6,7 @@
 // script as ( false, reason ) instead of vanishing.
 
 #include <Engine/Scripting/Internal/ScriptRuntime.hpp>
-#include <Engine/UI/UIDataStore.hpp>
+#include <UI/UIDataStore.hpp>
 
 #include <gtest/gtest.h>
 

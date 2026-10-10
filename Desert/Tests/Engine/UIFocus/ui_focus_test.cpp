@@ -1,11 +1,11 @@
-// UIFocus: where keyboard / gamepad navigation sends focus (Engine/UI/UIFocus.hpp).
+// UIFocus: where keyboard / gamepad navigation sends focus (UI/UIFocus.hpp).
 //
 // Invariants only: the spatial pick (the nearest control in the band, never one outside it), the edge
 // rules, and the Tab / Shift+Tab round trip. Each test fails if FindNextFocusable degrades back to the
 // draw-order step it replaced.
 
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIFocus.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <UI/UIFocus.hpp>
 
 #include <gtest/gtest.h>
 

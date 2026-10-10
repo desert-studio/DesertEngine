@@ -696,10 +696,10 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Render/RenderCommandBuffer.hpp",
           "RenderCommandBuffer", "m_Commands", Guard::OwnedByThisObject,
           "the commands are placement-new'd into this object's own paged arena; pages are never freed mid-frame and Clear() runs the virtual destructor of every one before rewinding" },
-        { "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp",
+        { "Desert/Render2DCore/Source/Render2DCore/DrawList2D.hpp",
           "DrawCommand", "Texture", Guard::IdentityOnly,
           "a batch discriminator: consecutive primitives with the same value extend one draw. It is also the key of Render2D's executor caches, and THAT use is what makes address recycling matter -- see the Render2D rows" },
-        { "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp",
+        { "Desert/Render2DCore/Source/Render2DCore/DrawList2D.hpp",
           "DrawCommand", "Material", Guard::FrameScoped,
           "the UI material this batch is filled with, as a UIMaterialCache::Entry address. Unlike the "
           "Texture row beside it this IS dereferenced -- Render2D::Flush reads the entry's pipeline and "
@@ -709,7 +709,7 @@ namespace Desert::Tests::PointerCensus
           "RetireUnused() (which runs AFTER the last draw of the same Flush) refuses to erase an entry "
           "any frame in flight could still be reading -- the identical rule, and the identical window, as "
           "Render2D's executor caches" },
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UIBatchInfo", "Material", Guard::IdentityOnly,
           "a COPY of DrawCommand::Material taken for display, on exactly the terms of the Texture copy "
           "below it: the panel prints it as an address so an author can tell two material batches apart, "
@@ -734,7 +734,7 @@ namespace Desert::Tests::PointerCensus
         // main. They are re-derived at the top of EVERY canvas walk from the canvas's handle, so a theme
         // that was hot-reloaded, evicted or repointed between two frames is never seen through a stale
         // pointer: the walk asks the service again rather than remembering the answer.
-        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+        { "Desert/UI/Source/UI/UIStyleResolver.hpp",
           "ElementStyle", "m_Theme", Guard::ReboundBeforeEveryUse,
           "the flattened theme this element resolves through, owned by Runtime::UIThemeService (a "
           "function-local static released by ResourceRegistry::ClearAll inside main). An ElementStyle is "
@@ -742,28 +742,28 @@ namespace Desert::Tests::PointerCensus
           "RenderCanvas2D from the canvas's own handle, so the pointer is at most one walk old and cannot "
           "name an entry a hot reload replaced. Null is a legal value and means 'this canvas has no "
           "theme', which every query answers by returning the element's own authored value" },
-        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+        { "Desert/UI/Source/UI/UIStyleResolver.hpp",
           "ElementStyle", "m_Table", Guard::ObservedContainsUs,
           "the style's per-slot binding table, a value MEMBER of the UIThemeRuntime m_Theme points at — "
           "so it lives exactly as long as that entry does and the two cannot disagree about lifetime. "
           "Null means the theme declares no style of that name, which the walk reports once and answers "
           "by falling back to the element's own authored values" },
-        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+        { "Desert/UI/Source/UI/UIStyleResolver.hpp",
           "CanvasStyle", "m_Theme", Guard::ReboundBeforeEveryUse,
           "the same service-owned entry as ElementStyle::m_Theme above, held for the length of ONE canvas "
           "walk: RenderCanvas2D constructs a CanvasStyle from UIThemeService::Get at the top of the walk "
           "and the object dies with the walk, which is what makes a theme switch reach the very next "
           "frame without any invalidation to remember" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UICanvasContext", "RowRecord", Guard::CallScoped,
           "UIL1: the record of a collection-bound list row, set by the list around the DrawElement of that "
           "row and restored to the outer value right after it. The record lives in UIDataStore's collection, "
           "which only gameplay mutates and never during a canvas walk, so it outlives the call that reads it" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
+        { "Desert/UI/Source/UI/UICanvasLayout.cpp",
           "EnumScope", "Row", Guard::CallScoped,
           "UIL1: the record answering a bound list row's bindings during one EnumerateCanvas recursion; the "
           "scope is a stack value of that recursion and the collection is not mutated while a query runs" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "Materials", Guard::ObservedContainsUs,
           "where this view's UI materials come from, as an IUIMaterialSource. The one implementation is "
           "the UIMaterialCache that is a MEMBER of the Render2D backend the view's host owns alongside "
@@ -771,7 +771,7 @@ namespace Desert::Tests::PointerCensus
           "while the host that owns both is still walking. Null is a legal value and means the walk has "
           "no GPU backend at all (a unit test), which the walk REPORTS rather than treating as 'no "
           "materials today'" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "RenderTextures", Guard::ObservedContainsUs,
           "where this view's render-texture elements get their worlds from, as an IUIRenderTextureSource. "
           "Q1: nobody destroys the pointee through this member -- the one implementation, "
@@ -781,14 +781,14 @@ namespace Desert::Tests::PointerCensus
           "the thing walking, so the backend cannot be gone while the walk is running. Null is a legal "
           "value and means the walk has no GPU backend at all (a unit test), which the element REPORTS "
           "with the magenta error fill rather than drawing nothing"},
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UIBatchInfo", "Texture", Guard::IdentityOnly,
           "a COPY of DrawCommand::Texture taken for display: the probe prints it as an address so an "
           "author can tell two batches apart, and nothing dereferences it. Address recycling cannot "
           "mislead here the way it can in Render2D's executor caches, because the value never outlives "
           "the frame it was copied from -- UIFrameProbe::Reset drops the whole batch list at the start "
           "of every capture, and a capture only happens while the panel is open" },
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UIElementCost", "Texture", Guard::IdentityOnly,
           "the same value again, for the one batch a measured element landed in. Same argument, and the "
           "same window: the measurement is taken inside one Capture and replaced by the next request" },
@@ -846,7 +846,7 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
           "ExternalPassSystem", "m_Renderer", Guard::ObservedContainsUs,
           "the SceneRenderer owns its render systems, so it cannot be destroyed while one of them is alive" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "WalkCtx", "Root", Guard::CallScoped,
           "set by RenderCanvas2D to its own DrawList2D& argument, and the WalkCtx is a local of that call consumed "
           "by the recursive walk inside it; the caller's draw list outlives the call by construction" },
@@ -2027,7 +2027,7 @@ namespace Desert::Tests::PointerCensus
           "EdgePoint", "NearEdge", Guard::CallScoped,
           "the edge that won this texel's channel, inside the Shape the caller owns for the whole "
           "generation; the EdgePoint itself dies at the end of the texel" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "m_Resources", Guard::ObservedContainsUs,
           "where this view's sprites, frames, themes, fonts and icons come from, as an IUICanvasResources. "
           "Bound by the constructor and never null. Q1: nobody destroys the pointee through this member -- "
@@ -2035,37 +2035,37 @@ namespace Desert::Tests::PointerCensus
           "host (EditorUIPass, UIEditorPanel, RuntimeLayer), so it is constructed first and destroyed last; a "
           "test's mock is a file-scope object that outlives every view. Q2: a copy (the introspection probe) "
           "lives inside one call of the host that owns both" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "Scene", Guard::IdentityOnly,
           "IUITree::Storage() of the scene this state describes, compared by address in BeginUIFrame and never dereferenced; a recycled address after a scene is freed is why Reset() is public and why a host that swaps scenes resets the view" },
         { "Desert/Desert/Source/Engine/UI/Ecs/EcsUITree.hpp",
           "EcsUITree", "m_Reg", Guard::CallScoped,
           "the registry adapter is a temporary built at each registry overload (UI/Ecs/*Ecs.cpp) from the caller's entt::registry& and consumed inside that call; it is never stored past it" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "TextureRef", "Id", Guard::IdentityOnly,
           "an opaque texture id the draw list carries to the 2D backend, which keys its per-texture executor by it; the walk never dereferences it, and the image is kept alive for the frame by the IUICanvasResources that answered it" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "FontFace", "Atlas", Guard::IdentityOnly,
           "the font's distance atlas as an opaque id for the 2D backend, never dereferenced by the walk; the resources that answered it own the atlas for the frame" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "FontFace", "Baked", Guard::FrameScoped,
           "the baked metrics owned by the IUICanvasResources that answered the query (RegistryUICanvasResources or a test mock), valid for the frame the walk asked in; a FontFace is a per-element value and is not stored across frames" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "IconRef", "Atlas", Guard::IdentityOnly,
           "the shared SDF icon atlas as an opaque id for the 2D backend, never dereferenced by the walk; the resources that answered it own the atlas for the frame" },
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UICanvasWalk", "Cell", Guard::CallScoped,
           "the canvas cell of the UIViewContext passed to CaptureFrame/EnumerateCanvas; the walk list is built and consumed inside that call while the view (a host member) is alive" },
-        { "Desert/Desert/Source/Engine/UI/UITree.hpp",
+        { "Desert/UI/Source/UI/UITree.hpp",
           "Iterator", "m_Tree", Guard::CallScoped,
           "a child-range iterator over an IUITree the caller holds by reference for the loop it drives; it never outlives the range-for it was made for" },
-        { "Desert/Desert/Source/Engine/UI/UITree.hpp",
+        { "Desert/UI/Source/UI/UITree.hpp",
           "ChildRange", "m_Tree", Guard::CallScoped,
           "returned by Children() of an IUITree the caller holds by reference and consumed by one range-for in that scope" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Input", Guard::CallScoped,
           "the walk's UIInput argument, threaded through DrawElement for one element; ElementFrame is a local of that call" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.hpp",
+        { "Desert/UI/Source/UI/UICanvasRenderer2D.hpp",
           "UIInput", "Clipboard", Guard::CallScoped,
           "UI-FOCUS: the host's UI::WindowClipboard, a local declared before the frame's UIInput in the same scope (EditorUIPass.cpp, RuntimeLayer.cpp) and consumed by that frame's canvas walk; null = no clipboard" },
         { "Desert/Desert/Source/Engine/ECS/ComponentEvents.hpp",
@@ -2077,16 +2077,16 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp",
           "SkyboxRenderer", "m_PendingWhat", Guard::StaticStorage,
           "what the pending environment bake contains, for its log line; every assignment is a string literal (SkyboxRenderer.cpp, the bake dispatch)" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "OutClicked", Guard::CallScoped,
           "the caller's out-parameter of RenderCanvas2D, written during the call; ElementFrame is a local of DrawElement inside it" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Focused", Guard::CallScoped,
           "the caller's focus out-parameter of RenderCanvas2D; ElementFrame is a local of DrawElement inside that call" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Popups", Guard::CallScoped,
           "the walk's popup list, a local of RenderCanvas2D drawn after the children; ElementFrame is a local of DrawElement inside that call" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Focusables", Guard::CallScoped,
           "the view's Focusables list (a UIViewContext member, cleared at the start of each walk) or null for an inert subtree; ElementFrame is a local of DrawElement inside RenderCanvas2D, while the view is alive" },
         { "Desert/Common/Source/Common/Core/Events/EventTree.hpp",

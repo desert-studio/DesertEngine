@@ -7,8 +7,8 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
-#include <Engine/UI/UIOverlay.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 
 #include <Editor/Core/Selection/SelectionManager.hpp>
 

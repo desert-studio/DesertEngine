@@ -11,7 +11,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <functional>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <unordered_set>
 

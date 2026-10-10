@@ -14,23 +14,23 @@
 #include <type_traits>
 #include <vector>
 
-#include <Engine/UI/Args/UIControlArgs.hpp>
-#include <Engine/UI/Args/UIImageArgs.hpp>
-#include <Engine/UI/Args/UIPathArgs.hpp>
-#include <Engine/UI/Args/UITweenArgs.hpp>
-#include <Engine/UI/Args/UIScrollArgs.hpp>
-#include <Engine/UI/Args/UINavigationArgs.hpp>
-#include <Engine/UI/Args/UICanvasArgs.hpp>
-#include <Engine/UI/Args/UIButtonArgs.hpp>
-#include <Engine/UI/Args/UIStyleArgs.hpp>
-#include <Engine/UI/Args/UIRetainerArgs.hpp>
-#include <Engine/UI/Args/UIOverlayArgs.hpp>
-#include <Engine/UI/Args/UITextArgs.hpp>
-#include <Engine/UI/Args/UIScreenArgs.hpp>
-#include <Engine/UI/Args/UIBindingArgs.hpp>
-#include <Engine/UI/Args/UILayoutArgs.hpp>
-#include <Engine/UI/Args/UIEventArgs.hpp>
-#include <Engine/UI/Args/UIPanelArgs.hpp>
+#include <UI/Args/UIControlArgs.hpp>
+#include <UI/Args/UIImageArgs.hpp>
+#include <UI/Args/UIPathArgs.hpp>
+#include <UI/Args/UITweenArgs.hpp>
+#include <UI/Args/UIScrollArgs.hpp>
+#include <UI/Args/UINavigationArgs.hpp>
+#include <UI/Args/UICanvasArgs.hpp>
+#include <UI/Args/UIButtonArgs.hpp>
+#include <UI/Args/UIStyleArgs.hpp>
+#include <UI/Args/UIRetainerArgs.hpp>
+#include <UI/Args/UIOverlayArgs.hpp>
+#include <UI/Args/UITextArgs.hpp>
+#include <UI/Args/UIScreenArgs.hpp>
+#include <UI/Args/UIBindingArgs.hpp>
+#include <UI/Args/UILayoutArgs.hpp>
+#include <UI/Args/UIEventArgs.hpp>
+#include <UI/Args/UIPanelArgs.hpp>
 
 namespace Desert::Reflection::Generated
 {

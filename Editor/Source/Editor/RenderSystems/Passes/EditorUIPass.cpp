@@ -5,10 +5,10 @@
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 #include <Engine/Core/LevelTravel.hpp>
 #include <Engine/UI/Ecs/LoadingOverlay.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIDataStore.hpp>
-#include <Engine/UI/UIWindowClipboard.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <UI/UIDataStore.hpp>
+#include <Engine/UI/Ecs/UIWindowClipboard.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Editor/Core/Selection/UIPreview.hpp>

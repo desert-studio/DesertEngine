@@ -2,7 +2,7 @@
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Text/Utf8.hpp>
+#include <Render2DCore/Text/Utf8.hpp>
 
 #include <algorithm>
 #include <cmath>

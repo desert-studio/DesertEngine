@@ -8,7 +8,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/UI/UIIntrospection.hpp>
+#include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 

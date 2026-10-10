@@ -44,7 +44,7 @@ DesertModules.Modules = {
     -- L2
     M( "TextCore",        { "Render2DCore", "ImageCore" },        "SlateFontRasterization" ),
     M( "AssetCore",       { "CoreReflection" },                   "CoreUObject (packages) + AssetRegistry" ),
-    M( "DesertUI",        { "Render2DCore", "CoreReflection" },   "UMG/Slate" ),
+    M( "DesertUI",        { "Render2DCore", "CoreReflection" },   "UMG/Slate",       "Desert/UI/Source/UI" ),
     M( "AnimationCore",   { "GeometryCore", "CoreReflection" },   "AnimationCore" ),
     -- L3
     M( "Localization",    { "AssetCore" },                        "Internationalization" ),
@@ -75,10 +75,9 @@ local function P( module, pattern )
 end
 
 DesertModules.Placement = {
-    -- decided by UI-FW-4
-    P( "Render2DCore",    [[Engine/Graphic/Render2D/(DrawList2D|ClipRegion2D|Transform2D|RetainerEffect)\.|Engine/Text/(Utf8|BakedFont)\.]] ),
-    P( "Engine",          [[Engine/UI/Ecs/]] ), -- the UMG-side adapter stays in the engine
-    P( "DesertUI",        [[Engine/UI/]] ),
+    -- UI-FW-4 moved Render2DCore and DesertUI into their Folders (and CoreReflection's macros into its own);
+    -- what stays behind is the UMG-side adapter of the engine, Engine/UI/Ecs/, which the catch-all also places.
+    P( "Engine",          [[Engine/UI/Ecs/]] ),
     -- leaves
     P( "CoreReflection",  [[Engine/Reflection/]] ),
     P( "Projects",        [[Engine/Project/]] ),

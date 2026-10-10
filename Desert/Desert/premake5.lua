@@ -26,10 +26,15 @@ project "Desert"
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
             .. ' --modules "' .. kModuleTable .. '"'
             .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
+            -- DesertUI's reflected UI*Data (UI-FW-4): its own project has no generator step, the engine's set
+            -- registers them (Reflection_DesertUI.gen.cpp, compiled here).
+            .. ' --reflect-root "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source" "UI"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
             .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
             .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
             .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
@@ -52,6 +57,9 @@ project "Desert"
 
     includedirs {
         "Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         -- The SHADER ROOT, for the one engine translation unit that compiles a shared `.glslh` AS C++:
         -- Graphic/SkyGroundTransmittance.cpp includes Common/SkyMedium.glslh so the sun light's colour
@@ -85,6 +93,10 @@ project "Desert"
     -- and the Editor links the library itself. While this line said "ImGui", every binary that linked the
     -- engine — the packaged Runtime included — carried a toolkit it never draws a pixel with.
     links {
+        -- The UI framework and the recorded half of 2D drawing (UI-FW-4): libraries the engine is built ON, so
+        -- they come before Common, which they use in turn.
+        "DesertUI",
+        "Render2DCore",
         "Common",
         "Jolt",
         -- Luau (BuildScripts/ThirdParty/Luau.lua): Engine/Scripting/Luau. Dependants before what they use.

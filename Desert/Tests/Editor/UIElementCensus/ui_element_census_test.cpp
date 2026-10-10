@@ -11,7 +11,7 @@
 //
 //   * the editor side is Editor/Panels/UI/UIElementCatalog.hpp, the one list both create menus are generated
 //     from (there used to be two lists, and they had already drifted);
-//   * the renderer side is read out of Engine/UI/UICanvasRenderer2D.cpp's OWN DISPATCH — the `has<ECS::T>` /
+//   * the renderer side is read out of UI/UICanvasRenderer2D.cpp's OWN DISPATCH — the `has<ECS::T>` /
 //     `view<ECS::T>` calls it makes on the registry. Not a header, not a table somebody maintains beside the
 //     code: if a case is deleted, the query goes with it and this test goes red. A mention in a comment is
 //     not enough to pass, because a comment does not query the registry.
@@ -43,25 +43,25 @@ namespace
     // only there — the overlay trigger is — is handled by the shipping UI exactly as much as one queried
     // in the draw walk, and reading one file would have called it unhandled.
     constexpr const char* kRendererFiles[] = {
-         "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
-         "Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
+         "Desert/UI/Source/UI/UICanvasRenderer2D.cpp",
+         "Desert/UI/Source/UI/UIOverlay.cpp",
          // The walk's clip pre-pass (ANIM-I9): UICanvasRenderer2D evaluates the view's animation source
          // (TimelineUIAnimationSource) before any canvas is walked, and it is where UIAnimComponent is read.
          "Desert/Desert/Source/Engine/UI/Ecs/UIAnimationPlayback.cpp",
          // UI-FW2: the walk reads an IUITree, and one element's resolve step and each widget's draw moved
          // out of UICanvasRenderer2D.cpp into UIWalkCtx.cpp and Widgets/ -- still the same walk.
-         "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Button.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/ScrollList.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Slider.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp",
-         "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp",
+         "Desert/UI/Source/UI/UIWalkCtx.cpp",
+         "Desert/UI/Source/UI/Widgets/Button.cpp",
+         "Desert/UI/Source/UI/Widgets/Dropdown.cpp",
+         "Desert/UI/Source/UI/Widgets/Image.cpp",
+         "Desert/UI/Source/UI/Widgets/InputField.cpp",
+         "Desert/UI/Source/UI/Widgets/Panel.cpp",
+         "Desert/UI/Source/UI/Widgets/Path.cpp",
+         "Desert/UI/Source/UI/Widgets/ProgressBar.cpp",
+         "Desert/UI/Source/UI/Widgets/ScrollList.cpp",
+         "Desert/UI/Source/UI/Widgets/Slider.cpp",
+         "Desert/UI/Source/UI/Widgets/Text.cpp",
+         "Desert/UI/Source/UI/Widgets/Toggle.cpp",
     };
     constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIWalkCtx.cpp + Widgets/ + "
                                       "UIOverlay.cpp + UIAnimationPlayback.cpp)";

@@ -61,6 +61,9 @@ project "GamePackager"
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 

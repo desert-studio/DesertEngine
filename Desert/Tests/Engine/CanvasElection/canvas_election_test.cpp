@@ -42,7 +42,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/UI/UICanvasLayout.hpp" );
+            std::ifstream probe( prefix + "Desert/UI/Source/UI/UICanvasLayout.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -247,7 +247,7 @@ TEST( CanvasElection, NoFileTurnsAViewOfCanvasesIntoOneCanvas )
          << report
          << "\n  Ask instead: UI::CanvasOf (from an element already inside the canvas), UI::CanvasCount "
             "(counting cannot pick a winner) or UI::SoleCanvas (refuses, by name, when there is not "
-            "exactly one). See Engine/UI/UICanvasLayout.hpp.";
+            "exactly one). See UI/UICanvasLayout.hpp.";
 }
 
 // --- The gate can see the thing it bans ------------------------------------------------------------------

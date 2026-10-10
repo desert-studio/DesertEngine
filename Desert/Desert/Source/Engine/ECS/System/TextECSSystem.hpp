@@ -8,7 +8,7 @@
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
-#include <Engine/Text/Utf8.hpp>
+#include <Render2DCore/Text/Utf8.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp>
 

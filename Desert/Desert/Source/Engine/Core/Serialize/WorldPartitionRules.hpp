@@ -240,7 +240,7 @@ namespace Desert::Core::Rules
     // anybody can check.
     //
     // BOTH ARE OBSERVATION, and the line that decides it is `UIOverlay::OverlayByName`
-    // (Engine/UI/UIOverlay.cpp:418) — no overlay carrying the name is an ERROR RETURNED to the caller,
+    // (UI/UIOverlay.cpp:418) — no overlay carrying the name is an ERROR RETURNED to the caller,
     // which opens nothing. The reader already handles absence, which is what observation means, and it
     // is the same shape `AttachmentSystem` uses for a socket target it cannot find. Neither is a part
     // of the other: a button is not made incoherent by the panel it opens being elsewhere.

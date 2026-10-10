@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/UI/UIIntrospection.hpp>
+#include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
 
 #include <unordered_map>
 

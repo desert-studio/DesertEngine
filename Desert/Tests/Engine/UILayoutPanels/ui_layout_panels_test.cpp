@@ -13,7 +13,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
-#include <Engine/UI/UILayout.hpp>
+#include <UI/UILayout.hpp>
 
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>

@@ -27,8 +27,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UIStyleResolver.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <UI/UIStyleResolver.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>

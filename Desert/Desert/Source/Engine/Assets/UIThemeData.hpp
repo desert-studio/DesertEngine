@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Engine/UI/UIStyleSlots.hpp>
-#include <Engine/UI/Style/UIThemeRuntime.hpp>
+#include <UI/UIStyleSlots.hpp>
+#include <UI/Style/UIThemeRuntime.hpp>
 
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>

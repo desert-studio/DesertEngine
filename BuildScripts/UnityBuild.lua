@@ -66,7 +66,7 @@ DesertUnity.OptOut = {
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp", why = "clang unity check: redefinition of 'kGroupSize'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.cpp", why = "clang unity check: redefinition of 'kGroupSize'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp", why = "clang unity check: redefinition of 'kGroupSize'" },
-    { pattern = "**Source/Engine/UI/UICanvasRenderer2D.cpp", why = "clang unity check: redefinition of 'CanvasFit'" },
+    { pattern = "**Source/UI/UICanvasRenderer2D.cpp", why = "clang unity check: redefinition of 'CanvasFit'" },
     { pattern = "**Source/Engine/World/Landscape/LandscapeEditCache.cpp", why = "clang unity check: redefinition of 'FloorDiv'" },
     { pattern = "**Source/Editor/Panels/Clouds/CloudLayoutPanel.cpp", why = "clang unity check: no member named 'Formats' in namespace 'Desert::Editor::Core'; did you mean '::Desert::Core::Formats" },
     { pattern = "**Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp", why = "clang unity check: no member named 'Formats' in namespace 'Desert::Editor::Core'; did you mean '::Desert::Core::Formats" },

@@ -23,7 +23,7 @@
 // A census that reddens on prose gets switched off -- twice in one week in this repository, once taking
 // a real finding down with it. This file's own paragraphs name every token it forbids; so do
 // Engine/Assets/AssetEviction.hpp (which explains why an image the editor has displayed cannot be
-// evicted) and Engine/Graphic/Render2D/DrawList2D.hpp (which says it is our own answer to ImDrawList).
+// evicted) and Render2DCore/DrawList2D.hpp (which says it is our own answer to ImDrawList).
 // Those two files are NAMED ROWS in the negative control below: they must stay green, and their raw
 // text must keep containing a forbidden token, so the control cannot quietly become vacuous.
 //
@@ -53,6 +53,11 @@ namespace
     constexpr const char* kForbiddenTrees[] = {
          "Desert/Desert/Source",
          "Desert/Common/Source",
+         // The UI framework and the recorded 2D drawing left Desert/Desert/Source in UI-FW-4; they ship in the
+         // runtime all the same.
+         "Desert/UI/Source",
+         "Desert/Render2DCore/Source",
+         "Desert/CoreReflection/Source",
          "Runtime/Source",
     };
 
@@ -60,7 +65,7 @@ namespace
     // forbidden token in its RAW text (or the control proves nothing) and none after stripping.
     constexpr const char* kProseRows[] = {
          "Desert/Desert/Source/Engine/Assets/AssetEviction.hpp",
-         "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp",
+         "Desert/Render2DCore/Source/Render2DCore/DrawList2D.hpp",
     };
 
     fs::path RepoRoot()

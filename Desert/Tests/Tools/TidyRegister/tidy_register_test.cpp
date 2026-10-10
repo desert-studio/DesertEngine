@@ -162,9 +162,9 @@ TEST( TidyRegister, TheRegisterIsNotEmptyAndStillNamesTheRowsItWasBuiltFor )
          "Desert/Desert/Source/Engine/Graphic/API/Vulkan/CommandBufferAllocator.cpp",   // .value() in a ctor
          "Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp",                // memcmp over floats
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp", // throwing dtor
-         "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.cpp",                 // 32-bit pointer offset
+         "Desert/Render2DCore/Source/Render2DCore/DrawList2D.cpp",                      // 32-bit pointer offset
          "Desert/Common/Source/Common/Core/Profiler.cpp",                               // (int)( x + 0.5 )
-         "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",                       // assignment in an if
+         "Desert/UI/Source/UI/UICanvasRenderer2D.cpp",                                  // assignment in an if
          "Tools/DesertHeaderTool/main.cpp",                                             // the empty catch
     };
     for ( const char* row : required )
