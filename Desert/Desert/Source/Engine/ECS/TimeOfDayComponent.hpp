@@ -14,7 +14,7 @@ namespace Desert::ECS
     // (Graphic::SelectPrimarySky, the same rule the sky collector applies to skies).
     //
     // These five fields lived on SkyAtmosphereData until TOD-SPLIT; the SceneMigrator step
-    // MigrateTimeOfDayComponentV42ToV43 moved them onto a TimeOfDay block on the sky's own entity.
+    // MigrateTimeOfDayComponentV43ToV44 moved them onto a TimeOfDay block on the sky's own entity.
     struct TimeOfDayData
     {
         REFLECT()

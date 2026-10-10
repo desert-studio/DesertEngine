@@ -650,11 +650,6 @@ namespace
          { "CollisionProfile", kPhysicsSystem },
     };
 
-<<<<<<< HEAD
-    constexpr Row kCharacterControllerRows[] = {
-         { "Radius", kPhysicsSystem },  { "Height", kPhysicsSystem },           { "MaxSlopeDeg", kPhysicsSystem },
-         { "Gravity", kPhysicsSystem }, { "CollisionProfile", kPhysicsSystem },
-=======
     // GP2a: the movement model (UE CharacterMovementComponent) is the one reader of every field.
     constexpr const char* kCharacterMovement = "Desert/Desert/Source/Engine/ECS/System/CharacterMovement.cpp";
     constexpr Row         kCharacterControllerRows[] = {
@@ -665,13 +660,13 @@ namespace
          { "JumpZVelocity", kCharacterMovement },   { "AirControl", kCharacterMovement },
          { "GravityScale", kCharacterMovement },    { "MaxWalkSpeedCrouched", kCharacterMovement },
          { "CrouchedHeight", kCharacterMovement },  { "MaxSwimSpeed", kCharacterMovement },
+         { "CollisionProfile", kCharacterMovement },
     };
 
     constexpr const char* kSpringArm       = "Desert/Desert/Source/Engine/ECS/System/SpringArm.cpp";
     constexpr Row         kSpringArmRows[] = {
          { "TargetArmLength", kSpringArm }, { "SocketOffset", kSpringArm },    { "DoCollisionTest", kSpringArm },
          { "ProbeSize", kSpringArm },       { "EnableCameraLag", kSpringArm }, { "CameraLagSpeed", kSpringArm },
->>>>>>> origin/task/GP2
     };
 
     constexpr Row kAudioRows[] = {

@@ -1,4 +1,4 @@
-// MigrateTimeOfDayComponentV42ToV43 (TOD-SPLIT): the five clock keys a SkyAtmosphere block stated leave the
+// MigrateTimeOfDayComponentV43ToV44 (TOD-SPLIT): the five clock keys a SkyAtmosphere block stated leave the
 // sky and become a TimeOfDay block on the same record; a sky that stated none gets no clock; a prefab
 // override that restates a clock key on the sky is refused by name.
 
@@ -47,7 +47,7 @@ TEST( SceneTimeOfDayComponentMigration, VersionIsTheGenerationAfterUIAnimationSe
 TEST( SceneTimeOfDayComponentMigration, TheSkysClockBecomesATimeOfDayBlockOnTheSameRecord )
 {
     std::vector<EntityData> entities{ SkyWithClock() };
-    const auto              report = Migration::MigrateTimeOfDayComponentV42ToV43( entities );
+    const auto              report = Migration::MigrateTimeOfDayComponentV43ToV44( entities );
     ASSERT_TRUE( report.Refused.empty() );
     EXPECT_EQ( report.Clocks, 1u );
     EXPECT_EQ( report.KeysMoved, 5u );
@@ -74,7 +74,7 @@ TEST( SceneTimeOfDayComponentMigration, ASkyWithNoClockKeysGetsNoClock )
     entity.Components["SkyAtmosphere"] = rfl::Generic( std::move( sky ) );
     std::vector<EntityData> entities{ entity };
 
-    const auto report = Migration::MigrateTimeOfDayComponentV42ToV43( entities );
+    const auto report = Migration::MigrateTimeOfDayComponentV43ToV44( entities );
     EXPECT_TRUE( report.Refused.empty() );
     EXPECT_EQ( report.Clocks, 0u );
     EXPECT_FALSE( entities[0].Components.get( "TimeOfDay" ).has_value() );
@@ -90,7 +90,7 @@ TEST( SceneTimeOfDayComponentMigration, AClockKeyInAPrefabOverrideIsRefused )
     entity.PrefabOverrides = std::vector<PrefabOverrideData>{ override_ };
     std::vector<EntityData> entities{ entity };
 
-    const auto report = Migration::MigrateTimeOfDayComponentV42ToV43( entities );
+    const auto report = Migration::MigrateTimeOfDayComponentV43ToV44( entities );
     ASSERT_EQ( report.Refused.size(), 1u );
     EXPECT_NE( report.Refused.front().find( "TimeOfDay" ), std::string::npos );
 }

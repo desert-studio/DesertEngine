@@ -189,11 +189,7 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionNoUndeclaredKeys, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionPlayerViewFlag, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionUIAnimationSequences, Desert::Core::kSceneVersion );
-<<<<<<< HEAD
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionCollisionProfiles );
-=======
     EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionTimeOfDayComponent );
->>>>>>> origin/task/GP2
 }
 
 namespace

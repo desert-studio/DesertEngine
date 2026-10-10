@@ -411,7 +411,7 @@ namespace Desert::Migration
         return report;
     }
 
-    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities,
+    WindSourceReport MigrateWindSourceV42ToV43( std::vector<Assets::EntityData>& entities,
                                                 const std::string& fileName, bool createSource )
     {
         constexpr const char* kDirection = "WindDirection";
@@ -499,7 +499,7 @@ namespace Desert::Migration
         return report;
     }
 
-    TimeOfDayComponentReport MigrateTimeOfDayComponentV42ToV43( std::vector<Assets::EntityData>& entities )
+    TimeOfDayComponentReport MigrateTimeOfDayComponentV43ToV44( std::vector<Assets::EntityData>& entities )
     {
         constexpr std::array<const char*, 5> kClockKeys = { "DriveSunFromTimeOfDay", "TimeOfDay",
                                                             "DayLengthSeconds", "Latitude", "NorthOffset" };
@@ -2095,7 +2095,6 @@ namespace Desert::Migration
                 }
             }
 
-<<<<<<< HEAD
             // Collision is a profile (PHYS-A1): every body and character states the profile its v41 kind had.
             if ( statedSceneVersion < kSceneVersionCollisionProfiles )
             {
@@ -2104,16 +2103,18 @@ namespace Desert::Migration
                 if ( !report.CollisionProfiles.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.CollisionProfiles.Refused );
-=======
+                    return;
+                }
+            }
+
             // The clock leaves the sky (TOD-SPLIT): its five keys become a TimeOfDay block on the sky's record.
             if ( statedSceneVersion < kSceneVersionTimeOfDayComponent )
             {
                 report.TimeOfDayComponentRaised = true;
-                report.TimeOfDayComponent       = MigrateTimeOfDayComponentV42ToV43( entities );
+                report.TimeOfDayComponent       = MigrateTimeOfDayComponentV43ToV44( entities );
                 if ( !report.TimeOfDayComponent.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.TimeOfDayComponent.Refused );
->>>>>>> origin/task/GP2
                     return;
                 }
             }
@@ -2430,7 +2431,7 @@ namespace Desert::Migration
         if ( statedSceneVersion < kSceneVersionWindSource )
         {
             report.WindSourceRaised = true;
-            report.WindSource       = MigrateWindSourceV41ToV42( scene.Entities, scene.SceneName, true );
+            report.WindSource       = MigrateWindSourceV42ToV43( scene.Entities, scene.SceneName, true );
         }
         if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
             report.EntitiesMovedOut = scene.Entities.size();
@@ -2507,7 +2508,7 @@ namespace Desert::Migration
         if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionWindSource )
         {
             outcome.Steps.WindSourceRaised = true;
-            outcome.Steps.WindSource       = MigrateWindSourceV41ToV42( prefab.Entities, prefab.Name, false );
+            outcome.Steps.WindSource       = MigrateWindSourceV42ToV43( prefab.Entities, prefab.Name, false );
         }
         if ( !outcome.Steps.Refused.empty() )
         {

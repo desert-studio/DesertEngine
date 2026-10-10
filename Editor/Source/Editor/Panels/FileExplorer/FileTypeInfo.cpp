@@ -60,6 +60,12 @@ namespace Desert::Editor
              FileTypeInfo{ FileType::FoliageType, "Foliage Type", { 0.30f, 0.75f, 0.35f, 1.00f }, ICON_MDI_TREE },
              FileTypeInfo{
                   FileType::StringTable, "String Table", { 0.60f, 0.60f, 0.85f, 1.00f }, ICON_MDI_TRANSLATE },
+             FileTypeInfo{
+                  FileType::InputAction, "Input Action", { 0.35f, 0.80f, 0.45f, 1.00f }, ICON_MDI_GESTURE_TAP },
+             FileTypeInfo{ FileType::InputMappingContext,
+                           "Input Mapping Context",
+                           { 0.20f, 0.65f, 0.55f, 1.00f },
+                           ICON_MDI_KEYBOARD },
              FileTypeInfo{ FileType::CookedWorld, "Cooked World", { 0.50f, 0.50f, 0.55f, 1.00f }, ICON_MDI_MAP },
              FileTypeInfo{ FileType::Skybox, "Skybox", { 0.82f, 0.18f, 0.30f, 1.00f }, ICON_MDI_IMAGE_FILTER_HDR },
              FileTypeInfo{ FileType::WaterWaves, "Water Waves", { 0.20f, 0.55f, 0.85f, 1.00f }, ICON_MDI_WAVES },

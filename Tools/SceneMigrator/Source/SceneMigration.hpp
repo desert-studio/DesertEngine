@@ -175,7 +175,6 @@ namespace Desert::Migration
     //       refused by name: an override that restates a clip has no v40 whole to lift. Scenes and prefabs alike.
     inline constexpr int kSceneVersionUIAnimationSequences = 41;
 
-<<<<<<< HEAD
     //  42 - COLLISION IS A PROFILE (PHYS-A1). Bodies filter by UE-style channels and profiles from the project's
     //       Config/CollisionProfiles.json; RigidBody and CharacterController gain CollisionProfile. Its default
     //       ("PhysicsActor") fits a simulated body only, so every RigidBody STATES its profile by Type
@@ -185,28 +184,25 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionCollisionProfiles = 42;
 
-    static_assert( kSceneVersionCollisionProfiles == kSceneVersion,
-=======
-    //  42 - THE SCENE'S WIND IS A SOURCE (WIND-SRC, UE AWindDirectionalSource). VolumetricCloud.WindDirection /
+    //  43 - THE SCENE'S WIND IS A SOURCE (WIND-SRC, UE AWindDirectionalSource). VolumetricCloud.WindDirection /
     //       WindSpeed are gone; foliage, clouds, cloth and hair read one query, ECS::WindAt, over WindSource
-    //       entities (MigrateWindSourceV41ToV42). A scene whose first ENABLED cloud layer had wind (speed above
+    //       entities (MigrateWindSourceV42ToV43). A scene whose first ENABLED cloud layer had wind (speed above
     //       zero, a non-zero direction; missing keys were the old defaults [1, 0, 0] and 3000 cm/s) gains ONE
     //       directional WindSource record with that direction and speed; a scene with no wind gains nothing. A
     //       second layer's different wind cannot be kept (one scene, one wind) and is REPORTED. A prefab loses
     //       the keys and gains no record (a source is the level's, not a prefab's); prefab overrides lose them.
-    inline constexpr int kSceneVersionWindSource = 42;
+    inline constexpr int kSceneVersionWindSource = 43;
 
-    //  43 - TIME OF DAY IS ITS OWN COMPONENT (TOD-SPLIT), as UE's SunPosition / SunSky is its own actor. The
+    //  44 - TIME OF DAY IS ITS OWN COMPONENT (TOD-SPLIT), as UE's SunPosition / SunSky is its own actor. The
     //       five clock keys a SkyAtmosphere block stated (DriveSunFromTimeOfDay, TimeOfDay, DayLengthSeconds,
     //       Latitude, NorthOffset) leave the sky and become a TimeOfDay block on the SAME record
-    //       (MigrateTimeOfDayComponentV42ToV43); a sky that stated none of them gets no clock, which is what
+    //       (MigrateTimeOfDayComponentV43ToV44); a sky that stated none of them gets no clock, which is what
     //       it had (the old default did not drive the sun). A prefab override that states one of them on a
     //       SkyAtmosphere is refused by name: the override restates part of a block that no longer holds the
     //       key. Scenes and prefabs alike.
-    inline constexpr int kSceneVersionTimeOfDayComponent = 43;
+    inline constexpr int kSceneVersionTimeOfDayComponent = 44;
 
     static_assert( kSceneVersionTimeOfDayComponent == kSceneVersion,
->>>>>>> origin/task/GP2
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -293,7 +289,7 @@ namespace Desert::Migration
     // kSceneVersionPlayerViewFlag states, and drops the key from prefab overrides. PURE.
     PlayerViewFlagReport MigratePlayerViewFlagV39ToV40( std::vector<Assets::EntityData>& entities );
 
-    // What MigrateWindSourceV41ToV42 did to one file.
+    // What MigrateWindSourceV42ToV43 did to one file.
     struct WindSourceReport
     {
         std::size_t CloudWinds       = 0;     // cloud blocks whose WindDirection / WindSpeed were taken out
@@ -305,7 +301,7 @@ namespace Desert::Migration
     // Moves the cloud layer's wind into a WindSource record under the rule kSceneVersionWindSource states.
     // @p createSource: true for a scene, false for a prefab. The record's id is derived from @p fileName so a
     // re-run states the same identity. PURE.
-    WindSourceReport MigrateWindSourceV41ToV42( std::vector<Assets::EntityData>& entities,
+    WindSourceReport MigrateWindSourceV42ToV43( std::vector<Assets::EntityData>& entities,
                                                 const std::string& fileName, bool createSource );
 
     // What MigrateUIAnimationsV40ToV41 did to one file.
@@ -320,7 +316,6 @@ namespace Desert::Migration
     // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
 
-<<<<<<< HEAD
     // What MigrateCollisionProfilesV41ToV42 did to one file.
     struct CollisionProfilesReport
     {
@@ -332,8 +327,8 @@ namespace Desert::Migration
     // States CollisionProfile on every RigidBody / CharacterController block under the rule
     // kSceneVersionCollisionProfiles states. PURE.
     CollisionProfilesReport MigrateCollisionProfilesV41ToV42( std::vector<Assets::EntityData>& entities );
-=======
-    // What MigrateTimeOfDayComponentV42ToV43 did to one file.
+
+    // What MigrateTimeOfDayComponentV43ToV44 did to one file.
     struct TimeOfDayComponentReport
     {
         std::size_t              Clocks    = 0; // TimeOfDay blocks created from a sky's clock keys
@@ -344,8 +339,7 @@ namespace Desert::Migration
     // Moves the five clock keys of every record's SkyAtmosphere block into a TimeOfDay block on the same
     // record under the rule kSceneVersionTimeOfDayComponent states; refuses a clock key in a prefab
     // override. PURE.
-    TimeOfDayComponentReport MigrateTimeOfDayComponentV42ToV43( std::vector<Assets::EntityData>& entities );
->>>>>>> origin/task/GP2
+    TimeOfDayComponentReport MigrateTimeOfDayComponentV43ToV44( std::vector<Assets::EntityData>& entities );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -539,15 +533,12 @@ namespace Desert::Migration
         bool               UIAnimationsRaised = false; // below kSceneVersionUIAnimationSequences
         UIAnimationsReport UIAnimations;
 
-<<<<<<< HEAD
         bool                    CollisionProfilesRaised = false; // below kSceneVersionCollisionProfiles
         CollisionProfilesReport CollisionProfiles;
-=======
         bool             WindSourceRaised = false; // below kSceneVersionWindSource
         WindSourceReport WindSource;
         bool                     TimeOfDayComponentRaised = false; // below kSceneVersionTimeOfDayComponent
         TimeOfDayComponentReport TimeOfDayComponent;
->>>>>>> origin/task/GP2
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -558,12 +549,8 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-<<<<<<< HEAD
-                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised;
-=======
-                   UIAnimationsRaised || UIAnimationTimelinesRaised || WindSourceRaised ||
-                   TimeOfDayComponentRaised;
->>>>>>> origin/task/GP2
+                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
+                   WindSourceRaised || TimeOfDayComponentRaised;
         }
     };
 

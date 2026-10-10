@@ -76,6 +76,11 @@ namespace Desert::Editor
         /// UE's "Add Level Sequence": an empty `.dseq` in @p folder, selected once the folder is re-listed. The
         /// ONE creation route: the background menu and the palette's "Assets / New Level Sequence" both land here.
         Common::BoolResultStr CreateNewLevelSequence( const DirectoryInformation* folder );
+        /// UE's Add > Input > Input Action / Input Mapping Context: an empty `.deinputaction` (Bool, consumes
+        /// input) or `.deinputcontext` (no mappings) in @p folder, selected once listed. The ONE creation route
+        /// of the background menu and the palette (ContentCreateCommands.hpp).
+        Common::BoolResultStr CreateNewInputAction( const DirectoryInformation* folder );
+        Common::BoolResultStr CreateNewInputMappingContext( const DirectoryInformation* folder );
         /// One cloud asset in @p folder under a unique name, its document opened; the two volume formats are
         /// generated on a worker (see m_Bake).
         void CreateNewCloudAsset( const DirectoryInformation& folder, CloudAssetKind kind );

@@ -97,17 +97,14 @@ namespace
                       "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
          PathOnlyRow{ ContentKind::Fracture,
                       "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
-<<<<<<< HEAD
          PathOnlyRow{ ContentKind::WaterWaves,
                       "no referrer yet: the water body component (WATER-W2) writes the .dwaves GUID" },
-=======
          PathOnlyRow{ ContentKind::InputAction,
                       "header states a GUID but no component names an input action yet (GP1b: the player's "
                       "input component)" },
          PathOnlyRow{ ContentKind::InputMappingContext,
                       "header states a GUID but no component names a mapping context yet (GP1b: the player's "
                       "input component)" },
->>>>>>> origin/task/GP2
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{

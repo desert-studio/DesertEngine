@@ -62,17 +62,13 @@ namespace Desert::Core
     // MigrateUndeclaredKeysV38ToV39), and the corpus is the saver's canonical text.
     // v40 (SPAWN1): Camera.IsMainCamera is Camera.AutoActivateForPlayer, default false; only a scene's sole
     // camera keeps it set (Tools/SceneMigrator, MigratePlayerViewFlagV39ToV40).
-<<<<<<< HEAD
     // v42 (PHYS-A1): RigidBody / CharacterController state CollisionProfile (a name in the project's
     // Config/CollisionProfiles.json), chosen by body Type (Tools/SceneMigrator, MigrateCollisionProfilesV41ToV42).
-    inline constexpr int kSceneVersion = 42;
-=======
-    // v42 (WIND-SRC): VolumetricCloud.WindDirection / WindSpeed are one WindSource record per scene
-    // (Tools/SceneMigrator, MigrateWindSourceV41ToV42).
-    // v43 (TOD-SPLIT): the sky's five clock keys are a TimeOfDay block on the same record (Tools/SceneMigrator,
-    // MigrateTimeOfDayComponentV42ToV43).
-    inline constexpr int kSceneVersion = 43;
->>>>>>> origin/task/GP2
+    // v43 (WIND-SRC): VolumetricCloud.WindDirection / WindSpeed are one WindSource record per scene
+    // (Tools/SceneMigrator, MigrateWindSourceV42ToV43).
+    // v44 (TOD-SPLIT): the sky's five clock keys are a TimeOfDay block on the same record (Tools/SceneMigrator,
+    // MigrateTimeOfDayComponentV43ToV44).
+    inline constexpr int kSceneVersion = 44;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

@@ -44,6 +44,8 @@ namespace Desert::Editor
              { "Level Sequences", static_cast<int>( FileType::LevelSequence ) },
              { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
              { "Fractures", static_cast<int>( FileType::Fracture ) },
+             { "Input Actions", static_cast<int>( FileType::InputAction ) },
+             { "Input Mapping Contexts", static_cast<int>( FileType::InputMappingContext ) },
              { "Water Waves", static_cast<int>( FileType::WaterWaves ) },
         };
     } // namespace
