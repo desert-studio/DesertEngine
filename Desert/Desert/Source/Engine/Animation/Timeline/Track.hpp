@@ -119,5 +119,5 @@ namespace Desert::Animation::Timeline
      * section's "Weight"), so an Animation track with a keyed fade is keyed and one without is not. A Camera
      * Cut section has no channel and never passes.
      */
-    [[nodiscard]] bool HasKeys( const Track& track );
+    [[nodiscard]] bool TrackHasKeys( const Track& track );
 } // namespace Desert::Animation::Timeline

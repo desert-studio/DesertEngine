@@ -65,17 +65,17 @@ namespace
 TEST( SequencerTrackFilter, HasKeysSeesAnyComponentAndTheSectionWeight )
 {
     const T::BindingGuid guid = Actor( "a" ).Guid;
-    EXPECT_FALSE( T::HasKeys( ChannelTrack( guid, "Transform", T::TransformChannel{} ) ) );
-    EXPECT_TRUE( T::HasKeys( ChannelTrack( guid, "Transform", KeyedTransform() ) ) );
+    EXPECT_FALSE( T::TrackHasKeys( ChannelTrack( guid, "Transform", T::TransformChannel{} ) ) );
+    EXPECT_TRUE( T::TrackHasKeys( ChannelTrack( guid, "Transform", KeyedTransform() ) ) );
 
     T::VectorChannel vec;
     vec.Z.Keys.push_back( Key( 0, 2.0F ) );
-    EXPECT_TRUE( T::HasKeys( ChannelTrack( guid, "Color", vec ) ) );
+    EXPECT_TRUE( T::TrackHasKeys( ChannelTrack( guid, "Color", vec ) ) );
 
     T::EventChannel events;
-    EXPECT_FALSE( T::HasKeys( ChannelTrack( guid, "Events", events ) ) );
+    EXPECT_FALSE( T::TrackHasKeys( ChannelTrack( guid, "Events", events ) ) );
     events.Keys.push_back( T::EventKey{ Desert::Animation::FrameNumber{ 5 }, Desert::Animation::FrameNumber{ 0 }, "Fire", 0 } );
-    EXPECT_TRUE( T::HasKeys( ChannelTrack( guid, "Events", events ) ) );
+    EXPECT_TRUE( T::TrackHasKeys( ChannelTrack( guid, "Events", events ) ) );
 
     // An Animation section has no content channel: unkeyed, until its weight is keyed (UE's "Weight" channel).
     T::Track anim;
@@ -85,16 +85,16 @@ TEST( SequencerTrackFilter, HasKeysSeesAnyComponentAndTheSectionWeight )
     T::Section section;
     section.Content = T::AnimationSectionContent{};
     anim.Sections.push_back( section );
-    EXPECT_FALSE( T::HasKeys( anim ) );
+    EXPECT_FALSE( T::TrackHasKeys( anim ) );
     anim.Sections[0].Weight.push_back( Key( 0, 0.5F ) );
-    EXPECT_TRUE( T::HasKeys( anim ) );
+    EXPECT_TRUE( T::TrackHasKeys( anim ) );
 
     T::Track cut;
     cut.Kind = T::TrackKind::CameraCut;
     T::Section cutSection;
     cutSection.Content = T::CameraCutSectionContent{};
     cut.Sections.push_back( cutSection );
-    EXPECT_FALSE( T::HasKeys( cut ) );
+    EXPECT_FALSE( T::TrackHasKeys( cut ) );
 }
 
 TEST( SequencerTrackFilter, SelectedIsPerActorKeyedIsPerTrackBothAreAnd )

@@ -9,7 +9,7 @@ namespace Desert::Editor::Sequencer
     {
         if ( filters.Selected && !bindingSelected )
             return false;
-        return !filters.Keyed || Animation::Timeline::HasKeys( track );
+        return !filters.Keyed || Animation::Timeline::TrackHasKeys( track );
     }
 
     bool BindingPasses( const Animation::Timeline::Sequence& sequence, const Animation::Timeline::Binding& binding,

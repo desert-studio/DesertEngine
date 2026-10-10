@@ -128,7 +128,7 @@ namespace Desert::Animation::Timeline
 
     /// True when any component of @p channel holds a key (UE: FMovieSceneChannel::GetNumKeys() > 0 on any
     /// channel of the proxy) — what the Sequencer's Keyed filter asks of a track.
-    [[nodiscard]] bool HasKeys( const Channel& channel );
+    [[nodiscard]] bool ChannelHasKeys( const Channel& channel );
 
     /// A channel of @p kind with its rest defaults — what a new section of a track of that kind starts as.
     [[nodiscard]] Channel MakeChannel( ChannelKind kind );

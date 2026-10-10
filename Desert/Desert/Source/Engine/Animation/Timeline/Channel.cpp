@@ -227,7 +227,7 @@ namespace Desert::Animation::Timeline
         return static_cast<ChannelKind>( channel.index() );
     }
 
-    bool HasKeys( const Channel& channel )
+    bool ChannelHasKeys( const Channel& channel )
     {
         const auto vec = []( const VectorChannel& v ) { return !v.X.Keys.empty() || !v.Y.Keys.empty() || !v.Z.Keys.empty(); };
         const auto rot = []( const RotationChannel& r ) {

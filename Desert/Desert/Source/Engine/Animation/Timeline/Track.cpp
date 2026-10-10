@@ -386,13 +386,13 @@ namespace Desert::Animation::Timeline
         return Common::MakeSuccess( true );
     }
 
-    bool HasKeys( const Track& track )
+    bool TrackHasKeys( const Track& track )
     {
         return std::ranges::any_of( track.Sections, []( const Section& section ) {
             if ( !section.Weight.empty() )
                 return true;
             const auto* channel = std::get_if<Channel>( &section.Content );
-            return channel != nullptr && HasKeys( *channel );
+            return channel != nullptr && ChannelHasKeys( *channel );
         } );
     }
 } // namespace Desert::Animation::Timeline
