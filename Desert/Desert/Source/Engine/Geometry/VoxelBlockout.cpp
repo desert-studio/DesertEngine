@@ -1441,9 +1441,9 @@ namespace Desert::Geometry::VoxelBlockout
             }
             const std::array<glm::dvec2, 3> flat = {
                  glm::dvec2( p[0][u], p[0][v] ), glm::dvec2( p[1][u], p[1][v] ), glm::dvec2( p[2][u], p[2][v] ) };
-            const glm::dvec2 lo2  = glm::min( glm::min( flat[0], flat[1] ), flat[2] );
-            const glm::dvec2 hi2  = glm::max( glm::max( flat[0], flat[1] ), flat[2] );
-            const double     sign = n[a] > 0.0 ? 1.0 : -1.0;
+            const glm::dvec2 lo2   = glm::min( glm::min( flat[0], flat[1] ), flat[2] );
+            const glm::dvec2 hi2   = glm::max( glm::max( flat[0], flat[1] ), flat[2] );
+            const double     sign  = n[a] > 0.0 ? 1.0 : -1.0;
             const int64_t    plane = q[static_cast<size_t>( triangles[t][0] )][a];
             if ( plane % step != 0 )
                 return Common::MakeError<Volume>(
