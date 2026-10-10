@@ -10,6 +10,7 @@
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
+#include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
 #include <Engine/Graphic/ShaderProtocols/Metadata.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
@@ -94,20 +95,21 @@ namespace Desert::Graphic
         if ( !material )
             return;
 
-        // Point and spot lights live in unbounded std430 storage buffers. An EMPTY list is not written:
-        // the consumer loops 0..count and the count below is zero, so a stale buffer is never read, and
-        // writing nothing keeps the descriptor's own allocation in place.
-        if ( !point.PointLights.empty() )
-            if ( auto* sb = material->Get<StorageBufferProperty>( point.Name ) )
-                sb->SetRawData( reinterpret_cast<const std::byte*>( point.PointLights.data() ),
-                                static_cast<uint32_t>( point.PointLights.size() *
-                                                       sizeof( ShaderProtocols::PointLightPayload ) ) );
-
-        if ( !spot.SpotLights.empty() )
-            if ( auto* sb = material->Get<StorageBufferProperty>( spot.Name ) )
-                sb->SetRawData( reinterpret_cast<const std::byte*>( spot.SpotLights.data() ),
-                                static_cast<uint32_t>( spot.SpotLights.size() *
-                                                       sizeof( ShaderProtocols::SpotLightPayload ) ) );
+        // Point and spot lights live in unbounded std430 storage buffers, written EVERY frame — an empty list as
+        // one zeroed row (LightPayloadBytes, the rule the deferred composite's upload follows too). The consumer
+        // loops 0..count with the count below, so the row is never read; skipping the write instead left the
+        // buffer unfilled by either route, and a lit forward pass with no point light in the scene
+        // ("Deferred: Skinned" over StandardSurface/Skinned.Forward) was refused at setup.
+        if ( auto* sb = material->Get<StorageBufferProperty>( point.Name ) )
+        {
+            const auto bytes = ShaderProtocols::LightPayloadBytes( point.PointLights );
+            sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
+        }
+        if ( auto* sb = material->Get<StorageBufferProperty>( spot.Name ) )
+        {
+            const auto bytes = ShaderProtocols::LightPayloadBytes( spot.SpotLights );
+            sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
+        }
 
         if ( !dir.DirectionLights.empty() )
             if ( auto* ub = material->Get<UniformBufferProperty>( dir.Name ) )
