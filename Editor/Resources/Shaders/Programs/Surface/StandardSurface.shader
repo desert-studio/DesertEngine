@@ -29,7 +29,7 @@ Shader "StandardSurface"
         "gltf.metallicRoughnessTexture" -> u_ORMTexture.gb
         "gltf.normalTexture"            -> u_NormalTexture
         "gltf.occlusionTexture"         -> u_ORMTexture.r
-        "gltf.occlusionStrength"        -> OcclusionStrength
+        "gltf.occlusionStrength"        -> AOStrength
         "gltf.normalScale"              -> NormalScale
         "gltf.emissiveFactor"           -> EmissiveColor
         "gltf.emissiveTexture"          -> u_EmissiveTexture
@@ -69,6 +69,8 @@ Shader "StandardSurface"
         Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
         Float       MetallicFactor ("Metallic", Range(0,1), Category("Surface")) = 0
         Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.5
+        // UE's Ambient Occlusion input, ONE home: the strength of the ORM map's R (glTF occlusionStrength), applied
+        // once in PBRResolveORM — 1 takes the map as is, 0 ignores it.
         Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
         Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
         Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
@@ -77,7 +79,6 @@ Shader "StandardSurface"
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
-        Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
         // Which channel of u_OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
         // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
         Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0
@@ -124,11 +125,11 @@ Shader "StandardSurface"
             const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
                 s.Normal = SurfaceScaleTangentNormal( SampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
-            const vec3 orm = SurfaceResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.OcclusionStrength,
+            const vec3 orm = SurfaceResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.AOStrength,
                                             u_Material.RoughnessFactor, u_Material.MetallicFactor );
             s.Metallic          = orm.z;
             s.Roughness         = orm.y;
-            s.AmbientOcclusion  = u_Material.AOStrength * orm.x;
+            s.AmbientOcclusion  = orm.x;
             s.Emissive          = SurfaceEmission( pow( texture( u_EmissiveTexture, uv ).rgb, vec3( 2.2 ) ),
                                                u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
