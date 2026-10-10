@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -38,6 +39,9 @@ namespace Desert::Reflection
         Entity, // an entity of a world: its id and the world it lives in (Value::EntityRef)
         Any,    // a parameter/result of a reflected function that takes whatever kind it is given (Godot's
                 // Variant): the callee reads the Value's own Type(). Never a field's kind, never a Value's.
+        Array,    // an ordered list of Values (UE's TArray, a Lua sequence): Value::Array
+        Map,      // string keys to Values (UE's TMap<FString, ...>, a Lua record): Value::Map
+        Callable, // something to call later that a language handed over (UE's delegate): Value::Callable
     };
 
     // Editor/codegen metadata extracted from PROPERTY(...) attributes.
@@ -173,6 +177,11 @@ namespace Desert::Reflection
         std::string Name;
         FieldType   Type = FieldType::Unknown;
         std::string TypeName;
+        FieldType   ElementType = FieldType::Unknown; // Array / Map: the kind of every element (Any = mixed)
+        std::string StructName; // Struct (or an Array / Map of them): the registry name of the reflected type
+        /// The value C++ passes when the caller leaves the argument out (UE's CPP_Default_), compiled from the
+        /// header's default expression (Function.tpl); null = the argument is required.
+        std::shared_ptr<const Value> Default;
     };
 
     /// FUNCTION(...) attributes, parsed by DesertHeaderTool exactly as PROPERTY(...) ones are.

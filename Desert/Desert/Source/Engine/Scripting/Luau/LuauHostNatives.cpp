@@ -1,28 +1,16 @@
 #include <Engine/Scripting/Luau/LuauHost.hpp>
 
-#include <Common/Core/Math/Ray.hpp>
-#include <Engine/Core/Camera.hpp>
-
-#include <algorithm>
+#include <memory>
+#include <span>
 
 // THE LANGUAGE HOST'S OWN NATIVES — what is about Luau itself or about the script host, not about the engine:
-// print-style logging of any values, closures kept for later (Timer.after), Luau values shared between scripts
-// (World.set/get/has), an entity object's liveness, destroying an entity whose scripts this host runs, calling
-// into another entity's scripts. Everything the ENGINE offers reaches Luau through reflection
-// (Engine/Libraries, LuauBinder) — never through a file here. raycast/cameraRay stay until the public layer has
-// a struct result (REMAINDER of SCR-PORT).
+// print-style logging of any values, Luau values shared between scripts (World.set/get/has), an entity object's
+// liveness, destroying an entity whose scripts this host runs, calling into another entity's scripts, and the
+// factory that turns a Luau function into a Reflection::Callable (Timer.after's callback). Everything the ENGINE
+// offers reaches Luau through reflection (Engine/Libraries, LuauBinder) — never through a file here.
 
 namespace Desert::Scripting
 {
-    glm::vec3 CheckVec3( lua_State* L, int first )
-    {
-        if ( const float* v = lua_tovector( L, first ) )
-            return { v[0], v[1], v[2] };
-        return { static_cast<float>( luaL_checknumber( L, first ) ),
-                 static_cast<float>( luaL_checknumber( L, first + 1 ) ),
-                 static_cast<float>( luaL_checknumber( L, first + 2 ) ) };
-    }
-
     namespace
     {
         // Every argument as text (tostring), tab-separated — what print() would show.
@@ -39,18 +27,6 @@ namespace Desert::Scripting
                 lua_pop( L, 1 );
             }
             LOG_INFO( "[Lua] {}", text );
-            return 0;
-        }
-
-        // Timer.after(seconds, fn): runs fn once after `seconds` of game time (Play only — ticked by
-        // ScriptSystem). Owned by the (entity, slot) that scheduled it: a reload / destroy cancels it. A callback
-        // may call Timer.after again to re-arm itself.
-        int After( lua_State* L )
-        {
-            const auto seconds = static_cast<float>( luaL_checknumber( L, 1 ) );
-            luaL_checktype( L, 2, LUA_TFUNCTION );
-            ScriptEngine::Impl& host = ScriptEngine::Impl::Of( L );
-            host.Timers.push_back( { host.CurrentOwner, std::max( seconds, 0.0f ), lua_ref( L, 2 ) } );
             return 0;
         }
 
@@ -77,65 +53,6 @@ namespace Desert::Scripting
             WorldVarGet( L );
             lua_pushboolean( L, !lua_isnil( L, -1 ) );
             return 1;
-        }
-
-        ScriptEngine::Impl& SceneHost( lua_State* L, const char* function )
-        {
-            ScriptEngine::Impl& host = ScriptEngine::Impl::Of( L );
-            if ( host.Scene == nullptr )
-                luaL_errorL( L, "World.%s: no scene is bound to the script engine", function );
-            return host;
-        }
-
-        // World.raycast(ox,oy,oz, dx,dy,dz [, maxDist]) -> { hit, entity, x,y,z, nx,ny,nz, dist }.
-        int Raycast( lua_State* L )
-        {
-            ScriptEngine::Impl& host      = SceneHost( L, "raycast" );
-            const glm::vec3     origin    = CheckVec3( L, 1 );
-            const int           next      = lua_isvector( L, 1 ) ? 2 : 4;
-            const glm::vec3     direction = CheckVec3( L, next );
-            const int           limit     = lua_isvector( L, next ) ? next + 1 : next + 3;
-            const bool          bounded   = !lua_isnoneornil( L, limit );
-            const double        maxDist   = luaL_optnumber( L, limit, 0.0 );
-            Common::Math::Ray   ray( origin, direction );
-            Core::RaycastHit    hit;
-            const bool inRange = host.Scene->Raycast( ray, hit ) && ( !bounded || hit.Distance <= maxDist );
-            lua_newtable( L );
-            lua_pushboolean( L, inRange );
-            lua_setfield( L, -2, "hit" );
-            if ( !inRange )
-                return 1;
-            entt::entity h = entt::null;
-            if ( auto found = host.Scene->FindEntityByID( hit.Entity ) )
-                h = found->get().GetHandle();
-            LuauBinder::PushEntity( L, host.Registry(), h );
-            lua_setfield( L, -2, "entity" );
-            for ( const auto& [name, value] :
-                  { std::pair{ "x", hit.Point.x }, std::pair{ "y", hit.Point.y }, std::pair{ "z", hit.Point.z },
-                    std::pair{ "nx", hit.Normal.x }, std::pair{ "ny", hit.Normal.y },
-                    std::pair{ "nz", hit.Normal.z }, std::pair{ "dist", hit.Distance } } )
-            {
-                lua_pushnumber( L, value );
-                lua_setfield( L, -2, name );
-            }
-            return 1;
-        }
-
-        // The active camera's eye ray: ox,oy,oz, dx,dy,dz.
-        int CameraRay( lua_State* L )
-        {
-            ScriptEngine::Impl& host = SceneHost( L, "cameraRay" );
-            glm::vec3           o( 0.0f );
-            glm::vec3           d( 0.0f, 0.0f, -1.0f );
-            if ( auto cam = host.Scene->GetActiveCamera() )
-            {
-                const glm::mat4 inv = glm::inverse( cam->GetViewMatrix() );
-                o                   = glm::vec3( inv[3] );
-                d                   = -glm::normalize( glm::vec3( inv[2] ) );
-            }
-            for ( float v : { o.x, o.y, o.z, d.x, d.y, d.z } )
-                lua_pushnumber( L, v );
-            return 6;
         }
 
         int Valid( lua_State* L )
@@ -181,6 +98,75 @@ namespace Desert::Scripting
             return 0;
         }
 
+        /// A Luau function held by the engine: pinned in the VM's registry for as long as a copy lives, alive while
+        /// the (entity, slot) that made it still runs the same load, called on that slot's thread with the world
+        /// open — exactly as the slot's own OnUpdate is.
+        class LuauCallable final : public Reflection::Callable::Target
+        {
+        public:
+            LuauCallable( ScriptEngine::Impl& host, uint64_t owner, int function )
+                 : m_Host( &host ), m_Lifetime( host.Lifetime ), m_Owner( owner ),
+                   m_Generation( host.Generations[owner] ), m_Function( function )
+            {
+            }
+            ~LuauCallable() override
+            {
+                if ( !m_Lifetime.expired() )
+                    m_Host->Runtime->Unref( m_Function );
+            }
+            LuauCallable( const LuauCallable& )            = delete;
+            LuauCallable& operator=( const LuauCallable& ) = delete;
+
+            [[nodiscard]] bool Alive() const override
+            {
+                if ( m_Lifetime.expired() )
+                    return false;
+                const auto generation = m_Host->Generations.find( m_Owner );
+                return generation != m_Host->Generations.end() && generation->second == m_Generation &&
+                       Slot() != 0;
+            }
+
+            Common::BoolResultStr Call( const Reflection::Value* args, std::size_t count ) override
+            {
+                ScriptEngine::Impl& host     = *m_Host;
+                const uint64_t      previous = host.CurrentOwner;
+                host.CurrentOwner            = m_Owner; // a re-arm inherits the same (entity, slot)
+                Common::BoolResultStr called = [&]
+                {
+                    const Core::WorldContext::Scope world( host.Context );
+                    return host.Runtime->CallRef( Slot(), m_Function,
+                                                  std::span<const Reflection::Value>( args, count ) );
+                }();
+                host.CurrentOwner = previous;
+                host.Settle();
+                return called;
+            }
+
+        private:
+            LuauSlot Slot() const
+            {
+                return m_Host->SlotOf( static_cast<uint32_t>( m_Owner >> 32 ),
+                                       static_cast<uint32_t>( m_Owner & 0xFFFFFFFFu ) );
+            }
+
+            ScriptEngine::Impl* m_Host;
+            std::weak_ptr<int>  m_Lifetime;
+            uint64_t            m_Owner;
+            uint32_t            m_Generation;
+            int                 m_Function;
+        };
+
+        std::optional<Reflection::Callable> MakeCallable( lua_State* L, int index, std::string& why )
+        {
+            if ( !lua_isfunction( L, index ) )
+            {
+                why = "expected a function";
+                return std::nullopt;
+            }
+            ScriptEngine::Impl& host = ScriptEngine::Impl::Of( L );
+            return Reflection::Callable( std::make_shared<LuauCallable>( host, host.CurrentOwner, lua_ref( L, index ) ) );
+        }
+
         /// The global table `name` (the reflected library's, when one is bound under it), created when absent.
         void OpenGlobalTable( lua_State* L, const char* name )
         {
@@ -196,18 +182,15 @@ namespace Desert::Scripting
 
     void RegisterHostNatives( lua_State* L )
     {
+        static constexpr LuauBinder::CallableFactory kFactory = &MakeCallable;
+        LuauBinder::SetCallableFactory( L, &kFactory );
+
         lua_pushcfunction( L, &Log, "log" );
         lua_setglobal( L, "log" );
 
-        OpenGlobalTable( L, "Timer" );
-        lua_pushcfunction( L, &After, "after" );
-        lua_setfield( L, -2, "after" );
-        lua_pop( L, 1 );
-
         OpenGlobalTable( L, "World" );
         for ( const luaL_Reg& entry :
-              { luaL_Reg{ "set", &WorldVarSet }, luaL_Reg{ "get", &WorldVarGet }, luaL_Reg{ "has", &WorldVarHas },
-                luaL_Reg{ "raycast", &Raycast }, luaL_Reg{ "cameraRay", &CameraRay } } )
+              { luaL_Reg{ "set", &WorldVarSet }, luaL_Reg{ "get", &WorldVarGet }, luaL_Reg{ "has", &WorldVarHas } } )
         {
             lua_pushcfunction( L, entry.func, entry.name );
             lua_setfield( L, -2, entry.name );

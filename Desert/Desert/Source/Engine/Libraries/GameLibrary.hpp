@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Reflection/ReflectionMacros.hpp>
+#include <Engine/Reflection/Value.hpp>
 
 #include <string>
 
@@ -27,8 +28,8 @@ namespace Desert::Libraries
         REFLECT( ScriptName( "Audio" ) )
 
         FUNCTION( ScriptCallable, ScriptName( "play" ),
-                  Tooltip( "Plays a clip once at a volume (1 = as authored)." ) )
-        static void Play( const std::string& clip, float volume );
+                  Tooltip( "Plays a clip once at a volume (1 = as authored, the default)." ) )
+        static void Play( const std::string& clip, float volume = 1.0f );
 
         FUNCTION( ScriptCallable, ScriptName( "stopAll" ) )
         static void StopAll();
@@ -54,5 +55,17 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptName( "open" ),
                   Tooltip( "Requests travel to a level; false (logged) when refused." ) )
         static bool Open( const std::string& level );
+    };
+
+    /// Game-time timers of the running script's world (Core::TimerManager through Core::WorldContext) — UE's
+    /// SetTimer on the world's FTimerManager. A callback belongs to the script that scheduled it: a reload or
+    /// the entity's destruction drops it unfired.
+    struct TimerLibrary
+    {
+        REFLECT( ScriptName( "Timer" ) )
+
+        FUNCTION( ScriptCallable, ScriptName( "after" ),
+                  Tooltip( "Calls the function once after `seconds` of game time (Play only); it may re-arm itself." ) )
+        static void After( float seconds, const Reflection::Callable& callback );
     };
 } // namespace Desert::Libraries

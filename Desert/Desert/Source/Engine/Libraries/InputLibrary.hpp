@@ -35,7 +35,7 @@ namespace Desert::Libraries
 
         FUNCTION( ScriptCallable, ScriptName( "isMouseDown" ),
                   Tooltip( "Whether \"left\", \"right\" or \"middle\" is held." ) )
-        static bool IsMouseDown( const std::string& button );
+        static bool IsMouseDown( const std::string& button = "left" );
 
         /// Advances the frame: key edges for WasPressed, and the mouse delta the host computed (capture aware).
         static void NewFrame( glm::vec2 mouseDelta );

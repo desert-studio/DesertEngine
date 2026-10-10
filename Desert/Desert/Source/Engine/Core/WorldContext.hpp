@@ -8,6 +8,7 @@ namespace Desert::Assets
 namespace Desert::Core
 {
     class Scene;
+    class TimerManager;
 
     /// THE WORLD A SCRIPT CALL RUNS IN — UE's WorldContextObject, supplied by the host instead of spelled by
     /// every caller. A script host opens a Scope around each entry into script code (top level, OnStart,
@@ -17,6 +18,7 @@ namespace Desert::Core
     {
         Scene*                World  = nullptr;
         Assets::AssetManager* Assets = nullptr;
+        TimerManager*         Timers = nullptr; // the world's timers (Timer.after)
 
         /// The innermost open scope's context, or nullptr outside any script call.
         static const WorldContext* Current();

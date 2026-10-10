@@ -2,6 +2,7 @@
 #include <Engine/Reflection/Value.hpp>
 
 #include <format>
+#include <vector>
 
 namespace Desert::Reflection
 {
@@ -39,6 +40,12 @@ namespace Desert::Reflection
                 return "Entity";
             case FieldType::Any:
                 return "Any";
+            case FieldType::Array:
+                return "Array";
+            case FieldType::Map:
+                return "Map";
+            case FieldType::Callable:
+                return "Callable";
         }
         return "Unknown";
     }
@@ -52,9 +59,26 @@ namespace Desert::Reflection
             return Common::MakeError<bool>( std::format( "{}::{} is static: it takes no instance", Owner, Name ) );
         if ( !IsStatic && self == nullptr )
             return Common::MakeError<bool>( std::format( "{}::{} needs an instance of {}", Owner, Name, Owner ) );
-        if ( argc != Params.size() )
-            return Common::MakeError<bool>(
-                 std::format( "{}::{} takes {} argument(s), got {}", Owner, Name, Params.size(), argc ) );
+        // Arguments left out at the end take their parameters' defaults (UE's CPP_Default_); a parameter with
+        // no default is required, and C++ already guarantees every parameter after a defaulted one has one too.
+        std::size_t required = Params.size();
+        while ( required > 0 && Params[required - 1].Default != nullptr )
+            --required;
+        if ( argc < required || argc > Params.size() )
+            return Common::MakeError<bool>( std::format(
+                 "{}::{} takes {} argument(s), got {}", Owner, Name,
+                 required == Params.size() ? std::format( "{}", required )
+                                           : std::format( "{} to {}", required, Params.size() ),
+                 argc ) );
+        std::vector<Value> filled;
+        if ( argc < Params.size() )
+        {
+            filled.assign( args, args + argc );
+            for ( std::size_t i = argc; i < Params.size(); ++i )
+                filled.push_back( *Params[i].Default );
+            args = filled.data();
+            argc = filled.size();
+        }
         for ( std::size_t i = 0; i < argc; ++i )
             if ( Params[i].Type != FieldType::Any && args[i].Type() != Params[i].Type )
                 return Common::MakeError<bool>(

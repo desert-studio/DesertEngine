@@ -25,7 +25,7 @@ function OnStart()
         ui.list_add( "probe.inventory", {
             name  = string.format( "%s #%d", names[( i - 1 ) % #names + 1], i ),
             count = ( i * 13 ) % 250,
-            tint  = { shade, shade * 0.95, 0.8 },
+            tint  = vector.create( shade, shade * 0.95, 0.8 ),
         } )
     end
     ui.set( "probe.inventory.caption", string.format( "%d records", ui.list_count( "probe.inventory" ) ) )

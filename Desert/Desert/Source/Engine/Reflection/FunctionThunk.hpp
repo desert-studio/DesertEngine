@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <map>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -43,6 +44,45 @@ namespace Desert::Reflection
         static_assert( sizeof( T ) == 0, "FUNCTION(...): this parameter/result type has no Value kind "
                                          "(Engine/Reflection/FunctionThunk.hpp, ValueTraits)" );
     };
+
+    /// Whether `v` can become an X: the kind is X's (anything, for a Value parameter) and, for a list, a record or
+    /// a struct, every element or field fits too. A thunk refuses what does not fit before it unpacks.
+    template <typename X>
+    bool KindFits( const Value& v )
+    {
+        using Traits = ValueTraits<X>;
+        if constexpr ( Traits::Kind == FieldType::Any )
+            return true;
+        else
+        {
+            if ( v.Type() != Traits::Kind )
+                return false;
+            if constexpr ( requires { Traits::Fits( v ); } )
+                return Traits::Fits( v );
+            else
+                return true;
+        }
+    }
+
+    /// REFLECT( ScriptStruct ) types — UE's USTRUCT(BlueprintType). DesertHeaderTool specialises this for each one
+    /// in its module's generated file, before the FUNCTIONs that take or return it: the registry name and the
+    /// member list `std::tuple{ StructMember{ "Field", &T::Field }, ... }`. Unspecialised = not a script struct.
+    template <typename T>
+    struct ReflectedStruct
+    {
+    };
+
+    template <typename C, typename M>
+    struct StructMember
+    {
+        const char* Name;
+        M C::*      Pointer;
+    };
+    template <typename C, typename M>
+    StructMember( const char*, M C::* ) -> StructMember<C, M>;
+
+    template <typename T>
+    inline constexpr bool kIsReflectedStruct = requires { ReflectedStruct<T>::Name; };
 
     template <>
     struct ValueTraits<bool>
@@ -235,6 +275,189 @@ namespace Desert::Reflection
         }
     };
 
+    /// A list travels as an Array, each element as its own kind (a list of entities as entities).
+    template <typename E>
+    struct ValueTraits<std::vector<E>>
+    {
+        static constexpr FieldType Kind = FieldType::Array;
+        using Element                   = E;
+        static bool Fits( const Value& v )
+        {
+            for ( const Value& item : *v.Get<Value::Array>() )
+                if ( !KindFits<E>( item ) )
+                    return false;
+            return true;
+        }
+        static std::vector<E> From( const Value& v )
+        {
+            std::vector<E> out;
+            out.reserve( v.Get<Value::Array>()->size() );
+            for ( const Value& item : *v.Get<Value::Array>() )
+                out.push_back( ValueTraits<E>::From( item ) );
+            return out;
+        }
+        static Value To( const std::vector<E>& items )
+        {
+            Value::Array out;
+            out.reserve( items.size() );
+            for ( const E& item : items )
+                out.push_back( ValueTraits<E>::To( item ) );
+            return Value::MakeArray( std::move( out ) );
+        }
+    };
+
+    /// A string-keyed map travels as a Map, each value as its own kind.
+    template <typename E>
+    struct ValueTraits<std::map<std::string, E>>
+    {
+        static constexpr FieldType Kind = FieldType::Map;
+        using Element                   = E;
+        static bool Fits( const Value& v )
+        {
+            for ( const Value& item : v.Get<Value::Map>()->Values )
+                if ( !KindFits<E>( item ) )
+                    return false;
+            return true;
+        }
+        static std::map<std::string, E> From( const Value& v )
+        {
+            const Value::Map&        map = *v.Get<Value::Map>();
+            std::map<std::string, E> out;
+            for ( std::size_t i = 0; i < map.Size(); ++i )
+                out.emplace( map.Keys[i], ValueTraits<E>::From( map.Values[i] ) );
+            return out;
+        }
+        static Value To( const std::map<std::string, E>& items )
+        {
+            Value::Map out;
+            for ( const auto& [key, item] : items )
+                out.Set( key, ValueTraits<E>::To( item ) );
+            return Value::MakeMap( std::move( out ) );
+        }
+    };
+
+    /// An open record (a Lua table of mixed fields) is a Map of Values: the callee reads each field's own kind.
+    template <>
+    struct ValueTraits<Value::Map>
+    {
+        static constexpr FieldType Kind = FieldType::Map;
+        using Element                   = Value;
+        static const Value::Map& From( const Value& v )
+        {
+            return *v.Get<Value::Map>();
+        }
+        static Value To( Value::Map v )
+        {
+            return Value::MakeMap( std::move( v ) );
+        }
+    };
+
+    /// A callable a language handed over (UE's delegate): kept and called later by the engine.
+    template <>
+    struct ValueTraits<Callable>
+    {
+        static constexpr FieldType Kind = FieldType::Callable;
+        static const Callable&     From( const Value& v )
+        {
+            return *v.Get<Callable>();
+        }
+        static Value To( Callable v )
+        {
+            return Value::MakeCallable( std::move( v ) );
+        }
+    };
+
+    /// A REFLECT( ScriptStruct ) instance travels as a Struct: its registry name and each member as its own kind
+    /// (UE's UScriptStruct read through its FProperty list). A field the caller leaves out keeps the member's
+    /// default; a field the type does not have, or of another kind, is refused before the call.
+    template <typename T>
+    struct ValueTraits<T, std::enable_if_t<kIsReflectedStruct<T>>>
+    {
+        static constexpr FieldType Kind = FieldType::Struct;
+
+        static bool Fits( const Value& v )
+        {
+            const Value::StructData& data = *v.Get<Value::StructData>();
+            if ( data.Type != ReflectedStruct<T>::Name )
+                return false;
+            for ( std::size_t i = 0; i < data.Fields.Size(); ++i )
+            {
+                const bool fits = std::apply(
+                     [&]( const auto&... member )
+                     {
+                         bool found = false;
+                         bool ok    = false;
+                         ( ( !found && data.Fields.Keys[i] == member.Name
+                                  ? ( found = true,
+                                      ok    = KindFits<std::remove_cvref_t<decltype( std::declval<T&>().*
+                                                                                   member.Pointer )>>(
+                                           data.Fields.Values[i] ) )
+                                  : false ),
+                           ... );
+                         return found && ok;
+                     },
+                     ReflectedStruct<T>::Members );
+                if ( !fits )
+                    return false;
+            }
+            return true;
+        }
+        static T From( const Value& v )
+        {
+            const Value::StructData& data = *v.Get<Value::StructData>();
+            T                        out{};
+            std::apply(
+                 [&]( const auto&... member )
+                 {
+                     ( ( [&]
+                         {
+                             using M = std::remove_cvref_t<decltype( out.*member.Pointer )>;
+                             if ( const Value* field = data.Fields.Find( member.Name ) )
+                                 out.*member.Pointer = ValueTraits<M>::From( *field );
+                         }() ),
+                       ... );
+                 },
+                 ReflectedStruct<T>::Members );
+            return out;
+        }
+        static Value To( const T& v )
+        {
+            Value::Map fields;
+            std::apply(
+                 [&]( const auto&... member )
+                 {
+                     ( fields.Set( member.Name,
+                                   ValueTraits<std::remove_cvref_t<decltype( v.*member.Pointer )>>::To(
+                                        v.*member.Pointer ) ),
+                       ... );
+                 },
+                 ReflectedStruct<T>::Members );
+            return Value::MakeStruct( ReflectedStruct<T>::Name, std::move( fields ) );
+        }
+    };
+
+    /// The kind of every element of X (a list or a record), or Unknown.
+    template <typename X>
+    constexpr FieldType ElementKindOf()
+    {
+        if constexpr ( requires { typename ValueTraits<X>::Element; } )
+            return ValueTraits<typename ValueTraits<X>::Element>::Kind;
+        else
+            return FieldType::Unknown;
+    }
+
+    /// The registry name of X's script struct — X itself, or its element — or "".
+    template <typename X>
+    const char* StructNameOf()
+    {
+        if constexpr ( kIsReflectedStruct<X> )
+            return ReflectedStruct<X>::Name;
+        else if constexpr ( requires { typename ValueTraits<X>::Element; } )
+            return StructNameOf<typename ValueTraits<X>::Element>();
+        else
+            return "";
+    }
+
     /// A parameter is taken by value or by const reference; a non-const reference would be an OUT parameter,
     /// which this layer does not have (a second result is a second return, REMAINDER of SCR-API-1).
     template <typename A>
@@ -243,6 +466,11 @@ namespace Desert::Reflection
     template <typename A>
     inline constexpr bool kIsPassableParam =
          !std::is_lvalue_reference_v<A> || std::is_const_v<std::remove_reference_t<A>>;
+
+    /// A function returning Common::BoolResultStr answers in Lua's idiom for a failure the caller handles: two
+    /// results, Ok (Bool) and Error (String, empty on success) — never a call error.
+    template <typename R>
+    inline constexpr bool kIsOutcome = std::is_same_v<std::remove_cvref_t<R>, Common::BoolResultStr>;
 
     // ------------------------------------------------------------------ signature of &T::F
 
@@ -298,11 +526,7 @@ namespace Desert::Reflection
         template <typename A>
         bool ArgFits( const Value& v )
         {
-            using Traits = ValueTraits<ParamValueType<A>>;
-            if constexpr ( requires { Traits::Fits( v ); } )
-                return Traits::Fits( v );
-            else
-                return true;
+            return KindFits<ParamValueType<A>>( v );
         }
 
         template <auto F, std::size_t... I>
@@ -316,8 +540,10 @@ namespace Desert::Reflection
             constexpr std::array<FitCheck, sizeof...( I )> kFits = { &ArgFits<std::tuple_element_t<I, Args>>... };
             for ( std::size_t i = 0; i < kFits.size(); ++i )
                 if ( !kFits[i]( args[i] ) )
-                    return Common::MakeError<bool>(
-                         std::format( "argument {} is outside its parameter's range", i ) );
+                    return Common::MakeError<bool>( std::format(
+                         "argument {} is outside its parameter's range, or an element or field of it is not of "
+                         "its kind",
+                         i ) );
 
             const auto invoke = [&]() -> decltype( auto )
             {
@@ -329,6 +555,12 @@ namespace Desert::Reflection
             };
             if constexpr ( std::is_void_v<typename S::Return> )
                 invoke();
+            else if constexpr ( kIsOutcome<typename S::Return> )
+            {
+                const Common::BoolResultStr outcome = invoke();
+                rets[0]                             = Value::Bool( outcome.IsSuccess() );
+                rets[1] = Value::String( outcome.IsSuccess() ? std::string() : outcome.GetError() );
+            }
             else
                 rets[0] = ValueTraits<std::remove_cvref_t<typename S::Return>>::To( invoke() );
             return Common::MakeSuccess( true );
@@ -352,7 +584,12 @@ namespace Desert::Reflection
     {
         const char* Name;
         const char* TypeName;
+        Value ( *Default )() = nullptr; // the header's default expression as a Value (Function.tpl), or none
     };
+
+    /// The I-th parameter type of &T::F, as a Value carries it (the generated default of that parameter).
+    template <auto F, std::size_t I>
+    using ParamType = ParamValueType<std::tuple_element_t<I, typename Signature<decltype( F )>::Args>>;
 
     namespace Detail
     {
@@ -363,8 +600,16 @@ namespace Desert::Reflection
             static_assert( ( kIsPassableParam<std::tuple_element_t<I, Args>> && ... ),
                            "FUNCTION(...): a non-const reference parameter is an out parameter, which "
                            "reflected functions do not have" );
-            return { ParamInfo{ spelling[I].Name, ValueTraits<ParamValueType<std::tuple_element_t<I, Args>>>::Kind,
-                                spelling[I].TypeName }... };
+            std::vector<ParamInfo> params = {
+                 ParamInfo{ .Name        = spelling[I].Name,
+                            .Type        = ValueTraits<ParamValueType<std::tuple_element_t<I, Args>>>::Kind,
+                            .TypeName    = spelling[I].TypeName,
+                            .ElementType = ElementKindOf<ParamValueType<std::tuple_element_t<I, Args>>>(),
+                            .StructName  = StructNameOf<ParamValueType<std::tuple_element_t<I, Args>>>() }... };
+            for ( std::size_t i = 0; i < N; ++i )
+                if ( spelling[i].Default != nullptr )
+                    params[i].Default = std::make_shared<const Value>( spelling[i].Default() );
+            return params;
         }
     } // namespace Detail
 
@@ -382,9 +627,19 @@ namespace Desert::Reflection
         info.Name   = name;
         info.Owner  = owner;
         info.Params = Detail::Params<Args>( params, std::make_index_sequence<N>{} );
-        if constexpr ( !std::is_void_v<typename S::Return> )
-            info.Returns.push_back( ParamInfo{
-                 "ReturnValue", ValueTraits<std::remove_cvref_t<typename S::Return>>::Kind, returnSpelling } );
+        using R = std::remove_cvref_t<typename S::Return>;
+        if constexpr ( kIsOutcome<R> )
+        {
+            info.Returns.push_back( ParamInfo{ .Name = "Ok", .Type = FieldType::Bool, .TypeName = returnSpelling } );
+            info.Returns.push_back(
+                 ParamInfo{ .Name = "Error", .Type = FieldType::String, .TypeName = returnSpelling } );
+        }
+        else if constexpr ( !std::is_void_v<R> )
+            info.Returns.push_back( ParamInfo{ .Name        = "ReturnValue",
+                                               .Type        = ValueTraits<R>::Kind,
+                                               .TypeName    = returnSpelling,
+                                               .ElementType = ElementKindOf<R>(),
+                                               .StructName  = StructNameOf<R>() } );
         info.IsStatic = S::IsStatic;
         info.IsConst  = S::IsConst;
         info.Meta     = std::move( meta );

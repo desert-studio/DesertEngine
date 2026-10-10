@@ -24,7 +24,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ContainerAccess.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
-{% if hasFunctions %}#include <Engine/Reflection/FunctionThunk.hpp>
+{% if includeThunks %}#include <Engine/Reflection/FunctionThunk.hpp>
 {% endif %}#include <cstddef>
 #include <cstdint>
 #include <string>
@@ -35,7 +35,19 @@
 {% endfor %}{% endif %}
 {# No static object here: a module's registration runs because the module list calls it by name, so the
    linker keeps this object for the reference and not for a side effect it cannot see (plan C11). -#}
-namespace Desert::Reflection::Generated
+{# REFLECT( ScriptStruct ): the member list a Struct Value is packed from and unpacked into (FunctionThunk.hpp,
+   ReflectedStruct) - declared before any FUNCTION below takes or returns the struct. -#}
+{% if hasScriptStructs %}namespace Desert::Reflection
+{
+{% for t in types %}{% if t.scriptStruct %}template <>
+struct ReflectedStruct<::{{ t.fqn }}>
+{
+    static constexpr const char* Name = "{{ t.registryName }}";
+    static constexpr auto Members = std::tuple{ {% for f in t.fields %}StructMember{ "{{ f.name }}", &::{{ t.fqn }}::{{ f.name }} }, {% endfor %}};
+};
+{% endif %}{% endfor %}} // namespace Desert::Reflection
+
+{% endif %}namespace Desert::Reflection::Generated
 {
 void RegisterReflection_{{ module }}();
 

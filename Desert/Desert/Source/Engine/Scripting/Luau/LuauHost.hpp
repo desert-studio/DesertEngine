@@ -6,10 +6,10 @@
 //
 // BINDING ARCHITECTURE: what the ENGINE offers reaches Luau through reflection only — an entity's data by
 // record key (self:component/has/add/remove), and every FUNCTION(ScriptCallable) of a reflected type
-// (Engine/Libraries: Input, Audio, World.find, entity methods via ScriptMethod), bound by LuauBinder with no
-// line per function. What is left here is about the language and the host itself (RegisterHostNatives:
-// print-style log, Timer closures, World.set/get Luau values, entity valid/destroy/call) plus the ui.* and
-// loc.* natives that wait for table-shaped Values (REMAINDER of SCR-PORT).
+// (Engine/Libraries: Input, Audio, World, Timer, ui, loc, entity methods via ScriptMethod), bound by LuauBinder
+// with no line per function. What is left here is about the language and the host itself (RegisterHostNatives:
+// print-style log, World.set/get Luau values, entity valid/destroy/call, and the factory that turns a Luau
+// function into a Reflection::Callable owned by the script that made it).
 
 #include <Engine/Scripting/ScriptEngine.hpp>
 
@@ -17,6 +17,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/TimerManager.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
@@ -57,18 +58,16 @@ namespace Desert::Scripting
         // changes or the script reloads, so the Logs panel stays readable.
         std::unordered_map<uint64_t, std::string> LastUpdateError;
 
-        // Timer.after(seconds, fn) scheduler. Each pending timer is OWNED by the (entity, slot) that scheduled
-        // it, so a reload/release of that slot cancels its timers (a stale callback never fires into a replaced
-        // sandbox). CurrentOwner is set right before the engine enters script code (top level, OnStart, OnUpdate,
-        // a firing timer) — that is how Timer.after knows who schedules, and why a callback can re-arm itself.
-        struct PendingTimer
-        {
-            uint64_t Owner     = 0; // SlotKey of the scheduling (entity, slot)
-            float    Remaining = 0.0f;
-            int      Fn        = LUA_NOREF; // the callback, pinned in the VM's registry
-        };
-        std::vector<PendingTimer> Timers;
-        uint64_t                  CurrentOwner = 0;
+        // A Luau function handed to the engine (Timer.after's callback) becomes a Callable OWNED by the (entity,
+        // slot) running when it was made: CurrentOwner is set right before the engine enters script code (top
+        // level, OnStart, OnUpdate, a firing callback), which is also why a callback can re-arm itself. Each load
+        // of a slot bumps its generation, so a callable made by a replaced sandbox — or by a released slot — is
+        // dead and never fires into code that is gone.
+        uint64_t                               CurrentOwner = 0;
+        std::unordered_map<uint64_t, uint32_t> Generations; // SlotKey -> loads so far
+
+        /// Expires when the host goes: a callable that outlives it no longer touches the VM.
+        std::shared_ptr<int> Lifetime = std::make_shared<int>( 0 );
 
         /// Shared script state of World.set/get/has (a registry table, alive as long as the VM).
         int WorldVars = LUA_NOREF;
@@ -83,8 +82,12 @@ namespace Desert::Scripting
         void                  Settle();
         void                  ReleaseEntity( uint32_t entity );
 
-        /// Declared LAST: the VM's natives reach the fields above through Of(), so they outlive it.
+        /// Declared after the fields the VM's natives reach through Of(), so they outlive it.
         std::unique_ptr<LuauRuntime> Runtime;
+
+        /// The world's timers (Core::WorldContext::Timers). Declared after the VM: its callables unpin their
+        /// functions on destruction, while the VM still exists.
+        Core::TimerManager Timers;
 
         static uint64_t SlotKey( uint32_t entity, uint32_t slot )
         {
@@ -96,20 +99,6 @@ namespace Desert::Scripting
         {
             auto it = Slots.find( entity );
             return ( it == Slots.end() || slot >= it->second.size() ) ? 0 : it->second[slot];
-        }
-
-        /// Cancels the timers `drop` selects (their callbacks are unpinned).
-        template <class Predicate>
-        void DropTimers( Predicate drop )
-        {
-            std::erase_if( Timers,
-                           [this, &drop]( const PendingTimer& timer )
-                           {
-                               if ( !drop( timer ) )
-                                   return false;
-                               Runtime->Unref( timer.Fn );
-                               return true;
-                           } );
         }
 
         /// The host a native runs for: stored in the VM's registry by Install.
@@ -126,12 +115,6 @@ namespace Desert::Scripting
         }
     };
 
-    /// Reads the three numbers at `first..first+2` as a vector (a Luau `vector` at `first` is accepted too).
-    glm::vec3 CheckVec3( lua_State* L, int first );
-
     // ── The host's natives (see the note above) ─────────────────────────────
-    void RegisterHostNatives(
-         lua_State* L ); // log(), Timer.after, World.set/get/has/raycast/cameraRay, valid/destroy/call
-    void RegisterUIBindings( lua_State* L );           // ui table (data store, collections, toasts)
-    void RegisterLocalizationBindings( lua_State* L ); // loc table (text/plural/number/money/date/language)
+    void RegisterHostNatives( lua_State* L ); // log(), World.set/get/has, valid/destroy/call, the Callable factory
 } // namespace Desert::Scripting

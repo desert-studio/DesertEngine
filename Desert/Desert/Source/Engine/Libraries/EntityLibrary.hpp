@@ -6,6 +6,7 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <limits>
 #include <string>
 
 namespace Desert::Libraries
@@ -115,7 +116,43 @@ namespace Desert::Libraries
         static std::string GetShader( ECS::Entity entity );
     };
 
-    /// The world of the running script (Core::WorldContext): find, spawn.
+    /// What a trace through the world found — a port of UE's FHitResult (Engine/HitResult.h) to what Scene::Raycast
+    /// measures: whether something blocked the trace, where and with which surface normal, how far along it and the
+    /// entity hit. A miss leaves bBlockingHit false and Entity nil.
+    struct HitResult
+    {
+        REFLECT( ScriptStruct )
+
+        PROPERTY()
+        bool bBlockingHit = false;
+
+        PROPERTY()
+        float Distance = 0.0f; // from the trace's origin to Location, world units (cm)
+
+        PROPERTY()
+        glm::vec3 Location = glm::vec3( 0.0f );
+
+        PROPERTY()
+        glm::vec3 Normal = glm::vec3( 0.0f, 1.0f, 0.0f );
+
+        PROPERTY()
+        ECS::Entity Entity;
+    };
+
+    /// A ray in the world: where it starts and the unit direction it travels (UE's DeprojectScreenPositionToWorld
+    /// pair WorldLocation / WorldDirection).
+    struct WorldRay
+    {
+        REFLECT( ScriptStruct )
+
+        PROPERTY()
+        glm::vec3 Origin = glm::vec3( 0.0f );
+
+        PROPERTY()
+        glm::vec3 Direction = glm::vec3( 0.0f, 0.0f, -1.0f );
+    };
+
+    /// The world of the running script (Core::WorldContext): find, spawn, trace.
     struct WorldLibrary
     {
         REFLECT( ScriptName( "World" ) )
@@ -129,5 +166,15 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptName( "spawnMarker" ),
                   Tooltip( "A debug sphere drawn with the DebugColor template." ) )
         static ECS::Entity SpawnMarker( const glm::vec3& position, float scale, const glm::vec3& color );
+
+        FUNCTION( ScriptCallable, ScriptName( "raycast" ),
+                  Tooltip( "The nearest static-mesh or landscape hit along a ray, within maxDistance (unbounded by "
+                           "default)." ) )
+        static HitResult Raycast( const glm::vec3& origin, const glm::vec3& direction,
+                                  float maxDistance = std::numeric_limits<float>::max() );
+
+        FUNCTION( ScriptCallable, ScriptName( "cameraRay" ),
+                  Tooltip( "The active camera's eye ray (looking down -Z from the origin when there is no camera)." ) )
+        static WorldRay CameraRay();
     };
 } // namespace Desert::Libraries

@@ -1,6 +1,6 @@
 // UIL1: a script's ui.list_* calls reach the collection a UIListView reads.
 //
-// Runs the REAL registration (Scripting::RegisterUIBindings) on the real Luau runtime, so what is pinned is
+// Runs the REAL binding (Libraries::UILibrary, bound by reflection) on the real Luau runtime, so what is pinned is
 // the table a gameplay script sees, not a re-statement of it: the 1-based index a script passes lands on
 // the 0-based record the list draws, a record's fields keep their types, and a bad write comes back to the
 // script as ( false, reason ) instead of vanishing.
@@ -21,7 +21,7 @@ namespace
 
     struct Lua
     {
-        Scripting::LuauRuntime Runtime{ Scripting::LuauLimits{}, &Scripting::RegisterUIBindings };
+        Scripting::LuauRuntime Runtime{ Scripting::LuauLimits{} };
 
         Lua()
         {
@@ -71,7 +71,7 @@ namespace
 TEST( UIScriptCollections, ARecordWrittenByAScriptIsTheRecordTheListReads )
 {
     Lua lua;
-    lua.Run( R"(ui.list_add( "chat", { from = "Ann", n = 3, seen = true, tint = { 1, 0.5, 0 } } ))" );
+    lua.Run( R"(ui.list_add( "chat", { from = "Ann", n = 3, seen = true, tint = vector.create( 1, 0.5, 0 ) } ))" );
     ASSERT_EQ( Chat().Size(), 1 );
     const UI::UIDataStore& r = Chat().Record( 0 );
     EXPECT_EQ( r.Text( "from" ).value_or( "" ), "Ann" );

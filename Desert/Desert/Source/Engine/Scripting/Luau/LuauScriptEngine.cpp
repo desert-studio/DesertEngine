@@ -47,7 +47,7 @@ namespace Desert::Scripting
     {
         m_Impl->Scene   = scene;
         m_Impl->Assets  = assetManager;
-        m_Impl->Context = Core::WorldContext{ scene, assetManager };
+        m_Impl->Context = Core::WorldContext{ scene, assetManager, &m_Impl->Timers };
 
         Impl* host      = m_Impl.get();
         m_Impl->Runtime = std::make_unique<LuauRuntime>( LuauLimits{},
@@ -60,8 +60,6 @@ namespace Desert::Scripting
                                                              lua_pop( L, 1 );
 
                                                              RegisterHostNatives( L );
-                                                             RegisterUIBindings( L );
-                                                             RegisterLocalizationBindings( L );
                                                          } );
     }
 
@@ -93,8 +91,8 @@ namespace Desert::Scripting
 
         Impl&          impl = *m_Impl;
         const uint64_t key  = Impl::SlotKey( entity, slot );
-        // The replaced sandbox's timers are stale whether or not the new code runs.
-        impl.DropTimers( [key]( const Impl::PendingTimer& t ) { return t.Owner == key; } );
+        // The replaced sandbox's callables (its pending timers) are stale whether or not the new code runs.
+        ++impl.Generations[key];
         impl.LastUpdateError.erase( key ); // fresh sandbox -> fresh error state
 
         entt::registry*    registry = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
@@ -148,8 +146,6 @@ namespace Desert::Scripting
                     Runtime->Release( slot );
             Slots.erase( it );
         }
-        DropTimers( [entity]( const PendingTimer& t )
-                    { return static_cast<uint32_t>( t.Owner >> 32 ) == entity; } );
     }
 
     void ScriptEngine::CallStart( uint32_t entity, uint32_t slot )
@@ -237,43 +233,12 @@ namespace Desert::Scripting
                     m_Impl->Runtime->Release( it->second[i] );
             it->second.resize( count );
         }
-        m_Impl->DropTimers(
-             [entity, count]( const Impl::PendingTimer& t )
-             {
-                 return static_cast<uint32_t>( t.Owner >> 32 ) == entity &&
-                        static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) >= count;
-             } );
     }
 
     void ScriptEngine::TickTimers( float dt )
     {
-        Impl&                           impl = *m_Impl;
-        std::vector<Impl::PendingTimer> due;
-        for ( auto it = impl.Timers.begin(); it != impl.Timers.end(); )
-        {
-            it->Remaining -= dt;
-            if ( it->Remaining <= 0.0f )
-            {
-                due.push_back( *it );
-                it = impl.Timers.erase( it );
-            }
-            else
-                ++it;
-        }
-        for ( const Impl::PendingTimer& t : due )
-        {
-            const LuauSlot slot = impl.SlotOf( static_cast<uint32_t>( t.Owner >> 32 ),
-                                               static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) );
-            if ( slot != 0 )
-            {
-                impl.CurrentOwner = t.Owner; // a re-arm inherits the same (entity, slot)
-                const Core::WorldContext::Scope world( impl.Context );
-                if ( Common::BoolResultStr r = impl.Runtime->CallRef( slot, t.Fn ); !r.IsSuccess() )
-                    LOG_ERROR( "[Lua] Timer.after error: {}", r.GetError() );
-            }
-            impl.Runtime->Unref( t.Fn );
-            impl.Settle();
-        }
+        // A callable of a released or reloaded slot is dead (Impl::Generations) and is dropped unfired.
+        m_Impl->Timers.Tick( dt );
     }
 
     std::vector<ScriptProperty> ReadScriptProperties( const std::string& path )

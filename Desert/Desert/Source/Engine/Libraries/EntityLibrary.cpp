@@ -1,7 +1,9 @@
 #include <Engine/Libraries/EntityLibrary.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/Math/Ray.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Camera.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -353,5 +355,46 @@ namespace Desert::Libraries
         mc.ShaderName = template_->GetMetadata().Filepath.stem().string();
         mc.Params.push_back( ECS::MaterialParamOverride{ "Color", glm::vec4( color, 1.0f ) } );
         return e;
+    }
+
+    HitResult WorldLibrary::Raycast( const glm::vec3& origin, const glm::vec3& direction, float maxDistance )
+    {
+        HitResult   result;
+        const float length = glm::length( direction );
+        if ( length <= 0.0f )
+        {
+            LOG_ERROR( "[Script] World.raycast: the direction is a zero vector" );
+            return result;
+        }
+        const glm::vec3           unit    = direction / length;
+        const Core::WorldContext* context = World( "raycast" );
+        if ( context == nullptr )
+            return result;
+
+        Core::RaycastHit hit;
+        if ( !context->World->Raycast( Common::Math::Ray( origin, unit ), hit ) || hit.Distance > maxDistance )
+            return result;
+        result.bBlockingHit = true;
+        result.Distance     = hit.Distance;
+        result.Location     = hit.Point;
+        result.Normal       = hit.Normal;
+        if ( auto found = context->World->FindEntityByID( hit.Entity ) )
+            result.Entity = ECS::Entity( found->get().GetHandle(), context->World->GetRegistry() );
+        return result;
+    }
+
+    WorldRay WorldLibrary::CameraRay()
+    {
+        WorldRay                  ray;
+        const Core::WorldContext* context = World( "cameraRay" );
+        if ( context == nullptr )
+            return ray;
+        if ( auto camera = context->World->GetActiveCamera() )
+        {
+            const glm::mat4 inverse = glm::inverse( camera->GetViewMatrix() );
+            ray.Origin              = glm::vec3( inverse[3] );
+            ray.Direction           = -glm::normalize( glm::vec3( inverse[2] ) );
+        }
+        return ray;
     }
 } // namespace Desert::Libraries

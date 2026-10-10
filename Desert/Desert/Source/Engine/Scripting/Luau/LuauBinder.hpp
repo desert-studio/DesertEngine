@@ -42,10 +42,25 @@ namespace Desert::Scripting::LuauBinder
     /// Pushes `binding` as an object: tagged userdata owning a copy of the binding (destroyed by the VM).
     void PushObject( lua_State* L, const LuauBinding& binding );
 
-    /// Pushes a Value in its Luau form: number, boolean, string, vector (Vec2 has z = 0), {x,y,z,w} for Vec4.
+    /// Pushes a Value in its Luau form: number, boolean, string, vector (Vec2 has z = 0), {x,y,z,w} for Vec4, a
+    /// table for an Array (1-based), a Map or a Struct (its fields by name), a function for a Callable.
     void PushValue( lua_State* L, const Reflection::Value& value );
 
-    /// The value at `index` as a Value of kind `expected`, or nullopt with `why` set.
+    /// The value at `index` as a Value of kind `expected`, or nullopt with `why` set. A table is an Array (a
+    /// sequence) or a Map (string keys), its elements in their own Luau kinds; a function is a Callable made by the
+    /// host's factory (none installed: refused).
     std::optional<Reflection::Value> ToValue( lua_State* L, int index, Reflection::FieldType expected,
                                               std::string& why );
+
+    /// The value at `index` as the argument `param` takes: an Array / Map element as param.ElementType, a Struct
+    /// (or a list of them) field by field as the reflected type declares it; anything else as ToValue.
+    std::optional<Reflection::Value> ToParamValue( lua_State* L, int index, const Reflection::ParamInfo& param,
+                                                   std::string& why );
+
+    /// Makes a Callable of the Luau function at `index`. The SCRIPT HOST's: it pins the function and knows the
+    /// script that owns it, so the callable dies with that script (LuauHostNatives.cpp).
+    using CallableFactory = std::optional<Reflection::Callable> ( * )( lua_State* L, int index, std::string& why );
+
+    /// Installs `factory` (a pointer to a static) for every later function -> Callable conversion on this VM.
+    void SetCallableFactory( lua_State* L, const CallableFactory* factory );
 } // namespace Desert::Scripting::LuauBinder

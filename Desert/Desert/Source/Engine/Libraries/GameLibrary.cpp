@@ -3,6 +3,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Audio/AudioEngine.hpp>
 #include <Engine/Core/LevelTravel.hpp>
+#include <Engine/Core/TimerManager.hpp>
+#include <Engine/Core/WorldContext.hpp>
 #include <Engine/Project/GameSettings.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 
@@ -49,5 +51,16 @@ namespace Desert::Libraries
         if ( !opened )
             LOG_ERROR( "[Script] level.open('{}'): {}", level, opened.GetError() );
         return static_cast<bool>( opened );
+    }
+
+    void TimerLibrary::After( float seconds, const Reflection::Callable& callback )
+    {
+        const Core::WorldContext* context = Core::WorldContext::Current();
+        if ( context == nullptr || context->Timers == nullptr )
+        {
+            LOG_ERROR( "[Script] Timer.after: no world with timers runs this call" );
+            return;
+        }
+        context->Timers->After( seconds, callback );
     }
 } // namespace Desert::Libraries

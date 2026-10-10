@@ -31,6 +31,12 @@ namespace Desert::Scripting::LuauBinder
         /// The userdata tag of a container field's list view (ContainerView).
         constexpr int kContainerTag = 2;
 
+        /// The userdata tag of an engine Callable pushed to Luau (the upvalue of the function that calls it).
+        constexpr int kCallableTag = 3;
+
+        /// Registry key of the host's CallableFactory (a light userdata pointing at a static).
+        constexpr const char* kCallableFactory = "desert.callable.factory";
+
         /// The light-userdata tag of an asset handle: its 64-bit id rides in the pointer bits, because a Luau
         /// number is a double and would round an id above 2^53. Compared by ==, passed back to a handle field.
         constexpr int kAssetHandleTag = 1;
@@ -72,21 +78,33 @@ namespace Desert::Scripting::LuauBinder
             return nullptr;
         }
 
-        /// Calls `function` with the arguments from stack slot `first` on; pushes its results.
+        /// Calls `function` with the arguments from stack slot `first` on; pushes its results. Arguments left out
+        /// at the end — or passed as nil there — take their parameters' defaults (FunctionInfo::Invoke fills them).
         int Invoke( lua_State* L, const FunctionInfo& function, void* self, int first )
         {
-            const int given = lua_gettop( L ) - first + 1;
-            if ( given != static_cast<int>( function.Params.size() ) )
-                luaL_errorL( L, "%s.%s takes %d argument(s), got %d", function.Owner.c_str(),
-                             function.Name.c_str(), static_cast<int>( function.Params.size() ), given );
+            const int total    = static_cast<int>( function.Params.size() );
+            int       required = total;
+            while ( required > 0 && function.Params[required - 1].Default != nullptr )
+                --required;
+            int given = lua_gettop( L ) - first + 1;
+            while ( given > required && lua_isnil( L, first + given - 1 ) )
+                --given;
+            if ( given < required || given > total )
+            {
+                if ( required == total )
+                    luaL_errorL( L, "%s.%s takes %d argument(s), got %d", function.Owner.c_str(),
+                                 function.Name.c_str(), total, given );
+                luaL_errorL( L, "%s.%s takes %d to %d argument(s), got %d", function.Owner.c_str(),
+                             function.Name.c_str(), required, total, given );
+            }
 
             std::vector<Value> args;
-            args.reserve( function.Params.size() );
-            for ( std::size_t i = 0; i < function.Params.size(); ++i )
+            args.reserve( static_cast<std::size_t>( given ) );
+            for ( std::size_t i = 0; i < static_cast<std::size_t>( given ); ++i )
             {
                 std::string                why;
                 const std::optional<Value> value =
-                     ToValue( L, first + static_cast<int>( i ), function.Params[i].Type, why );
+                     ToParamValue( L, first + static_cast<int>( i ), function.Params[i], why );
                 if ( !value )
                     luaL_errorL( L, "%s.%s argument %d ('%s'): %s", function.Owner.c_str(), function.Name.c_str(),
                                  static_cast<int>( i ) + 1, function.Params[i].Name.c_str(), why.c_str() );
@@ -515,6 +533,152 @@ namespace Desert::Scripting::LuauBinder
             lua_pop( L, 1 );
         }
 
+        /// The function a Callable is pushed as: its arguments in their own Luau kinds, its failure a Luau error.
+        int CallCallable( lua_State* L )
+        {
+            const auto* callable =
+                 static_cast<const Reflection::Callable*>( lua_touserdatatagged( L, lua_upvalueindex( 1 ), kCallableTag ) );
+            std::vector<Value> args;
+            for ( int i = 1, n = lua_gettop( L ); i <= n; ++i )
+            {
+                std::string                why;
+                const std::optional<Value> value = ToValue( L, i, FieldType::Any, why );
+                if ( !value )
+                    luaL_errorL( L, "callable argument %d: %s", i, why.c_str() );
+                args.push_back( *value );
+            }
+            if ( Common::BoolResultStr called = callable->Call( args.data(), args.size() ); !called.IsSuccess() )
+                luaL_errorL( L, "%s", called.GetError().c_str() );
+            return 0;
+        }
+
+        /// The table at `index` as a Struct of `type`: each field converted as the type declares it; a key the
+        /// type does not have is refused by name (a typo, not an open field).
+        std::optional<Value> ToStruct( lua_State* L, int index, const TypeInfo& type, std::string& why );
+
+        /// One element of a list or record (or one field of a struct) as `kind` — a Struct by its registry name.
+        std::optional<Value> ToElement( lua_State* L, int index, FieldType kind, const std::string& structName,
+                                        std::string& why )
+        {
+            if ( kind == FieldType::Struct )
+            {
+                const TypeInfo* type = Reflection::ReflectionRegistry::Get().Find( structName );
+                if ( type == nullptr )
+                {
+                    why = std::format( "the struct '{}' is not reflected", structName );
+                    return std::nullopt;
+                }
+                return ToStruct( L, index, *type, why );
+            }
+            if ( kind == FieldType::Unknown )
+                kind = FieldType::Any;
+            return ToValue( L, index, kind, why );
+        }
+
+        std::optional<Value> ToStruct( lua_State* L, int index, const TypeInfo& type, std::string& why )
+        {
+            if ( lua_type( L, index ) != LUA_TTABLE )
+            {
+                why = std::format( "expected a {} (table), got {}", type.Name, lua_typename( L, lua_type( L, index ) ) );
+                return std::nullopt;
+            }
+            const int  table = lua_absindex( L, index );
+            Value::Map fields;
+            lua_pushnil( L );
+            while ( lua_next( L, table ) != 0 )
+            {
+                if ( lua_type( L, -2 ) != LUA_TSTRING )
+                {
+                    lua_pop( L, 2 );
+                    why = std::format( "a {} has named fields only", type.Name );
+                    return std::nullopt;
+                }
+                const std::string            name  = lua_tostring( L, -2 );
+                const Reflection::FieldInfo* field = FindField( type, name.c_str() );
+                if ( field == nullptr )
+                {
+                    lua_pop( L, 2 );
+                    why = std::format( "{} has no field '{}'", type.Name, name );
+                    return std::nullopt;
+                }
+                std::optional<Value> value = ToElement(
+                     L, -1, field->Type, field->StructType != nullptr ? field->StructType->Name : field->TypeName, why );
+                if ( !value )
+                {
+                    lua_pop( L, 2 );
+                    why = std::format( "{}.{}: {}", type.Name, name, why );
+                    return std::nullopt;
+                }
+                fields.Set( name, std::move( *value ) );
+                lua_pop( L, 1 );
+            }
+            return Value::MakeStruct( type.Name, std::move( fields ) );
+        }
+
+        /// The table at `index` as an Array (`map` false) or a Map, every element as `element`.
+        std::optional<Value> ToTable( lua_State* L, int index, bool map, FieldType element,
+                                      const std::string& structName, std::string& why )
+        {
+            if ( lua_type( L, index ) != LUA_TTABLE )
+            {
+                why = std::format( "expected a {} (table), got {}", map ? "record" : "list",
+                                   lua_typename( L, lua_type( L, index ) ) );
+                return std::nullopt;
+            }
+            const int table = lua_absindex( L, index );
+            if ( !map )
+            {
+                Value::Array items;
+                const int    count = lua_objlen( L, table );
+                items.reserve( static_cast<std::size_t>( count ) );
+                for ( int i = 1; i <= count; ++i )
+                {
+                    lua_rawgeti( L, table, i );
+                    std::optional<Value> item = ToElement( L, -1, element, structName, why );
+                    lua_pop( L, 1 );
+                    if ( !item )
+                    {
+                        why = std::format( "element {}: {}", i, why );
+                        return std::nullopt;
+                    }
+                    items.push_back( std::move( *item ) );
+                }
+                return Value::MakeArray( std::move( items ) );
+            }
+            Value::Map fields;
+            lua_pushnil( L );
+            while ( lua_next( L, table ) != 0 )
+            {
+                if ( lua_type( L, -2 ) != LUA_TSTRING )
+                {
+                    lua_pop( L, 2 );
+                    why = "a record's keys are strings";
+                    return std::nullopt;
+                }
+                const std::string    name  = lua_tostring( L, -2 );
+                std::optional<Value> value = ToElement( L, -1, element, structName, why );
+                if ( !value )
+                {
+                    lua_pop( L, 2 );
+                    why = std::format( "field '{}': {}", name, why );
+                    return std::nullopt;
+                }
+                fields.Set( name, std::move( *value ) );
+                lua_pop( L, 1 );
+            }
+            return Value::MakeMap( std::move( fields ) );
+        }
+
+        void PushFields( lua_State* L, const Value::Map& fields )
+        {
+            lua_createtable( L, 0, static_cast<int>( fields.Size() ) );
+            for ( std::size_t i = 0; i < fields.Size(); ++i )
+            {
+                PushValue( L, fields.Values[i] );
+                lua_setfield( L, -2, fields.Keys[i].c_str() );
+            }
+        }
+
         void BindStaticFunctions( lua_State* L )
         {
             for ( const auto& [name, type] : Reflection::ReflectionRegistry::Get().All() )
@@ -598,10 +762,34 @@ namespace Desert::Scripting::LuauBinder
         lua_setreadonly( L, -1, 1 );
         lua_setuserdatametatable( L, kContainerTag );
 
+        lua_setuserdatadtor( L, kCallableTag, []( lua_State*, void* callable )
+                             { static_cast<Reflection::Callable*>( callable )->~Callable(); } );
+
         lua_newtable( L );
         lua_setfield( L, LUA_REGISTRYINDEX, kMethodCache );
 
         BindStaticFunctions( L );
+    }
+
+    void SetCallableFactory( lua_State* L, const CallableFactory* factory )
+    {
+        lua_pushlightuserdata( L, const_cast<CallableFactory*>( factory ) );
+        lua_setfield( L, LUA_REGISTRYINDEX, kCallableFactory );
+    }
+
+    std::optional<Value> ToParamValue( lua_State* L, int index, const Reflection::ParamInfo& param, std::string& why )
+    {
+        switch ( param.Type )
+        {
+            case FieldType::Array:
+                return ToTable( L, index, false, param.ElementType, param.StructName, why );
+            case FieldType::Map:
+                return ToTable( L, index, true, param.ElementType, param.StructName, why );
+            case FieldType::Struct:
+                return ToElement( L, index, FieldType::Struct, param.StructName, why );
+            default:
+                return ToValue( L, index, param.Type, why );
+        }
     }
 
     void SetEntityMethod( lua_State* L, const char* name, lua_CFunction method )
@@ -706,8 +894,31 @@ namespace Desert::Scripting::LuauBinder
                 PushEntity( L, *static_cast<entt::registry*>( ref.World ), static_cast<entt::entity>( ref.Id ) );
                 return;
             }
-            case FieldType::Unknown:
+            case FieldType::Array:
+            {
+                const Value::Array& items = *value.Get<Value::Array>();
+                lua_createtable( L, static_cast<int>( items.size() ), 0 );
+                for ( std::size_t i = 0; i < items.size(); ++i )
+                {
+                    PushValue( L, items[i] );
+                    lua_rawseti( L, -2, static_cast<int>( i ) + 1 );
+                }
+                return;
+            }
+            case FieldType::Map:
+                PushFields( L, *value.Get<Value::Map>() );
+                return;
             case FieldType::Struct:
+                PushFields( L, value.Get<Value::StructData>()->Fields );
+                return;
+            case FieldType::Callable:
+            {
+                void* memory = lua_newuserdatatagged( L, sizeof( Reflection::Callable ), kCallableTag );
+                new ( memory ) Reflection::Callable( *value.Get<Reflection::Callable>() );
+                lua_pushcclosure( L, CallCallable, "callable", 1 );
+                return;
+            }
+            case FieldType::Unknown:
             case FieldType::AssetHandle:
             case FieldType::Any:
                 break;
@@ -819,11 +1030,37 @@ namespace Desert::Scripting::LuauBinder
                         return ToValue( L, index, FieldType::Vec3, why );
                     case LUA_TUSERDATA:
                         return ToValue( L, index, FieldType::Entity, why );
+                    case LUA_TTABLE:
+                        // A sequence is a list; anything else (an empty table too) a record.
+                        return ToTable( L, index, lua_objlen( L, index ) == 0, FieldType::Any, {}, why );
+                    case LUA_TFUNCTION:
+                        return ToValue( L, index, FieldType::Callable, why );
                     case LUA_TNIL:
                         return Value();
                     default:
-                        return got( "a boolean, number, string, vector or entity" );
+                        return got( "a boolean, number, string, vector, entity, table or function" );
                 }
+            case FieldType::Array:
+                return ToTable( L, index, false, FieldType::Any, {}, why );
+            case FieldType::Map:
+                return ToTable( L, index, true, FieldType::Any, {}, why );
+            case FieldType::Callable:
+            {
+                if ( type != LUA_TFUNCTION )
+                    return got( "a function" );
+                lua_getfield( L, LUA_REGISTRYINDEX, kCallableFactory );
+                const auto* factory = static_cast<const CallableFactory*>( lua_tolightuserdata( L, -1 ) );
+                lua_pop( L, 1 );
+                if ( factory == nullptr )
+                {
+                    why = "this VM has no script host to keep a function for later";
+                    return std::nullopt;
+                }
+                std::optional<Reflection::Callable> callable = ( *factory )( L, index, why );
+                if ( !callable )
+                    return std::nullopt;
+                return Value::MakeCallable( std::move( *callable ) );
+            }
             case FieldType::Unknown:
             case FieldType::Struct:
                 break;

@@ -131,7 +131,8 @@ namespace
         std::string                                      name;
         std::string                                      returnType;
         std::vector<std::pair<std::string, std::string>> params; // { name, C++ spelling }
-        FunctionMeta                                     meta;
+        std::vector<std::string> defaults; // per parameter: its C++ default expression (UE's CPP_Default_), or empty
+        FunctionMeta             meta;
     };
 
     // EVENT(...) attributes (Engine/Reflection/ReflectionMacros.hpp).
@@ -155,6 +156,8 @@ namespace
         std::string           fqn;          // fully-qualified C++ name, e.g. Desert::Assets::SurfaceMaterialData
         std::string           registryName; // short name used as the registry key, e.g. SurfaceMaterialData
         std::string           scriptName;   // REFLECT( ScriptName( "..." ) ): the global a language binds
+        bool                  scriptStruct = false; // REFLECT( ScriptStruct ): travels as a Struct Value (UE's
+                                                    // USTRUCT(BlueprintType)) — the tool emits its member list
         std::vector<Field>    fields;
         std::vector<Function> functions;
         std::vector<Event>    events;
@@ -231,6 +234,7 @@ namespace
         if ( type == "glm::vec2" || type == "vec2" ) return "Vec2";
         if ( type == "glm::vec3" || type == "vec3" ) return "Vec3";
         if ( type == "glm::vec4" || type == "vec4" ) return "Vec4";
+        if ( type == "ECS::Entity" || type == "Desert::ECS::Entity" ) return "Entity";
         if ( type == "AssetHandle" || type == "Assets::AssetHandle" ||
              type == "Desert::Assets::AssetHandle" ) return "AssetHandle";
         return "Struct"; // unknown class type — resolved later by TypeName
@@ -501,6 +505,7 @@ namespace
         bool        isStruct; // struct/class vs namespace
         bool        reflected = false;
         std::string scriptName = {}; // REFLECT( ScriptName( "..." ) )
+        bool        scriptStruct = false; // REFLECT( ScriptStruct )
         std::vector<Field> fields =
              {}; // the two `scopes.push_back( { name, depth, isStruct } )` below stop here on purpose
         std::vector<Function>         functions = {};
@@ -546,10 +551,12 @@ namespace
         return text.substr( b, e - b );
     }
 
-    // The parameter list opening at `open` ('('): each parameter's { name, spelling }, a default value dropped.
-    // Returns the index of the closing ')'. A parameter without a name is an error naming `what`.
+    // The parameter list opening at `open` ('('): each parameter's { name, spelling }, and into `defaults` (when
+    // given) its default expression or an empty string. Returns the index of the closing ')'. A parameter without
+    // a name is an error naming `what`.
     size_t ParseParams( const std::string& raw, size_t open, const std::string& what,
-                        std::vector<std::pair<std::string, std::string>>& params, std::string& error )
+                        std::vector<std::pair<std::string, std::string>>& params, std::string& error,
+                        std::vector<std::string>* defaults = nullptr )
     {
         size_t close = open;
         for ( int p = 0; close < raw.size(); ++close )
@@ -565,8 +572,12 @@ namespace
         for ( const auto& paramRaw : SplitTopLevel( list ) )
         {
             std::string param = paramRaw;
+            std::string fallback;
             if ( const size_t eq = param.find( '=' ); eq != std::string::npos )
-                param = param.substr( 0, eq );
+            {
+                fallback = Trimmed( param.substr( eq + 1 ) );
+                param    = param.substr( 0, eq );
+            }
             param                   = Trimmed( param );
             const std::string pname = TrailingIdent( param );
             const std::string ptype = Trimmed( param.substr( 0, param.size() - pname.size() ) );
@@ -577,6 +588,8 @@ namespace
                 return close;
             }
             params.emplace_back( pname, ptype );
+            if ( defaults != nullptr )
+                defaults->push_back( fallback );
         }
         return close;
     }
@@ -656,7 +669,7 @@ namespace
             return raw.size();
         }
 
-        const size_t close = ParseParams( raw, open, "FUNCTION " + fn.name, fn.params, error );
+        const size_t close = ParseParams( raw, open, "FUNCTION " + fn.name, fn.params, error, &fn.defaults );
         if ( !error.empty() )
             return raw.size();
 
@@ -789,8 +802,11 @@ namespace
                                 continue;
                             if ( tok.rfind( "ScriptName", 0 ) == 0 )
                                 scopes.back().scriptName = ExtractStringLiteral( tok );
+                            else if ( tok == "ScriptStruct" )
+                                scopes.back().scriptStruct = true;
                             else
-                                fail( start, "REFLECT: unknown attribute '" + tok + "' (ScriptName(\"...\"))" );
+                                fail( start, "REFLECT: unknown attribute '" + tok +
+                                                  "' (ScriptName(\"...\"), ScriptStruct)" );
                         }
                     }
                     continue;
@@ -1060,6 +1076,7 @@ namespace
                         ReflectedType t;
                         t.registryName  = sc.name;
                         t.scriptName    = sc.scriptName;
+                        t.scriptStruct  = sc.scriptStruct;
                         t.fqn           = JoinScopes( scopes ).empty()
                                              ? sc.name
                                              : JoinScopes( scopes ) + "::" + sc.name;
@@ -1139,9 +1156,19 @@ namespace
     Common::Json::Value FunctionModel( const Function& fn )
     {
         Common::Json::Value::Array params;
-        for ( const auto& [name, cppType] : fn.params )
-            params.emplace_back(
-                 Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
+        for ( std::size_t i = 0; i < fn.params.size(); ++i )
+        {
+            // A default is emitted as C++ (the compiler converts it to the parameter's type, Function.tpl): `{}`
+            // value-initialises, anything else brace-initialises from the expression.
+            const std::string& fallback = fn.defaults[i];
+            params.emplace_back( Common::Json::ObjectBuilder()
+                                      .Set( "name", fn.params[i].first )
+                                      .Set( "cppType", fn.params[i].second )
+                                      .Set( "index", static_cast<long long>( i ) )
+                                      .Set( "hasDefault", !fallback.empty() )
+                                      .Set( "defaultInit", fallback == "{}" ? std::string() : fallback )
+                                      .Build() );
+        }
         return Common::Json::ObjectBuilder()
              .Set( "name", fn.name )
              .Set( "returnType", fn.returnType )
@@ -1180,7 +1207,8 @@ namespace
         Common::Json::Value::Array includeValues( includes.begin(), includes.end() );
 
         Common::Json::Value::Array typeValues;
-        bool                       hasFunctions = false;
+        bool                       hasFunctions     = false;
+        bool                       hasScriptStructs = false;
         for ( const auto& t : types )
         {
             Common::Json::Value::Array fields;
@@ -1192,11 +1220,13 @@ namespace
             Common::Json::Value::Array events;
             for ( const auto& ev : t.events )
                 events.push_back( EventModel( ev ) );
-            hasFunctions = hasFunctions || !t.functions.empty() || !t.events.empty();
+            hasFunctions     = hasFunctions || !t.functions.empty() || !t.events.empty();
+            hasScriptStructs = hasScriptStructs || t.scriptStruct;
             typeValues.emplace_back( Common::Json::ObjectBuilder()
                                           .Set( "fqn", t.fqn )
                                           .Set( "registryName", t.registryName )
                                           .Set( "scriptName", t.scriptName )
+                                          .Set( "scriptStruct", t.scriptStruct )
                                           .Set( "fields", Common::Json::Value( std::move( fields ) ) )
                                           .Set( "functions", Common::Json::Value( std::move( functions ) ) )
                                           .Set( "events", Common::Json::Value( std::move( events ) ) )
@@ -1207,6 +1237,8 @@ namespace
              .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
              .Set( "types", Common::Json::Value( std::move( typeValues ) ) )
              .Set( "hasFunctions", hasFunctions )
+             .Set( "hasScriptStructs", hasScriptStructs )
+             .Set( "includeThunks", hasFunctions || hasScriptStructs )
              .Build();
     }
 

@@ -2,14 +2,59 @@
 
 #include <Engine/Reflection/ReflectionTypes.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace Desert::Reflection
 {
+    class Value;
+
+    /// SOMETHING TO CALL LATER, HANDED OVER BY A LANGUAGE — UE's delegate (FTimerDelegate bound to a script
+    /// function): the engine keeps it (a timer, a callback list) and calls it without knowing which language
+    /// made it. The Target is the language's: it pins the function for as long as a copy lives, says whether
+    /// its owner is still there (a script reloaded or destroyed takes its callbacks with it), and runs the call
+    /// in the language's own context. Copies share the one target.
+    class Callable
+    {
+    public:
+        struct Target
+        {
+            virtual ~Target() = default;
+            /// Whether calling still reaches the owner it was made for.
+            [[nodiscard]] virtual bool Alive() const = 0;
+            virtual Common::BoolResultStr Call( const Value* args, std::size_t count ) = 0;
+        };
+
+        Callable() = default;
+        explicit Callable( std::shared_ptr<Target> target ) : m_Target( std::move( target ) )
+        {
+        }
+
+        [[nodiscard]] bool Alive() const
+        {
+            return m_Target != nullptr && m_Target->Alive();
+        }
+
+        /// Calls it; refused when there is nothing to call or its owner is gone.
+        Common::BoolResultStr Call( const Value* args = nullptr, std::size_t count = 0 ) const
+        {
+            if ( !Alive() )
+                return Common::MakeError<bool>( std::string( "the callable's owner is gone" ) );
+            return m_Target->Call( args, count );
+        }
+
+    private:
+        std::shared_ptr<Target> m_Target;
+    };
     /// ONE ARGUMENT OR RESULT OF A REFLECTED FUNCTION, IN NO LANGUAGE'S TERMS.
     ///
     /// The public layer every caller of a FUNCTION(...) goes through: Lua, a future VM, the editor's
@@ -41,6 +86,32 @@ namespace Desert::Reflection
         {
             void*         World = nullptr;
             std::uint32_t Id    = 0xFFFFFFFFu;
+        };
+
+        /// An ordered list (FieldType::Array).
+        using Array = std::vector<Value>;
+
+        /// String keys to Values in insertion order (FieldType::Map) — a record whose fields the receiver reads by
+        /// name. Setting a present key replaces its value in place.
+        struct Map
+        {
+            std::vector<std::string> Keys;
+            std::vector<Value>       Values;
+
+            [[nodiscard]] const Value* Find( std::string_view key ) const;
+            void                       Set( std::string key, Value value );
+            [[nodiscard]] std::size_t  Size() const
+            {
+                return Keys.size();
+            }
+        };
+
+        /// A reflected REFLECT( ScriptStruct ) type's instance as its fields (FieldType::Struct): the registry
+        /// name of the type and a Map of field name -> value (FunctionThunk.hpp, ReflectedStruct).
+        struct StructData
+        {
+            std::string Type;
+            Map         Fields;
         };
 
         /// No value: FieldType::Unknown. What a void function leaves in no slot, and what an unset slot holds.
@@ -91,6 +162,22 @@ namespace Desert::Reflection
         {
             return Value( Storage( std::in_place_type<EntityRef>, entity ) );
         }
+        static Value MakeArray( Array items )
+        {
+            return Value( Storage( std::in_place_type<Array>, std::move( items ) ) );
+        }
+        static Value MakeMap( Map fields )
+        {
+            return Value( Storage( std::in_place_type<Map>, std::move( fields ) ) );
+        }
+        static Value MakeStruct( std::string type, Map fields )
+        {
+            return Value( Storage( std::in_place_type<StructData>, StructData{ std::move( type ), std::move( fields ) } ) );
+        }
+        static Value MakeCallable( Reflection::Callable callable )
+        {
+            return Value( Storage( std::in_place_type<Reflection::Callable>, std::move( callable ) ) );
+        }
 
         [[nodiscard]] FieldType Type() const
         {
@@ -99,6 +186,7 @@ namespace Desert::Reflection
                  FieldType::Unknown, FieldType::Bool,   FieldType::Int,    FieldType::UInt,
                  FieldType::Float,   FieldType::Double, FieldType::String, FieldType::Vec2,
                  FieldType::Vec3,    FieldType::Vec4,   FieldType::Enum,   FieldType::Entity,
+                 FieldType::Array,   FieldType::Map,    FieldType::Struct, FieldType::Callable,
             };
             return kTypes[m_Data.index()];
         }
@@ -112,7 +200,8 @@ namespace Desert::Reflection
 
     private:
         using Storage = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, float, double, std::string,
-                                     Float2, Float3, Float4, EnumBits, EntityRef>;
+                                     Float2, Float3, Float4, EnumBits, EntityRef, Array, Map, StructData,
+                                     Reflection::Callable>;
 
         explicit Value( Storage data ) : m_Data( std::move( data ) )
         {
@@ -120,6 +209,26 @@ namespace Desert::Reflection
 
         Storage m_Data;
     };
+
+    inline const Value* Value::Map::Find( std::string_view key ) const
+    {
+        for ( std::size_t i = 0; i < Keys.size(); ++i )
+            if ( Keys[i] == key )
+                return &Values[i];
+        return nullptr;
+    }
+
+    inline void Value::Map::Set( std::string key, Value value )
+    {
+        for ( std::size_t i = 0; i < Keys.size(); ++i )
+            if ( Keys[i] == key )
+            {
+                Values[i] = std::move( value );
+                return;
+            }
+        Keys.push_back( std::move( key ) );
+        Values.push_back( std::move( value ) );
+    }
 
     /// The spelling of a FieldType in a diagnostic ("Float", "Vec3"), so an argument mismatch names both kinds.
     [[nodiscard]] const char* FieldTypeName( FieldType type );

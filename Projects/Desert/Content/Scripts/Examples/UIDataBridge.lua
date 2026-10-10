@@ -5,7 +5,7 @@
 -- file — and the UI keeps working in the editor (an unset key falls back to the authored value).
 --
 -- Showcases the bridge:
---   ui.set( key, value )      -- number / string / bool, or ( key, r, g, b ) for a colour
+--   ui.set( key, value )      -- number / string / bool, or a vector r, g, b for a colour
 --   ui.get( key ) / ui.has()  -- read it back
 --   ui.send( msg )            -- raise a UI message yourself
 --   OnUIMessage( msg )        -- hear every button action, pointer event and drop the canvas produced
