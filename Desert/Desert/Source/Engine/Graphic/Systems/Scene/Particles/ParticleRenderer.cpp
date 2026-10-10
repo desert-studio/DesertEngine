@@ -522,7 +522,11 @@ namespace Desert::Graphic::System
                  {
                      if ( !IsDrawn( ve ) )
                          continue;
-                     SpriteDraw&             sprite = *ve.Sprite;
+                     SpriteDraw& sprite = *ve.Sprite;
+                     // Still in the driver (PSO1): not drawn this frame and not a fault — an engine pipeline is
+                     // counted by PipelineBuilds, so no gated frame is shown without it. Failed still faults.
+                     if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                         continue;
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
                      sprite.Material->SetMaterialIndex( ve.Row );
                      sprite.Material->Bind( sprite.Instance.get() );

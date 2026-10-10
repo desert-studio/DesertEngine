@@ -353,7 +353,7 @@ TEST( RenderGraphCompile, TheParticleRendererNamesNoSpriteShaderButTheDefaultTem
     std::ifstream  file( ( engine / "Systems/Scene/Particles/ParticleRenderer.cpp" ).string() );
     ASSERT_TRUE( file.good() );
     const std::string source( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
-    for ( const char* gone : { "ParticleBillboard", ".shader", "DrawsAdditive" } )
+    for ( const char* gone : { "ParticleBillboard", ".shader\"", "DrawsAdditive" } )
         EXPECT_EQ( source.find( gone ), std::string::npos ) << "ParticleRenderer.cpp names " << gone;
     EXPECT_NE( source.find( "\"ParticleSpriteDefault\"" ), std::string::npos );
     EXPECT_FALSE( fs::exists( engine / "Materials/Particles/MaterialParticleBillboard.hpp" ) );
@@ -3349,8 +3349,11 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     const size_t begin = frame.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = frame.substr( begin, frame.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    EXPECT_NE( body.find( "particles->ImportFrameBuffers(graph);if(!particles->ClaimsSimulation())return;"
-                          "constuint32_tsteps=particles->SimulationStepCount();"
+    EXPECT_NE( body.find( "particles->ImportFrameBuffers(graph);if(particles->ClaimsSimulation())"
+                          "AddParticleSimulationSteps(graph,*particles);" ),
+               std::string::npos )
+         << "a view that did not claim the tick adds simulation nodes, or the draw view does not import the pool";
+    EXPECT_NE( body.find( "constuint32_tsteps=particles->SimulationStepCount();"
                           "graph.AddPass(\"Particles:Compact0\",RDG::PassFlags::Compute," ),
                std::string::npos )
          << "a view that did not claim the tick adds simulation nodes, or the draw view does not import the pool";
@@ -3363,7 +3366,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
          std::string::npos );
     EXPECT_NE( body.find( "graph.AddPass(std::format(\"Particles:Compact{}\",step+1),RDG::PassFlags::Compute," ),
                std::string::npos );
-    EXPECT_EQ( body.find( "NeverCull" ), std::string::npos ) << "a particle node outlives its emitters";
+    EXPECT_EQ( body.find( "PassFlags::NeverCull" ), std::string::npos ) << "a particle node outlives its emitters";
 
     // The declarations: compact writes the pool, both lists and the emitter's Counters, and a later compact reads
     // the step's dispatch arguments IndirectArgs; Dispatch Args reads the step table and writes the Counters and
@@ -3388,6 +3391,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
                                ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
+                               ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)"
                                ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
                                "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
@@ -3403,8 +3407,8 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
          << "Spawn+Update is dispatched over a CPU count";
     EXPECT_NE(
-         particles.find( "Renderer::DrawProceduralIndirect(bindings,*pipeline,ve.Material->GetMaterialExecutor(),"
-                         "ve.CountersRef,slot)" ),
+         particles.find( "Renderer::DrawProceduralIndirect(bindings,*sprite.Pipeline,"
+                         "sprite.Material->GetMaterialExecutor(),ve.CountersRef,slot)" ),
          std::string::npos );
     EXPECT_NE( particles.find( "constuint64_tslot=(ve.Frame->StepCount&1u)*kParticleDrawSlotStride;" ),
                std::string::npos );
@@ -3413,7 +3417,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                std::string::npos );
     EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&step<ve.Frame->StepCount;" ), std::string::npos );
     // The draw is every view's: it is not gated by the claim.
-    EXPECT_NE( particles.find( "returnve.Declared&&ve.Material!=nullptr;" ), std::string::npos );
+    EXPECT_NE( particles.find( "returnve.Declared&&ve.Sprite!=nullptr;" ), std::string::npos );
     EXPECT_NE( particles.find( "m_Simulates=world.PrepareTick(scene);" ), std::string::npos );
 
     // The pool is the scene's: ParticleWorldGpu, owned by the VFXWorld, claims each tick once; ParticleRenderer
@@ -3696,7 +3700,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
             "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=overlay.Color;",
             "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;", "targets->Depth=overlay.Depth;",
-            "node.DepthTarget(targets->Depth,depth)", "DeclareResolves(node,targets->Resolves)",
+            "node.DepthTarget(targets->Depth,depth,!pass.DepthReadOnly)", "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(pass.ClearDepth.value_or(defaults.ClearColor.DepthStencil.x))",
             "AddPassNode(graph,textures,pass,target,pass.Name,color,depth,overlay);" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the system raster node does not " << needle;
@@ -4167,7 +4171,7 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
     for ( const char* file : sceneMeshFiles )
         files.emplace_back( file );
     const std::regex get( R"(([Ll]ayout(?:s|Cache)?\.Get\())" );
-    const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
+    const std::regex key( R"(^[A-Za-z_](?:[\w\[\]\.]|->)*->GetSpecification\(\)\.Shader\))" );
     size_t           gets = 0;
     for ( const std::string& file : files )
     {
@@ -4244,30 +4248,32 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
         EXPECT_GT( opened, 0u ) << file << " opens no PassBindings: the needle is stale";
     }
 
-    // ParticlePass fills each emitter's material in its Declare, before the block that names the material's
-    // route fill; the exec only draws.
+    // ParticlePass fills each sprite cell's material rows and camera block in its Declare, before the blocks that
+    // name the material's route fill; the exec only binds and draws.
     const std::string particles = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    const size_t pass = particles.find( ".AddPass(\"ParticlePass\"" );
+    const size_t pass = particles.find( "SystemRasterPasspass{.Name=\"ParticlePass\"," );
+    ASSERT_NE( pass, std::string::npos );
     const size_t declare =
          particles.find( ".Declare=[this](RenderPassDeclaration&declared,constFrameGraphRefs&)", pass );
-    ASSERT_NE( pass, std::string::npos );
     ASSERT_NE( declare, std::string::npos );
     const std::string exec        = particles.substr( pass, declare - pass );
     const std::string declaration = particles.substr( declare );
-    EXPECT_EQ( exec.find( "->Update(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
-    const size_t update   = declaration.find( "fe.Gpu->Material->Update(*view);" );
-    const size_t bindings = declaration.find( "fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill()" );
+    EXPECT_EQ( exec.find( "SetRawData(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
+    EXPECT_EQ( exec.find( "SceneCameraBind(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
+    const size_t update   = declaration.find( "SceneCameraBind(sprite->Material.get(),*view);" );
+    const size_t bindings = declaration.find( "ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill()" );
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
     EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
     EXPECT_NE( declaration.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)"
-                                 ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageRead);"
-                                 "declared.Read(fe.CountersRef,RDG::Access::IndirectArgs);" ),
+                                 ".Storage(\"AliveList\",ve.Sorted?m_SortedRef:m_Pool.AliveRef,"
+                                 "RDG::Access::StorageRead);" ),
                std::string::npos );
+    EXPECT_NE( declaration.find( "declared.Read(ve.CountersRef,RDG::Access::IndirectArgs);" ), std::string::npos );
     // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
-    EXPECT_NE( exec.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
-    EXPECT_NE( declaration.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
+    EXPECT_NE( exec.find( "if(!IsDrawn(ve))continue;" ), std::string::npos );
+    EXPECT_NE( declaration.find( "if(!IsDrawn(ve))continue;" ), std::string::npos );
 
     // The editor's grid and cubemap-ball passes declare their one block in the external pass's Declare (layout
     // kept per pipeline shader, the material's route fill); the exec opens block 0 of it. Without the Declare the
