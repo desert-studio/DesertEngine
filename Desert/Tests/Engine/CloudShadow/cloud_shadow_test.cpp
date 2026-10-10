@@ -27,6 +27,7 @@
 // compiled AS C++ through CloudShadowReference.hpp, so every assertion is about the text the GPU runs.
 
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/source_roots.hpp"
 #include "CloudShadowReference.hpp"
 
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
@@ -1030,12 +1031,12 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
     // writer, CloudShadowUpload. A material that assembles the block itself is free to decide differently
     // what `Params.y` means, and the symptom is one render path shading with a shadow the other has
     // switched off.
-    const std::filesystem::path engine = RepositoryRoot() / "Desert" / "Desert" / "Source";
-    ASSERT_TRUE( std::filesystem::exists( engine ) ) << engine.string();
-
+    // Every library the engine is built on: a material outside Desert/Desert packs the block just as well.
     int declarations = 0;
     int writers      = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( engine ) )
+    for ( const std::filesystem::path& tree :
+          Desert::TestSupport::Under( RepositoryRoot(), Desert::TestSupport::EngineRoots() ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( tree ) )
     {
         if ( !entry.is_regular_file() )
             continue;

@@ -30,6 +30,8 @@
 
 #include <gtest/gtest.h>
 
+#include "TestSupport/source_roots.hpp"
+
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -164,10 +166,11 @@ TEST( AsyncAssetPump, NoProductionSourceReadsAConvertedKindSynchronously )
     const std::regex blockingRead(
          R"((CloudNoiseVolumeAsset|CloudModellingVolumeAsset|CloudLayoutAsset)[^;{}]{0,200}->Load\(\))" );
 
-    // WHERE THE CENSUS LOOKS. Engine and both hosts; NOT the editor panels, which load a file the user
-    // just picked in a dialog and are the one place a synchronous read is the correct answer -- the user
-    // is waiting for that exact file and there is nothing else to show them.
-    const std::vector<std::string> roots = { "Desert/Desert/Source/Engine", "Runtime/Source" };
+    // WHERE THE CENSUS LOOKS. The engine with the libraries it is built on, and the runtime host; NOT the
+    // editor panels, which load a file the user just picked in a dialog and are the one place a synchronous
+    // read is the correct answer -- the user is waiting for that exact file and there is nothing else to show
+    // them.
+    const std::vector<std::string> roots = Desert::TestSupport::EngineRootsAnd( { "Runtime/Source" } );
 
     std::vector<std::string> offences;
     size_t                   scanned = 0;

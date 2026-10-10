@@ -213,4 +213,32 @@ namespace
         }
         EXPECT_GT( checked, 250u ) << "the census walked almost nothing: it would pass blind";
     }
+
+    // The libraries beside the engine (Common, Render2DCore, DesertUI, CoreReflection and whichever comes next
+    // under Desert/) are CPU-side WHOLE: the GPU half of 2D drawing is Render2D, in the engine, and nothing the
+    // engine is built on may reach back down to Vulkan or the window system. Every file of every such tree.
+    TEST( EngineIncludeLayering, LibrariesBesideTheEngineReachNoGpuApiHeader )
+    {
+        const fs::path root = RepoRoot();
+        IncludeGraph   graph( root );
+        size_t         checked = 0;
+        for ( const std::string& library : Desert::TestSupport::LibraryRoots() )
+        {
+            if ( library == "Desert/Desert/Source" )
+                continue;
+            for ( const auto& entry : fs::recursive_directory_iterator( root / library ) )
+            {
+                const std::string ext = entry.path().extension().string();
+                if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                    continue;
+                ++checked;
+                const auto chain = graph.ChainToForbidden( entry.path().lexically_normal() );
+                EXPECT_FALSE( chain.has_value() )
+                     << fs::relative( entry.path(), root ).generic_string()
+                     << " reaches a GPU/window header: " << chain.value_or( "" )
+                     << ". A library beside the engine is CPU-side; the GPU part belongs in the engine";
+            }
+        }
+        EXPECT_GT( checked, 100u ) << "the census walked almost nothing: it would pass blind";
+    }
 } // namespace
