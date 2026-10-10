@@ -107,6 +107,11 @@ namespace Desert::Assets
         // A WATER WAVE SET (`.dwaves`): UE's UWaterWavesAsset — a seeded Gerstner generator whose waves every
         // water body naming it shares. See Engine/Assets/WaterWavesAsset.hpp.
         WaterWaves,
+        // A SOUND (`.desound`): UE's USoundWave — a text asset naming its imported source file (.wav/.ogg/
+        // .mp3/.flac beside it) under a GUID. Every reference to a sound (a sequence's Audio section, an
+        // AudioSourceComponent) names this GUID; the source path lives only here — see
+        // Engine/Assets/SoundAsset.hpp.
+        Sound,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -203,6 +208,9 @@ namespace Desert::Assets
             // A WAVE SET IS SCENE-SCOPED for the retarget's reason: the water body that names it holds its
             // `AssetHandle`, and a wave set no live entity names displaces nothing.
             case AssetTypeID::WaterWaves:
+            // A SOUND IS SCENE-SCOPED for the retarget's reason: `AudioSourceData::Sound` is an `AssetHandle`
+            // held by a live entity.
+            case AssetTypeID::Sound:
             case AssetTypeID::Count:
                 return false;
         }
@@ -275,6 +283,8 @@ namespace Desert::Assets
                 return "Fracture";
             case AssetTypeID::WaterWaves:
                 return "WaterWaves";
+            case AssetTypeID::Sound:
+                return "Sound";
             case AssetTypeID::Count:
                 return "Count";
         }

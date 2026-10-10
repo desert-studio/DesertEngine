@@ -52,6 +52,7 @@
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -188,6 +189,8 @@ namespace
              { AssetTypeID::WaterWaves, "WaterWavesAsset", &HandleOf<Desert::Assets::WaterWavesAsset>,
                &MetadataTypeOf<Desert::Assets::WaterWavesAsset>,
                &DeclaredTypeOf<Desert::Assets::WaterWavesAsset> },
+             { AssetTypeID::Sound, "SoundAsset", &HandleOf<Desert::Assets::SoundAsset>,
+               &MetadataTypeOf<Desert::Assets::SoundAsset>, &DeclaredTypeOf<Desert::Assets::SoundAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1328,6 +1331,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::VFXSystem,
          AssetTypeID::Fracture,
          AssetTypeID::WaterWaves,
+         AssetTypeID::Sound,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

@@ -484,6 +484,9 @@ namespace Desert::Editor
         [[nodiscard]] ECS::UIAnimData* ResolveUIClip();
         // "Key this lane at the playhead", shared by the lane's + button and by the palette action.
         void AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane );
+        // UE's Audio section Details (UMovieSceneAudioSection): sound, range, start offset, volume, fades —
+        // each change one undo step of the clip's transaction.
+        void DrawUIAudioSectionDetails( ECS::UIAnimData& clip, size_t trackIndex, size_t sectionIndex );
 
         // The two edges of a HELD widget in the UI timeline (a Duration drag, a key's value field), in one
         // place. See the definition for why it closes on IsItemDeactivated and not on the AfterEdit form.
@@ -602,6 +605,10 @@ namespace Desert::Editor
         // UI-clip editing state (which lane/key is selected in UI mode).
         int m_UITrack = -1;
         int m_UIKey   = -1;
+        /// The selected section of an Audio lane (m_UITrack is its track); -1 when a key, or nothing, is.
+        int m_UIAudioSection = -1;
+        /// "+ Track > Audio"'s sound: an Assets-relative path, as AudioSectionContent::Sound names it.
+        Common::Content::AssetGuid m_UIAudioSound; // the `.desound` the next "+ Track > Audio" plays
 
         // ── SECTION AUTHORING STATE ───────────────────────────────────────────────────────────────
         //

@@ -1,5 +1,7 @@
 #include "AudioEngine.hpp"
 
+#include <algorithm>
+
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -192,6 +194,20 @@ namespace Desert::Audio
         if ( auto it = m_Impl->Sounds.find( id ); it != m_Impl->Sounds.end() )
             return ma_sound_is_playing( &it->second->Handle ) == MA_TRUE;
         return false;
+    }
+
+    void AudioEngine::SeekSource( uint32_t id, double seconds )
+    {
+        auto it = m_Impl->Sounds.find( id );
+        if ( it == m_Impl->Sounds.end() )
+            return;
+        ma_uint32 sampleRate = 0;
+        if ( ma_sound_get_data_format( &it->second->Handle, nullptr, nullptr, &sampleRate, nullptr, 0 ) !=
+                  MA_SUCCESS ||
+             sampleRate == 0 )
+            return;
+        const double frame = std::max( seconds, 0.0 ) * static_cast<double>( sampleRate );
+        ma_sound_seek_to_pcm_frame( &it->second->Handle, static_cast<ma_uint64>( frame ) );
     }
 
     void AudioEngine::SetSourcePosition( uint32_t id, const glm::vec3& position )

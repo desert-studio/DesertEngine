@@ -1,0 +1,30 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "3feb82e6fdd243d1898b62681b2661af",
+        "Versions": {
+            "MATL": 4
+        },
+        "Dependencies": ["9a7faa02cb9a4624ba264b8527e6dde8"]
+    },
+    "Shader": {
+        "Guid": "9a7faa02cb9a4624ba264b8527e6dde8",
+        "Path": "engine:Shaders/Programs/UI/UIMatRadialGlow.shader"
+    },
+    "Params": [
+        {
+            "Name": "Tint",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "Inner",
+            "Value": [0.32, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Exponent",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}

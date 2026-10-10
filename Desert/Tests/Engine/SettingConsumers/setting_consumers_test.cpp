@@ -652,7 +652,7 @@ namespace
     };
 
     constexpr Row kAudioRows[] = {
-         { "Clip", kAudioSystem },     { "Volume", kAudioSystem },  { "Loop", kAudioSystem },
+         { "Sound", kAudioSystem },    { "Volume", kAudioSystem },  { "Loop", kAudioSystem },
          { "AutoPlay", kAudioSystem }, { "Spatial", kAudioSystem },
     };
 

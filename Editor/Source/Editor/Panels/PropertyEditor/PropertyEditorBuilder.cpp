@@ -9,6 +9,7 @@
 #include <Engine/Graphic/ColorTemperature.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
@@ -804,6 +805,42 @@ namespace Desert::Editor
                     }
                     if ( ImGui::IsItemHovered() )
                         ImGui::SetTooltip( "Pick a vector icon or drag an .svg here from the Content Browser" );
+                    break;
+                }
+
+                // Sound slot (UE's USoundWave picker): every `.desound` the content registry lists; the slot
+                // holds the sound's GUID handle, and the audio file is the asset's to name.
+                if ( field.Meta.AssetType == "SoundAsset" )
+                {
+                    uint64_t*   handle   = static_cast<uint64_t*>( p );
+                    const auto& registry = Assets::ContentRegistry::Get();
+                    const auto* current  = *handle == 0 ? nullptr : registry.FindByHandle( *handle );
+                    const std::string display = *handle == 0       ? "None"
+                                                : current == nullptr ? "(missing)"
+                                                                     : std::filesystem::path( current->Key ).stem().string();
+                    if ( ImGui::BeginCombo( "##sound", display.c_str() ) )
+                    {
+                        if ( ImGui::Selectable( "None", *handle == 0 ) && *handle != 0 )
+                        {
+                            *handle = 0;
+                            changed = true;
+                        }
+                        for ( const auto* row : registry.OfKind(
+                                   Common::Content::KindName( Common::Content::ContentKind::Sound ) ) )
+                        {
+                            if ( !row->Guid.has_value() )
+                                continue;
+                            const uint64_t h =
+                                 static_cast<uint64_t>( Common::Content::HandleForGuid( *row->Guid ) );
+                            const std::string name = std::filesystem::path( row->Key ).stem().string();
+                            if ( ImGui::Selectable( name.c_str(), h == *handle ) && h != *handle )
+                            {
+                                *handle = h;
+                                changed = true;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
                     break;
                 }
 

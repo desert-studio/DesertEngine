@@ -80,6 +80,7 @@ namespace Common::Content
         VFXSystem,
         Fracture,
         WaterWaves,
+        Sound,
         COUNT,
     };
 
@@ -171,6 +172,9 @@ namespace Common::Content
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
              // UE's UWaterWavesAsset: a seeded Gerstner generator (Engine/Assets/Serialization/WaterWaves.hpp).
              /* WaterWaves           */ { "WaterWaves", ".dwaves", &P::WATER_WAVES_PATH },
+             // UE's USoundWave: a text asset naming its imported audio source beside it (SoundAsset.hpp). Under
+             // the assets root, as a texture is: a sound sits beside whatever uses it.
+             /* Sound                */ { "Sound", ".desound", &P::ASSETS_PATH },
         } };
     }
 

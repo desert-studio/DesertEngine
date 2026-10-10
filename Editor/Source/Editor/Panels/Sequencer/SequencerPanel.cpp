@@ -57,6 +57,49 @@
 #include <string_view>
 #include <system_error>
 #include <vector>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Common/Content/ContentKinds.hpp>
+
+namespace
+{
+    // A sound's name as the registry knows it: its `.desound`'s stem, "None" for the null GUID, "(missing)"
+    // for a GUID no row states.
+    std::string SoundDisplayName( const Common::Content::AssetGuid& guid )
+    {
+        if ( guid.IsNull() )
+            return "None";
+        const auto* row =
+             Desert::Assets::ContentRegistry::Get().FindByHandle( Common::Content::HandleForGuid( guid ) );
+        if ( row == nullptr )
+            return "(missing)";
+        return std::filesystem::path( row->Key ).stem().string();
+    }
+
+    // UE's sound-wave asset picker: every `.desound` the registry lists. True when @p guid changed.
+    bool PickSound( const char* label, Common::Content::AssetGuid& guid )
+    {
+        bool changed = false;
+        if ( ImGui::BeginCombo( label, SoundDisplayName( guid ).c_str() ) )
+        {
+            const auto& registry = Desert::Assets::ContentRegistry::Get();
+            for ( const auto* row : registry.OfKind( Common::Content::KindName(
+                       Common::Content::ContentKind::Sound ) ) )
+            {
+                if ( !row->Guid.has_value() )
+                    continue;
+                const std::string name = std::filesystem::path( row->Key ).stem().string();
+                if ( ImGui::Selectable( name.c_str(), *row->Guid == guid ) && *row->Guid != guid )
+                {
+                    guid    = *row->Guid;
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        return changed;
+    }
+} // namespace
+
 
 namespace Desert::Editor
 {
@@ -2151,8 +2194,9 @@ namespace Desert::Editor
                                                    return;
                                                }
                                                const int count = static_cast<int>( clip->Sequence.Tracks.size() );
-                                               m_UITrack       = ( m_UITrack + 1 ) % count;
-                                               m_UIKey         = -1;
+                                               m_UITrack        = ( m_UITrack + 1 ) % count;
+                                               m_UIKey          = -1;
+                                               m_UIAudioSection = -1;
                                            } } );
         actions.push_back( DocumentAction{ "Add a key at the playhead on the selected lane", [this]
                                            {
@@ -2812,6 +2856,8 @@ namespace Desert::Editor
         // A UI track is Float (Opacity) or Vector (Offset, Size, Color); a key of the track is a tick keyed
         // in its components. These helpers are the only place the lanes and the inspector touch keys.
         constexpr std::array<const char*, 4> kUIProperties = { "Offset", "Size", "Opacity", "Color" };
+        /// The "+ Track" menu: the four properties, then the master binding's Audio track (index 4).
+        constexpr std::array<const char*, 5> kUITrackChoices = { "Offset", "Size", "Opacity", "Color", "Audio" };
 
         std::vector<Animation::FrameNumber> UIKeyTicks( TL::Track& track )
         {
@@ -2955,9 +3001,34 @@ namespace Desert::Editor
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 120.0f );
         static int newProp = 0;
-        ImGui::Combo( "##uiprop", &newProp, kUIProperties.data(), static_cast<int>( kUIProperties.size() ) );
+        ImGui::Combo( "##uiprop", &newProp, kUITrackChoices.data(), static_cast<int>( kUITrackChoices.size() ) );
+        // UE's "+ Track > Audio": a master-binding track; its sound is named here, before the track exists,
+        // because an Audio section without a sound is refused by Validate.
+        const bool addAudio = newProp == static_cast<int>( kUIProperties.size() );
+        if ( addAudio )
+        {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 220.0f );
+            PickSound( "##uisound", m_UIAudioSound );
+        }
         ImGui::SameLine();
-        if ( ImGui::Button( ICON_MDI_PLUS "  Track" ) )
+        const bool addTrack = ImGui::Button( ICON_MDI_PLUS "  Track" );
+        if ( addTrack && addAudio )
+        {
+            const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+            const auto               added = TL::AddAudioTrack( sequence, m_UIAudioSound );
+            if ( !added.IsSuccess() )
+            {
+                ToastRefusal( "add Audio track", added.GetError(), 6.0f );
+            }
+            else
+            {
+                m_UITrack        = static_cast<int>( added.GetValue() );
+                m_UIKey          = -1;
+                m_UIAudioSection = 0;
+            }
+        }
+        else if ( addTrack )
         {
             const std::string locator  = entity.GetComponent<ECS::UUIDComponent>().UUID.ToString();
             const char*       property = kUIProperties[static_cast<size_t>( newProp )];
@@ -3043,14 +3114,44 @@ namespace Desert::Editor
 
             ImGui::SetCursorScreenPos( ImVec2( contentX0 + gutter - 46.0f, laneY ) );
             ImGui::PushID( ti * 8192 + 7 );
-            if ( ImGui::SmallButton( "+" ) )
+            const bool audioLane = track.Kind == TL::TrackKind::Audio;
+            if ( !audioLane && ImGui::SmallButton( "+" ) ) // an Audio lane has sections, not keys
             {
                 AddUIKeyAtPlayhead( clip, ti );
             }
-            ImGui::SameLine();
+            if ( !audioLane )
+                ImGui::SameLine();
             if ( ImGui::SmallButton( "x" ) )
                 deleteTrack = ti;
             ImGui::PopID();
+
+            // AN AUDIO LANE SHOWS ITS SECTIONS as bars named by their sound; a click selects one for Details.
+            for ( int si = 0; audioLane && si < static_cast<int>( track.Sections.size() ); ++si )
+            {
+                const TL::Section& section = track.Sections[static_cast<size_t>( si )];
+                const auto*        audio   = std::get_if<TL::AudioSectionContent>( &section.Content );
+                const float        x0      = tickToX( section.Start );
+                const float        x1      = std::max( x0 + 4.0f, tickToX( section.End ) );
+                const bool         sel     = ti == m_UITrack && si == m_UIAudioSection;
+                dl->AddRectFilled( ImVec2( x0, laneY + 2.0f ), ImVec2( x1, laneY + laneH - 5.0f ),
+                                   sel ? IM_COL32( 70, 130, 110, 255 ) : IM_COL32( 50, 95, 82, 255 ), 3.0f );
+                if ( audio != nullptr )
+                {
+                    const std::string name = SoundDisplayName( audio->Sound );
+                    dl->PushClipRect( ImVec2( x0, laneY ), ImVec2( x1, laneY + laneH ), true );
+                    dl->AddText( ImVec2( x0 + 4.0f, laneY + 3.0f ), IM_COL32( 225, 240, 232, 255 ), name.c_str() );
+                    dl->PopClipRect();
+                }
+                ImGui::SetCursorScreenPos( ImVec2( x0, laneY ) );
+                ImGui::PushID( ti * 8192 + 4096 + si );
+                if ( ImGui::InvisibleButton( "##audio", ImVec2( x1 - x0, laneH - 3.0f ) ) )
+                {
+                    m_UITrack        = ti;
+                    m_UIKey          = -1;
+                    m_UIAudioSection = si;
+                }
+                ImGui::PopID();
+            }
 
             // keys as diamonds; drag horizontally to retime (snapped to the display grid)
             const auto ticks = UIKeyTicks( track );
@@ -3067,8 +3168,9 @@ namespace Desert::Editor
                 ImGui::InvisibleButton( "##k", ImVec2( 14.0f, laneH - 3.0f ) );
                 if ( ImGui::IsItemActivated() )
                 {
-                    m_UITrack = ti;
-                    m_UIKey   = ki;
+                    m_UITrack        = ti;
+                    m_UIKey          = ki;
+                    m_UIAudioSection = -1;
                     if ( const auto began = m_UIClipEdit.Begin( OwnerOf( &clip ) ); !began.IsSuccess() )
                     {
                         LOG_ERROR( "[UIClipUndo] this key drag will not be undoable: {}", began.GetError() );
@@ -3108,7 +3210,17 @@ namespace Desert::Editor
             const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
             sequence.Tracks.erase( sequence.Tracks.begin() + deleteTrack );
             ++sequence.Revision;
-            m_UITrack = m_UIKey = -1;
+            m_UITrack = m_UIKey = m_UIAudioSection = -1;
+        }
+
+        // --- selected Audio section (UE: the section's Details) --------------------------------------
+        if ( m_UITrack >= 0 && m_UITrack < static_cast<int>( sequence.Tracks.size() ) && m_UIAudioSection >= 0 &&
+             sequence.Tracks[static_cast<size_t>( m_UITrack )].Kind == TL::TrackKind::Audio &&
+             m_UIAudioSection <
+                  static_cast<int>( sequence.Tracks[static_cast<size_t>( m_UITrack )].Sections.size() ) )
+        {
+            DrawUIAudioSectionDetails( clip, static_cast<size_t>( m_UITrack ),
+                                       static_cast<size_t>( m_UIAudioSection ) );
         }
 
         // --- selected key ----------------------------------------------------------------------------
@@ -3230,9 +3342,89 @@ namespace Desert::Editor
             SetComponentValue( *component, tick, here, Animation::ScalarKey{} );
         }
         ++sequence.Revision;
-        m_UITrack       = lane;
-        const auto keys = UIKeyTicks( track );
+        m_UITrack        = lane;
+        m_UIAudioSection = -1;
+        const auto keys  = UIKeyTicks( track );
         m_UIKey         = static_cast<int>( std::ranges::find( keys, tick ) - keys.begin() );
+    }
+
+    void SequencerPanel::DrawUIAudioSectionDetails( ECS::UIAnimData& clip, const size_t trackIndex,
+                                                    const size_t sectionIndex )
+    {
+        TL::Sequence& sequence = clip.Sequence;
+        TL::Track&    track    = sequence.Tracks[trackIndex];
+        TL::Section&  section  = track.Sections[sectionIndex];
+        auto*         audio    = std::get_if<TL::AudioSectionContent>( &section.Content );
+        if ( audio == nullptr )
+        {
+            return;
+        }
+        // Every field is shown in DISPLAY FRAMES, as the clip's End frame is; ticks are what is stored.
+        const auto toFrame = [&]( Animation::FrameNumber tick )
+        {
+            return static_cast<int>( std::lround(
+                 Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, sequence.TickRate ) *
+                 sequence.DisplayRate.AsDouble() ) );
+        };
+        const auto toTick = [&]( int frame )
+        {
+            return SecondsToSnappedTick( static_cast<float>( frame / sequence.DisplayRate.AsDouble() ),
+                                         sequence.TickRate, sequence.DisplayRate );
+        };
+
+        ImGui::Separator();
+        ImGui::Text( "Audio section %zu of %s", sectionIndex, track.Property.c_str() );
+
+        // THE SOUND is picked from the `.desound` assets (a GUID, never a path); one pick is one undo step.
+        Common::Content::AssetGuid sound = audio->Sound;
+        ImGui::SetNextItemWidth( 260.0f );
+        if ( PickSound( "Sound", sound ) )
+        {
+            const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+            audio->Sound = sound;
+            ++sequence.Revision;
+        }
+
+        // THE RANGE goes through the one track function every section edit calls (its range rule).
+        std::array<int, 2> range = { toFrame( section.Start ), toFrame( section.End ) };
+        ImGui::SetNextItemWidth( 200.0f );
+        if ( ImGui::DragInt2( "Start / End frame", range.data(), 1.0f, 0, 100000 ) )
+        {
+            if ( const auto set =
+                      TL::SetSectionRange( track, sectionIndex, toTick( range[0] ), toTick( range[1] ) );
+                 set.IsSuccess() )
+            {
+                ++sequence.Revision;
+            }
+        }
+        BracketUIClipEditFromItem( clip );
+
+        int offset = toFrame( audio->StartOffset );
+        ImGui::SetNextItemWidth( 120.0f );
+        if ( ImGui::DragInt( "Start offset (frames)", &offset, 1.0f, 0, 1000000 ) )
+        {
+            audio->StartOffset = toTick( std::max( 0, offset ) );
+            ++sequence.Revision;
+        }
+        BracketUIClipEditFromItem( clip );
+
+        ImGui::SetNextItemWidth( 120.0f );
+        if ( ImGui::SliderFloat( "Volume", &audio->Volume, 0.0f, 2.0f ) )
+        {
+            audio->Volume = std::max( 0.0f, audio->Volume );
+            ++sequence.Revision;
+        }
+        BracketUIClipEditFromItem( clip );
+
+        std::array<int, 2> fades = { toFrame( audio->FadeIn ), toFrame( audio->FadeOut ) };
+        ImGui::SetNextItemWidth( 160.0f );
+        if ( ImGui::DragInt2( "Fade in / out (frames)", fades.data(), 1.0f, 0, 100000 ) )
+        {
+            audio->FadeIn  = toTick( std::max( 0, fades[0] ) );
+            audio->FadeOut = toTick( std::max( 0, fades[1] ) );
+            ++sequence.Revision;
+        }
+        BracketUIClipEditFromItem( clip );
     }
 
     void SequencerPanel::BracketUIClipEditFromItem( ECS::UIAnimData& clip )

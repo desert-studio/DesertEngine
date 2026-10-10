@@ -22,6 +22,9 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
+#include <functional>
 #include "UILift.hpp"
 #include "ClipInterpShift.hpp"
 #include <Engine/Geometry/EditMeshConversion.hpp>
@@ -555,6 +558,185 @@ namespace Desert::Migration
                                ++report.Bodies;
                                return true;
                            } );
+        }
+        return report;
+    }
+
+    Common::ResultStr<std::pair<Common::Content::AssetGuid, std::filesystem::path>>
+    SoundForAudioFile( const std::filesystem::path& audioFile )
+    {
+        using Found = std::pair<Common::Content::AssetGuid, std::filesystem::path>;
+        std::error_code ec;
+        const auto      dir = audioFile.parent_path();
+        std::vector<Found> found;
+        for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
+        {
+            if ( entry.path().extension() != Assets::kSoundExtension )
+                continue;
+            std::ifstream      in( entry.path(), std::ios::binary );
+            std::ostringstream text;
+            text << in.rdbuf();
+            const auto parsed = Assets::SoundAsset::Parse( text.str() );
+            if ( !parsed )
+                return Common::MakeFormattedError<Found>( "'{}': {}", entry.path().string(), parsed.GetError() );
+            if ( ( dir / parsed.GetValue().Source ).lexically_normal() == audioFile.lexically_normal() )
+                found.emplace_back( parsed.GetValue().Guid, entry.path() );
+        }
+        if ( ec )
+            return Common::MakeFormattedError<Found>( "'{}' cannot be listed: {}", dir.string(), ec.message() );
+        if ( found.size() != 1 )
+            return Common::MakeFormattedError<Found>(
+                 "{} `.desound` beside '{}' name it as their Source (exactly one must): create the Sound asset",
+                 found.size(), audioFile.string() );
+        return Common::MakeSuccess( found.front() );
+    }
+
+    SoundRefsReport MigrateSoundRefsV42ToV43( std::vector<Assets::EntityData>& entities,
+                                              const std::filesystem::path&     assetsRoot )
+    {
+        SoundRefsReport report;
+        // A v41 path is relative to its project (the content root), which is an ancestor of the scene's
+        // directory: the same rule LocateMeshFile applies to `meshPath`. The project is kept for the Path the
+        // Sound reference states. A file found under no ancestor is named under `assetsRoot` and refused.
+        std::filesystem::path project = assetsRoot;
+        const auto            absolute = [&]( const std::string& path )
+        {
+            const std::filesystem::path named( path );
+            if ( named.is_absolute() )
+                return named;
+            if ( const auto located = LocateMeshFile( path, assetsRoot ) )
+            {
+                project = located.GetValue().Project;
+                return located.GetValue().File;
+            }
+            project = assetsRoot;
+            return ( assetsRoot / named ).lexically_normal();
+        };
+        // Every Audio section of a sequence is an object {"Audio": {"Sound": ...}} somewhere under it.
+        const std::function<void( rfl::Generic&, const std::string& )> walk =
+             [&]( rfl::Generic& node, const std::string& who )
+        {
+            if ( auto array = node.to_array(); array.has_value() )
+            {
+                auto items = std::move( array.value() );
+                for ( auto& item : items )
+                    walk( item, who );
+                node = rfl::Generic( std::move( items ) );
+                return;
+            }
+            auto object = node.to_object();
+            if ( !object.has_value() )
+                return;
+            rfl::Generic::Object fields = std::move( object.value() );
+            for ( auto& [name, value] : fields )
+            {
+                if ( name == "Audio" )
+                {
+                    auto audio = value.to_object();
+                    if ( !audio.has_value() )
+                        continue;
+                    rfl::Generic::Object block = std::move( audio.value() );
+                    const auto           sound = block.get( "Sound" );
+                    const std::string    text =
+                         sound.has_value() ? sound.value().to_string().value_or( std::string() ) : std::string();
+                    if ( !text.empty() && !Common::Content::AssetGuidFromText( text ) )
+                    {
+                        const auto asset = SoundForAudioFile( absolute( text ) );
+                        if ( !asset )
+                            report.Refused.push_back( std::format( "entity {}: Audio section: {}", who,
+                                                                   asset.GetError() ) );
+                        else
+                        {
+                            block["Sound"] = rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
+                            ++report.Sections;
+                        }
+                    }
+                    value = rfl::Generic( std::move( block ) );
+                    continue;
+                }
+                walk( value, who );
+            }
+            node = rfl::Generic( std::move( fields ) );
+        };
+        const auto raise = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "AudioSource",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto clip = block.get( "Clip" );
+                           if ( !clip.has_value() )
+                               return false;
+                           const std::string path = clip.value().to_string().value_or( "" );
+                           DropKey( block, "Clip" );
+                           ++report.Sources;
+                           if ( path.empty() )
+                               return true; // no clip stated: the slot is unset
+                           const auto asset = SoundForAudioFile( absolute( path ) );
+                           if ( !asset )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "entity {}: AudioSource.Clip: {}", who, asset.GetError() ) );
+                               return false;
+                           }
+                           rfl::Generic::Object ref;
+                           ref["Guid"] = rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
+                           ref["Path"] = rfl::Generic(
+                                asset.GetValue().second.lexically_relative( project ).generic_string() );
+                           block["Sound"] = rfl::Generic( std::move( ref ) );
+                           return true;
+                       } );
+            EditBlock( components, "UIAnim",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto sequence = block.get( "Sequence" );
+                           if ( !sequence )
+                               return false;
+                           const std::size_t before = report.Sections;
+                           rfl::Generic      tree   = sequence.value();
+                           walk( tree, who );
+                           if ( report.Sections == before )
+                               return false;
+                           // A current-generation sequence is rewritten by the one writer, which lists the sound
+                           // in its header's Dependencies; a TMLN v1 one gets that from the v1 -> v2 shift after.
+                           const std::string text = rfl::json::write( tree );
+                           if ( const auto stated = StatedTimelineVersion( text );
+                                stated && stated.GetValue() == Animation::Timeline::kTimelineFormatVersion )
+                           {
+                               const auto read = Animation::Timeline::ReadSequence( Common::BytesOf( text ) );
+                               if ( !read )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "entity {}: the TMLN reader refused: {}", who, read.GetError() ) );
+                                   return false;
+                               }
+                               auto written = Animation::Timeline::WriteSequence( read.GetValue() );
+                               if ( !written )
+                               {
+                                   report.Refused.push_back( std::format( "entity {}: the TMLN writer refused: {}",
+                                                                          who, written.GetError() ) );
+                                   return false;
+                               }
+                               const auto next = rfl::json::read<rfl::Generic>(
+                                    std::string( Common::TextOf( written.GetValue() ) ) );
+                               if ( !next )
+                               {
+                                   report.Refused.push_back( std::format(
+                                        "entity {}: the TMLN writer's text does not read: {}", who, next.error().what() ) );
+                                   return false;
+                               }
+                               tree = next.value();
+                           }
+                           block["Sequence"] = std::move( tree );
+                           return true;
+                       } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            raise( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    raise( override_.Components, who );
         }
         return report;
     }
@@ -1998,6 +2180,19 @@ namespace Desert::Migration
                 if ( !report.CollisionProfiles.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.CollisionProfiles.Refused );
+                    return;
+                }
+            }
+
+            // A sound is a `.desound` asset named by GUID (SOUND-ASSET): before the v1 -> v2 shift, whose reader
+            // refuses an Audio section naming a file.
+            if ( statedSceneVersion < kSceneVersionSoundAssets )
+            {
+                report.SoundRefsRaised = true;
+                report.SoundRefs       = MigrateSoundRefsV42ToV43( entities, assetsRoot );
+                if ( !report.SoundRefs.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SoundRefs.Refused );
                     return;
                 }
             }

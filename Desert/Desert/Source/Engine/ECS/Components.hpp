@@ -24,6 +24,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Timeline/AudioVoices.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
@@ -1145,6 +1146,11 @@ namespace Desert::ECS
         // scene. Created lazily from Sequence.TickRate/Start/End by the one view that drives scene animation
         // (UI/Ecs/UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
         std::optional<Animation::Timeline::Player> Playback;
+
+        // The clip's Audio sections sounding at the playhead, as the driving view's LAST frame evaluated them
+        // (UIAnimationPlayback.hpp; empty while paused, stopped or scrubbed backwards). RUNTIME only, never
+        // serialized: AudioECSSystem consumes and clears it every frame and turns it into voices.
+        std::vector<Animation::Timeline::SoundingVoice> Sounding;
     };
     struct UIAnimComponent
     {
@@ -1372,8 +1378,10 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Clip" ), Category( "Audio" ), Summary )
-        std::string Clip; // audio file (wav/mp3/flac), absolute or Assets-relative
+        // The SOUND asset (`.desound`, UE's USoundWave) by its GUID's handle: the audio file is the asset's to
+        // name (SoundAsset::ResolveSourceFile), so moving the pair moves no reference. Unset = silent.
+        PROPERTY( DisplayName( "Sound" ), Category( "Audio" ), Summary, Asset<SoundAsset> )
+        Assets::AssetHandle Sound;
 
         PROPERTY( DisplayName( "Volume" ), Category( "Audio" ), Range( 0.0f, 2.0f ) )
         float Volume = 1.0f;

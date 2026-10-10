@@ -37,6 +37,7 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
@@ -915,6 +916,21 @@ namespace Desert::Core::Serialize
                     a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
+            if ( type == "SoundAsset" )
+            {
+                // The locator half of the Audio Source's {Guid, Path}: the `.desound` the path names states
+                // the GUID, and ResolveGuidRef checks it is the one the scene states. Nothing is loaded: the
+                // audio file is streamed when a voice starts.
+                const std::filesystem::path named( path );
+                const auto                  sound = Assets::SoundAsset::ReadFile(
+                     named.is_absolute() ? named : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                if ( !sound )
+                {
+                    LOG_ERROR( "[Audio] {}", sound.GetError() );
+                    return 0;
+                }
+                return static_cast<uint64_t>( Common::Content::HandleForGuid( sound.GetValue().Guid ) );
+            }
             if ( type == "PrefabAsset" )
             {
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
@@ -1130,6 +1146,12 @@ namespace Desert::Core::Serialize
                 if ( relative.empty() )
                     return 0;
                 return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
+            }
+            if ( type == "SoundAsset" )
+            {
+                // A sound's handle IS HandleForGuid of its header GUID, so the registry row under it is the
+                // `.desound`, wherever it has since moved; nothing is loaded until a voice starts.
+                return Assets::ContentRegistry::KeyForHandle( guid ).empty() ? 0 : guid;
             }
             if ( type == "SkyboxAsset" )
             {

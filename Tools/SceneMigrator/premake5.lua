@@ -86,6 +86,7 @@ project "SceneMigrator"
         -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure
         -- bytes in, bytes out; no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/SoundFormat.cpp", -- v42 reads `.desound` (SOUND-ASSET)
         -- THE SCULPTED CLOUD VOLUME DECODER, likewise for the DCMV 2 -> 3 step (DecodeCloudModellingVolume).
         -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",

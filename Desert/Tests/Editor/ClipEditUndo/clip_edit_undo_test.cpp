@@ -273,6 +273,41 @@ TEST( UIAnimationUndo, ABindingAndATrackAddedToAUIAnimationAreOneStepAndUndoRese
     EXPECT_TRUE( CommandHistory::Get().RedoStack().empty() && CommandHistory::Get().UndoStack().empty() );
 }
 
+// MOVIE-AUDIO-c: the Sequencer's "+ Track > Audio" and an Audio section's Details edit, each one step.
+TEST( UIAnimationUndo, AnAudioTrackAddedAndItsSectionEditedAreOneStepEachAndUndoRestoresByValue )
+{
+    CommandHistory::Get().Clear();
+    Desert::ECS::UIAnimData animation;
+    animation.Sequence.End         = Animation::FrameNumber{ 1000 };
+    const Timeline::Sequence empty = animation.Sequence;
+
+    SequenceEditTransaction transaction;
+    {
+        const ScopedSequenceEdit edit( transaction, OwnerOf( &animation ) );
+        ASSERT_TRUE( Timeline::AddAudioTrack( animation.Sequence, Common::Content::AssetGuid{ 0x5A0D, 0x0001 } ).IsSuccess() );
+    }
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "binding + track + section: one step";
+    const Timeline::Sequence added = animation.Sequence;
+    {
+        const ScopedSequenceEdit edit( transaction, OwnerOf( &animation ) );
+        auto& audio  = std::get<Timeline::AudioSectionContent>( animation.Sequence.Tracks[0].Sections[0].Content );
+        audio.Volume = 0.25F;
+        audio.FadeIn = Animation::FrameNumber{ 100 };
+    }
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 2U );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameStoredValue( animation.Sequence, added ) ) << "the section's volume and fade are compared";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameStoredValue( animation.Sequence, empty ) );
+    ASSERT_TRUE( CommandHistory::Get().Redo() );
+    ASSERT_TRUE( CommandHistory::Get().Redo() );
+    EXPECT_FLOAT_EQ(
+         std::get<Timeline::AudioSectionContent>( animation.Sequence.Tracks[0].Sections[0].Content ).Volume,
+         0.25F );
+    CommandHistory::Get().Clear();
+}
+
 TEST( SequenceCensus, EveryStoredFieldOfATrackIsCompared )
 {
     Timeline::Track a;
