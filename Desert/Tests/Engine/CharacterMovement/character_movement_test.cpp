@@ -5,6 +5,8 @@
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -29,7 +31,10 @@ namespace
         desc.HalfExtents = half;
         desc.Type        = Physics::BodyType::Static;
         desc.Position    = center;
-        return world.CreateBody( desc ).GetValue();
+        desc.Profile     = TestSupport::ProfileId( world, "BlockAll" );
+        auto created     = world.CreateBody( desc );
+        EXPECT_TRUE( created.IsSuccess() ) << created.GetError();
+        return created.GetValue();
     }
 
     struct Fixture
@@ -39,7 +44,7 @@ namespace
 
         Fixture()
         {
-            world.Init( kGravity );
+            world.Init( kGravity, TestSupport::PhysicsTestProfiles() );
             AddBox( world, { 0.0f, -50.0f, 0.0f }, { 5000.0f, 50.0f, 5000.0f } ); // floor top at y = 0
             ECS::CharacterMovement::CreateCharacter( cc, world, { 0.0f, cc.Data.Height * 0.5f + 1.0f, 0.0f } );
             Run( { 0.0f, 0.0f, 0.0f }, 60 ); // settle on the floor
@@ -138,7 +143,7 @@ TEST( CharacterMovement, CannotUncrouchUnderALowCeilingAndCanOnceItIsRemoved )
 TEST( SpringArm, PullsInAgainstAWallAndReturnsWhenItIsGone )
 {
     Physics::PhysicsWorld world;
-    world.Init( kGravity );
+    world.Init( kGravity, TestSupport::PhysicsTestProfiles() );
     ECS::SpringArmComponent arm;
     arm.Data.TargetArmLength = 300.0f;
     arm.Data.ProbeSize       = 12.0f;
