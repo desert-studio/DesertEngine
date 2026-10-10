@@ -10,8 +10,8 @@
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
-#include <Engine/UI/UICanvasContext.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <UI/UICanvasContext.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 #include <entt/entt.hpp>
 

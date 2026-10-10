@@ -14,6 +14,7 @@
 //
 // Read as text because the writers live in the Editor, which no suite links.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -77,7 +78,7 @@ TEST( EditMeshSaved, OnlyTheOneWriterAssignsAStaticMeshsGeometry )
     std::vector<std::string>                      violations;
     size_t                                        files = 0;
 
-    for ( const char* base : { "Desert/Desert/Source", "Editor/Source" } )
+    for ( const std::string& base : Desert::TestSupport::EngineRootsAnd( { "Editor/Source" } ) )
     {
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / base ) )
         {

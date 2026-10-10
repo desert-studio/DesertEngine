@@ -20,11 +20,11 @@
 // requires the demand set to shrink to the window.
 
 #include <Engine/ECS/Components.hpp>
-#include <Engine/UI/UICanvasContext.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIDataStore.hpp>
-#include <Engine/UI/UIIntrospection.hpp>
+#include <UI/UICanvasContext.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <UI/UIDataStore.hpp>
+#include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>
 #include <gtest/gtest.h>

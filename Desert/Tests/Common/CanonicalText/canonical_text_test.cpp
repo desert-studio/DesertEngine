@@ -1,5 +1,6 @@
 // CanonicalText (AF6): the one writer of text assets lays a document out so that git can diff and merge it,
 // and never changes a value while doing so.
+#include "TestSupport/source_roots.hpp"
 #include <Common/Content/CanonicalText.hpp>
 
 #include <gtest/gtest.h>
@@ -301,7 +302,7 @@ namespace
     {
         std::vector<fs::path> files;
         const fs::path        root = RepoRoot();
-        for ( const char* dir : { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Tools" } )
+        for ( const std::string& dir : Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Tools" } ) )
             for ( const auto& entry : fs::recursive_directory_iterator( root / dir ) )
             {
                 const std::string ext = entry.path().extension().string();

@@ -27,6 +27,7 @@
 // compiled AS C++ through CloudShadowReference.hpp, so every assertion is about the text the GPU runs.
 
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/source_roots.hpp"
 #include "CloudShadowReference.hpp"
 
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
@@ -1030,37 +1031,37 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
     // writer, CloudShadowUpload. A material that assembles the block itself is free to decide differently
     // what `Params.y` means, and the symptom is one render path shading with a shadow the other has
     // switched off.
-    const std::filesystem::path engine = RepositoryRoot() / "Desert" / "Desert" / "Source";
-    ASSERT_TRUE( std::filesystem::exists( engine ) ) << engine.string();
-
+    // Every library the engine is built on: a material outside Desert/Desert packs the block just as well.
     int declarations = 0;
     int writers      = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( engine ) )
-    {
-        if ( !entry.is_regular_file() )
-            continue;
-        const std::string ext = entry.path().extension().string();
-        if ( ext != ".cpp" && ext != ".hpp" )
-            continue;
-
-        const std::string name = entry.path().filename().string();
-        // The struct and the function that fills it.
-        if ( name == "CloudShadowPayload.hpp" )
+    for ( const std::filesystem::path& tree :
+          Desert::TestSupport::Under( RepositoryRoot(), Desert::TestSupport::EngineRoots() ) )
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( tree ) )
         {
-            declarations++;
-            continue;
-        }
-        // The one place a filled block reaches a descriptor set.
-        if ( name == "CloudShadowBinding.hpp" )
-        {
-            writers++;
-            continue;
-        }
+            if ( !entry.is_regular_file() )
+                continue;
+            const std::string ext = entry.path().extension().string();
+            if ( ext != ".cpp" && ext != ".hpp" )
+                continue;
 
-        const std::string code = StripLineComments( ReadFile( entry.path() ) );
-        EXPECT_EQ( code.find( "CloudShadowUniforms" ), std::string::npos )
-             << name << " builds the cloud-shadow uniform block itself; call CloudShadowUpload instead";
-    }
+            const std::string name = entry.path().filename().string();
+            // The struct and the function that fills it.
+            if ( name == "CloudShadowPayload.hpp" )
+            {
+                declarations++;
+                continue;
+            }
+            // The one place a filled block reaches a descriptor set.
+            if ( name == "CloudShadowBinding.hpp" )
+            {
+                writers++;
+                continue;
+            }
+
+            const std::string code = StripLineComments( ReadFile( entry.path() ) );
+            EXPECT_EQ( code.find( "CloudShadowUniforms" ), std::string::npos )
+                 << name << " builds the cloud-shadow uniform block itself; call CloudShadowUpload instead";
+        }
 
     EXPECT_EQ( declarations, 1 ) << "Engine/Graphic/Clouds/CloudShadowPayload.hpp was not found";
     EXPECT_EQ( writers, 1 ) << "Engine/Graphic/Clouds/CloudShadowBinding.hpp was not found";

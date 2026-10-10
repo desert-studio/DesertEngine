@@ -21,8 +21,8 @@
 
 #include <Engine/Assets/UIThemeData.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/UI/UIStyleSlots.hpp>
+#include <UI/UIStyleResolver.hpp>
+#include <UI/UIStyleSlots.hpp>
 
 #include <gtest/gtest.h>
 
@@ -158,7 +158,7 @@ TEST( UIStyleSlots, EverySlotIsReadByTheCanvasWalk )
             "Widgets/ProgressBar.cpp", "Widgets/ScrollList.cpp", "Widgets/Slider.cpp", "Widgets/Text.cpp",
             "Widgets/Toggle.cpp" } )
     {
-        const std::string text = ReadFile( root + "Desert/Desert/Source/Engine/UI/" + file );
+        const std::string text = ReadFile( root + "Desert/UI/Source/UI/" + file );
         ASSERT_FALSE( text.empty() ) << file << " could not be read";
         walk += text + "\n";
     }

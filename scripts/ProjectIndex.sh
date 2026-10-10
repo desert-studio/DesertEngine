@@ -84,7 +84,7 @@ if [ "$WHAT" = all ]; then
     for t in UIIntrospection UICanvasContext UIEventRouting UIListView; do
         [ -d "Desert/Tests/Engine/$t" ] && printf '  %s\n' "$t"
     done
-    echo "  these compile Engine/UI/UICanvasRenderer2D with NO Vulkan in the binary."
+    echo "  these compile UI/UICanvasRenderer2D (DesertUI) with NO Vulkan in the binary."
     echo "  they fail at LINK if the walk names a concrete backend — that is the boundary itself."
 
     section "WHERE THE REASONING LIVES"

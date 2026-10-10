@@ -20,6 +20,7 @@
 //      shape VulkanShader turns into a VkDescriptorSetLayout. The number this produces is the number
 //      the validation layer compares, so a shader that gains a binding is visible here first.
 
+#include "TestSupport/source_roots.hpp"
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
@@ -649,7 +650,7 @@ TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
     const std::set<std::string> allowed = { "SceneRenderer.cpp", "SceneRenderer.hpp", "SceneRendererFrameMesh.cpp",
                                             "SceneRendererFrameDeferred.cpp", "MeshRendererShadow.cpp" };
     std::vector<std::string>    reach;
-    for ( const char* dir : { "Desert/Desert/Source", "Editor/Source", "Runtime/Source" } )
+    for ( const std::string& dir : Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
     {
         if ( !std::filesystem::exists( root / dir ) )
             continue;

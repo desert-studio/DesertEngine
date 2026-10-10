@@ -31,8 +31,8 @@
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
-#include <Engine/UI/Args/UIArgs.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
+#include <UI/Args/UIArgs.hpp>
 
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
 // here so that "the components" remains one include for every consumer.
@@ -1042,7 +1042,7 @@ namespace Desert::ECS
 
     // ============================================================
     // UI — Godot-Control-style screen-space UI (2D). The authored data lives in the framework
-    // (Engine/UI/Args, namespace Desert::UI); the ECS stores each one in the component that wraps it.
+    // (Desert/UI/Source/UI/Args, namespace Desert::UI); the ECS stores each one in the component that wraps it.
     // ============================================================
 
     struct UILayoutGroupComponent

@@ -29,10 +29,10 @@
 // a Vulkan device, a Core::Scene and a SceneRenderer into a test about six comparisons.
 
 #include <Engine/ECS/Components.hpp>
-#include <Engine/UI/UICanvasContext.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIRenderTextureSource.hpp>
+#include <UI/UICanvasContext.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <UI/UIRenderTextureSource.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>

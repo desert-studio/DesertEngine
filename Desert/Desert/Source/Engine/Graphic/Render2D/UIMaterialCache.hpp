@@ -4,7 +4,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialFallback.hpp>
-#include <Engine/UI/UIMaterialSource.hpp>
+#include <UI/UIMaterialSource.hpp>
 
 #include <glm/glm.hpp>
 

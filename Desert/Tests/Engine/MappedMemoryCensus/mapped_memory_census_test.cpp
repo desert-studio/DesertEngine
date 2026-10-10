@@ -41,6 +41,7 @@
 // census worthless, and this one has no way to produce it: the copy has to name the binding, and the
 // binding comes from the call itself.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -84,8 +85,8 @@ namespace
     std::vector<fs::path> ProjectSources( const std::string& root )
     {
         std::vector<fs::path> out;
-        for ( const char* tree :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+        for ( const std::string& tree :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
         {
             std::error_code ec;
             const fs::path  base = fs::path( root ) / tree;

@@ -24,6 +24,7 @@
 // (count, which cannot pick a winner) and UI::SoleCanvas (refuse, by name and with the count, when there is
 // not exactly one).
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -42,7 +43,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/UI/UICanvasLayout.hpp" );
+            std::ifstream probe( prefix + "Desert/UI/Source/UI/UICanvasLayout.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -143,8 +144,8 @@ namespace
     std::vector<fs::path> SourceFiles( const std::string& root )
     {
         std::vector<fs::path> files;
-        for ( const char* dir :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+        for ( const std::string& dir :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) )
         {
             const fs::path base = fs::path( root ) / dir;
             if ( !fs::exists( base ) )
@@ -247,7 +248,7 @@ TEST( CanvasElection, NoFileTurnsAViewOfCanvasesIntoOneCanvas )
          << report
          << "\n  Ask instead: UI::CanvasOf (from an element already inside the canvas), UI::CanvasCount "
             "(counting cannot pick a winner) or UI::SoleCanvas (refuses, by name, when there is not "
-            "exactly one). See Engine/UI/UICanvasLayout.hpp.";
+            "exactly one). See UI/UICanvasLayout.hpp.";
 }
 
 // --- The gate can see the thing it bans ------------------------------------------------------------------

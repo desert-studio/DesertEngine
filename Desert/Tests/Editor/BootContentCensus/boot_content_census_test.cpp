@@ -13,6 +13,7 @@
 //      black sky because nothing created the shell.
 // Read from the sources, as TextureSourceFormatCensus does: the relations are between files no header joins.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -38,8 +39,8 @@ namespace
            { "Editor/Source/EditorLayer.cpp", "Editor/Source/Editor/LevelEditor/EditorStartup.cpp" } },
          { "Runtime/Source/RuntimeLayer.cpp", { "Runtime/Source/RuntimeLayer.cpp" } },
     };
-    constexpr const char* kCodeRoots[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source",
-                                           "Runtime/Source" };
+    const std::vector<std::string> kCodeRoots =
+         Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } );
 
     std::string RepoRoot()
     {
@@ -201,7 +202,7 @@ TEST( BootContentCensus, NoPreloadAnywhereInTheCode )
     const std::regex         preload( R"(\bPreload[A-Z]\w*|\bAssetPreloader\b)" );
     std::size_t              scanned = 0;
     std::vector<std::string> offenders;
-    for ( const char* dir : kCodeRoots )
+    for ( const std::string& dir : kCodeRoots )
     {
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + dir ) )
         {

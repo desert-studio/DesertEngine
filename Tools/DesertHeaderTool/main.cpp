@@ -9,6 +9,7 @@
 // Usage:
 //   DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]
 //                    [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor <Name>]
+//                               [--reflect-root <source-root> <scan-subdir>]...
 //                               [--reflect-components <output-file>]]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
@@ -20,6 +21,8 @@
 //     --reflect-anchor <Name>  after --reflect: the force-link function the output defines (default
 //                    ForceLinkGeneratedReflection; a second generated set in one image names its own).
 //     --reflect-components <output-file>  after --reflect: the COMPONENT(...) block list.
+//     --reflect-root <source-root> <scan-subdir>  after --reflect: one more tree scanned into the SAME set
+//                    (a library the engine links whose headers carry reflected types, e.g. DesertUI).
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
@@ -27,7 +30,7 @@
 //     --reflect-components  after --reflect: the COMPONENT(...) rows as a header
 //     (ReflectedComponentBlocks.gen.hpp).
 // The annotation macros (REFLECT/PROPERTY) expand to nothing during normal compilation; only this
-// tool reads them. See Engine/Reflection/ReflectionMacros.hpp.
+// tool reads them. See CoreReflection/ReflectionMacros.hpp.
 
 #include <algorithm>
 #include <Common/Json/Document.hpp>
@@ -113,7 +116,7 @@ namespace
         std::vector<std::pair<std::string, long long>> values;
     };
 
-    // FUNCTION(...) attributes (Engine/Reflection/ReflectionMacros.hpp).
+    // FUNCTION(...) attributes (CoreReflection/ReflectionMacros.hpp).
     struct FunctionMeta
     {
         bool        scriptCallable = false;
@@ -132,7 +135,7 @@ namespace
         FunctionMeta                                     meta;
     };
 
-    // EVENT(...) attributes (Engine/Reflection/ReflectionMacros.hpp).
+    // EVENT(...) attributes (CoreReflection/ReflectionMacros.hpp).
     struct EventMeta
     {
         std::string category;
@@ -1281,10 +1284,19 @@ namespace
              .Build();
     }
 
-    struct ReflectRequest
+    // One source tree the reflected types are read from: its include root and the directory under it scanned.
+    struct ReflectRoot
     {
         fs::path SourceRoot;
         fs::path ScanRoot;
+    };
+
+    struct ReflectRequest
+    {
+        // The engine's own tree first (--reflect), then every library it links whose headers carry reflected
+        // types (--reflect-root): DesertUI's UI/Args since UI-FW-4. All of them land in ONE generated set,
+        // each type in the module its header's place in the repository names.
+        std::vector<ReflectRoot> Roots;
         fs::path Output; // the module list; the per-module files are written beside it
         // The force-link function the module list defines. The engine's is ForceLinkGeneratedReflection; a second
         // generated set linked into the same image (a test fixture's) names its own (--reflect-anchor).
@@ -1329,35 +1341,43 @@ namespace
     int Reflect( const fs::path& templateDir, const ReflectRequest& request,
                  const Desert::HeaderTool::ModuleTable* modules, const fs::path& repoRoot )
     {
-        if ( !fs::exists( request.ScanRoot ) )
+        // Each header with the include root it is spelled against.
+        std::vector<std::pair<fs::path, const ReflectRoot*>> headers;
+        for ( const ReflectRoot& root : request.Roots )
         {
-            std::cerr << "[DesertHeaderTool] scan root does not exist: " << request.ScanRoot << "\n";
-            return 1;
-        }
-        std::vector<fs::path> headers;
-        for ( const auto& entry : fs::recursive_directory_iterator( request.ScanRoot ) )
-        {
-            if ( !entry.is_regular_file() )
-                continue;
-            const auto ext = entry.path().extension().string();
-            if ( ext != ".hpp" && ext != ".h" )
-                continue;
-            if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
-                continue;
-            headers.push_back( entry.path() );
+            if ( !fs::exists( root.ScanRoot ) )
+            {
+                std::cerr << "[DesertHeaderTool] scan root does not exist: " << root.ScanRoot << "\n";
+                return 1;
+            }
+            for ( const auto& entry : fs::recursive_directory_iterator( root.ScanRoot ) )
+            {
+                if ( !entry.is_regular_file() )
+                    continue;
+                const auto ext = entry.path().extension().string();
+                if ( ext != ".hpp" && ext != ".h" )
+                    continue;
+                if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
+                    continue;
+                headers.emplace_back( entry.path(), &root );
+            }
         }
 
         // Pass 1: every enum definition, so a reflected field can reference an enum from any header.
         std::vector<EnumDef> enums;
-        for ( const auto& h : headers )
+        for ( const auto& [h, root] : headers )
             CollectEnums( StripComments( ReadFile( h ) ), enums );
 
         // Pass 2: reflected types, resolving enum field types against the collected enums.
         std::vector<ReflectedType>  types;
         std::vector<ComponentBlock> components;
         std::vector<std::string>    errors;
-        for ( const auto& h : headers )
-            ParseFile( h, request.SourceRoot, types, components, enums, errors );
+        std::vector<fs::path>       typeRoots; // types[i]'s include root, for its module below
+        for ( const auto& [h, root] : headers )
+        {
+            ParseFile( h, root->SourceRoot, types, components, enums, errors );
+            typeRoots.resize( types.size(), root->SourceRoot );
+        }
         std::vector<Desert::HeaderTool::ReflectedTypeName> typeNames;
         typeNames.reserve( types.size() );
         for ( const ReflectedType& t : types )
@@ -1380,15 +1400,16 @@ namespace
         else
             for ( const auto& module : modules->Modules() )
                 moduleNames.push_back( module.Name );
-        for ( auto& t : types )
+        for ( std::size_t index = 0; index < types.size(); ++index )
         {
+            ReflectedType& t = types[index];
             if ( modules == nullptr )
             {
                 t.module = moduleNames.front();
                 byModule[t.module].push_back( t );
                 continue;
             }
-            const fs::path header = fs::relative( request.SourceRoot / t.headerInclude, repoRoot );
+            const fs::path header = fs::relative( typeRoots[index] / t.headerInclude, repoRoot );
             t.module              = modules->ModuleOf( header.generic_string() );
             if ( t.module.empty() )
             {
@@ -1471,8 +1492,14 @@ static int RunTool( int argc, char** argv )
         else if ( arg == "--reflect" && left >= 3 )
         {
             const fs::path root = argv[i + 1];
-            reflect             = ReflectRequest{ root, root / argv[i + 2], argv[i + 3] };
+            reflect             = ReflectRequest{ { ReflectRoot{ root, root / argv[i + 2] } }, argv[i + 3] };
             i += 3;
+        }
+        else if ( arg == "--reflect-root" && left >= 2 && reflect )
+        {
+            const fs::path root = argv[i + 1];
+            reflect->Roots.push_back( ReflectRoot{ root, root / argv[i + 2] } );
+            i += 2;
         }
         else if ( arg == "--reflect-anchor" && left >= 1 && reflect )
             reflect->Anchor = argv[++i];
@@ -1494,6 +1521,7 @@ static int RunTool( int argc, char** argv )
     {
         std::cerr << "Usage: DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]\n"
                      "       [--reflect <source-root> <scan-subdir> <output> [--reflect-anchor <Name>]\n"
+                     "                  [--reflect-root <source-root> <scan-subdir>]...\n"
                      "                  [--reflect-components <output>]]\n"
                      "       [--check <include-root>]... [--context <include-root>]...\n"
                      "       [--subsystems <Owner> <OwnerType> <owner-header> <output>]...\n";

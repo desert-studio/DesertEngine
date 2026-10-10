@@ -63,6 +63,7 @@
 // their new comments say "this used to be a raw recursive_directory_iterator" — a checker that reads
 // comments as code is the same "a comment is not the code" defect, inverted, and the blanker is where
 // that lesson is already paid for (its own header lists a character literal that ate hundreds of lines).
+#include "TestSupport/source_roots.hpp"
 #include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Common/Core/Constants.hpp>
@@ -255,12 +256,8 @@ namespace
     // the argument at the top of this file.
     const std::vector<std::string>& ScannedRoots()
     {
-        static const std::vector<std::string> roots = {
-             "Editor/Source",
-             "Runtime/Source",
-             "Desert/Desert/Source",
-             "Desert/Common/Source",
-        };
+        static const std::vector<std::string> roots =
+             Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } );
         return roots;
     }
 

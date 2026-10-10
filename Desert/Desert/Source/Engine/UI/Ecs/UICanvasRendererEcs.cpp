@@ -1,6 +1,5 @@
 #include <Engine/UI/Ecs/EcsUITree.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIOverlay.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 // The registry-signature frame entry points every engine and editor caller already uses. Each one wraps the
 // registry in an EcsUITree and calls the tree overload — there is ONE walk, and this file only converts ids

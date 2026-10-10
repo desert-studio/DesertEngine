@@ -10,6 +10,7 @@
 // Geometry/EditMesh* file. The rule is also run against hand-written inputs below, so a census that has
 // stopped seeing includes fails instead of passing on an empty answer.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -24,8 +25,8 @@ namespace
     namespace fs = std::filesystem;
 
     constexpr const char* kBridgeHeader = "EditMeshBridge.hpp";
-    constexpr const char* kScanRoots[]  = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source",
-                                            "Runtime/Source", "Tools" };
+    const std::vector<std::string> kScanRoots =
+         Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } );
 
     std::string RepoRoot()
     {
@@ -178,7 +179,7 @@ namespace
     Scan ScanTree( const std::string& root )
     {
         Scan scan;
-        for ( const char* sub : kScanRoots )
+        for ( const std::string& sub : kScanRoots )
         {
             const fs::path base = fs::path( root ) / sub;
             if ( !fs::exists( base ) )

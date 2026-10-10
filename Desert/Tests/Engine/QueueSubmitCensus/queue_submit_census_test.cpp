@@ -6,6 +6,7 @@
 // The subject is the SOURCE TEXT, like DeviceLostCensus: a lock cannot be observed without a GPU and two
 // threads racing, but a call that bypasses it can be read off the disk. A new vkQueueSubmit anywhere else is
 // red here by name and line.
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -114,7 +115,7 @@ TEST( QueueSubmitCensus, EveryQueueCallOutsideTheDeviceLockIsAViolation )
     ASSERT_FALSE( root.empty() ) << "repository root not found from " << Desert::TestSupport::RepositoryRoot();
 
     std::size_t scanned = 0;
-    for ( const char* dir : { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+    for ( const std::string& dir : Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
     {
         std::error_code ec;
         for ( auto it = fs::recursive_directory_iterator( fs::path( root ) / dir, ec );

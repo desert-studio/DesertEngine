@@ -5,7 +5,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
-#include <Engine/UI/UIDataStore.hpp>
+#include <UI/UIDataStore.hpp>
 
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Logger.hpp>

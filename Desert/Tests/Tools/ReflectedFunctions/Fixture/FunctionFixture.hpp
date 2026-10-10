@@ -5,7 +5,7 @@
 // argument, a narrow integer. DesertHeaderTool generates Generated/FunctionFixture.gen.cpp from this header
 // in the Tools runner's prebuild (Desert/Tests/premake5.lua), exactly as it generates the engine's.
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/vec3.hpp>

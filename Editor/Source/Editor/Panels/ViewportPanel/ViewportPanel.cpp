@@ -24,7 +24,7 @@
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/AsyncMeshLoader.hpp>
 #include <filesystem>
-#include <Engine/Graphic/Render2D/Transform2D.hpp>
+#include <Render2DCore/Transform2D.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -41,8 +41,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UILayout.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <UI/UILayout.hpp>
 #include <Editor/Panels/ViewportPanel/ActiveViewportRule.hpp>
 #include <Editor/Panels/UI/UIElementCatalog.hpp>
 #include <Editor/Panels/UI/UIElementFactory.hpp>

@@ -59,6 +59,7 @@
 // unclosed write is red, and so is a register row whose site has been FIXED without the row being deleted.
 // The second direction is the one that keeps a debt register from rotting into decoration.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -102,8 +103,8 @@ namespace
     std::vector<fs::path> SourceFiles( const std::string& root )
     {
         std::vector<fs::path> files;
-        for ( const char* dir :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+        for ( const std::string& dir :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) )
         {
             const fs::path base = fs::path( root ) / dir;
             if ( !fs::exists( base ) )

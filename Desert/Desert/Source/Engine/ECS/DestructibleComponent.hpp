@@ -6,7 +6,7 @@
 // The pieces are drawn by DST-06; this component owns the simulation's inputs only.
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>

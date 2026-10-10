@@ -362,24 +362,24 @@ namespace
     // canvas's background additionally keeps the exact-expression assertion further down the file.
     // ------------------------------------------------------------------------------------------------
 
-    constexpr const char* kCanvasRenderer = "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp";
+    constexpr const char* kCanvasRenderer  = "Desert/UI/Source/UI/UICanvasRenderer2D.cpp";
     constexpr const char* kAnimationSystem = "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp";
-    constexpr const char* kCanvasLayout   = "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp";
-    constexpr const char* kUIButton        = "Desert/Desert/Source/Engine/UI/Widgets/Button.cpp";
-    constexpr const char* kUIDropdown      = "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp";
-    constexpr const char* kUIImage         = "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp";
-    constexpr const char* kUIInputField    = "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp";
-    constexpr const char* kUITextEditRules = "Desert/Desert/Source/Engine/UI/UITextEditState.cpp";
-    constexpr const char* kUIPanel         = "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp";
-    constexpr const char* kUIPath          = "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp";
-    constexpr const char* kUIProgressBar   = "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp";
-    constexpr const char* kUIScrollList    = "Desert/Desert/Source/Engine/UI/Widgets/ScrollList.cpp";
-    constexpr const char* kUISlider        = "Desert/Desert/Source/Engine/UI/Widgets/Slider.cpp";
-    constexpr const char* kUIText          = "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp";
-    constexpr const char* kUIToggle        = "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp";
-    constexpr const char* kUIRichText      = "Desert/Desert/Source/Engine/UI/UIRichText.cpp";
-    constexpr const char* kUIWalkCtx       = "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp";
-    constexpr const char* kUIFocus         = "Desert/Desert/Source/Engine/UI/UIFocus.cpp";
+    constexpr const char* kCanvasLayout    = "Desert/UI/Source/UI/UICanvasLayout.cpp";
+    constexpr const char* kUIButton        = "Desert/UI/Source/UI/Widgets/Button.cpp";
+    constexpr const char* kUIDropdown      = "Desert/UI/Source/UI/Widgets/Dropdown.cpp";
+    constexpr const char* kUIImage         = "Desert/UI/Source/UI/Widgets/Image.cpp";
+    constexpr const char* kUIInputField    = "Desert/UI/Source/UI/Widgets/InputField.cpp";
+    constexpr const char* kUITextEditRules = "Desert/UI/Source/UI/UITextEditState.cpp";
+    constexpr const char* kUIPanel         = "Desert/UI/Source/UI/Widgets/Panel.cpp";
+    constexpr const char* kUIPath          = "Desert/UI/Source/UI/Widgets/Path.cpp";
+    constexpr const char* kUIProgressBar   = "Desert/UI/Source/UI/Widgets/ProgressBar.cpp";
+    constexpr const char* kUIScrollList    = "Desert/UI/Source/UI/Widgets/ScrollList.cpp";
+    constexpr const char* kUISlider        = "Desert/UI/Source/UI/Widgets/Slider.cpp";
+    constexpr const char* kUIText          = "Desert/UI/Source/UI/Widgets/Text.cpp";
+    constexpr const char* kUIToggle        = "Desert/UI/Source/UI/Widgets/Toggle.cpp";
+    constexpr const char* kUIRichText      = "Desert/UI/Source/UI/UIRichText.cpp";
+    constexpr const char* kUIWalkCtx       = "Desert/UI/Source/UI/UIWalkCtx.cpp";
+    constexpr const char* kUIFocus         = "Desert/UI/Source/UI/UIFocus.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -1018,7 +1018,7 @@ namespace
 
     // Overlays (Ю12). Most of the policy is read by the state machine; the scrim is read by the walk that
     // draws it, because the scrim is also the election that makes a modal modal.
-    constexpr const char* kOverlay = "Desert/Desert/Source/Engine/UI/UIOverlay.cpp";
+    constexpr const char* kOverlay = "Desert/UI/Source/UI/UIOverlay.cpp";
 
     constexpr Row kOverlayRows[] = {
          { "Kind", kOverlay },

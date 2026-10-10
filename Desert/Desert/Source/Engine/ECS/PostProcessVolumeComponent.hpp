@@ -3,7 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <Engine/Core/PostProcessSettings.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::ECS
 {

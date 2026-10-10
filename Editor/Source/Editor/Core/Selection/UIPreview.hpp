@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 #include <glm/glm.hpp>
 #include <entt/entt.hpp>

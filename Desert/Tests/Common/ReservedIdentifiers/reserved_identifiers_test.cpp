@@ -885,7 +885,11 @@ TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
     const std::vector<std::string> optOuts = UnityOptOuts();
     ASSERT_GT( optOuts.size(), 3u ) << "BuildScripts/UnityBuild.lua's opt-out list was not found or not parsed";
 
+    // Premake project -> the tree its .cpp files come from. Desert/CoreReflection is header-only: it has no
+    // translation unit of its own to collide in.
     const std::pair<const char*, const char*>       kProjects[] = { { "Common", "Desert/Common/Source/" },
+                                                                    { "Render2DCore", "Desert/Render2DCore/Source/" },
+                                                                    { "DesertUI", "Desert/UI/Source/" },
                                                                     { "Desert", "Desert/Desert/Source/" },
                                                                     { "Editor", "Editor/Source/" } };
     std::map<std::string, std::vector<std::string>> definers; // "project name" -> sources

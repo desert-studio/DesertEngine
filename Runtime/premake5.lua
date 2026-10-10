@@ -22,6 +22,9 @@ project "Runtime"
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Runtime/Source"'
             .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
             .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/CoreReflection/Source"'
     }
 
     files {
@@ -31,6 +34,9 @@ project "Runtime"
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source/",
         "%{_MAIN_SCRIPT_DIR}/Runtime/Source/",
 
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
@@ -54,6 +60,8 @@ project "Runtime"
 
     links{
         "Desert",
+        "DesertUI",
+        "Render2DCore",
         "GLFW",
         "Optick",
         "MeshOptimizer",

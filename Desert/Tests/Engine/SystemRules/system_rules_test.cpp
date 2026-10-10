@@ -5,6 +5,7 @@
 // and standing up a device. The rules live in Engine/ECS/System/SystemRules.hpp; the systems only fetch
 // the arguments. Same split that made the shadow cascades testable.
 
+#include "TestSupport/source_roots.hpp"
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <Common/Core/Units.hpp>
@@ -385,7 +386,7 @@ TEST( AtmosphereSunRules, NoFileOpenCodesTheSunDirectionThreshold )
     const std::regex reachesTheGate( "kSunDirectionEpsilon|IsSunDirectionValid|DirectionalLightTravel" );
 
     std::vector<std::string> offenders;
-    for ( const std::string& tree : { "Desert/Desert/Source", "Editor/Source", "Runtime" } )
+    for ( const std::string& tree : Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Runtime" } ) )
     {
         const std::filesystem::path base = root + tree;
         if ( !std::filesystem::exists( base ) )

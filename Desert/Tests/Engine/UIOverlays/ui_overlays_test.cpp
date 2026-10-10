@@ -24,11 +24,10 @@
 // the mutations that were run are in the report.
 
 #include <Engine/ECS/Components.hpp>
-#include <Engine/UI/UICanvasContext.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIMaterialSource.hpp>
-#include <Engine/UI/UIOverlay.hpp>
+#include <UI/UICanvasContext.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <UI/UIMaterialSource.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
