@@ -40,12 +40,12 @@ project "LatticePeak"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
     }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 
     -- rfl/json.hpp, which CloudTypeData.cpp reads the type library through.
-    for name, path in pairs(deps.CommonSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 

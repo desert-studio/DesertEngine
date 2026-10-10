@@ -48,7 +48,7 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
     }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 

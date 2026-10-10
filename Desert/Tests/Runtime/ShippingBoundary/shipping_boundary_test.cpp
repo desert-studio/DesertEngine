@@ -815,10 +815,16 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
 
     const std::string ci = StripYamlComments( Read( root / ".github/workflows/ci.yml" ) );
     ASSERT_FALSE( ci.empty() );
-    EXPECT_GE( CountOf( ci, "if: matrix.config != 'Shipping'" ), 1u )
-         << "the macOS `Run tests` step must be guarded — the Shipping build creates no "
+    // The macOS job is a matrix of configuration x leg (CI-MAC): the test steps run in the `tests` leg
+    // only, and the matrix has no Shipping x tests combination. Both halves together are the guard; the
+    // step condition alone would be satisfied by a matrix that put a tests leg back on Shipping.
+    EXPECT_GE( CountOf( ci, "if: matrix.leg == 'tests'" ), 1u )
+         << "the macOS `Run tests` step must be guarded to the tests leg — the Shipping build creates no "
             "build/Bin/Tests/Shipping at all, so the step has nothing to run. Unguarded it goes red on a "
             "missing directory, which is a whole CI leg spent saying so.";
+    EXPECT_NE( ci.find( "exclude:\n          - config: Shipping\n            leg: tests\n" ), std::string::npos )
+         << "the macOS matrix no longer excludes Shipping x tests: a tests leg in Shipping has no test "
+            "binaries to build or run.";
 
     // Windows (CI12): the build job plans and uploads test shards only when `matrix.shards > 0`, and the
     // Shipping job plans zero, so no shard job ever looks for build/Bin/Tests/Shipping.

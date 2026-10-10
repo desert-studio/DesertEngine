@@ -59,11 +59,11 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/opus/include",
     }
     
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
     
-    for name, path in pairs(deps.DesertSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.DesertSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 
@@ -88,14 +88,14 @@ project "Desert"
     end
 
     filter "configurations:Debug"
-        for name, path in pairs(deps.DesertSpecific.Libraries.Debug) do
+        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Debug) do
             links { path }
         end
 
     -- `or Shipping`: the shipping build links the SAME third-party flavour Release does. There is no
     -- third set of prebuilt libraries and inventing one would mean pinning Vulkan and reflect-cpp twice.
     filter "configurations:Release or Shipping"
-        for name, path in pairs(deps.DesertSpecific.Libraries.Release) do
+        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Release) do
             links { path }
         end
 
