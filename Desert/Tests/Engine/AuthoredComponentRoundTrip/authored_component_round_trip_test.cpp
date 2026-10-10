@@ -337,7 +337,7 @@ TEST( AuthoredComponentRoundTrip, EverySocketFieldComesBack )
 {
     ECS::SocketAttachmentComponent written;
     written.Target            = Common::UUID( 1234567890123456789ull );
-    written.BoneName          = "mixamorig:RightHand";
+    written.SocketName        = "mixamorig:RightHand";
     written.OffsetTranslation = glm::vec3( 1.5f, -2.25f, 3.125f );
     written.OffsetRotation    = glm::vec3( 0.5f, 1.25f, -0.75f );
     written.OffsetScale       = glm::vec3( 2.0f, 0.5f, 1.75f );
@@ -345,7 +345,7 @@ TEST( AuthoredComponentRoundTrip, EverySocketFieldComesBack )
     const ECS::SocketAttachmentComponent read = RoundTrip( written );
 
     EXPECT_EQ( static_cast<uint64_t>( read.Target ), static_cast<uint64_t>( written.Target ) );
-    EXPECT_EQ( read.BoneName, written.BoneName );
+    EXPECT_EQ( read.SocketName, written.SocketName );
     EXPECT_EQ( read.OffsetTranslation, written.OffsetTranslation );
     EXPECT_EQ( read.OffsetRotation, written.OffsetRotation );
     EXPECT_EQ( read.OffsetScale, written.OffsetScale );
@@ -427,10 +427,10 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 
     ECS::SocketAttachmentComponent socket;
     socket.Target   = Common::UUID( 777ull );
-    socket.BoneName = "mixamorig:Head";
+    socket.SocketName = "mixamorig:Head";
     ReadAt( Common::Json::Object{}, socket );
     EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 777ull );
-    EXPECT_EQ( socket.BoneName, "mixamorig:Head" );
+    EXPECT_EQ( socket.SocketName, "mixamorig:Head" );
 
     ECS::MorphComponent morph;
     morph.Weights     = { 0.5f };

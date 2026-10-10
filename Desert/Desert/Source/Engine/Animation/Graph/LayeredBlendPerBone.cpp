@@ -149,6 +149,27 @@ namespace Desert::Animation::Graph
             // then exclusions cut their branches out — whatever order the filters were listed in.
             std::vector<float> reach( boneCount, -1.0F );
             std::vector<bool>  excluded( boneCount, false );
+            if ( const auto& maskName = node.Layers[layer].BoneMask )
+            {
+                if ( !node.Layers[layer].Filters.empty() )
+                    return Common::MakeError<Table>(
+                         std::format( "Layered Blend Per Bone: layer {} states both {} branch filter(s) and the bone "
+                                      "mask '{}'; a layer's reach is one or the other",
+                                      layer, node.Layers[layer].Filters.size(), *maskName ) );
+                const BoneMask* mask = skeleton.FindBoneMask( *maskName );
+                if ( mask == nullptr )
+                    return Common::MakeError<Table>(
+                         std::format( "Layered Blend Per Bone: layer {} names the bone mask '{}', which the "
+                                      "skeleton does not have ({} mask(s))",
+                                      layer, *maskName, skeleton.GetBoneMasks().size() ) );
+                auto weights = ResolveBoneMaskWeights( *mask, skeleton );
+                if ( !weights )
+                    return Common::MakeError<Table>(
+                         std::format( "Layered Blend Per Bone: layer {}: {}", layer, weights.GetError() ) );
+                for ( size_t b = 0; b < boneCount; ++b )
+                    if ( weights.GetValue()[b] > 0.0F )
+                        reach[b] = weights.GetValue()[b];
+            }
             for ( const BranchFilter& filter : node.Layers[layer].Filters )
             {
                 const auto bone = skeleton.FindBoneIndex( filter.BoneName );

@@ -967,7 +967,8 @@ namespace Desert::Migration
             std::string Source;
             uint64_t    SourceHash = 0;
         };
-        // SKEL 1 and 2 as they were written: SKEL 1 lacks PreviewMesh / CompatibleSkeletons, both carry Import.
+        // SKEL 1-4 as they were written: SKEL 1 lacks PreviewMesh / CompatibleSkeletons, 1 and 2 carry Import,
+        // only 4 states Sockets / BoneMasks.
         struct SkeletonAssetDataV1V2
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -976,9 +977,11 @@ namespace Desert::Migration
             std::optional<SkeletonImportInfoV2>                       Import;
             std::optional<Assets::AssetGuidRef>                       PreviewMesh;
             std::optional<std::vector<Assets::AssetGuidRef>>          CompatibleSkeletons;
+            std::optional<std::vector<Animation::SkeletonSocket>>     Sockets;
+            std::optional<std::vector<Animation::BoneMask>>           BoneMasks;
         };
 
-        // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
+        // The rig as ANY generation this tool raises states it (SKEL 1, 2, 3 or the current one), with the
         // version it states; an unreadable body or a missing header is an error naming why.
         // The header is handed out on its own, as a value: the reader is what proves it is there.
         struct AnySkeleton
@@ -1004,15 +1007,15 @@ namespace Desert::Migration
     } // namespace SkeletonLegacy
     using SkeletonLegacy::ReadAnySkeleton;
 
-    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text )
+    Common::ResultStr<std::string> MigrateSkeletonToV4( const std::string& text )
     {
         const auto any = ReadAnySkeleton( text );
         if ( !any )
             return Common::MakeError<std::string>( any.GetError() );
         const auto& [old, header, version] = any.GetValue();
-        if ( version != 1u && version != 2u )
+        if ( version < 1u || version > 3u )
             return Common::MakeFormattedError<std::string>(
-                 "the header states SKEL {}, and this step raises SKEL 1 and 2 only", version );
+                 "the header states SKEL {}, and this step raises SKEL 1, 2 and 3 only", version );
 
         Assets::Serialization::SkeletonAssetData   data;
         Common::Content::TextAssetHeaderSerialized stamped = header;
@@ -1022,7 +1025,10 @@ namespace Desert::Migration
         data.Bones                                         = old.Bones;
         data.PreviewMesh                                   = old.PreviewMesh;
         data.CompatibleSkeletons = old.CompatibleSkeletons.value_or( std::vector<Assets::AssetGuidRef>{} );
-        std::string written      = Common::Json::Write( data );
+        // SKEL 4: no generation before it had sockets or bone masks - both lists are stated, empty.
+        data.Sockets.clear();
+        data.BoneMasks.clear();
+        std::string written = Common::Json::Write( data );
         // What the step writes, the engine's reader must read.
         if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
             return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL {}: {}",

@@ -270,6 +270,10 @@ namespace Desert::Assets::Serialization
             }
             if ( !renames.empty() )
                 data.Signature = Animation::Skeleton::ComputeSignature( data.Bones );
+            // SKEL 4: the sockets and bone masks are authored on the rig in memory (already validated against
+            // its bones and carried through its renames), so they are written as it holds them.
+            data.Sockets   = rig->GetSockets();
+            data.BoneMasks = rig->GetBoneMasks();
         }
         data.PreviewMesh.reset();
         if ( const auto preview = skeleton.GetPreviewMesh(); !preview.IsNull() )

@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <Editor/Panels/AnimationEditor/SkeletonTree.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -92,4 +94,68 @@ TEST( SkeletonTree, DecomposeReadsLocationRotationScale )
     EXPECT_NEAR( rows.Location.y, 2.0f, 1e-4f );
     EXPECT_NEAR( rows.RotationDegrees.z, 90.0f, 1e-3f );
     EXPECT_NEAR( rows.Scale.x, 2.0f, 1e-4f );
+}
+
+// ── ANIM-FIX5a: sockets live on the skeleton; an attachment names one ─────────────────────────────────────
+
+TEST( SkeletonSockets, AnAttachmentNamingASocketFollowsItsBoneAndItsTransformAndABoneNameStillWorks )
+{
+    auto                        skeleton = MakeSkeleton();
+    Animation::SkeletonSocket   grip{ "hand_r_grip", "lowerarm_r", glm::vec3( 0.0F, 10.0F, 0.0F ) };
+    ASSERT_TRUE( skeleton.SetSockets( { grip } ) );
+
+    const auto socket = ECS::Rules::ResolveAttachPoint( skeleton, "hand_r_grip" );
+    ASSERT_TRUE( socket.has_value() );
+    EXPECT_EQ( socket->Bone, 5u );
+    EXPECT_FLOAT_EQ( socket->SocketLocal[3][1], 10.0F );
+
+    // The attachment's own offset composes ON TOP of the socket: bone * socket * offset.
+    const glm::mat4 world = ECS::Rules::SocketLocalTransform( glm::mat4( 1.0F ), glm::mat4( 1.0F ) * socket->SocketLocal,
+                                                             glm::vec3( 1.0F, 0.0F, 0.0F ), glm::vec3( 0.0F ),
+                                                             glm::vec3( 1.0F ) );
+    EXPECT_FLOAT_EQ( world[3][0], 1.0F );
+    EXPECT_FLOAT_EQ( world[3][1], 10.0F );
+
+    const auto bone = ECS::Rules::ResolveAttachPoint( skeleton, "spine" );
+    ASSERT_TRUE( bone.has_value() );
+    EXPECT_EQ( bone->Bone, 1u );
+    EXPECT_EQ( bone->SocketLocal, glm::mat4( 1.0F ) );
+    EXPECT_FALSE( ECS::Rules::ResolveAttachPoint( skeleton, "nowhere" ).has_value() );
+
+    // A socket on a bone the rig lacks is refused by name; the old set stays.
+    const auto refused = skeleton.SetSockets( { Animation::SkeletonSocket{ "bad", "tail" } } );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "'tail'" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( skeleton.FindSocket( "hand_r_grip" ), nullptr );
+}
+
+TEST( SkeletonSockets, SocketsAndBoneMasksSurviveTheSkel4RoundTrip )
+{
+    Assets::Serialization::SkeletonAssetData data;
+    data.Bones = MakeSkeleton().GetBones();
+    data.Sockets.push_back( Animation::SkeletonSocket{ "head_hat", "spine", glm::vec3( 0.0F, 0.0F, 5.0F ),
+                                                       glm::quat( 0.0F, 0.0F, 1.0F, 0.0F ), glm::vec3( 2.0F ) } );
+    data.BoneMasks.push_back(
+         Animation::BoneMask{ "LeftArm", { Animation::BoneMaskEntry{ "upperarm_l", 0.75F, false } } } );
+
+    const auto back = Assets::Serialization::ReadSkeletonJson( Assets::Serialization::WriteSkeletonJson( data ) );
+    ASSERT_TRUE( back ) << back.GetError();
+    ASSERT_EQ( back.GetValue().Sockets.size(), 1u );
+    const auto& socket = back.GetValue().Sockets[0];
+    EXPECT_EQ( socket.Name, "head_hat" );
+    EXPECT_EQ( socket.Bone, "spine" );
+    EXPECT_FLOAT_EQ( socket.Translation.z, 5.0F );
+    // glm::quat( w, x, y, z ): the written rotation is w 0, x 0, y 1, z 0 - every component must come back.
+    const glm::quat written = data.Sockets[0].Rotation;
+    EXPECT_FLOAT_EQ( socket.Rotation.w, written.w );
+    EXPECT_FLOAT_EQ( socket.Rotation.x, written.x );
+    EXPECT_FLOAT_EQ( socket.Rotation.y, written.y );
+    EXPECT_FLOAT_EQ( socket.Rotation.z, written.z );
+    EXPECT_FLOAT_EQ( socket.Rotation.y, 1.0F );
+    EXPECT_FLOAT_EQ( socket.Scale.x, 2.0F );
+    ASSERT_EQ( back.GetValue().BoneMasks.size(), 1u );
+    ASSERT_EQ( back.GetValue().BoneMasks[0].Entries.size(), 1u );
+    EXPECT_EQ( back.GetValue().BoneMasks[0].Entries[0].Bone, "upperarm_l" );
+    EXPECT_FLOAT_EQ( back.GetValue().BoneMasks[0].Entries[0].Weight, 0.75F );
+    EXPECT_FALSE( back.GetValue().BoneMasks[0].Entries[0].IncludeDescendants );
 }

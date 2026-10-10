@@ -1362,12 +1362,12 @@ namespace Desert::Migration
             }
             if ( path.extension() == ".skeleton" )
             {
-                // SKEL 1/2 -> 3: SKEL 2 (SKEL-TREE) gave the rig PreviewMesh / CompatibleSkeletons, SKEL 3 dropped
-                // the dead Import provenance.
+                // SKEL 1/2/3 -> 4: SKEL 2 (SKEL-TREE) gave the rig PreviewMesh / CompatibleSkeletons, SKEL 3 dropped
+                // the dead Import provenance, SKEL 4 (ANIM-FIX5a) states its Sockets and BoneMasks.
                 const auto stated = ReadStatedVersion( path, text, "SKEL" );
-                if ( stated && ( stated.GetValue() == 1u || stated.GetValue() == 2u ) )
+                if ( stated && stated.GetValue() >= 1u && stated.GetValue() <= 3u )
                 {
-                    const auto raised = Desert::Migration::MigrateSkeletonToV3( text );
+                    const auto raised = Desert::Migration::MigrateSkeletonToV4( text );
                     if ( !raised )
                     {
                         err << "FAIL   " << path.string() << " — SKEL " << stated.GetValue() << " -> "

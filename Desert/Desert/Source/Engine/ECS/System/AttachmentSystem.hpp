@@ -50,7 +50,7 @@ namespace Desert::ECS
             for ( auto entity : view )
             {
                 auto& socket = view.get<SocketAttachmentComponent>( entity );
-                if ( socket.Target.IsNull() || socket.BoneName.empty() )
+                if ( socket.Target.IsNull() || socket.SocketName.empty() )
                     continue;
 
                 // Resolve the target (skinned) entity + its live animator.
@@ -64,27 +64,31 @@ namespace Desert::ECS
                 if ( !anim.Animator )
                     continue; // pose not built yet (e.g. not playing) — leave the weapon where it is
 
-                // A BoneRef, so the two ways this can fail stay two things. `if ( !FindBoneIndex ) continue;`
-                // collapsed them: a socket with no name authored (detached — correct, say nothing) and a
-                // socket naming a bone the target's rig does not have (the weapon silently stops following,
-                // and nothing anywhere says why) took the same branch. The empty name is already filtered
-                // above; what is left here is only the second case, and it now has a voice.
+                // THE NAME IS A SOCKET OF THE RIG FIRST, THEN A BONE (UE USkinnedMeshComponent::GetSocketTransform).
+                // A socket gives its bone and its local transform, so every attachment naming it follows the one
+                // grip authored on the skeleton. Resolved once per (name, rig, the rig's socket set) by
+                // Rules::ResolveAttachPoint, so "no name authored" (detached, filtered above) and "a name the rig has neither as a socket
+                // nor as a bone" (the attachment stops following, and says why) stay two things.
                 const Animation::Skeleton& skeleton = anim.Animator->GetSkeleton();
-                auto&                      ref      = m_BoneRefs[entity];
-                if ( ref.GetName() != socket.BoneName || m_RefRig[entity] != skeleton.GetSignature() )
+                Resolved&                  resolved = m_Resolved[entity];
+                if ( resolved.Name != socket.SocketName || resolved.Signature != skeleton.GetSignature() ||
+                     resolved.AuthoringRevision != skeleton.GetAuthoringRevision() )
                 {
-                    ref.SetName( socket.BoneName );
-                    m_RefRig[entity] = skeleton.GetSignature();
-                    if ( !ref.Resolve( skeleton ) )
+                    resolved.Name              = socket.SocketName;
+                    resolved.Signature         = skeleton.GetSignature();
+                    resolved.AuthoringRevision = skeleton.GetAuthoringRevision();
+                    resolved.Point = Rules::ResolveAttachPoint( skeleton, socket.SocketName );
+                    if ( !resolved.Point )
                     {
-                        LOG_ERROR( "[Attachment] socket bone '{}' is not a bone of the target's rig "
-                                   "(signature {}, {} bones); this entity will not follow anything.",
-                                   socket.BoneName, skeleton.GetSignature(), skeleton.GetBones().size() );
+                        LOG_ERROR( "[Attachment] '{}' is neither a socket nor a bone of the target's rig "
+                                   "(signature {}, {} bones, {} sockets); this entity will not follow anything.",
+                                   socket.SocketName, skeleton.GetSignature(), skeleton.GetBones().size(),
+                                   skeleton.GetSockets().size() );
                     }
                 }
-                if ( !ref.IsResolved() )
+                if ( !resolved.Point )
                     continue;
-                const uint32_t boneIdx = ref.GetIndex();
+                const uint32_t boneIdx = resolved.Point->Bone;
 
                 // The TransformComponent stores a LOCAL transform, so a parented weapon must come back
                 // into its parent's space or it doubles the parent's motion. The composition + decompose
@@ -101,7 +105,7 @@ namespace Desert::ECS
                 }
 
                 const glm::mat4 local = Rules::SocketLocalTransform(
-                     target.GetWorldTransform(), anim.Animator->GetBoneModelMatrix( boneIdx ),
+                     target.GetWorldTransform(), anim.Animator->GetBoneModelMatrix( boneIdx ) * resolved.Point->SocketLocal,
                      socket.OffsetTranslation, socket.OffsetRotation, socket.OffsetScale, parentWorld );
 
                 const Rules::DecomposedTransform decomposed = Rules::DecomposeTransform( local );
@@ -129,17 +133,23 @@ namespace Desert::ECS
 
         void OnSocketDestroyed( entt::registry&, entt::entity entity )
         {
-            m_BoneRefs.erase( entity );
-            m_RefRig.erase( entity );
+            m_Resolved.erase( entity );
         }
 
         Core::Scene*    m_Scene          = nullptr;
         entt::registry* m_HookedRegistry = nullptr;
 
-        // The cached bone index per socket entity, plus the rig signature it was resolved against. The
-        // signature is the invalidation key: re-resolving on every frame would defeat the cache, and never
-        // re-resolving would hand back an index from a rig the target no longer has.
-        std::unordered_map<entt::entity, Animation::BoneRef> m_BoneRefs;
-        std::unordered_map<entt::entity, uint64_t>           m_RefRig;
+        // Per socket entity: what its name resolved to, and against what. The key is the name, the rig's signature
+        // and its authoring revision (a socket edited or a rig re-read at the same address moves it): re-resolving
+        // on every frame would defeat the cache, never re-resolving would hand back a bone or a socket transform
+        // the target's rig no longer has.
+        struct Resolved
+        {
+            std::string        Name;
+            uint64_t           Signature         = 0;
+            uint64_t           AuthoringRevision = 0;
+            std::optional<Rules::AttachPoint> Point; ///< nullopt = neither a socket nor a bone of the rig
+        };
+        std::unordered_map<entt::entity, Resolved> m_Resolved;
     };
 } // namespace Desert::ECS

@@ -30,6 +30,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -47,9 +48,13 @@ namespace Desert::Animation::Graph
         int32_t     BlendDepth = 0;
     };
 
+    /// One layer's reach: its own branch filters OR a bone mask of the skeleton by name (UE FAnimNode_LayeredBoneBlend's
+    /// BlendMode: BranchFilter vs BlendMask, the mask a USkeleton blend profile). Never both - two statements of one
+    /// reach would be two truths; BuildPerBoneWeights refuses that, and a mask name the skeleton lacks, by name.
     struct LayerSetup
     {
-        std::vector<BranchFilter> Filters;
+        std::vector<BranchFilter>  Filters;
+        std::optional<std::string> BoneMask; ///< Skeleton::FindBoneMask; absent = the filters above
     };
 
     /// UE's ECurveBlendOption: how the base's and the layers' named float curves combine. Append only.
@@ -94,7 +99,9 @@ namespace Desert::Animation::Graph
 
     /**
      * @brief The per-bone table, built once per (node, skeleton) — not per frame.
-     * Refuses a filter bone the skeleton lacks, by name (a typo would otherwise be a layer that does nothing).
+     * Refuses a filter bone the skeleton lacks, by name (a typo would otherwise be a layer that does nothing), a
+     * layer naming a bone mask the skeleton lacks, and a layer stating both filters and a mask. A mask layer reaches
+     * every bone the mask weighs above 0, at that weight (ResolveBoneMaskWeights).
      */
     [[nodiscard]] Common::ResultStr<std::vector<PerBoneBlendWeight>>
     BuildPerBoneWeights( const LayeredBlendPerBoneNode& node, const Skeleton& skeleton );

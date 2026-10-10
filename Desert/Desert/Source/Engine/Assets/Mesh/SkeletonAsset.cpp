@@ -35,10 +35,17 @@ namespace Desert::Assets
         // `AnimationComponent::BuiltSkeletonSignature` no longer matches. `Load()` on a loaded rig IS the
         // reload (ImportOptionsDialog's ReloadLoaded), exactly as it is for AnimationAsset's clip; `Unload`
         // first would free the object. Written only after the file parsed, so a failed reload keeps the rig.
+        // SKEL 4: the sockets and bone masks are checked against the bones just read BEFORE the rig is replaced,
+        // so a file naming a bone it lacks is refused by name and a loaded rig keeps what it had.
+        Animation::Skeleton rig( std::move( data.Bones ) );
+        if ( auto sockets = rig.SetSockets( std::move( data.Sockets ) ); !sockets )
+            return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), sockets.GetError() );
+        if ( auto masks = rig.SetBoneMasks( std::move( data.BoneMasks ) ); !masks )
+            return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), masks.GetError() );
         if ( m_Skeleton )
-            *m_Skeleton = Animation::Skeleton( std::move( data.Bones ) );
+            *m_Skeleton = std::move( rig );
         else
-            m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( data.Bones ) );
+            m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( rig ) );
         // Taken from the bones that were just read, never from `data.Signature`: the file's own field is
         // what a cook WROTE, and this is what the rig in memory IS. A mesh is matched against the second.
         m_Signature = m_Skeleton->GetSignature();
@@ -99,6 +106,20 @@ namespace Desert::Assets
         return true;
     }
 
+    Common::BoolResultStr SkeletonAsset::SetSockets( std::vector<Animation::SkeletonSocket> sockets )
+    {
+        if ( !m_Skeleton )
+            return Common::MakeError<bool>( "the rig is not loaded" );
+        return m_Skeleton->SetSockets( std::move( sockets ) );
+    }
+
+    Common::BoolResultStr SkeletonAsset::SetBoneMasks( std::vector<Animation::BoneMask> masks )
+    {
+        if ( !m_Skeleton )
+            return Common::MakeError<bool>( "the rig is not loaded" );
+        return m_Skeleton->SetBoneMasks( std::move( masks ) );
+    }
+
     Common::BoolResultStr SkeletonAsset::RenameBone( const uint32_t bone, const std::string& name )
     {
         if ( !m_Skeleton )
@@ -114,9 +135,26 @@ namespace Desert::Assets
         if ( const auto other = m_Skeleton->FindBoneIndex( name ); other && *other != bone )
             return Common::MakeFormattedError<bool>( "bone {} is already named '{}'", *other, name );
 
+        // The sockets and bone masks name bones too: they follow the rename (UE: a renamed bone keeps its
+        // sockets), so the rebuilt rig accepts them exactly as the old one held them.
+        const std::string                was     = bones[bone].Name;
         std::vector<Animation::BoneInfo> renamed = bones;
         renamed[bone].Name                       = name;
-        *m_Skeleton                              = Animation::Skeleton( std::move( renamed ) );
+        std::vector<Animation::SkeletonSocket> sockets = m_Skeleton->GetSockets();
+        for ( Animation::SkeletonSocket& socket : sockets )
+            if ( socket.Bone == was )
+                socket.Bone = name;
+        std::vector<Animation::BoneMask> masks = m_Skeleton->GetBoneMasks();
+        for ( Animation::BoneMask& mask : masks )
+            for ( Animation::BoneMaskEntry& entry : mask.Entries )
+                if ( entry.Bone == was )
+                    entry.Bone = name;
+        Animation::Skeleton rebuilt( std::move( renamed ) );
+        if ( auto carried = rebuilt.SetSockets( std::move( sockets ) ); !carried )
+            return Common::MakeError<bool>( carried.GetError() );
+        if ( auto carried = rebuilt.SetBoneMasks( std::move( masks ) ); !carried )
+            return Common::MakeError<bool>( carried.GetError() );
+        *m_Skeleton = std::move( rebuilt );
         m_Signature                              = m_Skeleton->GetSignature();
         ++m_BindRevision;
         return BOOLSUCCESS;

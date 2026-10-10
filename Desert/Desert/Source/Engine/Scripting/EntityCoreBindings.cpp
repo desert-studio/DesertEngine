@@ -83,13 +83,13 @@ namespace Desert::Scripting
         {
             const LuauEntityRef self   = LuauBinder::CheckEntity( L, 1 );
             const LuauEntityRef target = LuauBinder::CheckEntity( L, 2 );
-            const char*         bone   = luaL_checkstring( L, 3 );
+            const char*         socket = luaL_checkstring( L, 3 ); // a skeleton socket, or a bone name
             Common::UUID        targetId;
             if ( const auto* id = target.Registry->try_get<ECS::UUIDComponent>( target.Entity ) )
                 targetId = id->UUID;
-            auto& attachment    = self.Registry->get_or_emplace<ECS::SocketAttachmentComponent>( self.Entity );
-            attachment.Target   = targetId;
-            attachment.BoneName = bone;
+            auto& attachment      = self.Registry->get_or_emplace<ECS::SocketAttachmentComponent>( self.Entity );
+            attachment.Target     = targetId;
+            attachment.SocketName = socket;
             return 0;
         }
 
