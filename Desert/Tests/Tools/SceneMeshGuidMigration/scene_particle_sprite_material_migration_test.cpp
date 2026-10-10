@@ -50,11 +50,11 @@ namespace
     }
 } // namespace
 
-// Red when the step is not the newest generation the engine requires.
+// Red when the step is not the generation the engine still requires (ParticleEmittersToVFX follows it).
 TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterCollisionProfiles )
 {
     EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Migration::kSceneVersionCollisionProfiles + 1 );
-    EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
+    EXPECT_LT( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
 }
 
 // Red when an Additive emitter keeps compositing over (no material), an AlphaBlend / unstated one gains a
