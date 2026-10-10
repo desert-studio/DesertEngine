@@ -144,10 +144,10 @@ namespace Desert::Graphic
         return s_RendererAPI->PresentFinalImage();
     }
 
-    void Renderer::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+    void Renderer::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                 const MaterialExecutor* materialExecutor )
     {
-        s_RendererAPI->SubmitLines( pipeline, vertexCount, lineWidth, materialExecutor );
+        s_RendererAPI->SubmitPulled( pipeline, vertexCount, lineWidth, materialExecutor );
     }
 
     RDG::ShaderBindingLayout Renderer::GetBindingLayout( const Shader& shader )

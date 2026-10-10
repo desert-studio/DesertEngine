@@ -6,6 +6,7 @@ Shader "DebugLine"
         // Vertexless debug line list: each vertex is pulled from the Lines storage buffer by gl_VertexIndex and
         // transformed by the shared camera. Lines topology -> every 2 vertices form one world-space segment.
         // Used for AABB wireframes (Scene Settings -> Debug -> Show Bounding Boxes); reusable for other gizmos.
+        // A Triangles-topology pipeline draws the same list three vertices per triangle (tool preview meshes).
 
         #include <Common/CameraUB.glslh>
 

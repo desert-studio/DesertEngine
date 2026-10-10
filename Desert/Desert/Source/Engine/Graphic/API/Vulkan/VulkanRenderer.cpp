@@ -359,7 +359,7 @@ namespace Desert::Graphic::API::Vulkan
         return m_DefaultVertexStreams;
     }
 
-    void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+    void VulkanRendererAPI::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                          const MaterialExecutor* materialExecutor )
     {
         if ( !IsRecording() || vertexCount == 0 )
@@ -374,7 +374,7 @@ namespace Desert::Graphic::API::Vulkan
             auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
             if ( !vkBackend->HasDescriptorSets() )
             {
-                LOG_WARN( "VulkanRendererAPI::SubmitLines: MaterialExecutor has no valid descriptor sets!" );
+                LOG_WARN( "VulkanRendererAPI::SubmitPulled: MaterialExecutor has no valid descriptor sets!" );
                 return;
             }
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
@@ -389,8 +389,8 @@ namespace Desert::Graphic::API::Vulkan
         const float safeWidth = Graphic::RenderConfig::WideLines ? std::clamp( lineWidth, 1.0f, 10.0f ) : 1.0f;
         vkCmdSetLineWidth( m_CurrentCommandBuffer, safeWidth );
 
-        // Vertexless: the DebugLine vertex shader pulls each endpoint from the Lines storage buffer by
-        // gl_VertexIndex. Lines topology -> every 2 vertices form one segment.
+        // Vertexless: the DebugLine vertex shader pulls each vertex from the Lines storage buffer by
+        // gl_VertexIndex. The pipeline's topology groups them: 2 per segment (Lines), 3 per triangle.
         DrawCounted( vertexCount, 1, 0, 0 );
     }
 

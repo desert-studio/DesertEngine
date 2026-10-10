@@ -2,6 +2,7 @@
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Editor/RenderSystems/Passes/EditorToolPreviewPass.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -12,6 +13,9 @@
 #include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
+
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <array>
@@ -27,16 +31,18 @@ namespace Desert::Editor::Tools
     {
         using MS = Core::ModelingState;
 
-        bool WorldToScreen( const glm::vec3& world, const glm::mat4& viewProj, const glm::vec2& pos,
-                            const glm::vec2& size, ImVec2& out )
+        // The shortest turn taking the shape's up axis (+Y) onto `normal` (UE's FFrame3d built from the hit
+        // normal); a normal straight down turns it over about X.
+        glm::quat UpOnto( const glm::vec3& normal )
         {
-            const glm::vec4 clip = viewProj * glm::vec4( world, 1.0f );
-            if ( clip.w <= 0.0001f )
-                return false; // behind the camera
-            const glm::vec3 ndc = glm::vec3( clip ) / clip.w;
-            out.x               = pos.x + ( ndc.x * 0.5f + 0.5f ) * size.x;
-            out.y               = pos.y + ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * size.y;
-            return true;
+            const glm::vec3 up( 0.0f, 1.0f, 0.0f );
+            const glm::vec3 n = glm::normalize( normal );
+            const float     d = glm::dot( up, n );
+            if ( d > 0.99999f )
+                return glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+            if ( d < -0.99999f )
+                return glm::angleAxis( glm::pi<float>(), glm::vec3( 1.0f, 0.0f, 0.0f ) );
+            return glm::angleAxis( std::acos( std::clamp( d, -1.0f, 1.0f ) ), glm::normalize( glm::cross( up, n ) ) );
         }
     } // namespace
 
@@ -73,14 +79,15 @@ namespace Desert::Editor::Tools
         return Geometry::MakeBox( { s.Box.Width, s.Box.Height, s.Box.Depth }, glm::ivec3( 1 ), options );
     }
 
-    std::optional<glm::vec3> CreateShapeTool::PlacementPoint( const ::Desert::Core::Scene& scene,
-                                                              const Common::Math::Ray& ray, MS::Placement place )
+    std::optional<CreateShapeTool::Spot> CreateShapeTool::PlacementSpot( const ::Desert::Core::Scene& scene,
+                                                                         const Common::Math::Ray&     ray,
+                                                                         const MS::ShapeSettings&     settings )
     {
-        if ( place == MS::Placement::OnScene )
+        if ( settings.Place == MS::Placement::OnScene )
         {
             ::Desert::Core::RaycastHit hit;
             if ( scene.Raycast( ray, hit ) && hit.Distance > 0.0f )
-                return hit.Point;
+                return Spot{ hit.Point, settings.AlignToNormal ? UpOnto( hit.Normal ) : glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) };
         }
         // The ground plane: only in front of the camera, and never along a ray parallel to it.
         if ( std::abs( ray.Direction.y ) < 1e-6f )
@@ -88,13 +95,13 @@ namespace Desert::Editor::Tools
         const float t = -ray.Origin.y / ray.Direction.y;
         if ( t <= 0.0f )
             return std::nullopt;
-        return ray.Origin + ray.Direction * t;
+        return Spot{ ray.Origin + ray.Direction * t, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) };
     }
 
     Common::ResultStr<Common::UUID> CreateShapeTool::Place( ::Desert::Core::Scene&    scene,
                                                             const MS::ShapeSettings&  settings,
                                                             const MS::OutputSettings& output,
-                                                            const glm::vec3&          position )
+                                                            const Spot&               spot )
     {
         auto mesh = Geometry::ShapeToEditMesh( Build( settings ) );
         if ( !mesh.IsSuccess() )
@@ -102,7 +109,9 @@ namespace Desert::Editor::Tools
                                                              MS::ShapeName( settings.Kind ), mesh.GetError() );
 
         const ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
-        entity.GetComponent<ECS::TransformComponent>().Translation = position;
+        auto& transform       = entity.GetComponent<ECS::TransformComponent>();
+        transform.Translation = spot.Point;
+        transform.Rotation    = glm::eulerAngles( spot.Rotation );
         auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
         if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( smc, mesh.ExtractValue() );
              !set.IsSuccess() )
@@ -136,12 +145,12 @@ namespace Desert::Editor::Tools
         const auto& ms = MS::Get();
         if ( ms.ActiveTool != MS::Tool::CreateShape )
             return Common::MakeError<Common::UUID>( "the Create Shape tool is not active" );
-        const auto point = PlacementPoint( scene, ray, ms.CreateShape.Place );
-        if ( !point )
+        const auto spot = PlacementSpot( scene, ray, ms.CreateShape );
+        if ( !spot )
             return Common::MakeFormattedError<Common::UUID>(
                  "the {} was not placed: the viewport centre meets neither the scene nor the ground",
                  MS::ShapeName( ms.CreateShape.Kind ) );
-        return Place( scene, ms.CreateShape, ms.Output, *point );
+        return Place( scene, ms.CreateShape, ms.Output, *spot );
     }
 
     void CreateShapeTool::Rebuild( const MS::ShapeSettings& settings )
@@ -186,17 +195,21 @@ namespace Desert::Editor::Tools
         }
     }
 
-    void CreateShapeTool::DrawPreview( const glm::vec3& at, const glm::vec3& eye, const glm::mat4& viewProj,
-                                       const glm::vec2& viewportPos, const glm::vec2& viewportSize ) const
+    void CreateShapeTool::ShowPreview( const ::Desert::Core::Scene& scene, const Spot& spot,
+                                       const glm::vec3& eye ) const
     {
+        using Vertex = Graphic::MaterialDebugLine::LineVertex;
+        const glm::mat3 turn = glm::mat3_cast( spot.Rotation );
+        const auto      at   = [&]( const glm::vec3& local ) { return spot.Point + turn * local; };
+
         // An open shape (Disc, Rectangle) is seen from both sides; a closed one shows its near side only.
         const bool closed = std::none_of( m_Edges.begin(), m_Edges.end(),
                                           []( const FeatureEdge& e ) { return e.TriA == e.TriB; } );
         struct Face
         {
-            std::array<ImVec2, 3> Screen;
-            float                 Depth;
-            float                 Light;
+            std::array<glm::vec3, 3> Corners;
+            float                    Depth;
+            float                    Light;
         };
         std::vector<Face> faces;
         std::vector<char> front( m_Preview.Indices.size(), 0 );
@@ -205,82 +218,85 @@ namespace Desert::Editor::Tools
         {
             const auto&                   tri = m_Preview.Indices[t];
             const std::array<uint32_t, 3> v   = { tri.V1, tri.V2, tri.V3 };
+            Face                          face{};
             glm::vec3                     centre( 0.0f );
             glm::vec3                     normal( 0.0f );
-            Face                          face{};
-            bool                          onScreen = true;
             for ( int k = 0; k < 3; ++k )
             {
-                const glm::vec3 p = m_Preview.Vertices[v[k]].Position + at;
-                centre += p / 3.0f;
-                normal += m_Preview.Vertices[v[k]].Normal;
-                onScreen = onScreen && WorldToScreen( p, viewProj, viewportPos, viewportSize, face.Screen[k] );
+                face.Corners[k] = at( m_Preview.Vertices[v[k]].Position );
+                centre += face.Corners[k] / 3.0f;
+                normal += turn * m_Preview.Vertices[v[k]].Normal;
             }
             const glm::vec3 toEye  = eye - centre;
             const float     facing = glm::dot( normal, toEye );
             front[t]               = facing > 0.0f ? 1 : 0;
-            if ( !onScreen || ( closed && facing <= 0.0f ) )
+            if ( closed && facing <= 0.0f )
                 continue;
             const float len = glm::length( normal ) * glm::length( toEye );
             face.Light      = len > 0.0f ? std::abs( facing ) / len : 1.0f;
             face.Depth      = glm::length( toEye );
             faces.push_back( face );
         }
-        // Far to near: the translucent faces blend in the order a depth test would have kept.
+        // Far to near: the translucent faces blend in the order a depth write would have kept.
         std::sort( faces.begin(), faces.end(), []( const Face& a, const Face& b ) { return a.Depth > b.Depth; } );
-        ImDrawList* draw = ::ImGui::GetWindowDrawList();
+
+        Render::ToolPreviewMesh mesh;
+        mesh.Triangles.reserve( faces.size() * 3 );
         for ( const Face& face : faces )
         {
-            const float l = 0.35f + 0.65f * face.Light;
-            draw->AddTriangleFilled( face.Screen[0], face.Screen[1], face.Screen[2],
-                                     IM_COL32( static_cast<int>( 255 * l ), static_cast<int>( 200 * l ),
-                                               static_cast<int>( 60 * l ), 140 ) );
+            // Lit from the eye, as the overlay was: a face square to the view is the brightest.
+            const float     l = 0.35f + 0.65f * face.Light;
+            const glm::vec4 colour( 1.0f * l, 0.78f * l, 0.24f * l, 0.55f );
+            for ( const glm::vec3& corner : face.Corners )
+                mesh.Triangles.push_back( Vertex{ glm::vec4( corner, 1.0f ), colour } );
         }
         // The form's edges: polygroup and open borders on the near side, and the silhouette.
+        const glm::vec4 edgeColour( 1.0f, 0.86f, 0.47f, 1.0f );
         for ( const FeatureEdge& edge : m_Edges )
         {
             const bool a = front[edge.TriA] != 0;
             const bool b = front[edge.TriB] != 0;
             if ( closed ? !( a || b ) || !( edge.Feature || a != b ) : !edge.Feature )
                 continue;
-            ImVec2 sa;
-            ImVec2 sb;
-            if ( WorldToScreen( edge.A + at, viewProj, viewportPos, viewportSize, sa ) &&
-                 WorldToScreen( edge.B + at, viewProj, viewportPos, viewportSize, sb ) )
-                draw->AddLine( sa, sb, IM_COL32( 255, 220, 120, 255 ), 1.5f );
+            mesh.Edges.push_back( Vertex{ glm::vec4( at( edge.A ), 1.0f ), edgeColour } );
+            mesh.Edges.push_back( Vertex{ glm::vec4( at( edge.B ), 1.0f ), edgeColour } );
         }
-        ImVec2 pivot;
-        if ( WorldToScreen( at, viewProj, viewportPos, viewportSize, pivot ) )
-            draw->AddCircleFilled( pivot, 4.0f, IM_COL32( 255, 200, 60, 255 ) );
+        Render::ToolPreview::Show( scene, std::move( mesh ) );
     }
 
     void CreateShapeTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
-                                  const Common::Math::Ray& centreRay, const glm::mat4& viewProj,
-                                  const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool interactive )
+                                  const Common::Math::Ray& centreRay, const glm::vec2& viewportPos,
+                                  const glm::vec2& viewportSize, bool interactive )
     {
         const auto& ms = MS::Get();
         if ( ms.ActiveTool != MS::Tool::CreateShape )
+        {
+            Render::ToolPreview::Hide( scene );
             return;
+        }
         const MS::ShapeSettings& settings = ms.CreateShape;
 
         const ImVec2 mouse   = ::ImGui::GetMousePos();
         const bool   hovered = interactive && mouse.x >= viewportPos.x && mouse.y >= viewportPos.y &&
                              mouse.x < viewportPos.x + viewportSize.x && mouse.y < viewportPos.y + viewportSize.y;
         // Under the cursor while it is over the viewport; else where the viewport centre looks.
-        const auto point = PlacementPoint( scene, hovered ? ray : centreRay, settings.Place );
-        if ( !point )
+        const auto spot = PlacementSpot( scene, hovered ? ray : centreRay, settings );
+        if ( !spot )
+        {
+            Render::ToolPreview::Hide( scene );
             return;
+        }
 
         if ( !m_HasBuilt || !( m_Built == settings ) )
             Rebuild( settings );
-        DrawPreview( *point, ray.Origin, viewProj, viewportPos, viewportSize );
+        ShowPreview( scene, *spot, ray.Origin );
 
         // Alt + LMB is the camera's orbit, not a placement.
         const ImGuiIO& io = ::ImGui::GetIO();
         if ( hovered && !::ImGui::IsAnyItemActive() && !io.KeyAlt &&
              ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
         {
-            if ( auto placed = Place( scene, settings, ms.Output, *point ); !placed.IsSuccess() )
+            if ( auto placed = Place( scene, settings, ms.Output, *spot ); !placed.IsSuccess() )
                 LOG_ERROR( "[CreateShape] {0}", placed.GetError() );
         }
     }

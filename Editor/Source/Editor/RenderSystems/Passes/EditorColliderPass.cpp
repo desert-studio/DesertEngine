@@ -73,7 +73,7 @@ namespace Desert::Editor::Render
         spec.Shader            = shader;
         spec.TargetLayout      = Desert::Graphic::SceneTargetLayout();
         spec.Topology          = Graphic::PrimitiveTopology::Lines;
-        spec.LineWidth         = 1.0f; // no wideLines feature — width stays 1.0 in SubmitLines
+        spec.LineWidth         = 1.0f; // no wideLines feature — width stays 1.0 in SubmitPulled
         spec.DepthTestEnabled  = true; // colliders occlude behind geometry (the old ImGui gizmo didn't)
         spec.DepthWriteEnabled = false;
         spec.DepthCompareOp    = Graphic::DepthCompare::CloserOrEqual;
@@ -114,7 +114,7 @@ namespace Desert::Editor::Render
                 return BOOLSUCCESS;
 
             m_Material->Update( *view, lines );
-            Graphic::Renderer::GetInstance().SubmitLines( m_Pipeline.get(),
+            Graphic::Renderer::GetInstance().SubmitPulled( m_Pipeline.get(),
                                                           static_cast<uint32_t>( lines.size() ), 1.0f,
                                                           m_Material->GetMaterialExecutor() );
             return BOOLSUCCESS;

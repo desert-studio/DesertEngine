@@ -95,8 +95,8 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                                     RDG::ExternalBuffer& into ) = 0;
 
-        // Vertexless line draw (Lines-topology pipeline pulls vertices from a storage buffer by index).
-        virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+        // Vertexless draw in the pipeline's topology (the vertex stage pulls from a storage buffer by index).
+        virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                   const MaterialExecutor* materialExecutor )                            = 0;
 
         // The in-graph consumers of an RDG::PassBindings (see Renderer::DispatchCompute / DrawFullscreen): record

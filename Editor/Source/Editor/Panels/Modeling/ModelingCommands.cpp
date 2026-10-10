@@ -406,6 +406,8 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Create shape: Place on Scene", []( MS& ms, bool on )
                        { ms.CreateShape.Place = on ? MS::Placement::OnScene : MS::Placement::Ground; } );
+        modelingOnOff( "Modeling", "Create shape: Align to Normal",
+                       []( MS& ms, bool on ) { ms.CreateShape.AlignToNormal = on; } );
         for ( const auto& [label, type] : std::initializer_list<std::pair<const char*, MS::OutputType>>{
                    { "Output type: Static Mesh", MS::OutputType::StaticMesh },
                    { "Output type: Dynamic Mesh", MS::OutputType::Dynamic } } )

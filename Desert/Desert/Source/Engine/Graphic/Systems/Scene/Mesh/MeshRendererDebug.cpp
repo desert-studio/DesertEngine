@@ -116,7 +116,7 @@ namespace Desert::Graphic::System
         spec.Shader            = m_DebugLineShader;
         spec.TargetLayout      = SceneTargetLayout();
         spec.Topology          = PrimitiveTopology::Lines;
-        spec.LineWidth         = 1.0f; // dynamic line width is set to 1.0 in SubmitLines (no wideLines feature)
+        spec.LineWidth         = 1.0f; // dynamic line width is set to 1.0 in SubmitPulled (no wideLines feature)
         spec.DepthTestEnabled  = true;
         spec.DepthWriteEnabled = false;
         spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
@@ -319,7 +319,7 @@ namespace Desert::Graphic::System
                      return;
 
                  m_DebugLineMaterial->Update( *view, lines );
-                 Renderer::GetInstance().SubmitLines(
+                 Renderer::GetInstance().SubmitPulled(
                       m_DebugLinePipeline.get(), static_cast<uint32_t>( lines.size() ), m_BoundingBoxLineWidth,
                       m_DebugLineMaterial->GetMaterialExecutor() );
              },

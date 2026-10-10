@@ -1885,8 +1885,8 @@ namespace Desert::Editor
                                        m_ViewportData.IsHovered );
                 m_ElementSelectTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos,
                                             m_ViewportData.Size, m_ViewportData.IsHovered );
-                m_CreateShapeTool.Update( *m_Scene, ray, centreRay, viewProj, m_ViewportData.ViewportPos,
-                                          m_ViewportData.Size, m_ViewportData.IsHovered );
+                m_CreateShapeTool.Update( *m_Scene, ray, centreRay, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                          m_ViewportData.IsHovered );
                 Tools::DrawActiveToolBar( m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }

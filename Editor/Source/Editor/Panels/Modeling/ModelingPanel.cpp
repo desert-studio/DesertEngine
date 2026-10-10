@@ -979,6 +979,10 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "On: the click lands on the object under the cursor (its bounding box),\n"
                                    "or on the ground where there is none. Off: always the ground, Y = 0." );
+            ImGui::Checkbox( "Align to Normal", &s.AlignToNormal );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "On: the shape's up axis turns to the normal of the surface it lands on.\n"
+                                   "Off: it stands upright wherever it lands." );
         }
         DrawOutputType();
         ImGui::Spacing();
