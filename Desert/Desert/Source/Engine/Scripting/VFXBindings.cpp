@@ -25,8 +25,10 @@ namespace Desert::Scripting
             auto&             host = ScriptEngine::Impl::Of( L );
             bool              used = false;
             if ( host.Scene != nullptr && host.Assets == nullptr )
+            {
                 LOG_ERROR( "[Lua] VFX.useChannel('{}'): no AssetManager bound to resolve the channel through",
                            name );
+            }
             else if ( host.Scene != nullptr )
             {
                 const auto result = host.Scene->GetVFXWorld().GetDataChannels().Use( name, *host.Assets );
@@ -74,8 +76,8 @@ namespace Desert::Scripting
                 lua_pushboolean( L, false );
                 return 1;
             }
-            VFX::VFXDataChannelWriter& w  = writer.GetValue();
-            bool                       ok = true;
+            VFX::VFXDataChannelWriter w  = writer.ExtractValue();
+            bool                      ok = true;
             for ( std::size_t i = 0; i < count; ++i )
             {
                 lua_rawgeti( L, 2, static_cast<int>( i + 1 ) );
