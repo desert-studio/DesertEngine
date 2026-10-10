@@ -985,7 +985,8 @@ namespace Desert::Tests::PointerCensus
           "FrameEmitter", "Gpu", Guard::OwnedByThisObject,
           "points into ParticleRenderer::m_Emitters, an unordered_map -- NODE-BASED, so the insert that "
           "PrepareFrame can perform while it is already pushing these pointers cannot move the pointee; "
-          "the only erase is OnSceneReplaced's clear(), which clears m_FrameEmitters first" },
+          "the erases are OnSceneReplaced's clear() and PrepareFrame's RetireDestroyedEmitters, both after "
+          "m_FrameEmitters is cleared" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp",
           "SkyboxRenderer", "m_ActiveCamera", Guard::ReboundBeforeEveryUse,
           "re-pointed by PrepareCamera from SceneRenderer::BeginScene at the top of every frame, before any pass that reads it; the camera itself is a persistent member of Scene that Scene::Clear does not touch" },

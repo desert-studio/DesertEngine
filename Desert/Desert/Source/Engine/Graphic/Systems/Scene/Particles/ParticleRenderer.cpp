@@ -1,6 +1,7 @@
 #include "ParticleRenderer.hpp"
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
+#include "ParticleEmitterRetire.hpp"
 #include "ParticleGpuLayout.hpp"
 
 #include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
@@ -183,9 +184,17 @@ namespace Desert::Graphic::System
         const auto           stepSeconds  = static_cast<float>( clock.StepSeconds );
         const uint32_t       stepCapacity = std::max( clock.MaxStepsPerTick, clock.MaxSeekStepsPerTick );
 
-        const auto& reg  = scene.GetRegistry();
-        auto        view = reg.view<const ECS::ParticleEmitterComponent, const ECS::TransformComponent,
-                                    const ECS::UUIDComponent>();
+        const auto& reg = scene.GetRegistry();
+
+        // An emitter whose entity was destroyed (or lost its component) since the last frame gives its GPU
+        // state back now, through the allocator's deletion ring (see RetireDestroyedEmitters). Done after
+        // m_FrameEmitters was cleared above, so no frame emitter points at an erased entry.
+        const std::size_t retired = RetireDestroyedEmitters( m_Emitters, reg );
+        if ( retired > 0 )
+            LOG_INFO( "[Particles] Released {} emitter(s) whose entity is gone.", retired );
+
+        auto view = reg.view<const ECS::ParticleEmitterComponent, const ECS::TransformComponent,
+                             const ECS::UUIDComponent>();
         view.each(
              [&]( entt::entity entity, const ECS::ParticleEmitterComponent& emitter,
                   const ECS::TransformComponent& transform, const ECS::UUIDComponent& id )
