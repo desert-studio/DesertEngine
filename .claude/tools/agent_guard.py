@@ -28,11 +28,11 @@ import sys
 import time
 
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 45
-TURN_LIMIT = 60
-TURN_HARD_CAP = 60  # owner 2026-09-29: the rest goes to a FRESH agent with REMAINDER file:line, never an extension
+TURN_WARN = 135
+TURN_LIMIT = 150  # owner 10-10 evening: one agent carries a feature to the end, no a/b/c/d passes
+TURN_HARD_CAP = 150  # owner 2026-10-10 (was 60, 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
 MAX_SLEEP = 270
-MAX_EDITOR_BUILDS = 2
+MAX_EDITOR_BUILDS = 4  # owner 10-10: one agent carries a feature to a live frame; 2 forced lead-side rebuilds
 
 TREE_SEARCH = [
     re.compile(r"(^|[;&|(]\s*|\s)(grep|egrep|fgrep)\s+(-[A-Za-z]*[rR][A-Za-z]*|--recursive)\b"),
@@ -63,7 +63,8 @@ EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
 # Owner 2026-09-29: an agent never waits for CI — the idle cache expires and the whole context is written again
 # (CI12: 1.5 of 3.2 M units). Push, report the run id, the lead watches it from a background shell for free.
 # Owner 2026-09-30: suites, tidy, glued-text and handoff are the lead's — an agent waiting on them lets its cache expire.
-LEAD_ONLY_RUNS = re.compile(r"scripts/Dev/suite\.sh|scripts/CI/CheckTidy\.sh|scripts/CI/CheckGluedText\.sh|handoff_check\.sh|build/Bin/Tests/")
+# Owner 10-10 evening: an agent runs its own feature's suites (suite.sh) — every lead round-trip was a lost pass.
+LEAD_ONLY_RUNS = re.compile(r"scripts/CI/CheckTidy\.sh|scripts/CI/CheckGluedText\.sh|handoff_check\.sh")
 CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
                      r"\b(while|until|for)\b[^\n]*\bgh\s+(run|pr)\b|\bgh\s+(run|pr)\b[^\n]*\bsleep\b")
 
@@ -91,6 +92,16 @@ def brief_size_denial(prompt):
         return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
                 f"(предел {MAX_BRIEF_ITEMS} / {MAX_BRIEF_DO_CHARS}). 10-05: 3 из 4 агентов с 4–6 пунктами упёрлись в 60 вызовов. "
                 "Режь на задачи с ОДНИМ результатом, остальное — отдельными брифами в очередь.")
+    # Owner 10-10: «опять пишет тесты не проверив, что работает фича — тесты в самом конце, чтобы 100 раз им не уделять
+    # внимание». A code brief asks for code + build only; tests/suites/mutations are their own brief, written once the
+    # feature was seen working, and that brief names the proof in a «Фича принята:» line.
+    # Target names (EditorTests), clauses handing suites to the lead («Сюиты/CI — тимлид») and «Тесты не писать» are not asks.
+    asks_tests = re.search(r"(?i)мутац\w*|\bтест\w*|\bсюит\w*|\bsuites?\b|\btests?\b",
+                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|[^.;\n]*suite\.sh[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|\bне\s+\w+\s+тест\w*", "", body))
+    if asks_tests and "Фича принята:" not in text:
+        return (f"[agent_guard] Тимлид: бриф {found.group(0)} просит тесты/мутации вместе с кодом («{asks_tests.group(0)}»). "
+                "Владелец 10-10 вечер: новые тесты ОТЛОЖЕНЫ до конца фич (потом отдельный период тестов). Бриф — код + "
+                "сборка + живая проверка; существующие сюиты агент может гонять сам (suite.sh).")
     return None
 
 
@@ -117,13 +128,13 @@ ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 CHEAT_SHEET = """[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ (владелец 09-29): делай как ПРАВИЛЬНО устроено (UE или лучше), без бюджетов, урезанных охватов, угадываний и мостов; не влезает — REMAINDER, не компромисс.\n[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
 - где определено имя: scripts/Dev/sym.sh <Имя>; где используется: scripts/Dev/sym.sh --refs <Имя>. НЕ grep -r / rg / git grep / find без -maxdepth.
 - чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
-- тесты ПИШЕШЬ и КОМПИЛИРУЕШЬ, НЕ запускаешь (сюиты/tidy/склейки/handoff — только тимлид, 09-30); в REMAINDER «Сюиты для тимлида: …» + мутации. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
+- новые тесты НЕ пишешь (владелец 10-10: тесты после фич); затронутые существующие сюиты гоняешь сам: scripts/Dev/suite.sh в фоне; tidy/склейки/handoff — тимлид. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
 - dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
 - сборка: ОДИН раз в конце — build_quiet.sh в фоне + build_wait.sh (общий пул сборок машины, очереди нет); sleep ≤ 270 с.
 - формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
 - долгое (> 4 мин: мигратор, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
 - конец работы: код готов → «wip: <КОД> код готов» + push → потом ОДНА компиляция (конвейер, 09-30); стартовал от чужого CODE-READY — перед компиляцией git merge origin/<ветка предшественника>.
-- CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
+- CI не ждёшь: push → id прогона в отчёт → конец. Лимит 150 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
 
 
@@ -336,7 +347,6 @@ def self_check():
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
         "push without handoff": {"tool_name": "Bash", "tool_input": {"command": "git -C " + os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + " push origin nothing-selfcheck"}},
-        "agent runs a suite": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/Dev/suite.sh X"}},
         "agent runs tidy": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/CI/CheckTidy.sh abc"}},
         "merge dev by hand": {"tool_name": "Bash", "tool_input": {"command": "git merge origin/dev"}},
         "call longer than the cache": {"tool_name": "Bash", "tool_input": {"command": "scripts/Dev/suite.sh X",
@@ -370,6 +380,14 @@ def self_check():
         cases["lead launches a fat brief"] = None
         if '"deny"' not in out.stdout:
             failed.append("lead launches a fat brief")
+        with open(fat, "w", encoding="utf-8") as f:
+            f.write("## Сделать\n1. Код фичи, собрать Editor EditorTests.\n2. Написать новую сюиту FooBar + мутация.\n")
+        out = subprocess.run([sys.executable, __file__], input=json.dumps({
+            "tool_name": "Agent", "hook_event_name": "PreToolUse",
+            "tool_input": {"subagent_type": "general-purpose", "prompt": f"brief {fat}"}}), capture_output=True, text=True)
+        cases["tests before the feature works"] = None
+        if '"deny"' not in out.stdout:
+            failed.append("tests before the feature works")
     finally:
         try:
             os.remove(fat)
@@ -631,9 +649,8 @@ def main():
                  data, agent)
         if LEAD_ONLY_RUNS.search(cmd):
             save_state(state, path)
-            deny("[agent_guard] Сюиты, CheckTidy, CheckGluedText и handoff гоняет ТОЛЬКО тимлид (владелец 2026-09-30: "
-                 "«они долго идут и кэш остынет»). Ты компилируешь (build_quiet.sh), а в REMAINDER пишешь "
-                 "«Сюиты для тимлида: …» и мутации файл:строка → какой тест должен покраснеть.", data, agent)
+            deny("[agent_guard] CheckTidy, CheckGluedText и handoff гоняет ТОЛЬКО тимлид. Сюиты своей фичи — scripts/Dev/suite.sh "
+                 "в фоне (владелец 10-10).", data, agent)
         if CI_WAIT.search(cmd):
             save_state(state, path)
             deny("[agent_guard] CI не ждёшь сам: пауза сбрасывает кэш, и весь контекст пишется заново (CI12: 1,5 из "
@@ -670,8 +687,8 @@ def main():
         if EDITOR_BUILD.search(cmd) and not SINGLE_TU.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
                 save_state(state, path)
-                deny(f"[agent_guard] Editor уже собирался {MAX_EDITOR_BUILDS} раза в этой задаче. Итерации — на "
-                     f"сюитах; если без третьей сборки нельзя — SendMessage тимлиду с причиной.", data, agent)
+                deny(f"[agent_guard] Editor уже собирался {MAX_EDITOR_BUILDS} раз(а) в этой задаче. Итерации — на "
+                     f"сюитах; если без ещё одной сборки нельзя — SendMessage тимлиду с причиной.", data, agent)
             state["editor_builds"] = state.get("editor_builds", 0) + 1
 
     save_state(state, path)
