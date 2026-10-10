@@ -758,7 +758,7 @@ namespace
         while ( std::getline( lines, line ) )
         {
             if ( Trimmed( line ).rfind( "#", 0 ) != 0 )
-                kept += line + " ";
+                kept.append( line ).append( " " );
         }
         head = Trimmed( kept );
         static const std::regex skip(
