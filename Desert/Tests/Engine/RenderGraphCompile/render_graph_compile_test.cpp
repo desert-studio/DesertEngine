@@ -3406,10 +3406,9 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     EXPECT_NE( particles.find( "renderer.DispatchCompute(bindings,*m_ArgsPipeline,1,1,1)" ), std::string::npos );
     EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
          << "Spawn+Update is dispatched over a CPU count";
-    EXPECT_NE(
-         particles.find( "Renderer::DrawProceduralIndirect(bindings,*sprite.Pipeline,"
-                         "sprite.Material->GetMaterialExecutor(),ve.CountersRef,slot)" ),
-         std::string::npos );
+    EXPECT_NE( particles.find( "Renderer::DrawProceduralIndirect(bindings,*sprite.Pipeline,"
+                               "sprite.Material->GetMaterialExecutor(),ve.CountersRef,slot)" ),
+               std::string::npos );
     EXPECT_NE( particles.find( "constuint64_tslot=(ve.Frame->StepCount&1u)*kParticleDrawSlotStride;" ),
                std::string::npos );
     EXPECT_EQ( particles.find( "DrawProcedural(" ), std::string::npos ) << "the billboards draw a fixed count";
@@ -3700,7 +3699,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
             "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=overlay.Color;",
             "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;", "targets->Depth=overlay.Depth;",
-            "node.DepthTarget(targets->Depth,depth,!pass.DepthReadOnly)", "DeclareResolves(node,targets->Resolves)",
+            "node.DepthTarget(targets->Depth,depth,!pass.DepthReadOnly)",
+            "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(pass.ClearDepth.value_or(defaults.ClearColor.DepthStencil.x))",
             "AddPassNode(graph,textures,pass,target,pass.Name,color,depth,overlay);" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the system raster node does not " << needle;
