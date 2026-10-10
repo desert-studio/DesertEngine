@@ -32,7 +32,7 @@ end
 
 function OnStart()
     local light = self:add("PointLight")
-    light.Color = { x = 1.0, y = 0.55, z = 0.15 }
+    light.Color = vector.create(1.0, 0.55, 0.15)
     light.Intensity = 0.0
 
     Timer.after(Properties.Period, blink)
