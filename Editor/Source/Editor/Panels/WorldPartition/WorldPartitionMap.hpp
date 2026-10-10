@@ -71,6 +71,10 @@ namespace Desert::Editor::WorldPartitionMap
     [[nodiscard]] std::optional<std::size_t> CellAt( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                                                      glm::dvec2 world, int level );
 
+    // The ground rectangle a drag on the map spans from @p from to @p to (world X/Z, cm), corners in any order:
+    // UE's box selection on the World Partition grid (SWorldPartitionEditorGrid2D, "Load Region from Selection").
+    [[nodiscard]] ::Desert::Core::Rules::CellBounds RegionBetween( glm::dvec2 from, glm::dvec2 to );
+
     // The finest grid level whose cell is at least @p minPixels wide on screen: the background grid's lines.
     [[nodiscard]] int GridLineLevel( const View& view, float cellSize, double minPixels );
 

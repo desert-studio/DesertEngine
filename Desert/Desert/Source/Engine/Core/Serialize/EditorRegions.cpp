@@ -171,4 +171,49 @@ namespace Desert::Core::EditorRegions
     {
         return Hold( scene, assets, nullptr );
     }
+
+    Common::ResultStr<std::size_t> MakeNotLoadedForPlay( Scene& scene, Assets::AssetManager* assets )
+    {
+        using Result               = std::size_t;
+        const EntityPackages& held = *scene.Packages();
+        if ( held.NotLoadedCount() == 0 )
+            return Common::MakeSuccess<Result>( 0 );
+        const auto& baseline = held.BaselinePath();
+        if ( !baseline )
+            return Common::MakeError<Result>( fmt::format(
+                 "'{}' holds part of a world but names no files to read the rest from.", scene.GetSceneName() ) );
+        const std::filesystem::path path = *baseline;
+
+        // Which records are on disk only: the index lists the world, the packages say what is not held.
+        auto index = DescriptorIndex::Refresh( path );
+        if ( !index )
+            return Common::MakeError<Result>( index.GetError() );
+        std::unordered_set<std::uint64_t> missing;
+        for ( const DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
+            if ( !held.IsLoaded( Common::UUID( row.Id ) ) )
+                missing.insert( row.Id );
+        if ( missing.empty() )
+            return Common::MakeSuccess<Result>( 0 );
+
+        // Read and parsed before the scene is touched: a file that cannot be read changes nothing.
+        auto text = ExternalEntities::ReadSceneRegionText( path, missing );
+        if ( !text )
+            return Common::MakeError<Result>( text.GetError() );
+        auto loadable = ParseLoadableScene( path.string(), text.GetValue() );
+        if ( !loadable )
+            return Common::MakeError<Result>( loadable.GetError() );
+        LoadableScene                   parsed = loadable.ExtractValue();
+        std::vector<Assets::EntityData> arriving;
+        for ( Assets::EntityData& record : parsed.Scene.Entities )
+            if ( record.id.has_value() && missing.contains( static_cast<std::uint64_t>( *record.id ) ) )
+                arriving.push_back( std::move( record ) );
+        if ( arriving.empty() )
+            return Common::MakeSuccess<Result>( 0 );
+
+        SceneSerializer serializer( &scene, assets );
+        auto            made = serializer.InstantiateRecords( arriving, scene.GetSceneName(), nullptr );
+        if ( !made )
+            return Common::MakeError<Result>( fmt::format( "'{}': {}", path.string(), made.GetError() ) );
+        return Common::MakeSuccess<Result>( arriving.size() );
+    }
 } // namespace Desert::Core::EditorRegions

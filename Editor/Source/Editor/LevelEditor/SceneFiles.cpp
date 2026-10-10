@@ -9,6 +9,7 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
@@ -368,6 +369,22 @@ namespace Desert::Editor
         // The files at `path` now hold every entity as it is: the next save to it writes only what differs (WP17).
         Desert::Core::SceneSerializer( m_Workspace.ActiveScene().get(), m_Assets.get() )
              .AdoptAsSaved( Common::Filepath( path ) );
+        // A PARTITIONED WORLD OPENS UNLOADED (WP20, owner's decision O3 - UE's World Partition editor): the scene
+        // keeps its always-loaded part and the user loads regions from the World Partition panel's map. Play
+        // plays the whole world whatever is loaded (PlaySession::Play completes it from the files).
+        if ( m_Workspace.ActiveScene()->GetWorldPartition() )
+        {
+            const auto unloaded = Desert::Core::EditorRegions::LoadRegions( *m_Workspace.ActiveScene(),
+                                                                            m_Assets.get(), {} );
+            if ( !unloaded )
+            {
+                LOG_ERROR( "[WorldPartition] '{}' stays loaded whole: {}", path.string(), unloaded.GetError() );
+                Editor::ToastManager::Push( "World stays loaded whole — see the log", Editor::ToastLevel::Warning );
+            }
+            else
+                LOG_INFO( "[WorldPartition] '{}' opened unloaded: {} always-loaded composite(s), {} record(s) on disk",
+                          path.string(), unloaded.GetValue().Selection.AlwaysLoaded, unloaded.GetValue().NotLoaded );
+        }
 
         // Update recent scenes
         auto it = std::find( m_RecentScenes.begin(), m_RecentScenes.end(), path );

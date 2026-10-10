@@ -244,4 +244,14 @@ namespace Desert::Editor::WorldPartitionMap
     {
         return radiusCm * view.Scale;
     }
+
+    ::Desert::Core::Rules::CellBounds RegionBetween( glm::dvec2 from, glm::dvec2 to )
+    {
+        ::Desert::Core::Rules::CellBounds region;
+        region.MinX = static_cast<float>( std::min( from.x, to.x ) );
+        region.MinZ = static_cast<float>( std::min( from.y, to.y ) );
+        region.MaxX = static_cast<float>( std::max( from.x, to.x ) );
+        region.MaxZ = static_cast<float>( std::max( from.y, to.y ) );
+        return region;
+    }
 } // namespace Desert::Editor::WorldPartitionMap

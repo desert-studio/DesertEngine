@@ -26,6 +26,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Desert::Core
 {
@@ -65,12 +66,18 @@ namespace Desert::Editor
         /// the button and the command palette both show the same sentence.
         [[nodiscard]] Common::BoolResultStr ConvertSceneToWorldPartition();
 
-        /// UE's "Load Region" (WP19, decision O3): the scene holds exactly the part of its world on disk that
-        /// the rectangle [min, max] (X/Z, cm) selects - EditorRegions::LoadRegions; `std::nullopt` loads the whole
-        /// world back. Refused by name (a dirty entity that would leave, a scene not opened from its files). The
+        /// What a region change asks for: the regions to hold, or the whole world.
+        struct RegionRequest
+        {
+            std::vector<::Desert::Core::Rules::CellBounds> Regions; // empty: the always-loaded part only
+            bool                                           Whole = false;
+        };
+        /// UE's "Load Region from Selection" / "Unload All" / "Load All" (WP19-20, decision O3): the scene holds
+        /// exactly the part of its world on disk that the regions (X/Z, cm) select - EditorRegions::LoadRegions,
+        /// or the whole world - EditorRegions::LoadWholeWorld. Refused by name (a dirty entity that would leave, a scene not opened from its files). The
         /// undo history is reset on success, as UE resets its transactions when it unloads actors: an entry may
         /// name an entity that is gone.
-        [[nodiscard]] Common::BoolResultStr LoadRegion( std::optional<::Desert::Core::Rules::CellBounds> region );
+        [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -79,7 +86,8 @@ namespace Desert::Editor
         }
 
     private:
-        // The Edit plan of m_Scene, rebuilt from its serialised form; the reason when there is none.
+        // The Edit plan of m_Scene: a partitioned world opened from its files is planned over its descriptor
+        // index (every entity of the world, loaded or not); any other scene over its serialised form.
         void RebuildEditPlan();
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
@@ -102,10 +110,13 @@ namespace Desert::Editor
         std::optional<::Desert::Core::WorldPartitionSerialized> m_PlanSource;
         // The last conversion's refusal, shown under the button until the next attempt.
         std::string m_ConvertStatus;
-        // Load Region: the rectangle in metres as the user types it, and the last change's report or refusal.
-        glm::vec2   m_RegionMinM{ -100.0f };
-        glm::vec2   m_RegionMaxM{ 100.0f };
-        std::string m_RegionStatus;
+        // Load Region: the rectangle selected on the map (left drag; a click selects the cell under it), the
+        // drag's anchor while the button is held, and the last change's report or refusal.
+        std::optional<::Desert::Core::Rules::CellBounds> m_Selection;
+        std::optional<glm::dvec2>                        m_DragFrom;
+        std::string                                      m_RegionStatus;
+        // Whether the Edit plan is the world on disk (its descriptor index) rather than the scene in memory.
+        bool m_PlanFromIndex = false;
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size

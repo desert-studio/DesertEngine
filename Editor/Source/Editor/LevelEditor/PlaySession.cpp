@@ -11,6 +11,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/SceneLoadPhases.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -89,6 +90,35 @@ namespace Desert::Editor
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         m_PlayWorld.Begin( serializer.SerializeToJson() );
         phases.Lap( "write the Play snapshot", scene->GetAllEntities().size() );
+        // The edit world's packages (which entities differ from their files, which records an editor region
+        // left on disk) go with the snapshot: the restore at Stop is a load, and a load forgets them.
+        m_EditPackages = *scene->Packages();
+
+        // THE PLAYED WORLD IS THE WHOLE WORLD (WP20, UE's PIE over World Partition): a world the editor holds
+        // in part is completed from its files - what the editor holds plays as it is in memory, the rest as
+        // its files hold it - and the streamer is handed that whole world, not the edit world's part.
+        auto completed = Desert::Core::EditorRegions::MakeNotLoadedForPlay( *scene, m_Assets.get() );
+        if ( !completed )
+        {
+            LOG_ERROR( "[Scene] Play refused: {0}", completed.GetError() );
+            Editor::ToastManager::Push( std::format( "Play refused: {}", completed.GetError() ),
+                                        Editor::ToastLevel::Error );
+            m_PlayWorld.Discard();
+            m_EditPackages.reset();
+            return;
+        }
+        const bool        completedFromDisk = completed.GetValue() > 0;
+        const std::string playedWorld = completedFromDisk ? serializer.SerializeToJson() : std::string();
+        phases.Lap( "read the records the editor left on disk", completed.GetValue() );
+        // A refusal below takes Play back; a world completed from disk goes back to the part the editor held.
+        const auto refuse = [&]()
+        {
+            if ( completedFromDisk )
+                RestoreEditWorld( m_PlayWorld.AuthoredSnapshot() );
+            else
+                m_EditPackages.reset();
+            m_PlayWorld.Discard();
+        };
         // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
         // streamer, which may unload the cell the PlayerStart stands in.
         Desert::Core::PlayRequest request;
@@ -107,12 +137,13 @@ namespace Desert::Editor
             LOG_ERROR( "[Scene] Play refused: {0}", began.GetError() );
             Editor::ToastManager::Push( std::format( "Play refused: {}", began.GetError() ),
                                         Editor::ToastLevel::Error );
-            m_PlayWorld.Discard();
+            refuse();
             return;
         }
         phases.Lap( "spawn the player's pawn", scene->GetAllEntities().size() );
-        auto streamer = Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, m_PlayWorld.AuthoredSnapshot(),
-                                                            InstrumentStreamingSources() );
+        auto streamer = Desert::Core::WorldStreamer::Begin(
+             *scene, *m_Assets, completedFromDisk ? playedWorld : m_PlayWorld.AuthoredSnapshot(),
+             InstrumentStreamingSources() );
         phases.Lap( "begin the world streamer", scene->GetAllEntities().size() );
         phases.LogSummary();
         if ( !streamer )
@@ -126,7 +157,7 @@ namespace Desert::Editor
             scene->SetPlayerPawn( entt::null );
             scene->SetPlayFromHere( false );
             scene->SetState( SceneState::Edit );
-            m_PlayWorld.Discard();
+            refuse();
             return;
         }
         m_WorldStreamer    = streamer.ExtractValue();
@@ -175,6 +206,9 @@ namespace Desert::Editor
             Editor::ToastManager::Push( "Play snapshot could not be restored — see the log",
                                         Editor::ToastLevel::Error );
         }
+        else if ( m_EditPackages )
+            *scene->Packages() = *m_EditPackages; // the edit world is back, and so is what it knows of its files
+        m_EditPackages.reset();
         const std::size_t incoming = scene->GetAllEntities().size();
         phases.Lap( "deserialize the snapshot (its own phases are logged above)", incoming );
         if ( const auto inited = scene->Init(); !inited.IsSuccess() )
@@ -193,6 +227,26 @@ namespace Desert::Editor
         // The session ends with the world: without this the editor kept reporting Play (MCP state "playing")
         // after every Stop — only a closed scene view used to end it (EndIfBoundTo).
         m_State = State::Paused;
+    }
+
+    void PlaySession::RestoreEditWorld( const std::string& snapshot )
+    {
+        const auto& scene = m_Workspace.ActiveScene();
+        EngineContext::GetInstance().GetDevice()->WaitIdle();
+        scene->Clear();
+        const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
+        if ( const auto restored = serializer.DeserializeFromJson( snapshot, "<Play snapshot>" ); !restored )
+        {
+            LOG_ERROR( "[Scene] Play snapshot could not be restored: {0}", restored.GetError() );
+            Editor::ToastManager::Push( "Play snapshot could not be restored — see the log",
+                                        Editor::ToastLevel::Error );
+        }
+        else if ( m_EditPackages )
+            *scene->Packages() = *m_EditPackages;
+        m_EditPackages.reset();
+        if ( const auto inited = scene->Init(); !inited.IsSuccess() )
+            LOG_ERROR( "[EditorLayer] scene failed to initialise after a refused Play: {}", inited.GetError() );
+        m_Workspace.ActiveSceneReplaced();
     }
 
     Common::BoolResultStr PlaySession::ServiceTravel()
@@ -280,6 +334,7 @@ namespace Desert::Editor
         m_State       = State::Paused;
         m_PendingStop = false;
         m_PlayWorld.Discard();
+        m_EditPackages.reset();
         m_WorldStreamer.reset();
     }
 

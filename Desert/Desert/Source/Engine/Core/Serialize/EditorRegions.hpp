@@ -71,4 +71,13 @@ namespace Desert::Core::EditorRegions
 
     // Every record of the world: the scene holds all of it again, as an open would have made it.
     [[nodiscard]] Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets );
+
+    // THE PLAYED WORLD OF A WORLD HELD IN PART (WP20). UE's Play-in-Editor plays the WHOLE partitioned world:
+    // every actor the editor holds as it is in memory (unsaved edits included), every other one from its
+    // package. Here: every record the scene does not hold (its packages' not-loaded set) is read from its file
+    // and made beside what the scene holds, so the scene is the whole world as Play must stream it. The
+    // packages are NOT told - the played scene is not the edited one; the caller keeps the edit world's packages
+    // and puts them back with the edit world at Stop. Returns how many records were made (0: the scene already
+    // holds the whole world, nothing is read). Refused, changing nothing, when the index or a file cannot be read.
+    [[nodiscard]] Common::ResultStr<std::size_t> MakeNotLoadedForPlay( Scene& scene, Assets::AssetManager* assets );
 } // namespace Desert::Core::EditorRegions

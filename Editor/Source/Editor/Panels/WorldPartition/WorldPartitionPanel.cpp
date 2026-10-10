@@ -17,6 +17,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
@@ -136,6 +137,8 @@ namespace Desert::Editor
         m_Scene         = scene;
         m_EditPlanStale = true;
         m_FocusPending  = true;
+        m_Selection.reset();
+        m_DragFrom.reset();
     }
 
     void WorldPartitionPanel::RebuildEditPlan()
@@ -148,7 +151,34 @@ namespace Desert::Editor
             m_EditPlanStatus = "No active scene.";
             return;
         }
-        m_PlanSource = m_Scene->GetWorldPartition();
+        m_PlanSource    = m_Scene->GetWorldPartition();
+        m_PlanFromIndex = false;
+        // A PARTITIONED WORLD OPENED FROM ITS FILES IS PLANNED OVER ITS DESCRIPTOR INDEX (WP20, UE's World
+        // Partition editor draws every actor descriptor, loaded or not): the scene may hold only a region of it,
+        // and the map is where the next region is chosen. An entity's unsaved move shows after its save.
+        if ( m_PlanSource && m_Scene->Packages()->BaselinePath() )
+        {
+            if ( m_PlanSource->Grids.empty() )
+            {
+                m_EditPlanStatus = "This scene's WorldPartition block states no grid.";
+                return;
+            }
+            auto index = ::Desert::Core::DescriptorIndex::Refresh( *m_Scene->Packages()->BaselinePath() );
+            if ( !index )
+            {
+                m_EditPlanStatus = "The world's descriptor index could not be read: " + index.GetError();
+                return;
+            }
+            const std::vector<::Desert::Core::Rules::EntityDescriptor> descriptors =
+                 ::Desert::Core::DescriptorIndex::Descriptors( index.GetValue().Index );
+            m_EditPartition = *m_PlanSource;
+            m_EditPlan      = ::Desert::Core::Rules::PlanWorldPartition(
+                 std::span<const ::Desert::Core::Rules::EntityDescriptor>( descriptors ), m_EditPartition,
+                 ::Desert::Core::RegistryMeshBounds() );
+            m_PlanFromIndex = true;
+            m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
+            return;
+        }
         // The loader's own path from a scene to a plan, so the map shows the partition Play and the cook make.
         const std::string json   = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).SerializeToJson();
         auto              parsed = ::Desert::Core::ParseLoadableScene( "<World Partition panel>", json );
@@ -206,7 +236,7 @@ namespace Desert::Editor
         }
         else
         {
-            ImGui::TextUnformatted( "Edit: partition plan" );
+            ImGui::TextUnformatted( m_PlanFromIndex ? "Edit: the world on disk" : "Edit: partition plan" );
             ImGui::SameLine();
             if ( ImGui::Button( "Refresh" ) )
                 RebuildEditPlan();
@@ -252,26 +282,34 @@ namespace Desert::Editor
         if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() &&
              m_Scene->Packages()->BaselinePath().has_value() )
         {
-            ImGui::SetNextItemWidth( 160.0f );
-            ImGui::InputFloat2( "Min X/Z (m)", &m_RegionMinM.x, "%.0f" );
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth( 160.0f );
-            ImGui::InputFloat2( "Max X/Z (m)", &m_RegionMaxM.x, "%.0f" );
-            ImGui::SameLine();
+            ImGui::BeginDisabled( !m_Selection.has_value() );
             if ( ImGui::Button( "Load Region" ) )
             {
-                ::Desert::Core::Rules::CellBounds region;
-                region.MinX = std::min( m_RegionMinM.x, m_RegionMaxM.x ) * 100.0f;
-                region.MinZ = std::min( m_RegionMinM.y, m_RegionMaxM.y ) * 100.0f;
-                region.MaxX = std::max( m_RegionMinM.x, m_RegionMaxM.x ) * 100.0f;
-                region.MaxZ = std::max( m_RegionMinM.y, m_RegionMaxM.y ) * 100.0f;
-                if ( const auto loaded = LoadRegion( region ); !loaded )
+                RegionRequest request;
+                request.Regions.push_back( *m_Selection );
+                if ( const auto loaded = LoadRegion( request ); !loaded )
                     m_RegionStatus = loaded.GetError();
             }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if ( ImGui::Button( "Unload All" ) )
+                if ( const auto loaded = LoadRegion( RegionRequest{} ); !loaded )
+                    m_RegionStatus = loaded.GetError();
             ImGui::SameLine();
             if ( ImGui::Button( "Load All" ) )
-                if ( const auto loaded = LoadRegion( std::nullopt ); !loaded )
+                if ( const auto loaded = LoadRegion( RegionRequest{ {}, true } ); !loaded )
                     m_RegionStatus = loaded.GetError();
+            ImGui::SameLine();
+            if ( m_Selection )
+                ImGui::TextDisabled( "selection %.0f..%.0f x %.0f..%.0f m; %zu record(s) on disk",
+                                     static_cast<double>( m_Selection->MinX ) / 100.0,
+                                     static_cast<double>( m_Selection->MaxX ) / 100.0,
+                                     static_cast<double>( m_Selection->MinZ ) / 100.0,
+                                     static_cast<double>( m_Selection->MaxZ ) / 100.0,
+                                     m_Scene->Packages()->NotLoadedCount() );
+            else
+                ImGui::TextDisabled( "drag on the map to select a region; %zu record(s) on disk",
+                                     m_Scene->Packages()->NotLoadedCount() );
             if ( !m_RegionStatus.empty() )
                 ImGui::TextWrapped( "%s", m_RegionStatus.c_str() );
         }
@@ -295,16 +333,15 @@ namespace Desert::Editor
         DrawMap( *plan, *partition, residency, streamer );
     }
 
-    Common::BoolResultStr WorldPartitionPanel::LoadRegion( std::optional<::Desert::Core::Rules::CellBounds> region )
+    Common::BoolResultStr WorldPartitionPanel::LoadRegion( const RegionRequest& request )
     {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
-        auto* assets = const_cast<::Desert::Assets::AssetManager*>( m_Assets );
-        auto  changed =
-             region.has_value()
-                  ? ::Desert::Core::EditorRegions::LoadRegions(
-                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( &*region, 1 ) )
-                  : ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets );
+        auto* assets  = const_cast<::Desert::Assets::AssetManager*>( m_Assets );
+        auto  changed = request.Whole ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets )
+                                      : ::Desert::Core::EditorRegions::LoadRegions(
+                                             *m_Scene, assets,
+                                             std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ) );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
@@ -415,6 +452,32 @@ namespace Desert::Editor
             m_Fitted = false;
         }
 
+        // ── region selection (Edit, a world opened from its files): UE's box selection on the grid. A left drag
+        // spans a rectangle; a click takes the cell under the cursor, or clears the selection over empty ground.
+        if ( streamer == nullptr && m_PlanFromIndex )
+        {
+            const glm::dvec2 mouseWorld =
+                 Map::ScreenToWorld( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y } );
+            if ( ImGui::IsItemActivated() && ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+                m_DragFrom = mouseWorld;
+            if ( m_DragFrom && ImGui::IsItemActive() && ImGui::IsMouseDragging( ImGuiMouseButton_Left ) )
+                m_Selection = Map::RegionBetween( *m_DragFrom, mouseWorld );
+            if ( m_DragFrom && ImGui::IsMouseReleased( ImGuiMouseButton_Left ) )
+            {
+                const float threshold = io.MouseDragThreshold;
+                if ( io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < threshold * threshold )
+                {
+                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level ) )
+                        m_Selection = plan.Cells[*index].Square;
+                    else
+                        m_Selection.reset();
+                }
+                m_DragFrom.reset();
+            }
+        }
+        else
+            m_DragFrom.reset();
+
         ImDrawList&  list = *ImGui::GetWindowDrawList();
         const ImVec2 corner( origin.x + avail.x, origin.y + avail.y );
         list.PushClipRect( origin, corner, true );
@@ -460,6 +523,17 @@ namespace Desert::Editor
             const ImVec2 zero = ToScreen( m_View, size, origin, { 0.0, 0.0 } );
             list.AddLine( ImVec2( origin.x, zero.y ), ImVec2( corner.x, zero.y ), IM_COL32( 255, 0, 0, 102 ) );
             list.AddLine( ImVec2( zero.x, origin.y ), ImVec2( zero.x, corner.y ), IM_COL32( 0, 255, 0, 102 ) );
+        }
+
+        // ── the selected region ──
+        if ( streamer == nullptr && m_Selection )
+        {
+            const ImVec2 a = ToScreen( m_View, size, origin, { m_Selection->MinX, m_Selection->MinZ } );
+            const ImVec2 b = ToScreen( m_View, size, origin, { m_Selection->MaxX, m_Selection->MaxZ } );
+            const ImVec2 lo( std::min( a.x, b.x ), std::min( a.y, b.y ) );
+            const ImVec2 hi( std::max( a.x, b.x ), std::max( a.y, b.y ) );
+            list.AddRectFilled( lo, hi, IM_COL32( 64, 140, 255, 48 ) );
+            list.AddRect( lo, hi, IM_COL32( 96, 170, 255, 230 ), 0.0f, 0, 2.0f );
         }
 
         // ── every streaming source: its loading circle, its unload band; where the view looks, in Edit ──
