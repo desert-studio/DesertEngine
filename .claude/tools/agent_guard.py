@@ -97,7 +97,7 @@ def brief_size_denial(prompt):
     # feature was seen working, and that brief names the proof in a «Фича принята:» line.
     # Target names (EditorTests), clauses handing suites to the lead («Сюиты/CI — тимлид») and «Тесты не писать» are not asks.
     asks_tests = re.search(r"(?i)мутац\w*|\bтест\w*|\bсюит\w*|\bsuites?\b|\btests?\b",
-                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|\bне\s+\w+\s+тест\w*", "", body))
+                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|[^.;\n]*suite\.sh[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|\bне\s+\w+\s+тест\w*", "", body))
     if asks_tests and "Фича принята:" not in text:
         return (f"[agent_guard] Тимлид: бриф {found.group(0)} просит тесты/мутации вместе с кодом («{asks_tests.group(0)}»). "
                 "Владелец 10-10 вечер: новые тесты ОТЛОЖЕНЫ до конца фич (потом отдельный период тестов). Бриф — код + "
