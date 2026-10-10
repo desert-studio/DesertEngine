@@ -42,6 +42,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -134,6 +135,13 @@ namespace Desert::Core::ExternalEntities
     //   - a partitioned world that states its records INLINE: refused - that is the layout before v35, and the
     //     fix is Tools/SceneMigrator, which the message names.
     [[nodiscard]] Common::ResultStr<std::string> ReadSceneFileText( const std::filesystem::path& path );
+
+    // WP19 - THE PART OF A PARTITIONED WORLD AN EDITOR REGION HOLDS: the header at `path` joined with the files of
+    // the listed records whose id is in `wanted` only, in the header's order - the document a full read would give
+    // with every other record left out. Refused, naming the file: not a partitioned header, a wanted record whose
+    // file is missing or is not that record. An id of `wanted` the header does not list is refused too.
+    [[nodiscard]] Common::ResultStr<std::string>
+    ReadSceneRegionText( const std::filesystem::path& path, const std::unordered_set<std::uint64_t>& wanted );
 
     // The entity list of the partitioned header at `path`, in its order, without reading an entity (the
     // descriptor index's input, EntityDescriptorIndex.hpp). Refused, naming the file: unreadable, not JSON,

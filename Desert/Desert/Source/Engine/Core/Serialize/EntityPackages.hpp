@@ -40,6 +40,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -64,6 +65,12 @@ namespace Desert::Core
         std::vector<Common::UUID> Listed;  // every record id, ascending (the header's list order)
         std::vector<Common::UUID> Changed; // records to serialize and write, ascending
         std::vector<Common::UUID> Removed; // records of the baseline the scene no longer has
+        // WP19: records of the world the scene does not hold (an editor region left them on disk), ascending.
+        // Listed names them, the header keeps them, and no file of theirs is written, removed or checked.
+        std::vector<Common::UUID> NotLoaded;
+        // Not empty: the save cannot be made without losing the not-loaded records (a save to another file);
+        // nothing is written and this is the reason.
+        std::string Refusal;
     };
 
     class EntityPackages final : public IEditStamps
@@ -86,6 +93,28 @@ namespace Desert::Core
 
         [[nodiscard]] bool IsDirty( Common::UUID id ) const;
 
+        // The files the baseline was taken from (the scene's open or last save), if any: the world on disk an
+        // editor region loads from (WP19, EditorRegions.hpp).
+        [[nodiscard]] const std::optional<std::filesystem::path>& BaselinePath() const
+        {
+            return m_BaselinePath;
+        }
+
+        // WP19, UE's editor loader adapter: the scene now holds `live` of the baseline's world, and the records
+        // `notLoaded` stay on disk. An entity new to the baseline was just read from its file (clean); one of the
+        // baseline that is no longer live was unloaded, NOT deleted - its file is kept and the header lists it.
+        // Forget clears the set; a save keeps it.
+        void AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded );
+
+        [[nodiscard]] bool IsLoaded( Common::UUID record ) const
+        {
+            return !m_NotLoaded.contains( static_cast<std::uint64_t>( record ) );
+        }
+        [[nodiscard]] std::size_t NotLoadedCount() const
+        {
+            return m_NotLoaded.size();
+        }
+
         // PURE: what a save of the scene to `scenePath`, whose live entities are `live`, must write.
         [[nodiscard]] PackageSavePlan Plan( const std::filesystem::path& scenePath,
                                             std::span<const LiveEntity> live, bool partitioned ) const;
@@ -106,6 +135,7 @@ namespace Desert::Core
         std::optional<std::filesystem::path>           m_BaselinePath;
         std::unordered_map<std::uint64_t, Revision>    m_SavedRevision; // every live entity at the baseline
         std::unordered_map<std::uint64_t, SavedRecord> m_SavedRecords;  // the records among them
+        std::unordered_set<std::uint64_t>              m_NotLoaded;     // records left on disk (AdoptRegion)
     };
 
     // What one save did.

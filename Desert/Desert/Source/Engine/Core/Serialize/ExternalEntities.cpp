@@ -7,6 +7,7 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -499,6 +500,64 @@ namespace Desert::Core::ExternalEntities
                      "Nothing "
                      "was loaded.",
                      path.string(), piece.string() ) );
+        return Common::MakeSuccess( scene.GetValue().Text() );
+    }
+
+    Common::ResultStr<std::string> ReadSceneRegionText( const std::filesystem::path&             path,
+                                                        const std::unordered_set<std::uint64_t>& wanted )
+    {
+        auto text = Common::Utils::FileSystem::ReadFileContent( path );
+        if ( !text )
+            return text;
+        auto document = Common::Json::TextDocument::Parse( text.GetValue() );
+        if ( !document )
+            return Common::MakeError<std::string>(
+                 fmt::format( "[SceneSerializer] '{}' is not JSON: {}", path.string(), document.GetError() ) );
+        if ( !IsHeader( document.GetValue() ) || !HasMember( document.GetValue(), "WorldPartition" ) )
+            return Common::MakeError<std::string>( fmt::format(
+                 "[SceneSerializer] '{}' is not a partitioned world's header: only a world kept one file per entity "
+                 "loads by region.",
+                 path.string() ) );
+        auto list = document.GetValue().AsDocument<HeaderList>();
+        if ( !list )
+            return Common::MakeError<std::string>( fmt::format(
+                 "[SceneSerializer] '{}': the entity list cannot be read: {}", path.string(), list.GetError() ) );
+
+        std::vector<Common::Json::TextDocument> kept;
+        std::size_t                             found = 0;
+        for ( const std::uint64_t bits : list.GetValue().ExternalEntities )
+        {
+            if ( !wanted.contains( bits ) )
+                continue;
+            ++found;
+            auto idDocument = Common::Json::TextDocument::Parse( std::to_string( bits ) );
+            if ( !idDocument )
+                return Common::MakeError<std::string>( idDocument.GetError() );
+            kept.push_back( idDocument.ExtractValue() );
+        }
+        if ( found != wanted.size() )
+            for ( const std::uint64_t bits : wanted )
+                if ( std::find( list.GetValue().ExternalEntities.begin(), list.GetValue().ExternalEntities.end(),
+                                bits ) == list.GetValue().ExternalEntities.end() )
+                    return Common::MakeError<std::string>( fmt::format(
+                         "[SceneSerializer] '{}' does not list entity {}: a region loads only what the world holds.",
+                         path.string(), bits ) );
+
+        auto header = document.GetValue().WithArrayMember( kListMember, kListMember, kept );
+        if ( !header )
+            return Common::MakeError<std::string>(
+                 fmt::format( "[SceneSerializer] '{}': {}", path.string(), header.GetError() ) );
+        const auto read = [&]( Common::UUID id ) -> Common::ResultStr<std::string>
+        {
+            const std::filesystem::path file = FileOf( path, id );
+            std::error_code             ec;
+            if ( !std::filesystem::is_regular_file( file, ec ) )
+                return Common::MakeError<std::string>( fmt::format( "its file {} does not exist", file.string() ) );
+            return Common::Utils::FileSystem::ReadFileContent( file );
+        };
+        auto scene = Assemble( header.GetValue(), path.string(), read );
+        if ( !scene )
+            return Common::MakeError<std::string>( "[SceneSerializer] " + scene.GetError() );
         return Common::MakeSuccess( scene.GetValue().Text() );
     }
 } // namespace Desert::Core::ExternalEntities

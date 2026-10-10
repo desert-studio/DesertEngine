@@ -16,6 +16,7 @@
 #include <ranges>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
@@ -26,6 +27,7 @@
 #include <cmath>
 #include <format>
 #include <numbers>
+#include <span>
 #include <vector>
 
 namespace Desert::Editor
@@ -246,6 +248,34 @@ namespace Desert::Editor
         if ( !m_ConvertStatus.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.5f, 0.35f, 1.0f ), "%s", m_ConvertStatus.c_str() );
 
+        // ── Load Region (Edit, a partitioned world opened from its files) ──
+        if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() &&
+             m_Scene->Packages()->BaselinePath().has_value() )
+        {
+            ImGui::SetNextItemWidth( 160.0f );
+            ImGui::InputFloat2( "Min X/Z (m)", &m_RegionMinM.x, "%.0f" );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 160.0f );
+            ImGui::InputFloat2( "Max X/Z (m)", &m_RegionMaxM.x, "%.0f" );
+            ImGui::SameLine();
+            if ( ImGui::Button( "Load Region" ) )
+            {
+                ::Desert::Core::Rules::CellBounds region;
+                region.MinX = std::min( m_RegionMinM.x, m_RegionMaxM.x ) * 100.0f;
+                region.MinZ = std::min( m_RegionMinM.y, m_RegionMaxM.y ) * 100.0f;
+                region.MaxX = std::max( m_RegionMinM.x, m_RegionMaxM.x ) * 100.0f;
+                region.MaxZ = std::max( m_RegionMinM.y, m_RegionMaxM.y ) * 100.0f;
+                if ( const auto loaded = LoadRegion( region ); !loaded )
+                    m_RegionStatus = loaded.GetError();
+            }
+            ImGui::SameLine();
+            if ( ImGui::Button( "Load All" ) )
+                if ( const auto loaded = LoadRegion( std::nullopt ); !loaded )
+                    m_RegionStatus = loaded.GetError();
+            if ( !m_RegionStatus.empty() )
+                ImGui::TextWrapped( "%s", m_RegionStatus.c_str() );
+        }
+
         if ( plan == nullptr || partition->Grids.empty() )
         {
             ImGui::TextDisabled( "%s",
@@ -263,6 +293,30 @@ namespace Desert::Editor
                              static_cast<double>( partition->Grids[0].CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::LoadRegion( std::optional<::Desert::Core::Rules::CellBounds> region )
+    {
+        if ( !m_Scene )
+            return Common::MakeError<bool>( std::string( "No active scene." ) );
+        auto* assets = const_cast<::Desert::Assets::AssetManager*>( m_Assets );
+        auto  changed =
+             region.has_value()
+                  ? ::Desert::Core::EditorRegions::LoadRegions(
+                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( &*region, 1 ) )
+                  : ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets );
+        if ( !changed )
+            return Common::MakeError<bool>( changed.GetError() );
+        const auto& outcome = changed.GetValue();
+        if ( outcome.Loaded > 0 || outcome.Unloaded > 0 )
+            CommandHistory::Get().Clear();
+        m_RegionStatus = std::format( "{} record(s) loaded, {} unloaded; {} of the world left on disk "
+                                      "({} composite(s) in the region, {} always loaded, {} without a place).",
+                                      outcome.Loaded, outcome.Unloaded, outcome.NotLoaded,
+                                      outcome.Selection.InRegions, outcome.Selection.AlwaysLoaded,
+                                      outcome.Selection.Unplaced );
+        m_EditPlanStale = true;
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr WorldPartitionPanel::ConvertSceneToWorldPartition()

@@ -1,6 +1,9 @@
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 
+#include <spdlog/fmt/fmt.h>
+
 #include <algorithm>
+#include <unordered_set>
 
 namespace Desert::Core
 {
@@ -54,6 +57,28 @@ namespace Desert::Core
         m_BaselinePath.reset();
         m_SavedRevision.clear();
         m_SavedRecords.clear();
+        m_NotLoaded.clear();
+    }
+
+    void EntityPackages::AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded )
+    {
+        std::unordered_set<std::uint64_t> alive;
+        for ( const LiveEntity& entity : live )
+        {
+            const std::uint64_t id = Bits( entity.Id );
+            alive.insert( id );
+            if ( m_SavedRevision.contains( id ) )
+                continue;
+            // Just read from its file: what the file holds is what the entity is.
+            m_SavedRevision[id] = CurrentOf( id );
+            if ( Bits( entity.Record ) == id )
+                m_SavedRecords[id] = SavedRecord{ Bits( entity.Parent ), entity.SiblingIndex };
+        }
+        std::erase_if( m_SavedRevision, [&]( const auto& row ) { return !alive.contains( row.first ); } );
+        std::erase_if( m_SavedRecords, [&]( const auto& row ) { return !alive.contains( row.first ); } );
+        m_NotLoaded.clear();
+        for ( const Common::UUID id : notLoaded )
+            m_NotLoaded.insert( Bits( id ) );
     }
 
     void EntityPackages::Baseline( const std::filesystem::path& scenePath, std::span<const LiveEntity> live )
@@ -87,13 +112,49 @@ namespace Desert::Core
             if ( Bits( entity.Record ) == Bits( entity.Id ) )
                 plan.Listed.push_back( entity.Id );
         SortAscending( plan.Listed );
+        std::vector<Common::UUID> loaded = plan.Listed;
+        for ( const std::uint64_t id : m_NotLoaded )
+        {
+            plan.NotLoaded.emplace_back( id );
+            plan.Listed.emplace_back( id );
+        }
+        SortAscending( plan.NotLoaded );
+        SortAscending( plan.Listed );
+
+        std::unordered_set<std::uint64_t> alive;
+        for ( const LiveEntity& entity : live )
+            alive.insert( Bits( entity.Id ) );
+        // The records of the baseline that are gone: their files are to be deleted.
+        auto goneRecords = [&]
+        {
+            std::vector<Common::UUID> gone;
+            for ( const auto& [id, saved] : m_SavedRecords )
+                if ( !alive.contains( id ) && !m_NotLoaded.contains( id ) )
+                    gone.emplace_back( id );
+            SortAscending( gone );
+            return gone;
+        };
 
         auto whole = [&]( const char* reason )
         {
-            plan.Whole       = true;
             plan.WholeReason = reason;
-            plan.Changed     = plan.Listed;
+            plan.Changed     = loaded;
             plan.Removed.clear();
+            if ( m_NotLoaded.empty() )
+            {
+                plan.Whole = true;
+                return plan;
+            }
+            // A world an editor region holds in part (WP19): "whole" is every LOADED record, written as a delta
+            // so the records left on disk keep their files and their place in the header.
+            plan.Whole = false;
+            if ( !partitioned || !m_BaselinePath || *m_BaselinePath != scenePath.lexically_normal() )
+                plan.Refusal = fmt::format( "{} of its {} entities are not loaded (an editor region left them on disk), "
+                                            "and a save that is not a delta of the world's own files would drop them. Load "
+                                            "the whole world first. Nothing was written.",
+                                            m_NotLoaded.size(), plan.Listed.size() );
+            else
+                plan.Removed = goneRecords();
             return plan;
         };
         if ( !partitioned )
@@ -105,11 +166,9 @@ namespace Desert::Core
         if ( m_Whole )
             return whole( "an edit was recorded without naming its entities" );
 
-        std::unordered_set<std::uint64_t> alive;
         std::unordered_set<std::uint64_t> changed;
         for ( const LiveEntity& entity : live )
         {
-            alive.insert( Bits( entity.Id ) );
             if ( IsDirty( entity.Id ) )
                 changed.insert( Bits( entity.Record ) );
             if ( Bits( entity.Record ) != Bits( entity.Id ) )
@@ -143,7 +202,7 @@ namespace Desert::Core
 
         plan.Whole       = false;
         plan.WholeReason = "";
-        for ( const Common::UUID id : plan.Listed )
+        for ( const Common::UUID id : loaded )
             if ( changed.contains( Bits( id ) ) )
                 plan.Changed.push_back( id );
         return plan;
@@ -157,6 +216,11 @@ namespace Desert::Core
         PackageSaveOutcome    outcome;
         const PackageSavePlan plan = packages.Plan( scenePath, live, partitioned );
         outcome.Whole              = plan.Whole;
+        if ( !plan.Refusal.empty() )
+            return Common::MakeError<PackageSaveOutcome>( fmt::format( "'{}': {}", scenePath.string(), plan.Refusal ) );
+        std::unordered_set<std::uint64_t> notLoaded;
+        for ( const Common::UUID id : plan.NotLoaded )
+            notLoaded.insert( Bits( id ) );
 
         std::unordered_set<std::uint64_t> only;
         for ( const Common::UUID id : plan.Changed )
@@ -171,7 +235,7 @@ namespace Desert::Core
         {
             std::vector<Common::UUID> clean;
             for ( const Common::UUID id : plan.Listed )
-                if ( !only.contains( Bits( id ) ) )
+                if ( !only.contains( Bits( id ) ) && !notLoaded.contains( Bits( id ) ) )
                     clean.push_back( id );
             if ( auto verified = ExternalEntities::VerifyCleanRecords( scenePath, document.GetValue(), clean );
                  !verified )

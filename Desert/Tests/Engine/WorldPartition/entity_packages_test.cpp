@@ -9,6 +9,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
 #include <Common/Json/Carry.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <gtest/gtest.h>
 
@@ -241,4 +242,55 @@ TEST( EntityPackages, AnUnmarkedEditIsRefusedByTheCheckAgainstFiles )
     EXPECT_FALSE( delta.Whole );
     EXPECT_EQ( delta.Files.Written, 2u );
     EXPECT_NE( world.Joined().find( "Bypassed" ), std::string::npos );
+}
+
+// WP19: an editor region left entity 30 on disk. A save writes the loaded entities only, keeps 30's file and its
+// place in the header, and is never taken for a delete of it.
+TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
+{
+    ModelWorld world;
+    world.Save();
+    world.Packages.Baseline( world.Scene, world.Live() );
+    const std::string thirtyBefore = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) )
+                                          .GetValue();
+
+    world.Tags.erase( 30 ); // unloaded: the scene no longer holds it
+    const std::vector<UUID> notLoaded{ UUID( 30 ) };
+    world.Packages.AdoptRegion( world.Live(), notLoaded );
+    EXPECT_FALSE( world.Packages.IsLoaded( UUID( 30 ) ) );
+
+    world.Packages.Touch( UUID( 10 ) );
+    world.Tags[10] = "A2";
+    world.Composed = 0;
+    const auto saved = world.Save( CleanCheck::AgainstFiles );
+    EXPECT_FALSE( saved.Whole );
+    EXPECT_EQ( saved.Files.Removed, 0u );
+    const auto listed = EE::ListedEntities( world.Scene );
+    ASSERT_TRUE( listed ) << listed.GetError();
+    EXPECT_EQ( listed.GetValue(), ( std::vector<UUID>{ UUID( 10 ), UUID( 20 ), UUID( 30 ) } ) );
+    EXPECT_EQ( Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) ).GetValue(),
+               thirtyBefore );
+    EXPECT_NE( world.Joined().find( "\"A2\"" ), std::string::npos );
+
+    // An edit that names no entity is still a delta of the loaded ones: 30 is not written, not removed.
+    world.Packages.TouchAll();
+    const auto all = world.Save();
+    EXPECT_FALSE( all.Whole );
+    EXPECT_EQ( all.Files.Removed, 0u );
+    EXPECT_TRUE( std::filesystem::exists( EE::FileOf( world.Scene, UUID( 30 ) ) ) );
+}
+
+TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartIsRefused )
+{
+    ModelWorld world;
+    world.Save();
+    world.Packages.Baseline( world.Scene, world.Live() );
+    world.Tags.erase( 30 );
+    const std::vector<UUID> notLoaded{ UUID( 30 ) };
+    world.Packages.AdoptRegion( world.Live(), notLoaded );
+    world.Scene = world.Root / "Elsewhere.desce";
+    const auto saved = world.TrySave( CleanCheck::Trust );
+    ASSERT_FALSE( saved );
+    EXPECT_NE( saved.GetError().find( "not loaded" ), std::string::npos ) << saved.GetError();
+    EXPECT_FALSE( std::filesystem::exists( world.Scene ) );
 }
