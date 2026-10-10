@@ -83,7 +83,7 @@ TEST( GameMode, RestartSpawnsThePrefabAtTheStartAndPossessesItsCamera )
     const auto restarted = scene.GetGameMode().RestartPlayer( scene, PawnPrefab( spawned ) );
     ASSERT_TRUE( restarted ) << restarted.GetError();
     const entt::entity pawn = scene.GetPlayerPawn();
-    ASSERT_NE( pawn, entt::null );
+    ASSERT_TRUE( pawn != entt::null );
     auto& reg = scene.GetRegistry();
     EXPECT_EQ( reg.get<ECS::TransformComponent>( pawn ).Translation, glm::vec3( 300.0f, 50.0f, -20.0f ) );
     EXPECT_TRUE( ( reg.has<ECS::CharacterControllerComponent, ECS::CameraComponent>( pawn ) ) );
@@ -112,7 +112,7 @@ TEST( GameMode, KillUnpossessesAndRestartsAfterTheDelayAtTheStart )
     reg.get<ECS::TransformComponent>( first ).Translation = glm::vec3( 5000.0f, 0.0f, 0.0f ); // walked away
 
     ASSERT_TRUE( mode.Kill( scene, first ) );
-    EXPECT_EQ( scene.GetPlayerPawn(), entt::null ) << "a dead pawn is no longer possessed";
+    EXPECT_TRUE( scene.GetPlayerPawn() == entt::null ) << "a dead pawn is no longer possessed";
     EXPECT_TRUE( reg.valid( first ) )
          << "the body stays until the restart (the hook sees it, the view stays on it)";
 
@@ -132,7 +132,7 @@ TEST( GameMode, KillUnpossessesAndRestartsAfterTheDelayAtTheStart )
     EXPECT_EQ( spawned, 2 );
     EXPECT_FALSE( reg.valid( first ) ) << "the dead body must be destroyed by the restart";
     const entt::entity second = scene.GetPlayerPawn();
-    ASSERT_NE( second, entt::null );
+    ASSERT_TRUE( second != entt::null );
     EXPECT_EQ( reg.get<ECS::TransformComponent>( second ).Translation, glm::vec3( 0.0f, 0.0f, 900.0f ) );
     EXPECT_FALSE( mode.RespawnRemaining().has_value() );
     const auto back = mode.TakeEvents();
@@ -169,7 +169,7 @@ TEST( GameMode, ALevelWithoutAPawnPlaysThroughItsCameraAndNeverRestarts )
     EXPECT_FALSE( scene.GetGameMode().RestartPlayer( scene, PawnPrefab( spawned ) ) );
     EXPECT_EQ( spawned, 0 );
     EXPECT_FALSE( scene.GetGameMode().Kill( scene, cameraHandle ) );
-    EXPECT_EQ( scene.GetPlayerPawn(), entt::null );
+    EXPECT_TRUE( scene.GetPlayerPawn() == entt::null );
     const auto view = scene.ResolveViewTarget();
     ASSERT_TRUE( view ) << view.GetError();
     EXPECT_EQ( view.GetValue(), cameraHandle );

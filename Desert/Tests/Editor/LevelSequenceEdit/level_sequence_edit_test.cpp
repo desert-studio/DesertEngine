@@ -264,3 +264,53 @@ TEST( LevelSequenceMaterialProperties, SetKeysTheTrackAtThePlayheadAsOneUndoStep
     EXPECT_FALSE( history.Undo() ) << "nothing else was recorded";
     history.Clear();
 }
+
+// ── SEQ1c: every Sequencer edit through a ScopedSequenceEdit ───────────────────────────────────────────────
+namespace
+{
+    namespace Ed = Desert::Editor;
+    using LevelSequenceFixture::DoorPose;
+    using LevelSequenceFixture::KeyOn;
+
+    /// The owner the Sequencer hands its transactions for @p sequence.
+    Ed::SequenceOwner OwnerOf( T::Sequence& sequence )
+    {
+        Ed::SequenceOwner owner;
+        owner.Identity = &sequence;
+        owner.Resolve  = [&sequence]() -> T::Sequence* { return &sequence; };
+        owner.Volatile = false;
+        owner.Name     = "Level Sequence";
+        return owner;
+    }
+} // namespace
+
+// Every Sequencer edit is one ScopedSequenceEdit: one Ctrl+Z takes back exactly that edit.
+TEST( LevelSequenceSubsequenceEdit, EachEditIsOneUndoStep )
+{
+    auto& history = Ed::CommandHistory::Get();
+    history.Clear();
+    T::Sequence                 sequence = AuthoredDoor();
+    const auto                  door     = sequence.Bindings.front().Guid;
+    const Ed::SequenceOwner     owner    = OwnerOf( sequence );
+    Ed::SequenceEditTransaction transaction;
+    {
+        const Ed::ScopedSequenceEdit step( transaction, owner );
+        ASSERT_TRUE( ECS::AddSubsequenceSection( sequence, Common::Content::AssetGuid{ 1, 1 },
+                                                 Common::Content::AssetGuid{ 2, 2 }, A::FrameNumber{ 0 },
+                                                 A::FrameNumber{ 50 } )
+                          .IsSuccess() );
+    }
+    {
+        const Ed::ScopedSequenceEdit step( transaction, owner );
+        ASSERT_TRUE( ECS::SetEntityTransformKeyShape( sequence, door, { A::FrameNumber{ 100 } },
+                                                      A::KeyInterp::Constant, A::TangentMode::Auto )
+                          .IsSuccess() );
+    }
+    ASSERT_EQ( history.UndoStack().size(), 2U );
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_EQ( KeyOn( DoorPose( sequence ).Translation.X, 100 ).Interp, A::KeyInterp::Linear );
+    EXPECT_EQ( ECS::SubsequenceSections( sequence ).size(), 1U ) << "the undo took back only the key shape";
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_TRUE( ECS::SubsequenceSections( sequence ).empty() );
+    history.Clear();
+}

@@ -5,6 +5,7 @@
 // its neighbours and the authored door sequence. Included by relative path; header-only.
 
 #include <Engine/Animation/Timeline/Binding.hpp>
+#include <Engine/Animation/Timeline/Channel.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
@@ -13,6 +14,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
+#include <variant>
 
 namespace LevelSequenceFixture
 {
@@ -73,5 +76,25 @@ namespace LevelSequenceFixture
                                                  ECS::EntityPose( pose ) )
                           .IsSuccess() );
         return sequence;
+    }
+    /// The Transform channel of @p sequence's first Transform track's first section.
+    inline const Desert::Animation::Timeline::TransformChannel&
+    DoorPose( const Desert::Animation::Timeline::Sequence& sequence )
+    {
+        namespace T = Desert::Animation::Timeline;
+        for ( const T::Track& track : sequence.Tracks )
+            if ( track.Property == Desert::ECS::kLevelSequenceTransformProperty )
+                return std::get<T::TransformChannel>( std::get<T::Channel>( track.Sections.front().Content ) );
+        throw std::runtime_error( "no Transform track" );
+    }
+
+    /// The key of @p lane on @p tick; throws when the lane has none there.
+    inline const Desert::Animation::ScalarKey& KeyOn( const Desert::Animation::Timeline::FloatChannel& lane,
+                                                      int32_t                                          tick )
+    {
+        for ( const Desert::Animation::ScalarKey& key : lane.Keys )
+            if ( key.Tick.Value == tick )
+                return key;
+        throw std::runtime_error( "no key on that tick" );
     }
 } // namespace LevelSequenceFixture
