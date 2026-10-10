@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "0c42ee850e95277f8d732c3c69595870",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
         "Dependencies": []
@@ -608,7 +608,7 @@
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,
                     "GIIntensity": 2.0,
-                    "EnableSSR": false,
+                    "EnableSSR": true,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
                     "Tonemapper": 0,
