@@ -644,14 +644,18 @@ jobs:
         run: python3 scripts/CI/TestShards.py verify --plan plan --reports reports
 
   # The Release and Shipping builds, the test run, the shader lint, the shipping symbol census and the
-  # packaging only run AFTER both gates pass — no point spending a macOS build on code that fails
-  # formatting or trips a sanitizer. (format = static; sanitizers = DYNAMIC: it must build instrumented
+  # packaging wait ONLY for the format gate, and run IN PARALLEL with the sanitizers. They used to wait
+  # for `sanitizers-verdict` too ("no point spending a macOS build on code that trips a sanitizer"), but
+  # that put the ASan build (65-73 min) plus its tests (up to 37 min) IN FRONT of this job's own ~40 min,
+  # making macOS the longest chain to a verdict (~2.5 h) while the runner-minutes it saved were only
+  # spent on red runs. The verdict of the run is the AND of every job anyway, so ordering bought nothing
+  # but wall time. (format = static, cheap, still gates; sanitizers = DYNAMIC: it must build instrumented
   # and RUN the suite to catch memory/UB at runtime, so it necessarily compiles + tests Debug — that is
   # the check, not a duplicate of this job. Debug is therefore already covered there, so this job builds
   # Release + Shipping and nothing in Debug.)
   macos:
     name: macOS ${{ matrix.config }}
-    needs: [ format, sanitizers-verdict ]
+    needs: [ format ]
     runs-on: macos-14 # Apple Silicon (arm64) — matches the supported platform
     timeout-minutes: 60
     strategy:
