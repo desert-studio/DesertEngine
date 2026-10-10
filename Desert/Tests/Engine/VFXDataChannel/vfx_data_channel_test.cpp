@@ -456,7 +456,7 @@ TEST( VFXDataChannel, AScriptNameIsResolvedThroughTheAssetManager )
     fs::remove_all( dir );
 }
 
-// VFX-10c census: Lua VFX.useChannel goes through VFXDataChannels::Use (the AssetManager), never reads the file
+// VFX-10c census: Lua VFX.useChannel (the Luau C function UseChannel, registered as VFX.useChannel) goes through VFXDataChannels::Use (the AssetManager), never reads the file
 // itself - no asset constructed, no LoadFromFile, no PathForName, no stream in its body.
 TEST( VFXDataChannel, LuaUseChannelDoesNotReadTheFileItself )
 {
@@ -466,8 +466,8 @@ TEST( VFXDataChannel, LuaUseChannelDoesNotReadTheFileItself )
     std::stringstream text;
     text << in.rdbuf();
     const std::string source = text.str();
-    const auto        begin  = source.find( "vfx[\"useChannel\"]" );
-    const auto        end    = source.find( "vfx[\"writeChannel\"]" );
+    const auto        begin  = source.find( "int UseChannel( lua_State* L )" );
+    const auto        end    = source.find( "int WriteChannel( lua_State* L )" );
     ASSERT_NE( begin, std::string::npos );
     ASSERT_NE( end, std::string::npos );
     ASSERT_LT( begin, end );
@@ -476,6 +476,6 @@ TEST( VFXDataChannel, LuaUseChannelDoesNotReadTheFileItself )
           { "LoadFromFile", "PathForName", "VFXDataChannelAsset", "ifstream", "std::filesystem", "Load(" } )
         EXPECT_EQ( body.find( forbidden ), std::string::npos )
              << "VFX.useChannel reads the channel itself ('" << forbidden << "') instead of the AssetManager";
-    EXPECT_NE( body.find( ".Use( name, *impl->Assets )" ), std::string::npos )
+    EXPECT_NE( body.find( ".Use( name, *host.Assets )" ), std::string::npos )
          << "VFX.useChannel no longer resolves the name through VFXDataChannels::Use and the AssetManager";
 }
