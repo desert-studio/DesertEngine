@@ -16,6 +16,7 @@
 
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
 
+#include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>

@@ -45,7 +45,7 @@ namespace
     {
         auto writer = channels.Write( "Impacts", 1 );
         ASSERT_TRUE( writer.IsSuccess() ) << writer.GetError();
-        VFX::VFXDataChannelWriter& w = writer.GetValue();
+        VFX::VFXDataChannelWriter w = writer.ExtractValue();
         ASSERT_TRUE( w.WritePosition( 0, "Pos", cm ) );
         ASSERT_TRUE( w.WriteDirection( 0, "Dir", glm::vec3( 0.0f, 0.0f, 1.0f ) ) );
         ASSERT_TRUE( w.WriteFloat( 0, "Strength", strength ) );
@@ -202,7 +202,7 @@ TEST( VFXDataChannel, TheWriterRefusesWhatTheLayoutDoesNotHold )
     EXPECT_FALSE( channels.Write( "Nope", 1 ).IsSuccess() );
     auto writer = channels.Write( "Impacts", 1 );
     ASSERT_TRUE( writer.IsSuccess() );
-    VFX::VFXDataChannelWriter& w = writer.GetValue();
+    VFX::VFXDataChannelWriter w = writer.ExtractValue();
     EXPECT_FALSE( w.WriteFloat( 0, "Pos", 1.0f ) ) << "a Position field written as Float";
     EXPECT_FALSE( w.WriteFloat( 0, "Missing", 1.0f ) );
     EXPECT_FALSE( w.WriteFloat( 1, "Strength", 1.0f ) ) << "outside the writer's window";
@@ -282,7 +282,7 @@ TEST( VFXDataChannel, TheColorAndScalarPayloadReachTheSpawnRequest )
     {
         auto writer = channels.Write( "Impacts", 1 );
         ASSERT_TRUE( writer.IsSuccess() ) << writer.GetError();
-        VFX::VFXDataChannelWriter& w = writer.GetValue();
+        VFX::VFXDataChannelWriter w = writer.ExtractValue();
         ASSERT_TRUE( w.WritePosition( 0, "Pos", glm::vec3( 10.0f, 0.0f, 0.0f ) ) );
         ASSERT_TRUE( w.WriteColor( 0, "Tint", glm::vec4( 1.0f, 0.5f, 0.25f, 0.75f ) ) );
         ASSERT_TRUE( w.WriteFloat( 0, "Strength", 2.5f ) );
@@ -378,8 +378,9 @@ TEST( VFXDataChannel, AFloatFieldBindsTheParticleSize )
     {
         auto writer = channels.Write( "Impacts", 1 );
         ASSERT_TRUE( writer.IsSuccess() ) << writer.GetError();
-        ASSERT_TRUE( writer.GetValue().WriteFloat( 0, "Strength", 2.5f ) );
-        ASSERT_TRUE( writer.GetValue().WriteInt( 0, "Team", 3 ) );
+        VFX::VFXDataChannelWriter w = writer.ExtractValue();
+        ASSERT_TRUE( w.WriteFloat( 0, "Strength", 2.5f ) );
+        ASSERT_TRUE( w.WriteInt( 0, "Team", 3 ) );
     }
     VFX::VFXChannelSpawnModule m = Module( 1, 4 );
     m.SizeField                  = "Strength";
