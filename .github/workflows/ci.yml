@@ -10,6 +10,17 @@ on:
     branches: [ dev, main, master ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      # CCACHE_DEBUG for comparing two runs' hash inputs: Windows Shipping and macOS ASan write
+      # ccache's per-object debug files and upload one Common and one Desert object's
+      # .ccache-input-text/.ccache-log as an artifact (`ccache-debug-<job>`). Run it twice on the
+      # same commit and diff the two artifacts: the line that differs is the input that makes an
+      # unchanged first-party translation unit miss (CI-SPEED analysis: every one of ours misses on
+      # every run, every vendored one hits). The workflow_dispatch run never saves a cache.
+      ccache_debug:
+        description: "ccache debug files (Windows Shipping + macOS ASan) as artifacts"
+        type: boolean
+        default: false
 
 # A PUSH gets its own run and keeps it. A PULL REQUEST keeps only its latest.
 #
@@ -394,12 +405,11 @@ jobs:
       # in a Debug build are a repeat of a (source, flags) pair already compiled in the same build,
       # 30.8 % of the attributable compile CPU. That half needs nothing restored and nothing saved.
       #
-      # This step buys the other half — the compiles a PREVIOUS run already did — and it is on this job
-      # alone because the storage is a shared, capped resource and this is the job that has been
-      # crossing its ceiling. GitHub keeps at most 10 GB of Actions cache per repository and evicts the
-      # least recently used entry to make room; every job that saves an entry takes a share of that and
-      # shortens how far back every other job's entry survives. `macOS Release` (35-44 min) and `macOS
-      # Shipping` (14-21 min) are not the jobs at risk, so they spend none of it.
+      # This step buys the other half — the compiles a PREVIOUS run already did. GitHub keeps at most
+      # 10 GB of Actions cache per repository and evicts the least recently used entry to make room;
+      # every job that saves an entry takes a share of that and shortens how far back every other job's
+      # entry survives. `macOS Release` / `macOS Shipping` persist one too since CI-SPEED (2026-10-10):
+      # Release without it ran into its 60-minute ceiling; see the note on their Restore ccache.
       #
       # THE KEY IS THE COMMIT AND THE FALLBACK IS THE PREFIX, which is the standard shape and worth
       # stating because the alternative is tempting and wrong: a fixed key would be written once and
@@ -421,8 +431,10 @@ jobs:
       # Vulkan SDK 0.43). When int/* saved too, int/b3's set evicted dev's, and the next int/* branch
       # (which can see dev's and its own only) built Windows cold — Release 92 min on int/b1p1. So int/*,
       # pull_request and workflow_dispatch only restore, and the ccache ceilings are cut so dev's whole
-      # set stays under 8.5 GB: sanitizers 2G, Windows Debug 2.5G, Release 2G, Shipping 0.6G, plus the
-      # Vulkan SDK and the Homebrew downloads. ccache's max_size bounds its COMPRESSED on-disk size, so
+      # set stays under 8.5 GB: sanitizers 2G, Windows Debug 2.5G, Release 2G, Shipping 0.6G, macOS
+      # Release 0.8G, macOS Shipping 0.4G, plus the Vulkan SDK and the Homebrew downloads (~8.9 GB with
+      # the two macOS entries — over 8.5: one of the Windows ceilings has to give once their dead
+      # first-party writes are gone, CI-SPEED). ccache's max_size bounds its COMPRESSED on-disk size, so
       # the saved archive is at most the ceiling. Raise one ceiling -> lower another, or dev evicts itself.
       #
       # THE CACHE DIRECTORY IS NAMED HERE RATHER THAN INHERITED. ccache's default location depends on
@@ -458,6 +470,15 @@ jobs:
       # printed success and no cache appeared. Run 37701712354 (int/b3, cold) built for 85 min and was
       # cancelled at the ceiling; the steps before the build took 5 min, Save of a 2G cache needs ~2, so
       # 78 leaves a dev push's cold build its cache and the next run its hits.
+      # workflow_dispatch input ccache_debug only — see its note at the top of the file. Level 1 writes
+      # .ccache-input-text and .ccache-log alone (not the binary hash inputs nor the preprocessed
+      # text), so ~2000 objects' worth fits on this job's disk.
+      - name: ccache debug mode
+        if: inputs.ccache_debug
+        run: |
+          mkdir -p "$RUNNER_TEMP/ccache-debug"
+          { echo "CCACHE_DEBUG=1"; echo "CCACHE_DEBUGLEVEL=1"; echo "CCACHE_DEBUGDIR=$RUNNER_TEMP/ccache-debug"; } >> "$GITHUB_ENV"
+
       - name: Build Debug with sanitizers
         timeout-minutes: 78
         env:
@@ -486,6 +507,19 @@ jobs:
         with:
           path: ${{ runner.temp }}/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
+
+      - name: Pick ccache debug files
+        if: always() && inputs.ccache_debug
+        shell: bash
+        run: ./scripts/CI/CcacheDebugPick.sh "$RUNNER_TEMP/ccache-debug" "$RUNNER_TEMP/ccache-debug-pick"
+
+      - name: Upload ccache debug files
+        if: always() && inputs.ccache_debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccache-debug-${{ github.job }}
+          path: ${{ runner.temp }}/ccache-debug-pick/
+          retention-days: 7
 
       # The expected list is build/TestManifest.txt, the same list the unsharded runner runs from (BUILD1),
       # minus the suites Desert/Tests/premake5.lua names in `vulkan_device_suites`
@@ -722,8 +756,36 @@ jobs:
           path: ~/Library/Caches/Homebrew
           key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
 
+      # THE SAME CACHE AS THE sanitizers JOB, PER CONFIGURATION (the flags differ, nothing hits across
+      # them): restored by every run from dev's newest entry, written by a push to dev ONLY — see the
+      # notes on the sanitizers job's Restore ccache. Without it Release compiled cold on every run and
+      # reached the job's 60-minute ceiling (CI-SPEED, 2026-10-10). Ceilings 0.8G / 0.4G: Shipping has
+      # no test projects, so it compiles about half of what Release does.
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-macos14-${{ matrix.config }}-${{ github.sha }}
+          restore-keys: |
+            ccache-macos14-${{ matrix.config }}-
+
+      # A STEP timeout under the job's 60, for the same reason as the sanitizers build: a step that runs
+      # out leaves the job alive, so Save ccache keeps every object a cold dev build finished.
       - name: Build ${{ matrix.config }}
+        timeout-minutes: 50
+        env:
+          CCACHE_MAXSIZE: ${{ matrix.config == 'Release' && '0.8G' || '0.4G' }}
+          CCACHE_DIR: ${{ runner.temp }}/ccache
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }}
+
+      # After the build and before the tests, `always()`, `continue-on-error` — see the sanitizers job.
+      - name: Save ccache
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-macos14-${{ matrix.config }}-${{ github.sha }}
 
       # Not in Shipping: the test projects are removed from that configuration in
       # Desert/Tests/premake5.lua, so build/Bin/Tests/Shipping is never created and there is nothing to
@@ -1078,6 +1140,19 @@ jobs:
       # configuration. Saved by a push to dev ONLY (see "THE CACHE IS WRITTEN BY dev ONLY" on the
       # sanitizers job): an int/* save evicted dev's set from the 10 GB, and every NEW int/* branch
       # then built cold. int/* restores dev's newest entry by the prefix below.
+      # workflow_dispatch input ccache_debug, Shipping only (the smallest leg; its first-party objects
+      # miss like the other two) — see the input's note at the top of the file.
+      - name: ccache debug mode
+        if: inputs.ccache_debug && matrix.config == 'Shipping'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\ccache-debug" | Out-Null
+          @(
+            "CCACHE_DEBUG=1"
+            "CCACHE_DEBUGLEVEL=1"
+            "CCACHE_DEBUGDIR=$env:RUNNER_TEMP\ccache-debug"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
@@ -1115,6 +1190,19 @@ jobs:
         with:
           path: ${{ runner.temp }}\ccache
           key: ccache-windows-${{ matrix.config }}-${{ github.sha }}
+
+      - name: Pick ccache debug files
+        if: always() && inputs.ccache_debug && matrix.config == 'Shipping'
+        shell: bash
+        run: ./scripts/CI/CcacheDebugPick.sh "$RUNNER_TEMP/ccache-debug" "$RUNNER_TEMP/ccache-debug-pick"
+
+      - name: Upload ccache debug files
+        if: always() && inputs.ccache_debug && matrix.config == 'Shipping'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccache-debug-${{ github.job }}
+          path: ${{ runner.temp }}/ccache-debug-pick/
+          retention-days: 7
 
       - name: ccache saw one source per compile
         shell: pwsh
