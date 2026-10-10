@@ -74,7 +74,10 @@ namespace
             desc.HalfHeight  = collider.HalfHeight;
             desc.Axis        = collider.Axis;
             desc.Center      = collider.Center;
-            desc.Type        = registry.get<ECS::RigidBodyComponent>( entity ).Data.Type;
+            const auto& body = registry.get<ECS::RigidBodyComponent>( entity ).Data;
+            desc.Type        = body.Type;
+            // As PhysicsECSSystem resolves it: the body's profile name in the world's register.
+            desc.Profile = TestSupport::ProfileId( World, body.CollisionProfile );
             if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
             {
                 auto gathered = ECS::PhysicsECSSystem::GatherColliderMesh( registry, entity, glm::vec3( 1.0f ) );
