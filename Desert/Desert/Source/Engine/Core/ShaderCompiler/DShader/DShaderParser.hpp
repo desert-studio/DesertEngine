@@ -110,6 +110,10 @@ namespace Desert::Core::Preprocess
     // the headers hand it to the generated dispatch (ShadingModels/ShadingModelRegistry.hpp). A template that does
     // not assign one of its model's Inputs in the surface function is refused, naming the field.
     inline constexpr std::string_view kSurfaceShadingModelDefine = "DESERT_SHADING_MODEL_INDEX";
+    // Defined in the fragment stage of a cell that evaluates the surface (not in an opaque depth cell, never in a
+    // vertex stage): Mesh/Surface/SurfaceTypes.glslh then declares the material fetch, which carries the view's
+    // mip bias (CameraUB MaterialMipBias).
+    inline constexpr std::string_view kSurfaceSamplesMaterialDefine = "DESERT_SURFACE_SAMPLES_MATERIAL";
 
     // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
     // Value); a Masked template that does not declare it is refused.

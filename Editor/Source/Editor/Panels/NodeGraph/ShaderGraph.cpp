@@ -570,7 +570,13 @@ namespace Desert::Editor::ShaderGraph
                 if ( node.Kind == "TextureSample" )
                 {
                     const std::string uv = EmitInput( node, 0, "v_UV" );
-                    decl = std::format( "vec4 {} = texture( {}, {} );", var, node.ParamName, uv );
+                    // A surface graph fetches through the template contract's one material fetch, which carries
+                    // the view's mip bias (Mesh/Surface/SurfaceTypes.glslh); a post-process graph's textures are
+                    // read at the implicit level.
+                    decl = doc.DomainEnum() == Domain::Surface
+                                ? std::format( "vec4 {} = SurfaceSampleMaterial( {}, {} );", var, node.ParamName,
+                                               uv )
+                                : std::format( "vec4 {} = texture( {}, {} );", var, node.ParamName, uv );
                 }
                 else if ( node.Kind == "MediumTexture" )
                 {

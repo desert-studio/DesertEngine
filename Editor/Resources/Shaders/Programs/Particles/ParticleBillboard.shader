@@ -47,7 +47,9 @@ Shader "ParticleBillboard"
             // Camera-facing: offset the particle centre in VIEW space so the quad always faces the camera.
             vec3 viewPos = ( cameraUB.View * vec4( p.PosSize.xyz, 1.0 ) ).xyz;
             viewPos.xy += c * ( p.PosSize.w * 0.5 );
+            // Scene raster before the temporal resolve: jittered like every mesh (ApplyJitter = clip.xy += JitterNdc * w).
             gl_Position = cameraUB.Projection * vec4( viewPos, 1.0 );
+            gl_Position.xy += cameraUB.JitterNdc * gl_Position.w;
         }
     }
 

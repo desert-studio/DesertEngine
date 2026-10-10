@@ -274,6 +274,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "a function of this frame's G-buffer" },
          { "SceneColorCopySystem", "Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", false, false,
            "a copy of this frame's target" },
+         { "VelocityViewSystem", "Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp", false, false,
+           "a picture of THIS frame's velocity; it holds only the shader, its block layout and one pipeline per "
+           "target format and sample count" },
          { "HeightFogSystem", "Graphic/Systems/Scene/Fog/HeightFogRenderer.hpp", false, false,
            "SetFogSettings takes `present` and HeightFogECSSystem states the absent case explicitly" },
          { "VolumetricCloudSystem", "Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp", true, true,

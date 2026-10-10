@@ -2179,7 +2179,6 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/Core/EditorPreferences.cpp",
           "KeyCarrier", "Keys", Guard::CallScoped,
           "CarriersOf( prefs ) points each row at a CarriedKeys member of the EditorPreferences it was handed; the array is a local of the read/save call that walks it, and that EditorPreferences outlives the call" },
-
         };
         return rows;
     }

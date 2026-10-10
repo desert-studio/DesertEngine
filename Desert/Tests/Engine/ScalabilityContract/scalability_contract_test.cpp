@@ -18,6 +18,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -410,7 +411,7 @@ TEST( ScalabilityContract, VSyncOnIsFifoAndOffTakesTheLowestLatencyModeOffered )
 TEST( ScalabilityContract, RtxOffersTheRayTracingPipelineAndNoThirdPartyUpscaler )
 {
     const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
-    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::None } ) );
+    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::Spatial, Upscaler::None } ) );
     EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLAA ) );
     EXPECT_TRUE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayTracingPipeline ) );
     EXPECT_EQ( c.MSAACounts, ( std::vector<int>{ 1, 2, 4, 8 } ) );
@@ -446,7 +447,7 @@ TEST( ScalabilityContract, MoltenVkNeverOffersTheRtPipelineOrAsyncComputeAndPref
     const CapabilityCatalog c = Vk::BuildCapabilityCatalog( AppleSiliconProbe() );
     EXPECT_FALSE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayTracingPipeline ) );
     EXPECT_TRUE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayQuery ) );
-    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::None } ) );
+    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::Spatial, Upscaler::None } ) );
     EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLAA ) );
     ASSERT_FALSE( c.TextureCompression.empty() );
     EXPECT_EQ( c.TextureCompression.front(), TextureCompressionFamily::ASTC );
@@ -511,6 +512,70 @@ TEST( ScalabilityContract, BelowNativeScaleAnUpscalerIsMandatoryAndItAntiAliases
     EXPECT_EQ( r.Scale, ScaleMode::Upscale );
     EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::TAAU );
     EXPECT_TRUE( HasFallback( r, Parameter::Upscaler ) );
+}
+
+// THE UPSCALER IS CHOSEN IN RESOLVE (TAA1-B 6a, SCAL-SPATIAL1): below 100 % temporal AA upscales with TAAU,
+// without temporal AA the spatial upscaler does and the method is kept. Mutation: bringing back the 100 % clamp
+// keeps FXAA/None native; dropping the TAAU pick leaves Upscaler None; forcing TAA under Spatial changes the
+// method.
+namespace
+{
+    ResolvedQuality ResolveAtHigh( std::optional<AntiAliasingMethod> method, ParameterValue percent )
+    {
+        QualitySelection s = AllAt( Level::High );
+        if ( method )
+            s.Overrides.push_back( { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
+                                     static_cast<ParameterValue>( *method ) } );
+        s.Overrides.push_back( { std::string( SpecOf( Parameter::RenderScalePercent ).Key ), percent } );
+        return Resolve( s, Table(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
+    }
+} // namespace
+
+TEST( ScalabilityContract, TaaAtHalfScaleUpscalesWithTaauAtTheAskedPercent )
+{
+    const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 50 );
+    EXPECT_EQ( r.Scale, ScaleMode::Upscale );
+    EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 50 );
+    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::TAAU );
+    EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
+    EXPECT_FALSE( HasFallback( r, Parameter::RenderScalePercent ) );
+}
+
+TEST( ScalabilityContract, WithoutTemporalAaHalfScaleUpscalesSpatiallyAndKeepsTheMethod )
+{
+    for ( const AntiAliasingMethod method :
+          { AntiAliasingMethod::FXAA, AntiAliasingMethod::SMAA, AntiAliasingMethod::None } )
+    {
+        const ResolvedQuality r = ResolveAtHigh( method, 50 );
+        EXPECT_EQ( r.Scale, ScaleMode::Upscale ) << static_cast<int>( method );
+        EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 50 );
+        EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::Spatial );
+        EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), method );
+        EXPECT_FALSE( HasFallback( r, Parameter::RenderScalePercent ) ) << static_cast<int>( method );
+        EXPECT_FALSE( HasFallback( r, Parameter::AntiAliasingMethod ) ) << static_cast<int>( method );
+    }
+    // MSAA cannot render below native: FXAA, and FXAA upscales spatially.
+    const ResolvedQuality msaa = ResolveAtHigh( AntiAliasingMethod::MSAA, 50 );
+    EXPECT_EQ( msaa.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::FXAA );
+    EXPECT_EQ( msaa.As<Upscaler>( Parameter::Upscaler ), Upscaler::Spatial );
+}
+
+TEST( ScalabilityContract, TaaAtNativeScaleRunsNoUpscaler )
+{
+    const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 100 );
+    EXPECT_EQ( r.Scale, ScaleMode::Native );
+    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+    EXPECT_TRUE( r.Fallbacks.empty() );
+}
+
+TEST( ScalabilityContract, TaaAboveNativeScaleIsSupersampledUnchanged )
+{
+    const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 150 );
+    EXPECT_EQ( r.Scale, ScaleMode::Supersample );
+    EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 150 );
+    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+    EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
+    EXPECT_TRUE( r.Fallbacks.empty() );
 }
 
 TEST( ScalabilityContract, AboveNativeScaleIsSupersampledWithoutAnUpscaler )
@@ -584,6 +649,28 @@ TEST( ScalabilityContract, TheShippedTableParsesAndHighNeedsNoFallbackOnACapable
     for ( const Fallback& f : r.Fallbacks )
         ADD_FAILURE() << FormatFallback( f );
     EXPECT_EQ( r.Scale, ScaleMode::Native );
+}
+
+// Render scale is a person's choice, not a level's: every shipped level renders at 100 % (no frame change).
+TEST( ScalabilityContract, EveryShippedLevelResolvesToNativeScale )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::ifstream in( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
+                            std::ios::binary );
+    std::ostringstream  text;
+    text << in.rdbuf();
+    const auto parsed = ScalabilityTable::Parse( text.str() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    for ( std::size_t l = 0; l < kLevelCount; ++l )
+    {
+        const auto            level = static_cast<Level>( l );
+        const ResolvedQuality r =
+             Resolve( AllAt( level ), parsed.GetValue(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
+        EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 100 ) << LevelKey( level );
+        EXPECT_EQ( r.Scale, ScaleMode::Native ) << LevelKey( level );
+        EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None ) << LevelKey( level );
+    }
 }
 
 // HIGH IS TODAY'S FRAME. A machine that never chose a level starts on High, so every High value of the shipped
@@ -804,4 +891,22 @@ TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChange
     Desert::Engine::DeviceCapabilities otherGpu = caps;
     otherGpu.DeviceId                           = 0x2484;
     EXPECT_FALSE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( otherGpu, 3 ) ) );
+}
+
+// UpscalerForScale is the one coupling rule (Resolve step 5 and the renderer's per-view resolution both call it,
+// so an editor viewport's Screen Percentage cannot pick an upscaler the game setting would not).
+TEST( ScalabilityContract, UpscalerForScaleIsResolvesCouplingRule )
+{
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::None ), Upscaler::TAAU );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 99, Upscaler::FSR ), Upscaler::FSR ); // vendor override
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 100, Upscaler::TAAU ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 150, Upscaler::None ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 50, Upscaler::None ), Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::MSAA, 50, Upscaler::TAAU ), Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 50, Upscaler::FSR ), Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::Spatial ), Upscaler::TAAU );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 100, Upscaler::Spatial ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 100, Upscaler::None ), Upscaler::None );
+    EXPECT_TRUE( IsTemporalAntiAliasing( AntiAliasingMethod::DLAA ) );
+    EXPECT_FALSE( IsTemporalAntiAliasing( AntiAliasingMethod::SMAA ) );
 }

@@ -615,7 +615,7 @@ TEST_F( MeshVertexPathShaderRoot, EveryInstancedVertexStagePositionsThroughTheOn
                                 "m_PushConstants.WindB)" ),
                    std::string::npos )
              << name << " does not position its vertex through the shared wind function";
-        EXPECT_NE( vertex.find( "gl_Position=cameraUB.Projection*cameraUB.View*vec4(worldPosition,1.0);" ),
+        EXPECT_NE( vertex.find( "gl_Position=cameraUB.JitteredViewProjection*vec4(worldPosition,1.0);" ),
                    std::string::npos )
              << name << " projects something other than the wind-displaced position";
         EXPECT_EQ( vertex.find( "model*vec4(a_Position" ), std::string::npos )

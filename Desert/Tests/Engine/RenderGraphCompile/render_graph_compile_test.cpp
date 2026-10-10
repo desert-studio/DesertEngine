@@ -1911,8 +1911,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
         // A definition returns void, or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid).
         const auto definition = [&source]( std::string_view name, size_t from )
         {
-            return std::min( source.find( std::format( "void SceneRenderer::{}", name ), from ),
-                             source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ) );
+            return std::min( { source.find( std::format( "void SceneRenderer::{}", name ), from ),
+                               source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ),
+                               source.find( std::format( "OverlayTargets SceneRenderer::{}", name ), from ) } );
         };
         const size_t begin = definition( std::format( "{}(", function ), 0 );
         if ( begin == std::string::npos )
@@ -1943,6 +1944,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             const size_t compute = text.find( "AddComputeNodes(", at );
             // A DeferredFrameNodes declaration: followed into its body in DeferredFrameNodes.hpp.
             const size_t deferred = text.find( "DeferredFrameNodes::Add", at );
+            // TAA1-B: the view's temporal upscaler declares its own nodes (ITemporalUpscaler::AddPasses); the
+            // entry names the member that holds it.
+            const size_t temporal = text.find( "->AddPasses(", at );
             // A graph node: its name is the first string literal of the call (a std::format loop name keeps
             // its "{}", one entry per call site).
             size_t node = text.find( "graph.AddPass(", at );
@@ -1951,7 +1955,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { pass, phases, frame, raster, node, compute, deferred } );
+            const size_t first = std::min( { pass, phases, frame, raster, node, compute, deferred, temporal } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1962,6 +1966,15 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
+            }
+            else if ( first == temporal )
+            {
+                size_t holder = temporal;
+                while ( holder > 0 && ( std::isalnum( static_cast<unsigned char>( text[holder - 1] ) ) ||
+                                        text[holder - 1] == '_' ) )
+                    --holder;
+                added.push_back( std::format( "temporal[{}]", text.substr( holder, temporal - holder ) ) );
+                at = temporal + 1;
             }
             else if ( first == deferred )
             {
@@ -2041,6 +2054,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
+         // TAA1-B: the temporal resolve, after the last velocity writer (Transparency) and before the overlay
+         // phases, which draw into its output.
+         "temporal[m_TemporalUpscaler]",
+         // TAA1-B 6: the output-extent overlay depth, filled from the render-extent scene depth, before the
+         // overlay phases that test against it.
+         "Scene: PopulateSceneDepth",
+         "Debug: Velocity",
          "phases[phase==RenderPhase::Debug]",
          "UI: BackdropBlur{}",
          "phases[phase==RenderPhase::UI]",
@@ -2078,6 +2098,68 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // delegates.
     declares( "AddFrameSSAO",
               { "PassFlags::Raster", "ssao->DeclareBindings(pass,depth,normal)", "ColorTarget(0,ao," } );
+    // TAA1-B: the temporal resolve reads the scene colour, the scene depth, the frame's velocity, the previous
+    // adapted luminance and the registered history, and hands its output back as the post input.
+    declares( "AddFrameTemporal",
+              { "m_ViewState.History().Register(graph)", ".SceneColor=textures.Import(m_TargetFramebuffer->",
+                ".SceneDepth=textures.Depth(m_TargetFramebuffer,", ".Velocity=textures.Transients.Velocity",
+                ".History=histories", "m_TemporalUpscaler->AddPasses(graph,frame,inputs)",
+                "resolvedColor=added.GetValue().SceneColor;", "overlay.Color=resolvedColor;", "returnoverlay;" } );
+    // SCAL-SPATIAL1: below 100 % without a temporal method the spatial upscale is the resolve, at the same point
+    // and with no history; the sharpen (Resolution.Sharpness) follows any resolve, on its output.
+    declares( "AddFrameTemporal",
+              { "constboolspatial=IsSpatialUpscale(frame);",
+                "spatial?std::vector<HistoryRefs>{}:m_ViewState.History().Register(graph)",
+                "m_SpatialUpscale.AddPasses(graph,frame,inputs.SceneColor)", "resolvedColor=upscaled.GetValue();",
+                "m_Quality.As<int>(Common::Scalability::Parameter::UpscalerSharpness)",
+                "if(SharpenRuns(frame,sharpness))", "m_Sharpen.AddPasses(graph,frame,resolvedColor,sharpness)",
+                "resolvedColor=sharpened.GetValue();", "returnwithoutTemporal(upscaled.GetError());",
+                "returnwithoutTemporal(sharpened.GetError());" } );
+    // TAA1-B 6: the overlay target set is at the OUTPUT extent and its depth is the scene depth populated by
+    // "Scene: PopulateSceneDepth"; a frame the resolve cannot run on is rendered without it, by name, and the
+    // caller then post-processes the scene colour (the fallback is the caller's, not a silent skip).
+    declares( "AddFrameTemporal",
+              { "RDG::Extent3D{frame.Split.Output.Width,frame.Split.Output.Height,1}",
+                "graph.CreateTexture(desc,\"Overlay.Velocity\")",
+                "graph.CreateTexture(desc,\"Overlay.SceneDepth\")",
+                "populate->DeclareBindings(pass,inputs.SceneDepth)",
+                "pass.ColorTarget(0,overlay.Velocity,RDG::LoadOp::ClearColor(",
+                "pass.DepthTarget(overlay.Depth,RDG::LoadOp::ClearDepth(Core::kDepthClear),",
+                "renderedwithoutthetemporalresolvethisframe:", "returnwithoutTemporal(added.GetError());",
+                "returnwithoutTemporal(prepared.GetError());" } );
+    declares( "OnUpdate",
+              { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
+                "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
+                // The one resolution function, the render set resized to the frame's split, the velocity at it.
+                "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView."
+                "ScreenPercentage,",
+                // The frame's upscaler is the VIEW's (a viewport override at 50 % under a 100 % setting is TAAU).
+                "inputs.Upscaler=resolved.GetValue().Upscaler;", "ResizeRenderTargets(frame.Split.Render);",
+                "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
+    // The overlay phases draw into the overlay set: every scene-target attachment replaced, no resolves.
+    declares( "AddGraphPhasePasses",
+              { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",
+                "targets->Depth=overlay.Depth;", "targets->Resolves={};" } );
+    // TWO EXTENT SETS: ResizeRenderTargets sizes the Render set (scene target, G-buffer, depth resolve, mask,
+    // overdraw, outline); Resize sizes the Output set (tonemap, FXAA, SMAA) and hands the render set its split.
+    declares( "ResizeRenderTargets",
+              { "m_TargetFramebuffer->Resize(width,height);", "m_GBuffer->Resize(width,height);",
+                "resolve->Resize(width,height);", "maskFb->Resize(width,height);",
+                "overdrawFb->Resize(width,height);", "->OnResize(width,height);" } );
+    declares( "Resize", { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
+                          "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
+                          "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
+                          "ResizeRenderTargets(split.GetValue().Render);" } );
+    {
+        const std::string resize = squeeze( bodyOf( "Resize" ) );
+        EXPECT_EQ( resize.find( "m_TargetFramebuffer->Resize(" ), std::string::npos )
+             << "Resize sizes the scene target itself: the render set is ResizeRenderTargets'";
+        const std::string render = squeeze( bodyOf( "ResizeRenderTargets" ) );
+        EXPECT_EQ( render.find( "TonemapSystem" ), std::string::npos )
+             << "ResizeRenderTargets sizes the tonemap target: it is in the output set";
+    }
+    // The exposure dispatch covers the texture it reads, not the scene target's image.
+    declares( "AddFrameAutoExposure", { "graph.GetTextureDesc(scene)" } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );
@@ -3022,8 +3104,9 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     for ( const char* needle :
           { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
-            "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "node.DepthTarget(targets->Depth,depth)",
-            "DeclareResolves(node,targets->Resolves)",
+            "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=overlay.Color;",
+            "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;", "targets->Depth=overlay.Depth;",
+            "node.DepthTarget(targets->Depth,depth)", "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );

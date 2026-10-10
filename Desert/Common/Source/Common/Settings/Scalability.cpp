@@ -32,7 +32,7 @@ namespace Common::Scalability
              { P::RenderScalePercent, G::ResolutionScale, "Resolution.Percent", 50, 200, CL::RenderScale,
                "RDG view-target size + upscaler pass" },
              { P::Upscaler, G::ResolutionScale, "Resolution.Upscaler", 0,
-               static_cast<ParameterValue>( Upscaler::MetalFX ), CL::Upscalers, "upscaler pass" },
+               static_cast<ParameterValue>( Upscaler::Spatial ), CL::Upscalers, "upscaler pass" },
              { P::TextureFilter, G::Filtering, "Filtering.Texture", 0, 3, CL::None,
                "sampler cache (RenderConfig push)" },
              { P::Anisotropy, G::Filtering, "Filtering.Anisotropy", 1, 16, CL::AnisotropyLevels,
@@ -64,7 +64,8 @@ namespace Common::Scalability
                std::nullopt },
              { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None,
                std::nullopt },
-             { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None, std::nullopt },
+             { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None,
+               "post sharpen pass (Graphic::Sharpen)" },
         } };
     } // namespace
 
@@ -678,22 +679,29 @@ namespace Common::Scalability
             NarrowByCatalog( spec, catalog, r );
         }
 
-        // 5. The two axes are coupled.
+        // 5. The two axes are coupled (UE: below 100 % r.ScreenPercentage the AA method's temporal pass upscales,
+        // and without one the spatial upscale does). The upscaler follows UpscalerForScale, THE one rule (the
+        // renderer applies it again per view, to an editor viewport's Screen Percentage): below 100 % a temporal
+        // AA method upscales (TAA -> TAAU; DLAA / FSRNative are their own upscaler's pass, Resolution.Upscaler is
+        // a vendor override on top), and a method without history (None / FXAA / SMAA; MSAA becomes FXAA below)
+        // keeps its method and is brought to the output by the spatial upscaler.
+        const auto           aa    = static_cast<AntiAliasingMethod>( r.Get( Parameter::AntiAliasingMethod ) );
         const ParameterValue scale = r.Get( Parameter::RenderScalePercent );
         const auto           up    = static_cast<Upscaler>( r.Get( Parameter::Upscaler ) );
-        const auto           aa    = static_cast<AntiAliasingMethod>( r.Get( Parameter::AntiAliasingMethod ) );
         ResolvedQuality      resolved;
         if ( scale < 100 )
         {
-            resolved.Scale = ScaleMode::Upscale;
-            if ( up == Upscaler::None )
-                r.Set( Parameter::Upscaler, static_cast<ParameterValue>( Upscaler::TAAU ),
-                       "an upscaler is required below 100 %" );
+            resolved.Scale        = ScaleMode::Upscale;
+            const Upscaler chosen = UpscalerForScale( aa, scale, up );
+            if ( chosen != up )
+                r.Set( Parameter::Upscaler, static_cast<ParameterValue>( chosen ),
+                       chosen == Upscaler::Spatial ? "without temporal AA below 100 % the spatial upscaler runs"
+                                                   : "temporal AA below 100 % upscales with TAAU" );
             const auto upscaler = static_cast<Upscaler>( r.Get( Parameter::Upscaler ) );
             const bool nativePassOfThisUpscaler =
                  ( aa == AntiAliasingMethod::DLAA && upscaler == Upscaler::DLSS ) ||
                  ( aa == AntiAliasingMethod::FSRNative && upscaler == Upscaler::FSR );
-            if ( !nativePassOfThisUpscaler )
+            if ( upscaler != Upscaler::Spatial && !nativePassOfThisUpscaler )
                 r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::TAA ),
                        "the upscaler anti-aliases below 100 %" );
         }
@@ -718,6 +726,23 @@ namespace Common::Scalability
                 resolved.Fallbacks.push_back(
                      { static_cast<Parameter>( i ), r.Requested[i], r.Values[i], r.Reasons[i] } );
         return resolved;
+    }
+
+    bool IsTemporalAntiAliasing( const AntiAliasingMethod method )
+    {
+        return method == AntiAliasingMethod::TAA || method == AntiAliasingMethod::DLAA ||
+               method == AntiAliasingMethod::FSRNative;
+    }
+
+    Upscaler UpscalerForScale( const AntiAliasingMethod method, const int percent, const Upscaler vendorOverride )
+    {
+        if ( percent >= 100 )
+            return Upscaler::None;
+        if ( !IsTemporalAntiAliasing( method ) )
+            return Upscaler::Spatial;
+        // A temporal method upscales temporally: Spatial (or nothing) asked for under it means the engine's TAAU.
+        return vendorOverride == Upscaler::None || vendorOverride == Upscaler::Spatial ? Upscaler::TAAU
+                                                                                       : vendorOverride;
     }
 
     PathAntiAliasing ResolveAntiAliasingForPath( const ResolvedQuality& resolved, bool pathSupportsMSAA )

@@ -460,7 +460,7 @@ namespace Desert::Graphic::System
                            // cloud shadow map - are entries of them).
                            (void)refs;
                            return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
-                                               camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+                                               m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
                        },
                        m_Pipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
@@ -490,7 +490,7 @@ namespace Desert::Graphic::System
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
         // Through the blocks DeclareGBufferDraws declared.
         return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
-                            camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
     }
 
     void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
