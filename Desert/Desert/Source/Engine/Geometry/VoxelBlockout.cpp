@@ -8,6 +8,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <string>
 
 namespace Desert::Geometry::VoxelBlockout
@@ -1238,6 +1239,262 @@ namespace Desert::Geometry::VoxelBlockout
             for ( const int64_t c : p )
                 mix( c );
         return h;
+    }
+
+    namespace
+    {
+        // One lattice square of a face plane, as FromBoxMesh sums it.
+        struct SquareCover
+        {
+            double Signed   = 0.0; // covered area, + where the triangles face the axis's + direction
+            double BestArea = 0.0; // the largest single triangle's share of the square
+            int    Material = 0;   // that triangle's material
+        };
+        using CoverMap = std::unordered_map<uint64_t, SquareCover>;
+
+        // A face plane's whole-square verdict: the direction it faces (+1 / -1) and its material.
+        struct PlaneFace
+        {
+            int Dir      = 0;
+            int Material = 0;
+        };
+        using FaceMap = std::unordered_map<uint64_t, PlaneFace>;
+
+        // Area of the 2D triangle `tri` (lattice units) inside the unit square whose low corner is (su, sv):
+        // Sutherland-Hodgman against the square's four sides, then the shoelace.
+        double AreaInSquare( const std::array<glm::dvec2, 3>& tri, int64_t su, int64_t sv )
+        {
+            std::vector<glm::dvec2> poly( tri.begin(), tri.end() );
+            const double            low[2] = { static_cast<double>( su ), static_cast<double>( sv ) };
+            for ( int side = 0; side < 4; ++side )
+            {
+                const int    axis   = side / 2;
+                const bool   upper  = ( side % 2 ) == 1;
+                const double edge   = low[axis] + ( upper ? 1.0 : 0.0 );
+                auto         inside = [axis, upper, edge]( const glm::dvec2& p )
+                { return upper ? p[axis] <= edge : p[axis] >= edge; };
+                std::vector<glm::dvec2> clipped;
+                for ( size_t i = 0; i < poly.size(); ++i )
+                {
+                    const glm::dvec2& a  = poly[i];
+                    const glm::dvec2& b  = poly[( i + 1 ) % poly.size()];
+                    const bool        ia = inside( a );
+                    if ( ia )
+                        clipped.push_back( a );
+                    if ( ia != inside( b ) )
+                        clipped.push_back( a + ( b - a ) * ( ( edge - a[axis] ) / ( b[axis] - a[axis] ) ) );
+                }
+                poly = std::move( clipped );
+                if ( poly.size() < 3 )
+                    return 0.0;
+            }
+            double twice = 0.0;
+            for ( size_t i = 0; i < poly.size(); ++i )
+            {
+                const glm::dvec2& a = poly[i];
+                const glm::dvec2& b = poly[( i + 1 ) % poly.size()];
+                twice += a.x * b.y - b.x * a.y;
+            }
+            return std::abs( twice ) * 0.5;
+        }
+
+        const char* AxisName( int a )
+        {
+            return a == 0 ? "X" : a == 1 ? "Y" : "Z";
+        }
+    } // namespace
+
+    Common::ResultStr<Volume> FromBoxMesh( const std::vector<glm::dvec3>&         positions,
+                                           const std::vector<std::array<int, 3>>& triangles,
+                                           const std::vector<int>& materials, float minUnit )
+    {
+        if ( triangles.empty() )
+            return Common::MakeError<Volume>( "it has no triangles" );
+        if ( materials.size() != triangles.size() )
+            return Common::MakeError<Volume>( std::format( "{} materials for {} triangles: one per triangle",
+                                                           materials.size(), triangles.size() ) );
+        for ( size_t t = 0; t < triangles.size(); ++t )
+            for ( const int v : triangles[t] )
+                if ( v < 0 || static_cast<size_t>( v ) >= positions.size() )
+                    return Common::MakeError<Volume>(
+                         std::format( "triangle {} names vertex {} of {}", t, v, positions.size() ) );
+
+        // The lattice: origin at the lowest corner, step = the gcd of every coordinate's offset from it.
+        glm::dvec3 low( std::numeric_limits<double>::max() );
+        for ( const glm::dvec3& p : positions )
+            low = glm::min( low, p );
+        std::vector<std::array<int64_t, 3>> q( positions.size() );
+        int64_t                             step = 0;
+        for ( size_t i = 0; i < positions.size(); ++i )
+            for ( int a = 0; a < 3; ++a )
+            {
+                q[i][a] = std::llround( ( positions[i][a] - low[a] ) * 100.0 );
+                step    = std::gcd( step, q[i][a] );
+            }
+        if ( step == 0 )
+            return Common::MakeError<Volume>( "every vertex sits at one point: it encloses no block" );
+        const double unit = static_cast<double>( step ) / 100.0;
+        if ( unit < static_cast<double>( minUnit ) )
+            return Common::MakeError<Volume>(
+                 std::format( "its vertices lie on a {:.2f} cm lattice, finer than the smallest Block Size "
+                              "({:.2f} cm): it is not built of whole blocks",
+                              unit, minUnit ) );
+        for ( const auto& c : q )
+            for ( int a = 0; a < 3; ++a )
+                if ( c[a] / step > OFF - 2 )
+                    return Common::MakeError<Volume>(
+                         std::format( "it spans {} blocks of {:.2f} cm along {}, more than a grid holds ({})",
+                                      c[a] / step, unit, AxisName( a ), OFF - 2 ) );
+
+        // Every triangle's signed area onto the lattice squares of its face plane.
+        std::array<CoverMap, 3> cover;
+        for ( size_t t = 0; t < triangles.size(); ++t )
+        {
+            if ( materials[t] < 0 || materials[t] > std::numeric_limits<uint8_t>::max() )
+                return Common::MakeError<Volume>(
+                     std::format( "triangle {} has material {}, outside a cell face's 0..{}", t, materials[t],
+                                  static_cast<int>( std::numeric_limits<uint8_t>::max() ) ) );
+            std::array<glm::dvec3, 3> p;
+            for ( int k = 0; k < 3; ++k )
+            {
+                const auto& c = q[static_cast<size_t>( triangles[t][k] )];
+                p[k]          = glm::dvec3( static_cast<double>( c[0] / step ), static_cast<double>( c[1] / step ),
+                                            static_cast<double>( c[2] / step ) );
+            }
+            // Integer lattice coordinates: the cross product is exact, so "axis-aligned" is an exact test.
+            const glm::dvec3 n = glm::cross( p[1] - p[0], p[2] - p[0] );
+            int              a = 0;
+            for ( int k = 1; k < 3; ++k )
+                if ( std::abs( n[k] ) > std::abs( n[a] ) )
+                    a = k;
+            if ( n[a] == 0.0 )
+                continue; // a zero-area sliver covers no square
+            const int u = ( a + 1 ) % 3;
+            const int v = ( a + 2 ) % 3;
+            if ( n[u] != 0.0 || n[v] != 0.0 )
+            {
+                const glm::dvec3 w = glm::normalize( n );
+                return Common::MakeError<Volume>(
+                     std::format( "triangle {} is not axis-aligned (normal {:.3f}, {:.3f}, {:.3f}): a Corner "
+                                  "Mode slope or a mesh not built of blocks has no voxels to recover",
+                                  t, w.x, w.y, w.z ) );
+            }
+            const std::array<glm::dvec2, 3> flat = {
+                 glm::dvec2( p[0][u], p[0][v] ), glm::dvec2( p[1][u], p[1][v] ), glm::dvec2( p[2][u], p[2][v] ) };
+            const glm::dvec2 lo2  = glm::min( glm::min( flat[0], flat[1] ), flat[2] );
+            const glm::dvec2 hi2  = glm::max( glm::max( flat[0], flat[1] ), flat[2] );
+            const double     sign = n[a] > 0.0 ? 1.0 : -1.0;
+            for ( auto su = static_cast<int64_t>( lo2.x ); su < static_cast<int64_t>( hi2.x ); ++su )
+                for ( auto sv = static_cast<int64_t>( lo2.y ); sv < static_cast<int64_t>( hi2.y ); ++sv )
+                {
+                    const double area = AreaInSquare( flat, su, sv );
+                    if ( area <= 0.0 )
+                        continue;
+                    glm::ivec3 key;
+                    key[a]         = static_cast<int>( p[0][a] );
+                    key[u]         = static_cast<int>( su );
+                    key[v]         = static_cast<int>( sv );
+                    SquareCover& c = cover[a][Pack( key )];
+                    c.Signed += sign * area;
+                    if ( area > c.BestArea )
+                    {
+                        c.BestArea = area;
+                        c.Material = materials[t];
+                    }
+                }
+        }
+
+        // Each square is a whole face or none: the triangles over it must sum to -1, 0 or +1.
+        std::array<FaceMap, 3> faces;
+        for ( int a = 0; a < 3; ++a )
+            for ( const auto& [key, c] : cover[a] )
+            {
+                const double     whole = std::round( c.Signed );
+                const glm::ivec3 at    = Unpack( key );
+                if ( std::abs( c.Signed - whole ) > 1e-6 )
+                    return Common::MakeError<Volume>(
+                         std::format( "its {} faces cover {:.3f} of the block square at ({}, {}, {}): its faces "
+                                      "are not whole blocks",
+                                      AxisName( a ), std::abs( c.Signed ), at.x, at.y, at.z ) );
+                if ( std::abs( whole ) > 1.0 )
+                    return Common::MakeError<Volume>(
+                         std::format( "{} of its {} faces overlap on the block square at ({}, {}, {})",
+                                      static_cast<int>( std::abs( whole ) ), AxisName( a ), at.x, at.y, at.z ) );
+                if ( whole != 0.0 )
+                    faces[a][key] = PlaneFace{ whole > 0.0 ? 1 : -1, c.Material };
+            }
+
+        // Sweep the X faces column by column: a face looking -X opens a run of solid cells, one looking +X
+        // closes it.
+        std::map<std::pair<int, int>, std::vector<std::pair<int, int>>> columns;
+        for ( const auto& [key, f] : faces[0] )
+        {
+            const glm::ivec3 at = Unpack( key );
+            columns[{ at.y, at.z }].emplace_back( at.x, f.Dir );
+        }
+        CellMap cells;
+        for ( auto& [yz, events] : columns )
+        {
+            std::ranges::sort( events );
+            int occupied = 0;
+            int from     = 0;
+            for ( const auto& [x, dir] : events )
+            {
+                if ( occupied == 1 )
+                    for ( int cx = from; cx < x; ++cx )
+                        cells[Pack( { cx, yz.first, yz.second } )] = Cell{};
+                occupied -= dir;
+                if ( occupied < 0 || occupied > 1 )
+                    return Common::MakeError<Volume>(
+                         std::format( "it is not a closed volume: the column at block (y {}, z {}) {} twice at "
+                                      "x {}",
+                                      yz.first, yz.second, dir < 0 ? "enters" : "leaves", x ) );
+                from = x;
+            }
+            if ( occupied != 0 )
+                return Common::MakeError<Volume>(
+                     std::format( "it is not a closed volume: the column at block (y {}, z {}) never leaves",
+                                  yz.first, yz.second ) );
+        }
+        if ( cells.empty() )
+            return Common::MakeError<Volume>( "it encloses no block" );
+
+        // Every exposed face of the swept cells must be a face of the mesh, facing out, and every face of the
+        // mesh one of those: then the cells ARE the mesh's volume. The face's material goes onto the cell.
+        std::array<size_t, 3> matched{};
+        for ( auto& [key, cell] : cells )
+        {
+            const glm::ivec3 c = Unpack( key );
+            for ( int f = 0; f < 6; ++f )
+            {
+                if ( cells.contains( Pack( c + kNeighbor[f] ) ) )
+                    continue;
+                const int  a     = kNeighbor[f].x != 0 ? 0 : kNeighbor[f].y != 0 ? 1 : 2;
+                const int  dir   = kNeighbor[f][a];
+                glm::ivec3 plane = c;
+                plane[a] += dir > 0 ? 1 : 0;
+                const auto it = faces[a].find( Pack( plane ) );
+                if ( it == faces[a].end() || it->second.Dir != dir )
+                    return Common::MakeError<Volume>(
+                         std::format( "it is not a closed volume: block ({}, {}, {}) has no {}{} face", c.x, c.y,
+                                      c.z, dir > 0 ? "+" : "-", AxisName( a ) ) );
+                cell.Mat[f] = static_cast<uint8_t>( it->second.Material );
+                ++matched[a];
+            }
+        }
+        for ( int a = 0; a < 3; ++a )
+            if ( matched[a] != faces[a].size() )
+                return Common::MakeError<Volume>(
+                     std::format( "{} of its {} faces lie inside or outside the volume its X faces close",
+                                  faces[a].size() - matched[a], AxisName( a ) ) );
+
+        Volume v;
+        Layer  layer;
+        layer.Cells        = std::move( cells );
+        layer.Unit         = static_cast<float>( unit );
+        layer.Frame.Origin = glm::vec3( low );
+        v.m_Frozen.push_back( std::move( layer ) );
+        return Common::MakeSuccess( std::move( v ) );
     }
 
     void SlideSelection( WorkPlane& plane, int baseCells )
