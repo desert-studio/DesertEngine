@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "5f1126e475658ac0d129a29c537f7bd9",
         "Versions": {
-            "SCNE": 43,
+            "SCNE": 44,
             "UNIT": 1
         },
         "Dependencies": []
@@ -106,28 +106,6 @@
             "Translation": [-350.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ParticleEmitter": {
-                "Enabled": true,
-                "MaxParticles": 4000,
-                "SpawnRate": 600.0,
-                "Looping": true,
-                "WorldSpace": false,
-                "Lifetime": 1.5,
-                "LifetimeVariance": 0.0,
-                "StartSpeed": 10.0,
-                "SpeedVariance": 0.0,
-                "Direction": [0.0, 1.0, 0.0],
-                "ConeAngle": 180.0,
-                "Gravity": [0.0, 0.0, 0.0],
-                "StartSize": 22.0,
-                "SizeCurvePower": 1.0,
-                "EndSize": 22.0,
-                "StartColor": [1.0, 0.44999998807907104, 0.10000000149011612],
-                "EndColor": [1.0, 0.25, 0.05000000074505806],
-                "StartAlpha": 1.0,
-                "EndAlpha": 0.800000011920929,
-                "Material": ""
-            },
             "Script": {
                 "Scripts": [
                     {
@@ -135,6 +113,10 @@
                         "Props": []
                     }
                 ]
+            },
+            "VFX": {
+                "System": "VFX/Particle_Local-Space_Probe_2001.dfx",
+                "AutoActivate": true
             }
         },
         {

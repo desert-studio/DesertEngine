@@ -1138,11 +1138,9 @@ namespace Desert::Migration
                 minted.emplace( key, relative );
             }
 
-            rfl::Generic::Object ref;
-            ref["Guid"] = rfl::Generic( Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) ) );
-            ref["Path"] = rfl::Generic( relative );
+            // An asset slot states its file as a path under the assets root (the reader's form for AssetHandle).
             rfl::Generic::Object vfx;
-            vfx["System"]       = rfl::Generic( std::move( ref ) );
+            vfx["System"]       = rfl::Generic( relative );
             vfx["AutoActivate"] = rfl::Generic( true );
 
             Common::Json::KeyedValues kept;

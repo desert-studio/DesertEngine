@@ -116,8 +116,10 @@ namespace Desert::VFX
                      {
                          auto plan = CompileSpawnPlan( *data, k );
                          if ( !plan.IsSuccess() )
+                         {
                              LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
                                         data->Emitters[k].Name, plan.GetError() );
+                         }
                          else
                          {
                              system.Plans[k] = plan.GetValue();

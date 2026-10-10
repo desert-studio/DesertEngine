@@ -37,7 +37,6 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::HeroCloudComponent, decltype( ::Desert::ECS::HeroCloudComponent::Data )>{ "HeroCloud", "HeroCloudData", &::Desert::ECS::HeroCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::KillFieldComponent, decltype( ::Desert::ECS::KillFieldComponent::Data )>{ "KillField", "KillFieldData", &::Desert::ECS::KillFieldComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::LandscapeMaterialComponent, decltype( ::Desert::ECS::LandscapeMaterialComponent::Data )>{ "LandscapeMaterial", "LandscapeMaterialData", &::Desert::ECS::LandscapeMaterialComponent::Data, R::Landscape } );
-        visit( ReflectedMemberBlock<::Desert::ECS::ParticleEmitterComponent, decltype( ::Desert::ECS::ParticleEmitterComponent::Data )>{ "ParticleEmitter", "ParticleEmitterData", &::Desert::ECS::ParticleEmitterComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::PlayerStartComponent, decltype( ::Desert::ECS::PlayerStartComponent::Data )>{ "PlayerStart", "PlayerStartData", &::Desert::ECS::PlayerStartComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::PointLightComponent, decltype( ::Desert::ECS::PointLightComponent::Data )>{ "PointLight", "PointLightData", &::Desert::ECS::PointLightComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::PostProcessVolumeComponent, decltype( ::Desert::ECS::PostProcessVolumeComponent::Data )>{ "PostProcessVolume", "PostProcessVolumeData", &::Desert::ECS::PostProcessVolumeComponent::Data, R::SkyAndAtmosphere } );
@@ -79,6 +78,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::UITextComponent2D, decltype( ::Desert::ECS::UITextComponent2D::Data )>{ "UIText", "UITextData", &::Desert::ECS::UITextComponent2D::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::UIToggleComponent, decltype( ::Desert::ECS::UIToggleComponent::Data )>{ "UIToggle", "UIToggleData", &::Desert::ECS::UIToggleComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<::Desert::ECS::UITweenComponent, decltype( ::Desert::ECS::UITweenComponent::Data )>{ "UITween", "UITweenData", &::Desert::ECS::UITweenComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<::Desert::ECS::VFXComponent, decltype( ::Desert::ECS::VFXComponent::Data )>{ "VFX", "VFXComponentData", &::Desert::ECS::VFXComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::VolumetricCloudComponent, decltype( ::Desert::ECS::VolumetricCloudComponent::Data )>{ "VolumetricCloud", "VolumetricCloudData", &::Desert::ECS::VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::WaterBodyComponent, decltype( ::Desert::ECS::WaterBodyComponent::Data )>{ "WaterBody", "WaterBodyData", &::Desert::ECS::WaterBodyComponent::Data, R::SkyAndAtmosphere } );
     }

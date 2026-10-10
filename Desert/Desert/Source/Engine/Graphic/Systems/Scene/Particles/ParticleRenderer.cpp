@@ -334,13 +334,13 @@ namespace Desert::Graphic::System
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
                 const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
-                const Common::BoolResultStr stack =
-                     Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport ) &&
-                               Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport ) &&
-                               Renderer::ImportBuffer( gpu.Params, ve.ParamsImport ) &&
-                               Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport )
-                          ? BOOLSUCCESS
-                          : Common::MakeError( "its stack buffers (attributes, parameters, curves) are not" );
+                Common::BoolResultStr stack = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
+                if ( stack )
+                    stack = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
+                if ( stack )
+                    stack = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
+                if ( stack )
+                    stack = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
                 if ( !steps || !args || !chan || !stack )
                 {
                     LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table, dispatch arguments or "

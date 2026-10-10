@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "d151afad1e7a464c9801bf8086cac8a1",
         "Versions": {
-            "SCNE": 43,
+            "SCNE": 44,
             "UNIT": 1
         },
         "Dependencies": []
@@ -418,27 +418,9 @@
             "Translation": [-500.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ParticleEmitter": {
-                "Enabled": true,
-                "MaxParticles": 6000,
-                "SpawnRate": 2500.0,
-                "Looping": true,
-                "WorldSpace": true,
-                "Lifetime": 2.5,
-                "LifetimeVariance": 0.20000000298023224,
-                "StartSpeed": 300.0,
-                "SpeedVariance": 0.30000001192092896,
-                "Direction": [0.0, 1.0, 0.0],
-                "ConeAngle": 25.0,
-                "Gravity": [0.0, -150.0, 0.0],
-                "StartSize": 30.0,
-                "SizeCurvePower": 1.0,
-                "EndSize": 8.0,
-                "StartColor": [1.0, 0.07999999821186066, 0.05000000074505806],
-                "EndColor": [1.0, 0.44999998807907104, 0.0],
-                "StartAlpha": 1.0,
-                "EndAlpha": 0.0,
-                "Material": ""
+            "VFX": {
+                "System": "VFX/RDG_LandscapeParticles_7310021749900001.dfx",
+                "AutoActivate": true
             }
         },
         {
@@ -448,27 +430,9 @@
             "Translation": [500.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ParticleEmitter": {
-                "Enabled": true,
-                "MaxParticles": 6000,
-                "SpawnRate": 2500.0,
-                "Looping": true,
-                "WorldSpace": true,
-                "Lifetime": 2.5,
-                "LifetimeVariance": 0.20000000298023224,
-                "StartSpeed": 300.0,
-                "SpeedVariance": 0.30000001192092896,
-                "Direction": [0.0, 1.0, 0.0],
-                "ConeAngle": 25.0,
-                "Gravity": [0.0, -150.0, 0.0],
-                "StartSize": 30.0,
-                "SizeCurvePower": 1.0,
-                "EndSize": 8.0,
-                "StartColor": [0.05000000074505806, 0.25, 1.0],
-                "EndColor": [0.0, 0.8500000238418579, 1.0],
-                "StartAlpha": 1.0,
-                "EndAlpha": 0.0,
-                "Material": ""
+            "VFX": {
+                "System": "VFX/RDG_LandscapeParticles_7310021749900002.dfx",
+                "AutoActivate": true
             }
         },
         {

@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "4d6972616765b5d1a0c31f0e2b7a9e11",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 44,
             "UNIT": 1
         },
         "Dependencies": []
@@ -40,15 +40,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "Skybox": {
-                "SkyboxHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "Intensity": 1.0,
-                "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
-            },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
@@ -97,6 +88,15 @@
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             }
         },
         {
@@ -156,6 +156,13 @@
                     "BloomThreshold": 2.5,
                     "BloomIntensity": 0.3499999940395355,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": true,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],
@@ -471,27 +478,9 @@
             "Translation": [-9000.0, 300.0, -3000.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ParticleEmitter": {
-                "Enabled": true,
-                "MaxParticles": 6000,
-                "SpawnRate": 900.0,
-                "Looping": true,
-                "WorldSpace": true,
-                "Lifetime": 6.0,
-                "LifetimeVariance": 2.0,
-                "StartSpeed": 650.0,
-                "SpeedVariance": 250.0,
-                "Direction": [1.0, 0.11999999731779099, 0.25],
-                "ConeAngle": 14.0,
-                "Gravity": [0.0, -25.0, 0.0],
-                "StartSize": 40.0,
-                "SizeCurvePower": 1.0,
-                "EndSize": 140.0,
-                "StartColor": [0.9098039269447327, 0.8274509906768799, 0.6627451181411743],
-                "EndColor": [0.8509804010391235, 0.5098039507865906, 0.16862745583057404],
-                "StartAlpha": 0.30000001192092896,
-                "EndAlpha": 0.0,
-                "Blend": 1
+            "VFX": {
+                "System": "VFX/MainMenu_5569072854537872191.dfx",
+                "AutoActivate": true
             }
         },
         {
@@ -501,27 +490,9 @@
             "Translation": [-7000.0, 300.0, 5000.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ParticleEmitter": {
-                "Enabled": true,
-                "MaxParticles": 6000,
-                "SpawnRate": 900.0,
-                "Looping": true,
-                "WorldSpace": true,
-                "Lifetime": 6.0,
-                "LifetimeVariance": 2.0,
-                "StartSpeed": 650.0,
-                "SpeedVariance": 250.0,
-                "Direction": [1.0, 0.11999999731779099, 0.25],
-                "ConeAngle": 14.0,
-                "Gravity": [0.0, -25.0, 0.0],
-                "StartSize": 40.0,
-                "SizeCurvePower": 1.0,
-                "EndSize": 140.0,
-                "StartColor": [0.9098039269447327, 0.8274509906768799, 0.6627451181411743],
-                "EndColor": [0.8509804010391235, 0.5098039507865906, 0.16862745583057404],
-                "StartAlpha": 0.30000001192092896,
-                "EndAlpha": 0.0,
-                "Blend": 1
+            "VFX": {
+                "System": "VFX/MainMenu_5569072854537872191.dfx",
+                "AutoActivate": true
             }
         },
         {
@@ -531,33 +502,23 @@
             "Translation": [-11000.0, 300.0, 1500.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ParticleEmitter": {
-                "Enabled": true,
-                "MaxParticles": 6000,
-                "SpawnRate": 900.0,
-                "Looping": true,
-                "WorldSpace": true,
-                "Lifetime": 6.0,
-                "LifetimeVariance": 2.0,
-                "StartSpeed": 650.0,
-                "SpeedVariance": 250.0,
-                "Direction": [1.0, 0.11999999731779099, 0.25],
-                "ConeAngle": 14.0,
-                "Gravity": [0.0, -25.0, 0.0],
-                "StartSize": 40.0,
-                "SizeCurvePower": 1.0,
-                "EndSize": 140.0,
-                "StartColor": [0.9098039269447327, 0.8274509906768799, 0.6627451181411743],
-                "EndColor": [0.8509804010391235, 0.5098039507865906, 0.16862745583057404],
-                "StartAlpha": 0.30000001192092896,
-                "EndAlpha": 0.0,
-                "Blend": 1
+            "VFX": {
+                "System": "VFX/MainMenu_5569072854537872191.dfx",
+                "AutoActivate": true
             }
         },
         {
             "id": 5569072854537872194,
             "siblingIndex": 9,
             "Tag": "Main Menu Canvas",
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/MainMenu.lua",
+                        "Props": []
+                    }
+                ]
+            },
             "UICanvas": {
                 "ScaleMode": 1,
                 "RenderMode": 0,
@@ -581,14 +542,6 @@
                 "TransitionTime": 0.25,
                 "SlidePx": 90.0,
                 "Easing": 5
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/MainMenu.lua",
-                        "Props": []
-                    }
-                ]
             }
         },
         {
@@ -611,6 +564,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -638,6 +592,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -679,6 +634,10 @@
             "parent": 5569072854537872195,
             "siblingIndex": 1,
             "Tag": "Title",
+            "UIBinding": {
+                "Key": "game.title",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 0.0],
@@ -694,6 +653,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -721,10 +681,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "game.title",
-                "Target": 0
             }
         },
         {
@@ -732,6 +688,10 @@
             "parent": 5569072854537872195,
             "siblingIndex": 2,
             "Tag": "Studio",
+            "UIBinding": {
+                "Key": "game.studio",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 0.0],
@@ -747,6 +707,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -774,10 +735,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "game.studio",
-                "Target": 0
             }
         },
         {
@@ -800,6 +757,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -809,7 +767,16 @@
                 "Spacing": 10.0,
                 "StretchCross": true,
                 "CellSize": [100.0, 100.0],
-                "Columns": 0
+                "Columns": 0,
+                "WrapSize": 0.0,
+                "WrapVertical": false,
+                "MinSlotSize": [0.0, 0.0],
+                "SizeMin": [-1.0, -1.0],
+                "SizeMax": [-1.0, -1.0],
+                "SizeOverride": [-1.0, -1.0],
+                "Stretch": 2,
+                "StretchDirection": 0,
+                "UserScale": 1.0
             }
         },
         {
@@ -817,24 +784,6 @@
             "parent": 5569072854537872199,
             "siblingIndex": 0,
             "Tag": "Btn menu.settings",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -859,6 +808,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -913,6 +881,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -962,6 +931,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1014,24 +984,6 @@
             "parent": 5569072854537872199,
             "siblingIndex": 1,
             "Tag": "Btn menu.credits",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -1056,6 +1008,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -1110,6 +1081,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1159,6 +1131,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1211,24 +1184,6 @@
             "parent": 5569072854537872199,
             "siblingIndex": 2,
             "Tag": "Btn menu.quit",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -1253,6 +1208,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -1307,6 +1281,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1356,6 +1331,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1423,6 +1399,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1450,6 +1427,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1506,6 +1484,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1555,6 +1534,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1604,6 +1584,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1613,7 +1594,16 @@
                 "Spacing": 10.0,
                 "StretchCross": true,
                 "CellSize": [100.0, 100.0],
-                "Columns": 0
+                "Columns": 0,
+                "WrapSize": 0.0,
+                "WrapVertical": false,
+                "MinSlotSize": [0.0, 0.0],
+                "SizeMin": [-1.0, -1.0],
+                "SizeMax": [-1.0, -1.0],
+                "SizeOverride": [-1.0, -1.0],
+                "Stretch": 2,
+                "StretchDirection": 0,
+                "UserScale": 1.0
             }
         },
         {
@@ -1621,24 +1611,6 @@
             "parent": 5569072854537872213,
             "siblingIndex": 0,
             "Tag": "Btn settings.language.ru",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -1663,6 +1635,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -1717,6 +1708,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1766,6 +1758,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1818,24 +1811,6 @@
             "parent": 5569072854537872213,
             "siblingIndex": 1,
             "Tag": "Btn settings.language.en",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -1860,6 +1835,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -1914,6 +1908,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -1963,6 +1958,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2015,24 +2011,6 @@
             "parent": 5569072854537872213,
             "siblingIndex": 2,
             "Tag": "Btn menu.back",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -2057,6 +2035,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -2111,6 +2108,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2160,6 +2158,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2227,6 +2226,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2254,6 +2254,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2310,6 +2311,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2359,6 +2361,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2393,6 +2396,10 @@
             "parent": 5569072854537872223,
             "siblingIndex": 3,
             "Tag": "B credits.studio_heading",
+            "UIBinding": {
+                "Key": "game.studio",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 0.0],
@@ -2408,6 +2415,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2435,10 +2443,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "game.studio",
-                "Target": 0
             }
         },
         {
@@ -2461,6 +2465,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2510,6 +2515,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2559,6 +2565,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2608,6 +2615,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2657,6 +2665,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2706,6 +2715,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2755,6 +2765,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2764,7 +2775,16 @@
                 "Spacing": 10.0,
                 "StretchCross": true,
                 "CellSize": [100.0, 100.0],
-                "Columns": 0
+                "Columns": 0,
+                "WrapSize": 0.0,
+                "WrapVertical": false,
+                "MinSlotSize": [0.0, 0.0],
+                "SizeMin": [-1.0, -1.0],
+                "SizeMax": [-1.0, -1.0],
+                "SizeOverride": [-1.0, -1.0],
+                "Stretch": 2,
+                "StretchDirection": 0,
+                "UserScale": 1.0
             }
         },
         {
@@ -2772,24 +2792,6 @@
             "parent": 5569072854537872234,
             "siblingIndex": 0,
             "Tag": "Btn menu.back",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -2814,6 +2816,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -2868,6 +2889,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2917,6 +2939,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -2984,6 +3007,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -3011,6 +3035,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -3067,6 +3092,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -3116,6 +3142,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -3125,7 +3152,16 @@
                 "Spacing": 10.0,
                 "StretchCross": true,
                 "CellSize": [100.0, 100.0],
-                "Columns": 0
+                "Columns": 0,
+                "WrapSize": 0.0,
+                "WrapVertical": false,
+                "MinSlotSize": [0.0, 0.0],
+                "SizeMin": [-1.0, -1.0],
+                "SizeMax": [-1.0, -1.0],
+                "SizeOverride": [-1.0, -1.0],
+                "Stretch": 2,
+                "StretchDirection": 0,
+                "UserScale": 1.0
             }
         },
         {
@@ -3133,24 +3169,6 @@
             "parent": 5569072854537872241,
             "siblingIndex": 0,
             "Tag": "Btn quit.no",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -3175,6 +3193,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -3229,6 +3266,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -3278,6 +3316,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -3330,24 +3369,6 @@
             "parent": 5569072854537872241,
             "siblingIndex": 1,
             "Tag": "Btn quit.yes",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 64.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
                 "HoverColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
@@ -3372,6 +3393,25 @@
                 "SelectedAccent": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 64.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
                 "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
@@ -3426,6 +3466,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -3475,6 +3516,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
