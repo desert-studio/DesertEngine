@@ -34,7 +34,7 @@ namespace Desert::World::Foliage::Procedural
     {
         // The seeds are drawn in order from the one stream, so each tile's seed is the same however the tiles are
         // then scheduled; a tile reads only this spawner and writes only itself, so the tiles grow in parallel.
-        RandomStream         stream( m_Settings.RandomSeed );
+        Common::Math::RandomStream stream( m_Settings.RandomSeed );
         std::vector<int32_t> seeds;
         m_Tiles.clear();
         for ( int32_t i = 0; i < m_Settings.NumUniqueTiles; ++i )
@@ -51,7 +51,7 @@ namespace Desert::World::Foliage::Procedural
         if ( m_Tiles.empty() )
             return nullptr;
         // A random stream as a hash of the coordinate.
-        RandomStream hash( x );
+        Common::Math::RandomStream hash( x );
         const float  xRand = hash.FRand();
         hash.Initialize( y );
         const float yRand = hash.FRand();

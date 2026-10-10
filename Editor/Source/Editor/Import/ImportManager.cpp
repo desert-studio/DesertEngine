@@ -270,7 +270,7 @@ namespace Desert::Editor
     {
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-        auto result = m_Importers[ext]->Import( path, *this );
+        auto result = m_Importers[ext]->Import( path, *this, settings );
         // The cook's verdict stops HERE, at a log line naming the file and the reason. It has nowhere
         // further to go and that is deliberate rather than overlooked: this function is void because
         // both of its callers are fire-and-forget — the boot scan (ImportAllFromDirectory, on
@@ -695,6 +695,21 @@ namespace Desert::Editor
                     return Common::MakeError<bool>( std::format( "material '{}' in '{}': {}", material.Name,
                                                                  sourcePath.generic_string(),
                                                                  packed.GetError() ) );
+            }
+            // THE SLOT SAYS WHAT THE IMAGE IS FOR (IMP-DDS-BLOCKS): a FIRST import writes the template Property's
+            // `Intent(...)` into the asset, so the normal slot's image cooks as BC5 (UE FbxMaterialImport sets
+            // TC_Normalmap the same way). An existing asset keeps its own settings, as on any reimport. A slot
+            // whose image is ALREADY an asset (a packed ORM, an embedded texture) is not a source: handing the
+            // `.detex` to ImportSourceAsset would re-take the asset's own file as its SRCE.
+            if ( const auto it = chosen.TextureIntents.find( slot.Slot );
+                 it != chosen.TextureIntents.end() && image.extension() != Assets::kTextureAssetExtension )
+            {
+                if ( const auto created = TextureImporter::ImportSourceAsset( image, it->second ); !created )
+                    return Common::MakeError<bool>(
+                         std::format( "material '{}' in '{}': texture '{}' for slot '{}' "
+                                      "was not imported: {}",
+                                      material.Name, sourcePath.generic_string(), image.generic_string(),
+                                      slot.Slot, created.GetError() ) );
             }
             if ( static_cast<uint64_t>( ImportTexture( image.string() ) ) == 0 )
                 return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}' for slot '{}' "

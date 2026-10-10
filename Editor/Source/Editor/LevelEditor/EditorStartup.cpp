@@ -7,10 +7,21 @@
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
-#include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
+#include "Editor/LevelEditor/ShotDirector.hpp"
+#include "Editor/Core/ProjectContext.hpp"
+#include "Editor/Core/ToastManager.hpp"
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Core/Application.hpp>
+#include <filesystem>
+#include <iterator>
+#include <format>
+#include "Editor/Panels/FileExplorer/AssetThumbnailPool.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Widgets/ThumbnailService.hpp"
-#include "Editor/Widgets/ThumbnailWarmup.hpp"
+#include "Editor/Widgets/ThumbnailCensus.hpp"
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
@@ -25,11 +36,134 @@
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
+        // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
+        // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
+        // naming them, because a re-cook is what makes the read unnecessary.
+        void NoteBoundsOfMeshesCookedWithoutThem( const std::vector<std::string>& keys )
+        {
+            if ( keys.empty() )
+                return;
+            std::string named;
+            for ( const std::string& key : keys )
+            {
+                std::format_to( std::back_inserter( named ), "{}{}", named.empty() ? "" : ", ", key );
+                const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
+                // The render-form bytes through the DDC, not the file at the key: an imported mesh has no
+                // `.stmesh` of its own since AF4h (its row comes from the import record, FIX8), and the
+                // DDC answers for it and for an authored `.stmesh` alike.
+                const auto bytes = Assets::LoadMeshPlatformData( file );
+                if ( !bytes )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
+                    continue;
+                }
+                const auto mesh = Assets::Serialization::ReadMeshAssetData( bytes.GetValue(), file.string() );
+                if ( !mesh )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be decoded for its box: {}", key,
+                               mesh.GetError() );
+                    continue;
+                }
+                Assets::ContentRegistry::NoteBounds( file,
+                                                     Assets::Serialization::MeshDataBounds( mesh.GetValue() ) );
+            }
+            LOG_WARN( "[ContentRegistry] {} mesh(es) state no box in their header, so their bodies were read once "
+                      "(the local cache keeps the boxes); re-cook them to drop the read: {}",
+                      keys.size(), named );
+        }
+    } // namespace
+
+    void EditorStartup::ChooseInitialLevel( ShotDirector& shots )
+    {
+        // Launched with --project (Project Hub): adopt the project's name and queue its default scene
+        // (loaded through the normal deferred path on the first frame, when the renderer is ready).
+        // Startup content is DATA: a template's DefaultScene ships in its Payload (Templates/Starter), and the
+        // launcher refuses a template that names a scene it does not carry. A DefaultScene that is not on disk
+        // is therefore an error naming the path, never a scene built in code. With no scene to open, the
+        // editor opens the Basic level template as an untitled scene (UE: EditorStartupMap / TemplateMapInfos).
+        // Screenshot mode names its own scene; it is the whole point of the flag.
+        if ( ShotDirector::NamesScene() )
+        {
+            if ( const auto refused = shots.QueueScene() )
+                m_Application->Close( *refused );
+        }
+        else if ( ProjectContext::HasProject() )
+        {
+            m_Workspace.ActiveScene()->SetSceneName( ProjectContext::Current().Name );
+            if ( const auto scenePath = ProjectContext::DefaultScenePath(); !scenePath.empty() )
+            {
+                if ( std::filesystem::exists( scenePath ) )
+                    m_SceneFiles.RequestLoad( scenePath );
+                else
+                {
+                    LOG_ERROR( "[Editor] The project's DefaultScene '{}' does not exist — opening an untitled "
+                               "scene instead. Restore the file or point DefaultScene in the .deproj at a scene "
+                               "that is there.",
+                               scenePath );
+                    Editor::ToastManager::Push( "The project's default scene is missing (see the log)",
+                                                Editor::ToastLevel::Error );
+                }
+            }
+        }
+        // Nothing to open: the Basic level template, as an untitled scene (SceneFiles::NewSceneInternal).
+        if ( !m_SceneFiles.HasPendingLoad() )
+            m_SceneFiles.RequestNew();
+    }
+
+    Common::BoolResultStr EditorStartup::BootContent()
+    {
+        // THE COOKED ASSET REGISTRY, BEFORE ANY CONTENT IS ASKED FOR, including the engine shaders a few
+        // lines down, the earliest content this host creates. Every kind resolves its references through
+        // the registry rows, so anything asked before the file was read would come back empty; and
+        // the boot's cook stages call `ContentRegistry::NoteFile` as they write, which would be writing
+        // into rows that `Load` was about to replace.
+        //
+        // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
+        // could not parse is an editor showing an empty Content Browser over a project full of files,
+        // and "looks almost right" is the failure mode that costs the most to find.
+        std::vector<std::string> unboxedMeshes;
+        const auto               registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
+        if ( !registry )
+            return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
+        LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
+                  Assets::ContentRegistry::Get().Count(), registry.GetValue() );
+        NoteBoundsOfMeshesCookedWithoutThem( unboxedMeshes );
+
+        // The committed registry file is gone (AF9): nothing reads it, and a developer tree may still hold
+        // the last copy, untracked. It is harmless — said once so nobody mistakes it for the live registry.
+        if ( const std::filesystem::path stale = Common::Constants::Path::CurrentProjectRoot().ProjectDir /
+                                                 Common::Constants::Path::COOKED_DIR_NAME / "AssetRegistry.dreg";
+             Common::Utils::FileSystem::Exists( stale ) )
+            LOG_WARN( "[ContentRegistry] '{}' is a stale file from before the registry was gathered at start; "
+                      "nothing reads it and it can be deleted",
+                      stale.string() );
+
+        // Shaders must exist BEFORE the render systems below are constructed (their default materials
+        // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
+        // start, and one call: the splash says what it is before it begins, and cannot say more during it.
+        BeginShaderStage();
+        // The splash's close button, pressed during this one long call, stops it between programs.
+        if ( const auto shaders = Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
+                                                                [this]() { return CloseRequested(); } );
+             !shaders )
+            return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
+        // The imported materials choose among these shaders' Import blocks; every cook below comes after.
+        LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
+                  ImportManager::PublishImportTemplates( *m_AssetManager ) );
+
+        m_Workspace.BuildSceneSystems( *m_Workspace.ActiveScene() );
+        return BOOLSUCCESS;
+    }
+
     namespace
     {
         // The splash's cost per item of each weighed stage (EditorStartup::MakeSplashPlan), read off the
@@ -171,9 +305,8 @@ namespace Desert::Editor
                 // THE SETTLE PHASE GETS ITS OWN LABEL. A splash that says nothing while it waits is
                 // indistinguishable from an editor that has hung, and this wait is the one the
                 // demand-driven model introduced.
-                const auto& loader = Assets::AsyncAssetLoader::Get();
-                m_SettleBase       = loader.StartedCount() - loader.Outstanding();
-                BeginSplashStage( m_SettleStage, loader.Outstanding() );
+                // The count itself starts at the scene load (BeginContentSettle), from the loader's counters.
+                BeginSplashStage( m_SettleStage );
                 m_Boot.LogSummary();
                 LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
                           "about a project it has actually read.",
@@ -244,24 +377,43 @@ namespace Desert::Editor
         // Two halves, two gates (Editor/Splash/RevealGate.hpp). A PNG already in the disk cache is decoded
         // on a worker even while the splash is up, so the first frame after the hand-over only uploads it.
         // A CAPTURE is not: it shares the settle's frames and asset loader — the one thing the splash is
-        // waiting on — so requests made before the hand-over stay queued and are served after it.
+        // waiting on — so captures start after the hand-over, for what is shown then.
+        //
+        // NOTHING IS WARMED AND NOTHING WAITS (THUMB-LAZY, UE FAssetThumbnailPool): a picture is captured only
+        // while a shower draws it (ThumbnailService::TickCapture drops the rest), after the hand-over, one at a
+        // time within CaptureBudget. The start-up, a scene load and a --shot never wait on a thumbnail.
         if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
             ThumbnailService::TickDiskAndDecode();
-        UploadSplashThumbnails();
-        // THE ONE CAPTURE THE SPLASH MAY RUN (THUMB3, THM1m, THM1n-13): the open scene's subjects, then every
-        // uncaptured picture of the project, queued by WarmSplashScene. A warmed mesh still being read when
-        // the window appears keeps being asked for after it (TickWarmMeshes), first in the queue once queued.
-        if ( m_Revealed && m_FileExplorer != nullptr )
-            (void)m_FileExplorer->TickWarmMeshes();
         if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
-            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );
-        else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&
-                  ThumbnailService::Get().SceneWarmPending() > 0 )
-            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::SceneWarmOnly );
+            ThumbnailService::Get().TickCapture();
     }
 
-    void EditorStartup::BeginContentSettle()
+    void EditorStartup::ShowContentLine( const Assets::ContentProgressLine& line )
     {
+        const bool changed = line.Done != m_ContentProgress.Done || line.Total != m_ContentProgress.Total ||
+                             line.Item != m_ContentProgress.Item;
+        m_ContentProgress = line;
+        if ( changed && !m_Revealed )
+        {
+            m_Progress.Step( line.Item.empty() ? std::string( "Scene assets" ) : line.Item, line.Done,
+                             std::max<std::size_t>( line.Total, 1 ) );
+            PushSplash();
+        }
+    }
+
+    Assets::AsyncAssetLoader::WaitFeedback EditorStartup::SceneLoadFeedback( const uint64_t finishedBefore )
+    {
+        return [this, finishedBefore]( const Assets::LoadProgress& now )
+        {
+            ShowContentLine( Assets::ContentProgressSince(
+                 now, finishedBefore, Graphic::PipelineBuilds::Get().Pending( Graphic::PipelineRole::Engine ) ) );
+        };
+    }
+
+    void EditorStartup::BeginContentSettle( const uint64_t finishedBefore )
+    {
+        m_SettleBase      = finishedBefore;
+        m_ContentProgress = Assets::ContentProgressNow( m_SettleBase );
         m_Content.BeginWorld( Assets::ContentWorkNow().Started );
     }
 
@@ -323,9 +475,10 @@ namespace Desert::Editor
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
         LOG_INFO( "[Startup] reveal: the scene's content has settled and the editor window is shown" );
-        if ( m_FileExplorer != nullptr )
-            LOG_INFO( "[Thumbnails] {} thumbnails resident, {} captured on splash",
-                      m_FileExplorer->ResidentThumbnails(), m_SplashWarmTotal );
+        if ( m_ThumbnailPool != nullptr )
+            LOG_INFO( "[Thumbnails] {} thumbnails resident at the hand-over; the rest are made as they are shown",
+                      m_ThumbnailPool->ResidentThumbnails() );
+        ReportUnproducedThumbnailKinds();
         m_AssetCompiling.StartBackgroundCook();
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
@@ -345,92 +498,17 @@ namespace Desert::Editor
         state.SceneLoadPending    = m_SceneFiles.HasPendingLoad();
         state.ContentSettling     = ContentSettling();
         state.RealFrameDrawn      = m_RealFrameDrawn;
-        state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
+        state.TexturesStreaming   = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
         return state;
     }
 
-    void EditorStartup::UploadSplashThumbnails()
+    void EditorStartup::ReportUnproducedThumbnailKinds()
     {
-        if ( m_Splash == nullptr || m_Revealed || m_FileExplorer == nullptr )
-        {
-            m_ThumbnailsHoldReveal = false;
-            return;
-        }
-        WarmSplashScene();
-        // A cold mesh still being read counts too: it is a capture that has not been queued YET (THM1m).
-        const std::size_t warmPending =
-             ThumbnailService::Get().SceneWarmPending() + m_FileExplorer->TickWarmMeshes();
-        m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
-        // THE CAPTURES' PICTURES ARE UPLOADED TOO (THM1n-13): once every splash capture has landed, the PNGs they
-        // wrote are asked of the workers like the rest, so the window never opens on a picture still on disk.
-        if ( m_SplashWarmStarted && warmPending == 0 && !m_SplashPicturesReasked )
-        {
-            m_SplashPicturesReasked = true;
-            m_FileExplorer->RequestProjectPictures();
-        }
-        // An upload of pixels a worker already decoded from the disk cache: no renderer slot and no capture,
-        // which is why it may run before the hand-over while ThumbnailCaptureAllowed is still false.
-        const std::size_t pending = m_FileExplorer->UploadPrefetchedThumbnails();
-        if ( warmPending != m_SplashWarmShown )
-        {
-            // The splash says what it is waiting on, as every other stage does.
-            m_SplashWarmShown = warmPending;
-            m_Progress.Step( "Scene thumbnails", m_SplashWarmTotal - std::min( warmPending, m_SplashWarmTotal ),
-                             m_SplashWarmTotal );
-            PushSplash();
-        }
-
-        Splash::RevealState rest = CurrentRevealState();
-        rest.ThumbnailsUploading = false;
-        if ( !Splash::MayReveal( rest ) )
-        {
-            m_RevealOtherwiseReadySince.reset();
-            m_ThumbnailsHoldReveal = pending > 0 || warmPending > 0;
-            return;
-        }
-        const auto now = std::chrono::steady_clock::now();
-        if ( !m_RevealOtherwiseReadySince )
-            m_RevealOtherwiseReadySince = now;
-        const double waitedMs =
-             std::chrono::duration<double, std::milli>( now - *m_RevealOtherwiseReadySince ).count();
-        const bool wasHolding = m_ThumbnailsHoldReveal;
-        m_ThumbnailsHoldReveal =
-             Splash::ThumbnailsHoldReveal( pending ) || Splash::SceneCapturesHoldReveal( warmPending );
-        if ( wasHolding && !m_ThumbnailsHoldReveal )
-        {
-            LOG_INFO( "[Thumbnails] the opening folder's and the scene's pictures held the hand-over {:.0f} ms",
-                      waitedMs );
-        }
-    }
-
-    void EditorStartup::WarmSplashScene()
-    {
-        // Once, when the scene the editor opens on is loaded and the renderer is up: the moment a scene
-        // capture becomes allowed (Splash::SceneThumbnailCaptureAllowed).
-        if ( m_SplashWarmStarted || !m_Workspace.ActiveScene() ||
-             !Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) )
-            return;
-        m_SplashWarmStarted = true;
-
-        Assets::AssetRootSet roots;
-        ::Desert::Core::CollectAssetRoots( *m_Workspace.ActiveScene(), roots );
-        const std::vector<ThumbnailWarmup::WarmItem> scene = ThumbnailWarmup::SceneWarmList(
-             roots.Handles(), []( const Common::AssetHandle& handle )
-             { return Common::AssetPathIndex::PathFor( static_cast<uint64_t>( handle ) ); } );
-        // EVERY PICTURE OF THE PROJECT (THM1n-13, owner 09-29): the content registry's rows of every kind, not the
-        // folder the browser opens on — so no folder entered after the hand-over waits for a picture.
-        const std::vector<ThumbnailWarmup::WarmItem> project =
-             ThumbnailWarmup::ProjectWarmList( &Assets::ContentRegistry::FilesOfKind );
-        for ( const ThumbnailWarmup::Unproduced& gap :
-              ThumbnailWarmup::UnproducedKinds( &Assets::ContentRegistry::FilesOfKind ) )
-            LOG_WARN(
-                 "[Thumbnails] {} {} file(s) get no picture on the splash: the kind has no thumbnail producer "
-                 "yet ({})",
-                 gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
-        m_SplashWarmTotal = m_FileExplorer->WarmProjectThumbnails( scene, project );
-        LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
-                  "picture(s) to capture before the hand-over, the rest decode from the disk cache",
-                  scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );
+        for ( const ThumbnailCensus::Unproduced& gap :
+              ThumbnailCensus::UnproducedKinds( &Assets::ContentRegistry::FilesOfKind ) )
+            LOG_WARN( "[Thumbnails] {} {} file(s) get no picture in the browser: the kind has no thumbnail "
+                      "producer yet ({})",
+                      gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
     }
 
     void EditorStartup::UpdateContentSettling()
@@ -440,15 +518,12 @@ namespace Desert::Editor
         const bool  settled = m_Content.Tick( work.Outstanding, work.Started );
         if ( !settled )
         {
-            // THE SETTLE SAYS HOW MUCH IS LEFT, not only that it is waiting: a count that moves is the
-            // difference between a load and a hang. Pushed only when the count changes.
-            if ( ContentSettling() && !m_Revealed && loader.Outstanding() != m_SplashOutstandingShown )
-            {
-                m_SplashOutstandingShown = loader.Outstanding();
-                const std::size_t items  = loader.StartedCount() - m_SettleBase;
-                m_Progress.Step( "Scene assets", items - loader.Outstanding(), items );
-                PushSplash();
-            }
+            // THE SETTLE SAYS WHAT IS BEING READ AND HOW MUCH IS DONE (LOAD-SHOW), every frame, from the
+            // loader's counters: "Mesh SM_Wall_A.demesh (123 / 622)" — a count that moves is the difference
+            // between a load and a hang. The splash is pushed when the line changes; after the reveal the
+            // editor's own overlay draws the same line (EditorLayer::OnUIRender).
+            if ( ContentSettling() )
+                ShowContentLine( Assets::ContentProgressNow( m_SettleBase ) );
             return;
         }
 

@@ -48,17 +48,19 @@ namespace Desert::Graphic
     {
     }
 
-    void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection )
+    void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
+                           const double timeSeconds )
     {
         // A light camera is not a view: no jitter, no previous frame (MakeStillViewFrame); the camera block still
-        // has its one writer. Its position is the light camera's eye.
-        SceneCameraBind( &material,
-                         MakeStillViewFrame( view, projection, glm::vec3( glm::inverse( view )[3] ), 0.0 ) );
+        // has its one writer. Its position is the light camera's eye, its clock the frame's.
+        SceneCameraBind( &material, MakeStillViewFrame( view, projection, glm::vec3( glm::inverse( view )[3] ),
+                                                        timeSeconds ) );
     }
 
-    void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection )
+    void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection,
+                                         const double timeSeconds )
     {
-        WriteLightCamera( *this, view, projection );
+        WriteLightCamera( *this, view, projection, timeSeconds );
     }
 
     void MaterialShadowSkinned::UploadBones( const std::vector<glm::mat4>& packedBoneMatrices )

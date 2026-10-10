@@ -43,7 +43,7 @@ namespace Desert::Editor
 
     // Every tree is STAGED into Saved/Cooked/<Platform>/<PakKey>/ by the cook (GamePackager.cpp
     // StageShippedContent) and the archive is packed from that one tree only — never from these sources.
-    inline std::array<PackagedTree, 7> PackagedContentTrees()
+    inline std::array<PackagedTree, 8> PackagedContentTrees()
     {
         namespace P = Common::Constants::Path;
         return { {
@@ -63,6 +63,10 @@ namespace Desert::Editor
              { &P::ICONS_PATH, "Resources/Icons", false, "Gizmo" },
              // Engine data tables (Scalability.json) — the Runtime reads them as well as the editor.
              { &P::CONFIG_PATH, "Resources/Config", false },
+             // The project's settings tables (Config/CollisionProfiles.json: without it no scene simulates). Keyed
+             // "Config" because the packaged .deproj's folder is the archive root, so ProjectDir()/Config resolves
+             // to these keys exactly as the assets tree resolves to "Assets".
+             { &P::PROJECT_CONFIG_PATH, Common::Constants::Path::PROJECT_CONFIG_DIR_NAME.data(), false },
         } };
     }
 

@@ -81,7 +81,7 @@ namespace Desert::World::Foliage::Procedural
         std::vector<uint32_t>                  m_PendingRemovals;
         std::vector<ProceduralFoliageInstance> m_Array; ///< UE InstancesArray: the last pass's placed instances
         ProceduralFoliageBroadphase            m_Broadphase;
-        RandomStream                           m_Stream;
+        Common::Math::RandomStream             m_Stream;
         int32_t                                m_SimulationStep = 0;
         int32_t                                m_RandomSeed     = 0;
         bool                                   m_OnlyInShade    = false;

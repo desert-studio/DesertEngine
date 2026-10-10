@@ -101,7 +101,11 @@ namespace Desert::Editor
             return Common::MakeError<ImportTemplate>( std::format( "'{}': {}", out.Locator, parsed.GetError() ) );
         for ( const auto& param : parsed.GetValue().Meta.Params )
             if ( param.IsTexture )
+            {
                 out.TextureProperties.insert( param.Name );
+                if ( param.SlotIntent != ::Desert::Core::Formats::TextureIntent::Unspecified )
+                    out.TextureIntents.emplace( param.Name, param.SlotIntent );
+            }
         return Common::MakeSuccess( std::move( out ) );
     }
 
@@ -181,12 +185,15 @@ namespace Desert::Editor
     }
     SourceMaterial WithFbxSpecularMap( SourceMaterial material, const Assets::FbxSpecularMap meaning )
     {
-        if ( meaning != Assets::FbxSpecularMap::OcclusionRoughnessMetallic )
+        if ( meaning == Assets::FbxSpecularMap::Specular )
             return material;
         if ( const auto found = material.Entries.find( kFbxSpecularMapKey ); found != material.Entries.end() )
         {
-            auto node  = material.Entries.extract( found );
-            node.key() = std::string( kFbxOcclusionRoughnessMetalKey );
+            auto node           = material.Entries.extract( found );
+            node.key()          = std::string( meaning == Assets::FbxSpecularMap::RoughnessMetallic
+                                                    ? kFbxRoughnessMetalKey
+                                                    : kFbxOcclusionRoughnessMetalKey );
+            node.mapped().Value = glm::vec4( 1.0f );
             material.Entries.insert( std::move( node ) );
         }
         return material;
@@ -196,8 +203,10 @@ namespace Desert::Editor
     {
         if ( key == kFbxSpecularMapKey )
             return "the FBX Specular map is a specular-colour image as FBX defines it, and the template has no "
-                   "Specular input; if this file packs AO/roughness/metalness in R/G/B there (Lumberyard Bistro, "
-                   "ORCA), set Import Settings > FBX Specular Map to Packed and re-import with the .demat deleted";
+                   "Specular input; if this file packs roughness/metalness in G/B there (Lumberyard Bistro, ORCA: "
+                   "R "
+                   "unused) or AO/roughness/metalness in R/G/B, set Import Settings > FBX Specular Map to that "
+                   "Packed meaning and re-import with the .demat deleted";
         return {};
     }
 

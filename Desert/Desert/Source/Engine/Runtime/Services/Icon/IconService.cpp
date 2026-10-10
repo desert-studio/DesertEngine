@@ -127,7 +127,7 @@ namespace Desert::Runtime
             lb.RGBA  = rgba;
             lb.Owner = path;
             m_Bitmaps.push_back( std::move( lb ) );
-            raw->Layers.push_back( IconLayer{ 0.0f, 0.0f, 1.0f, 1.0f, rgba } );
+            raw->Layers.push_back( Text::IconLayer{ 0.0f, 0.0f, 1.0f, 1.0f, rgba } );
         }
 
         // THE REPACK IS THE OTHER HALF OF WHAT AN IMPORT COSTS, and it was not in the number above.
@@ -242,7 +242,7 @@ namespace Desert::Runtime
             size_t cell = 0;
             while ( cell < m_Bitmaps.size() && m_Bitmaps[cell].Owner != path )
                 ++cell;
-            for ( IconLayer& layer : icon->Layers )
+            for ( Text::IconLayer& layer : icon->Layers )
             {
                 if ( cell >= m_Bitmaps.size() )
                     break;

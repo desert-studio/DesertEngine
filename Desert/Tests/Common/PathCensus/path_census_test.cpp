@@ -116,7 +116,7 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
     // Byte-for-byte the spellings below a project's assets root. Every asset registry, cooked file and
     // saved scene of every project depends on these exact strings; a census edit that shifts one is a
     // data migration, not a refactor, and must fail here first.
-    const std::array<std::pair<const fs::path*, const char*>, 26> expected = { {
+    const std::array<std::pair<const fs::path*, const char*>, 27> expected = { {
          { &Path::ASSETS_PATH, "Content/" },
          { &Path::MESH_PATH, "Content/Meshes/" },
          { &Path::MATERIAL_PATH, "Content/Materials/" },
@@ -142,6 +142,7 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
          { &Path::LEVEL_SEQUENCE_PATH, "Content/Sequences/" },
          { &Path::VFX_PATH, "Content/VFX/" },
          { &Path::FRACTURE_PATH, "Content/Fractures/" },
+         { &Path::WATER_WAVES_PATH, "Content/Water/Waves/" },
          { &Path::COOKED_PATH, "Cooked/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,
@@ -343,7 +344,8 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
            "comment: where PackagedPath puts a cache" },
          { "Desert/Desert/Source/Engine/Text/FontCache.hpp", "comment: font atlases are a PackagedPath cache" },
          { "Desert/Desert/Source/Engine/Vector/IconBake.hpp", "comment: icon atlases are a PackagedPath cache" },
-         { "Editor/Source/EditorLayer.cpp", "the local asset registry Cooked/AssetRegistry.dreg" },
+         { "Editor/Source/Editor/LevelEditor/EditorStartup.cpp",
+           "the local asset registry Cooked/AssetRegistry.dreg" },
          { "Editor/Source/Editor/Packaging/PackagedContentTrees.hpp", "the packager packs the derived tree" },
          { "Editor/Source/Editor/Packaging/GamePackager.cpp", "the cooked registry's place inside the pak" },
          { "Editor/Source/Editor/Packaging/PackageCook.cpp", "Saved/Cooked/<Platform>/: the packager's cook" },

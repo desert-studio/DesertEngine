@@ -27,6 +27,7 @@ namespace Desert::Editor
     class SceneFiles;
     class SceneWorkspace;
     class ViewportCapture;
+    class ProfilerWindow;
 
     // THE ONE PLACEMENT. Both the `--camera`/`--look` capture path and the control channel's
     // `set Camera.Position` land here, through the editor's own view-axis-gizmo and F-focus gestures.
@@ -63,6 +64,10 @@ namespace Desert::Editor
         // @p recordedFrame is this frame's AdmitFrame verdict.
         [[nodiscard]] bool CountRenderedFrame( bool recordedFrame );
         // A record the layer keeps for the capture (the --flight CSV) failed: the capture fails with it.
+        // THE END OF A FRAME OF THE CAPTURE: the --flight sample, then CountRenderedFrame; on the last frame the
+        // profiler dump and the --flight CSV are written and the capture's status comes back to close with.
+        [[nodiscard]] std::optional<int32_t> EndFrame( bool recordedFrame, bool startupLoading,
+                                                       bool contentSettling, ProfilerWindow& profiler );
         void MarkFailed()
         {
             m_ShotFailed = true;
@@ -84,6 +89,9 @@ namespace Desert::Editor
         }
 
     private:
+        // No --camera / --look: point the editor camera so every placed mesh is in the picture (FrameBox).
+        void FrameScene();
+
         SceneWorkspace&  m_Workspace;
         SceneFiles&      m_SceneFiles;
         PlaySession&     m_Play;

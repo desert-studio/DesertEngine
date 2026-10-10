@@ -49,3 +49,6 @@
 [submodule "ThirdParty/dav1d"]
 	path = ThirdParty/dav1d
 	url = https://github.com/videolan/dav1d.git
+[submodule "ThirdParty/luau"]
+	path = ThirdParty/luau
+	url = https://github.com/luau-lang/luau.git

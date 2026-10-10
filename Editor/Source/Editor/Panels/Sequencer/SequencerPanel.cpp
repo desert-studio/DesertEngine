@@ -3172,8 +3172,8 @@ namespace Desert::Editor
                         if ( end == component->Keys.end() || index == 0 )
                             continue;
                         const auto eased = TL::ApplyEasingPreset(
-                             component->Keys, index, TL::PresetOf( static_cast<ECS::UIEasing>( ease ) ), tickRate,
-                             sequence.DisplayRate );
+                             component->Keys, index, TL::PresetOf( static_cast<::Desert::UI::UIEasing>( ease ) ),
+                             tickRate, sequence.DisplayRate );
                         if ( !eased.IsSuccess() )
                             ToastRefusal( "ease", eased.GetError(), 6.0f );
                     }

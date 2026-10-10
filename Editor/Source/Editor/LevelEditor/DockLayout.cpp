@@ -664,4 +664,20 @@ namespace Desert::Editor
         }
     }
 
+    void DockLayout::RouteEvents( Common::EventTree* events, Common::EventNodeId fallback )
+    {
+        if ( events == nullptr )
+            return;
+        Common::EventNodeId focus   = fallback;
+        Common::EventNodeId pointer = fallback;
+        for ( const auto& panel : m_Panels )
+        {
+            if ( panel->HoldsKeyboardFocus() )
+                focus = panel->EventNode();
+            if ( panel->IsUnderPointer() )
+                pointer = panel->EventNode();
+        }
+        events->SetFocus( focus );
+        events->SetHovered( pointer );
+    }
 } // namespace Desert::Editor

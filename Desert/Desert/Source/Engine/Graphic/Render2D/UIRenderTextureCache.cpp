@@ -32,7 +32,7 @@ namespace Desert::Graphic::Render2D
         // would be sixty identical lines a second — which is the same as no line at all, because the
         // reader stops looking at the log. Keyed by the REASON and not by a bool, so an element that goes
         // from "no free slot" to "that file does not parse" says the second thing.
-        bool ShouldSay( std::unordered_map<entt::entity, std::string>& said, entt::entity element,
+        bool ShouldSay( std::unordered_map<::Desert::UI::NodeId, std::string>& said, ::Desert::UI::NodeId element,
                         const std::string& reason )
         {
             auto& previous = said[element];
@@ -70,7 +70,7 @@ namespace Desert::Graphic::Render2D
                   released );
     }
 
-    UIRenderTextureCache::Capture* UIRenderTextureCache::Build( entt::entity element, const Demand& demand,
+    UIRenderTextureCache::Capture* UIRenderTextureCache::Build( ::Desert::UI::NodeId element, const Demand& demand,
                                                                 Assets::AssetManager& assetManager )
     {
         if ( demand.ScenePath.empty() )
@@ -217,7 +217,7 @@ namespace Desert::Graphic::Render2D
         //    renderer slot released and re-claimed in between. Scene::Resize is the supported operation and
         //    is what the editor's own viewport does on a drag; only the SCENE changing is a rebuild,
         //    because the path is what the capture was made from.
-        std::vector<entt::entity> stale;
+        std::vector<::Desert::UI::NodeId> stale;
         for ( const auto& [element, capture] : m_Captures )
         {
             const auto demand = std::find_if( m_Demanded.begin(), m_Demanded.end(),
@@ -231,7 +231,7 @@ namespace Desert::Graphic::Render2D
         {
             // One idle for the batch — see Reset().
             Renderer::GetInstance().WaitDeviceIdle();
-            for ( const entt::entity element : stale )
+            for ( const ::Desert::UI::NodeId element : stale )
             {
                 m_Captures.erase( element );
                 LOG_INFO( "[UI] render-texture element {} released its view (views: {})",
@@ -244,7 +244,7 @@ namespace Desert::Graphic::Render2D
         //    reason that no longer holds, which reads as a refusal that is not one.
         for ( const Demand& demand : m_Demanded )
         {
-            const entt::entity element = demand.Element;
+            const ::Desert::UI::NodeId element = demand.Element;
             auto               it      = m_Captures.find( element );
             Capture* capture = it == m_Captures.end() ? Build( element, demand, assetManager ) : &it->second;
             if ( capture == nullptr )
@@ -287,7 +287,7 @@ namespace Desert::Graphic::Render2D
         m_Demanded.clear();
     }
 
-    const void* UIRenderTextureCache::ResolveRenderTexture( entt::entity                                element,
+    const void* UIRenderTextureCache::ResolveRenderTexture( ::Desert::UI::NodeId                        element,
                                                             const ::Desert::UI::UIRenderTextureRequest& request )
     {
         // RECORDING THE DEMAND IS THE FIRST THING AND IT HAPPENS EVEN WHEN THE ANSWER IS NULL. A refused

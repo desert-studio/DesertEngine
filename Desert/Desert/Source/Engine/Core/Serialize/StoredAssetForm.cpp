@@ -21,13 +21,13 @@ namespace Desert::Core::Serialize
              type == "PrefabAsset" || type == "FoliageTypeAsset" || type == "FractureAsset" )
             return StoredAssetForm::AssetsRelative;
 
-        // Meshes (static/skinned both resolved handle->path through the MeshAsset base) and skyboxes.
-        // NAMED, not a fall-through: the mesh lookup used to END the function unconditionally, so an
-        // asset type with no branch was looked up as a MESH, found nothing, and returned an empty
-        // string — a dead setting delivered by a silent fallback, in the one place that decides whether
-        // a scene reference survives a save.
+        // Meshes (static/skinned both resolved handle->path through the MeshAsset base): the tagged stable
+        // key, as a texture's (BISTRO-OPEN). The machine path they used to store put a developer's home
+        // directory into every scene that held an imported mesh (1296 of them in GI_Bistro_Day). A mesh can
+        // live under either content root (the engine's probe meshes are under RESOURCE_PATH), which is why
+        // it is the stable key and not the assets-relative form. The GUID beside it stays the identity.
         if ( type == "StaticMeshAsset" || type == "SkinnedMeshAsset" || type == "MeshAsset" )
-            return StoredAssetForm::MachinePath;
+            return StoredAssetForm::StableKey;
 
         // Skyboxes store {GUID, project key} since SCNE 29; the absolute path is unreachable by construction.
         if ( type == "SkyboxAsset" )
@@ -54,9 +54,6 @@ namespace Desert::Core::Serialize
                 // what goes in the file, which is what the branches this replaces did.
                 return Common::AssetHandle::PathForStableKey( key ).string();
             }
-
-            case StoredAssetForm::MachinePath:
-                return Common::AssetHandle::PathForStableKey( key ).string();
 
             case StoredAssetForm::ProjectKey:
                 return Common::AssetHandle::IsProjectRelativeKey( key ) ? key : std::string();

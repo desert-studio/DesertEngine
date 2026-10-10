@@ -328,6 +328,10 @@ namespace
          // frame as a failure.
          { "ShaderParam", "Timing", kMatEditStates, nullptr },
 
+         // THE TEXTURE SLOT'S DECLARED INTENT (IMP-DDS-BLOCKS / MAT-SLOT-PARTIAL): the importer's contract reads
+         // it to state which block format and colour space a source image cooks to for this slot.
+         { "ShaderParam", "SlotIntent", "Editor/Source/Editor/Import/MaterialImportContract.cpp", nullptr },
+
          { "ShaderParam", "Tooltip", kMatEdit, nullptr },
          { "ShaderParam", "Type", kMatEditStates, nullptr },
          { "ShaderParam", "Widget", kMatEdit, nullptr },
@@ -612,6 +616,8 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
+    // FORTY-NINE since IMP-DDS-BLOCKS / MAT-SLOT-PARTIAL added `ShaderParam::SlotIntent` (read by
+    // MaterialImportContract to state the block format and colour space a slot's source image cooks to).
     // FORTY-EIGHT since the VFX stack added `ShaderProgramMeta::ParticleSource` (read by VFXStackCompiler).
     // FORTY-SEVEN since the render graph's MESH-PB1 added `ShaderParam::EngineSet` (read by Material Edit's
     // parameter groups; ForEachMaterialTextureSlot and BindManifestSamplers skip it as a pass parameter).
@@ -619,7 +625,7 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // FORTY-FIVE since SURF1c added `DShaderParseResult::Surface` (read by the cell expansion in
     // DShaderParser.cpp). FORTY-FOUR since MAT1s added `ShaderParam::Sampler` (read by BindManifestSamplers).
     // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
-    EXPECT_EQ( std::size( k_Census ), 48u )
+    EXPECT_EQ( std::size( k_Census ), 49u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 

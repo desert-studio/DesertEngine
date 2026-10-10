@@ -29,6 +29,7 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -45,12 +46,31 @@ namespace
     constexpr const char* kRendererFiles[] = {
          "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
          "Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
-         // The walk's clip pre-pass (ANIM-I9): UICanvasRenderer2D calls PlayUIAnimations before any canvas is
-         // walked, and it is where UIAnimComponent is read and folded into each element's sample.
-         "Desert/Desert/Source/Engine/UI/UIAnimationPlayback.cpp",
+         // The walk's clip pre-pass (ANIM-I9): UICanvasRenderer2D evaluates the view's animation source
+         // (TimelineUIAnimationSource) before any canvas is walked, and it is where UIAnimComponent is read.
+         "Desert/Desert/Source/Engine/UI/Ecs/UIAnimationPlayback.cpp",
+         // UI-FW2: the walk reads an IUITree, and one element's resolve step and each widget's draw moved
+         // out of UICanvasRenderer2D.cpp into UIWalkCtx.cpp and Widgets/ -- still the same walk.
+         "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Button.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/ScrollList.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Slider.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp",
+         "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp",
     };
-    constexpr const char* kRenderer =
-         "the UI walk (UICanvasRenderer2D.cpp + UIOverlay.cpp + UIAnimationPlayback.cpp)";
+    constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIWalkCtx.cpp + Widgets/ + "
+                                      "UIOverlay.cpp + UIAnimationPlayback.cpp)";
+
+    // The registry adapter behind the walk's IUITree: `Row<ECS::UIxxxComponent, Kind>` per ArgKind. The walk
+    // asks the tree for UI argument data (`tree.Has<UIPanelData>`), and this table is what names the
+    // component an authored entity carries for that data -- read from the adapter, not restated here.
+    constexpr const char* kTreeAdapter = "Desert/Desert/Source/Engine/UI/Ecs/EcsUITree.cpp";
 
     // Component types the shipping renderer handles that are deliberately NOT offered by the create menus.
     // Each needs a reason, and the reason is the row.
@@ -154,6 +174,37 @@ namespace
     std::set<std::string> RendererDispatch( const std::string& source )
     {
         std::set<std::string> types;
+        // The walk's tree queries: `Has<UIxxxData>`, `Get<UIxxxData>`, `GetState<UIxxxData>`, translated to
+        // the component through the adapter's own rows (Kind = the data name without `UI` and `Data`).
+        const std::string adapter = ReadFile( RepoRoot() + kTreeAdapter );
+        for ( const char* call : { "Has<UI", "Get<UI", "GetState<UI" } )
+        {
+            const std::string needle( call );
+            for ( std::size_t at = source.find( needle ); at != std::string::npos;
+                  at             = source.find( needle, at + 1 ) )
+            {
+                if ( at > 0 && ( std::isalnum( static_cast<unsigned char>( source[at - 1] ) ) != 0 ||
+                                 source[at - 1] == '_' ) )
+                    continue;
+                const std::size_t nameStart = at + needle.size();
+                const std::size_t close     = source.find( '>', nameStart );
+                if ( close == std::string::npos || close - nameStart < 5 ||
+                     source.compare( close - 4, 4, "Data" ) != 0 )
+                    continue;
+                const std::string kind = source.substr( nameStart, close - 4 - nameStart );
+                const std::string row  = std::format( ", {}>", kind );
+                for ( std::size_t r = adapter.find( row ); r != std::string::npos; r = adapter.find( row, r + 1 ) )
+                {
+                    const std::size_t open = adapter.rfind( "Row<ECS::", r );
+                    if ( open == std::string::npos )
+                        continue;
+                    const std::size_t typeStart = open + 9;
+                    if ( adapter.find_first_of( "<>", typeStart ) < r )
+                        continue;
+                    types.insert( adapter.substr( typeStart, r - typeStart ) );
+                }
+            }
+        }
         // The three ways this renderer reaches a component. `get<` also covers `try_get<`, so the census
         // survives a refactor from has+get to try_get; measured 2026-09-05, all three agree on 22 types.
         for ( const char* call : { "has<ECS::UI", "get<ECS::UI", "view<ECS::UI" } )

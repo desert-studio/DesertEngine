@@ -112,8 +112,15 @@ namespace Desert::Editor
                 v.Position = { v.Position.x - pivot.x, v.Position.y - pivot.y, v.Position.z - pivot.z };
             for ( auto& sub : node.Mesh.Submeshes )
                 sub.BoundingBox = { sub.BoundingBox.Min - pivot, sub.BoundingBox.Max - pivot };
+            node.Pivot = pivot;
         }
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    std::array<float, 3> NodePlacement( const NodeMesh& node, const Assets::MeshImportSettings& settings )
+    {
+        const glm::vec3 placed = glm::vec3( SourceToEngine( settings ) * glm::vec4( node.Pivot, 1.0f ) );
+        return { placed.x, placed.y, placed.z };
     }
 
     Common::ResultStr<std::vector<NodeMesh>> NodeMeshesOfImport( const Ser::MeshAssetData&    combined,
@@ -225,8 +232,8 @@ namespace Desert::Editor
             return Common::MakeSuccess( Result{} );
         }
 
-        Result                   out;
-        std::vector<std::string> names;
+        Result                             out;
+        std::vector<Ser::ImportRecordNode> nodes;
         std::string              firstFailure;
         for ( NodeMesh& node : split.ExtractValue() )
         {
@@ -237,10 +244,10 @@ namespace Desert::Editor
                     firstFailure = written.GetError();
                 continue;
             }
-            names.push_back( node.Node );
+            nodes.push_back( { node.Node, NodePlacement( node, settings.Mesh ) } );
             out.emplace_back( std::move( node ), written.ExtractValue() );
         }
-        if ( auto recorded = Ser::SetImportRecordNodes( source, names ); !recorded && firstFailure.empty() )
+        if ( auto recorded = Ser::SetImportRecordNodes( source, nodes ); !recorded && firstFailure.empty() )
             firstFailure = recorded.GetError();
         if ( !firstFailure.empty() )
             return Common::MakeError<Result>( firstFailure );

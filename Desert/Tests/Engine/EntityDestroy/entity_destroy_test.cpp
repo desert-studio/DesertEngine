@@ -16,6 +16,8 @@
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -159,9 +161,11 @@ namespace
         reg.emplace<ECS::ColliderComponent>( e );
         auto&             rb = reg.emplace<ECS::RigidBodyComponent>( e );
         Physics::BodyDesc desc;
-        desc.Position  = { x, 0.0f, 0.0f };
+        desc.Position      = { x, 0.0f, 0.0f };
+        desc.Profile       = TestSupport::ProfileId( world, "PhysicsActor" );
         const auto created = world.CreateBody( desc );
-        rb.RuntimeBody     = created.GetValue();
+        EXPECT_TRUE( created.IsSuccess() ) << created.GetError();
+        rb.RuntimeBody = created.IsSuccess() ? created.GetValue() : Physics::kInvalidBody;
         return e;
     }
 
@@ -169,7 +173,9 @@ namespace
     {
         const entt::entity e  = Make( reg, index );
         auto&              cc = reg.emplace<ECS::CharacterControllerComponent>( e );
-        cc.RuntimeCharacter   = world.CreateCharacter( {} );
+        const auto created    = world.CreateCharacter( { .Profile = TestSupport::ProfileId( world, "Pawn" ) } );
+        EXPECT_TRUE( created.IsSuccess() ) << created.GetError();
+        cc.RuntimeCharacter = created.IsSuccess() ? created.GetValue() : Physics::kInvalidCharacter;
         return e;
     }
 } // namespace
@@ -177,7 +183,7 @@ namespace
 TEST( EntityDestroy, DestroyingTheEntityGivesItsJoltBodyAndCharacterBack )
 {
     Physics::PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 981.0f ) );
+    ASSERT_TRUE( world.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
     entt::registry           reg;
     Core::SceneEntityIndex   index;
     ECS::PhysicsBodyLifetime lifetime( world );
@@ -211,7 +217,7 @@ TEST( EntityDestroy, DestroyingTheEntityGivesItsJoltBodyAndCharacterBack )
 TEST( EntityDestroy, AParentsSubtreeAndARemovedColliderAlsoGiveTheirBodiesBack )
 {
     Physics::PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 981.0f ) );
+    ASSERT_TRUE( world.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
     entt::registry           reg;
     Core::SceneEntityIndex   index;
     ECS::PhysicsBodyLifetime lifetime( world );
@@ -242,7 +248,7 @@ TEST( EntityDestroy, AParentsSubtreeAndARemovedColliderAlsoGiveTheirBodiesBack )
 TEST( EntityDestroy, WithoutTheListenerTheBodiesLeak )
 {
     Physics::PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 981.0f ) );
+    ASSERT_TRUE( world.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
     entt::registry         reg;
     Core::SceneEntityIndex index;
 

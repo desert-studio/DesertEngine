@@ -5,6 +5,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Engine/ECS/MaterialSlotAdoption.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Animation/Animator.hpp>
 
@@ -92,7 +93,8 @@ namespace Desert::ECS
                              return;
 
                          // --- Auto-Initialize Material Slots --- (the one rule, AdoptMeshMaterialSlots)
-                         AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
+                         AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.RuntimeMaterialInstances,
+                                                 mesh.MeshHandle );
 
                          // A MaterialService::Invalidate() this frame dropped some runtime Material —
                          // rebuild every cached instance set (parents may be graveyarded). One uint
@@ -477,7 +479,8 @@ namespace Desert::ECS
                          // grey default although its .demat and textures were written (THM1l, live on Fox.glb). A
                          // runtime rig (Convert to Skinned) carries its own slots.
                          if ( !mesh.RuntimeMesh )
-                             AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
+                             AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.RuntimeMaterialInstances,
+                                                     mesh.MeshHandle );
 
                          // One skinned lit material instance (default if no slot assigned), rebuilt only when
                          // the slot set changes.
@@ -580,31 +583,24 @@ namespace Desert::ECS
         }
 
     private:
-        // A component with no material slot takes its mesh asset's (static and skinned alike).
-        // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered later than the mesh)
-        // leaves the slots EMPTY so this retries next frame - pushing Null() handles would pass the empty()
-        // gate forever and freeze the mesh on the fallback material.
-        static void AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>& slots,
-                                            const Assets::AssetHandle&        meshHandle )
+        // A component's Null slots take its mesh asset's materials, PER SECTION (static and skinned alike;
+        // the rule is ECS::AdoptSectionMaterials). A section whose material is not registered yet keeps the
+        // default surface and picks the real one up the frame it resolves — the cached instances are dropped
+        // so the slot loop rebuilds them. Gated by HasUnadoptedSlot: a fully resolved entity costs one scan.
+        static void AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>&          slots,
+                                            std::vector<Graphic::MaterialInstancePtr>& instances,
+                                            const Assets::AssetHandle&                 meshHandle )
         {
-            if ( !slots.empty() || meshHandle.IsNull() )
+            if ( meshHandle.IsNull() || !HasUnadoptedSlot( slots ) )
                 return;
             auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
             if ( meshAsset == nullptr )
                 return;
-            const auto&                      defaultHandles = meshAsset->GetMaterialHandles();
-            std::vector<Assets::AssetHandle> resolved;
-            resolved.reserve( defaultHandles.size() );
-            for ( const auto& h : defaultHandles )
-            {
-                const auto internal =
-                     Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( h );
-                if ( internal.IsNull() )
-                    return;
-                resolved.push_back( internal );
-            }
-            if ( !resolved.empty() )
-                slots = std::move( resolved );
+            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+            if ( AdoptSectionMaterials( slots, meshAsset->GetMaterialHandles(),
+                                        [materials]( const Common::UUID& id )
+                                        { return materials->GetAssetHandleByExternal( id ); } ) )
+                instances.clear();
         }
 
         // The fallback for a mesh with no material slot at all — the DEFAULT SURFACE template's cell per vertex

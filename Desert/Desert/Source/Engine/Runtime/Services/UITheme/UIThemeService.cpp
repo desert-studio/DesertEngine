@@ -88,7 +88,7 @@ namespace Desert::Runtime
         return BOOLSUCCESS;
     }
 
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& handle )
+    const UI::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& handle )
     {
         // An empty slot is silent: it is the state of every canvas authored before themes existed, and a
         // message about it would fire for every such canvas on every frame.

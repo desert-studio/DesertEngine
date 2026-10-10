@@ -12,6 +12,7 @@
 #include <Engine/Core/Glfw.hpp>
 
 #include <chrono>
+#include <format>
 #include <thread>
 
 namespace Desert::Engine
@@ -377,6 +378,19 @@ namespace Desert::Engine
 
     void Application::Destroy()
     {
+    }
+
+    Common::BoolResultStr PresentInterimFrame( const Window& window )
+    {
+        DESERT_PROFILE_SCOPE( "PresentInterimFrame" );
+        if ( const auto presented = window.PresentFinalImage(); !presented.IsSuccess() )
+            return Common::MakeError( std::format( "presenting the interim frame: {}", presented.GetError() ) );
+        if ( const auto prepared = window.PrepareNextFrame(); !prepared.IsSuccess() )
+            return Common::MakeError(
+                 std::format( "acquiring after the interim frame: {}", prepared.GetError() ) );
+        if ( const auto begun = Graphic::Renderer::GetInstance().BeginFrame(); !begun.IsSuccess() )
+            return Common::MakeError( std::format( "beginning after the interim frame: {}", begun.GetError() ) );
+        return BOOLSUCCESS;
     }
 
 } // namespace Desert::Engine

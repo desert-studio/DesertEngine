@@ -25,6 +25,9 @@ namespace Desert::Runtime
         /// 8 MiB: one 1k RGBA8 texture with its mips (5.6 MB) or one 2k BC7 (5.6 MB) per frame, or a dozen
         /// 512 BC textures. A frame always uploads at least one waiting texture, whatever its size.
         uint64_t BytesPerFrame = 8ull * 1024ull * 1024ull;
+        /// Cooks that may hold decoded pixels at once, from the worker to the upload (CookAdmission). 8 x 22 MB
+        /// (a 2k RGBA8 with mips) bounds that memory at ~180 MB however many textures a scene asks for.
+        std::size_t CooksInFlight = 8;
     };
 
     /// What a cook worker hands the frame loop: the decoded texture, or why there is none.
@@ -96,6 +99,14 @@ namespace Desert::Runtime
         /// Cooked results still waiting for their upload (tests, diagnostics).
         std::size_t PendingUploads() const;
 
+        /// TEXTURES ASKED FOR AND NOT YET SETTLED: a read in flight, a cook on a worker, or a cooked result
+        /// waiting for its upload — every entry that `Require` answers Pending. The one source of truth for
+        /// "the pictures the scene asked for are still arriving" (UE
+        /// IStreamingManager::BlockTillAllRequestsFinished before a HighResShot): the loader's Outstanding sees
+        /// only the read, not the cook or the upload, so a gate on it alone opened while two thirds of Bistro's
+        /// textures still drew the white slot default.
+        std::size_t InFlight() const;
+
         void Clear();
 
     private:
@@ -115,6 +126,8 @@ namespace Desert::Runtime
         Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
         void        BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
         void        BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
+        void        SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
+        void        StartAdmittedCooks();
         void        FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome );
 
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
@@ -130,5 +143,7 @@ namespace Desert::Runtime
         std::shared_ptr<TextureUploads> m_Uploads        = std::make_shared<TextureUploads>();
         mutable uint64_t                m_NextCookTicket = 0;
         TextureUploadSettings           m_UploadSettings;
+        /// Main thread: which asked-for cooks may run now; the rest wait as keys (SHOT-SETTLE-c).
+        mutable CookAdmission<Assets::AssetHandle> m_CookAdmission{ m_UploadSettings.CooksInFlight };
     };
 } // namespace Desert::Runtime

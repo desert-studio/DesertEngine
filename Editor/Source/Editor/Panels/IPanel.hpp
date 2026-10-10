@@ -13,6 +13,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/EditableProperty.hpp>
+#include <Editor/Panels/AssetEditorToolbar.hpp>
 #include <Editor/Core/EditorSubject.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
 
@@ -250,6 +251,23 @@ namespace Desert::Editor
         };
 
         [[nodiscard]] virtual std::vector<DocumentAction> Actions()
+        {
+            return {};
+        }
+
+        // ── THE ASSET-EDITOR FRAME: toolbar on top, status bar at the bottom ─────────────────────────────
+        //
+        // Every document whose subject is an asset is drawn inside one frame (DocumentWellView): Save and
+        // Browse first, then whatever the editor appends here (UE: FAssetEditorToolkit::AddToolbarExtender),
+        // and a status line under the body. Empty by default: an editor with no entries of its own still has
+        // the common ones, which is the point of the frame owning them.
+        virtual void ExtendToolbar( AssetEditorToolbar& /*toolbar*/ )
+        {
+        }
+
+        // The editor's own words on the right of the status bar ("1,204 tris · 812 verts"); empty = nothing to
+        // add to the asset's path and saved state, which the frame draws for every asset editor.
+        [[nodiscard]] virtual std::string StatusText() const
         {
             return {};
         }

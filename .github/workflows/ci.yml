@@ -796,8 +796,27 @@ jobs:
       # test directory, checked in the script and not assumed from it — which is the right direction for
       # the failure to point and still not a verdict worth spending a step on. See the same note on the
       # Windows job.
+      #
+      # THE SUITE LIST GOES THROUGH THE SAME PLAN AS THE SHARDS (CI-MVK). macos-14 is the VM with no Metal
+      # device for MoltenVK that the sanitizer shards already leave the Vulkan-device suites out on; this
+      # job ran build/TestManifest.txt whole, so EngineHost and RenderGraphVulkan failed here on every run
+      # since CI-DEVICE named them (CI 37647847473 onward). One shard of TestShards.py plan is that rule
+      # with nothing split: the suites in build/TestNeedsVulkanDevice.txt are named in a ::notice unless
+      # DESERT_MACOS_VULKAN_RUNNER is 'true', and RunTests.sh runs the planned list. The asan column is the
+      # macOS one in the timing table; with one shard it only orders the list, heaviest first.
+      - name: Plan test suites
+        if: matrix.config != 'Shipping'
+        env:
+          DESERT_MACOS_VULKAN_RUNNER: ${{ vars.DESERT_MACOS_VULKAN_RUNNER }}
+        run: >-
+          python3 scripts/CI/TestShards.py plan --expected build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
+          --column asan --shards 1 --out build/TestPlan
+          --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_MACOS_VULKAN_RUNNER
+
       - name: Run tests
         if: matrix.config != 'Shipping'
+        env:
+          TEST_LIST: build/TestPlan/shard-1.txt
         run: ./scripts/MacOS/RunTests.sh "$PWD" ${{ matrix.config }}
 
       # Offline shader lint: every .shader parses with the SAME DShaderParser the engine uses —

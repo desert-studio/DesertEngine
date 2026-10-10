@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Assets/UIThemeData.hpp>
+#include <Engine/UI/Style/UIThemeRuntime.hpp>
 #include <Engine/UI/UIStyleSlots.hpp>
 
 #include <glm/glm.hpp>
@@ -36,7 +36,7 @@ namespace Desert::UI
     public:
         ElementStyle() = default;
 
-        ElementStyle( const Assets::UIThemeRuntime* theme, const Assets::UIThemeStyleTable* table, float fontScale,
+        ElementStyle( const UIThemeRuntime* theme, const UIThemeStyleTable* table, float fontScale,
                       bool highContrast )
              : m_Theme( theme ), m_Table( table ), m_FontScale( fontScale ), m_HighContrast( highContrast )
         {
@@ -47,7 +47,7 @@ namespace Desert::UI
         [[nodiscard]] bool IsThemed( StyleSlot slot ) const
         {
             return m_Theme != nullptr && m_Table != nullptr &&
-                   m_Table->Slots[static_cast<std::size_t>( slot )] != Assets::kUIThemeUnbound;
+                   m_Table->Slots[static_cast<std::size_t>( slot )] != kUIThemeUnbound;
         }
 
         /// The colour for @p slot, or @p local when the style does not bind it.
@@ -114,7 +114,7 @@ namespace Desert::UI
         /// The font asset for @p slot, or @p local when the style does not bind it. A themed font whose
         /// path the asset scan did not find resolves to a null handle, which every consumer already reads
         /// as "the built-in face"; the THEME ASSET logs that path, because only it knows what the path was.
-        [[nodiscard]] Assets::AssetHandle Font( StyleSlot slot, const Assets::AssetHandle& local ) const
+        [[nodiscard]] Common::AssetHandle Font( StyleSlot slot, const Common::AssetHandle& local ) const
         {
             if ( !IsThemed( slot ) )
                 return local;
@@ -125,14 +125,14 @@ namespace Desert::UI
 
         /// The theme behind this element, or nullptr. For the editor's style table and for log messages;
         /// the walk never needs it.
-        [[nodiscard]] const Assets::UIThemeRuntime* Theme() const
+        [[nodiscard]] const UIThemeRuntime* Theme() const
         {
             return m_Theme;
         }
 
     private:
-        const Assets::UIThemeRuntime*    m_Theme        = nullptr;
-        const Assets::UIThemeStyleTable* m_Table        = nullptr;
+        const UIThemeRuntime*            m_Theme        = nullptr;
+        const UIThemeStyleTable*         m_Table        = nullptr;
         float                            m_FontScale    = 1.0f;
         bool                             m_HighContrast = false;
     };
@@ -156,12 +156,12 @@ namespace Desert::UI
         CanvasStyle() = default;
 
         /// @p theme may be null — that is a canvas with no theme, and every element is then fully local.
-        CanvasStyle( const Assets::UIThemeRuntime* theme, float fontScale, bool highContrast )
+        CanvasStyle( const UIThemeRuntime* theme, float fontScale, bool highContrast )
              : m_Theme( theme ), m_FontScale( std::max( 0.01f, fontScale ) ), m_HighContrast( highContrast )
         {
         }
 
-        [[nodiscard]] const Assets::UIThemeRuntime* Theme() const
+        [[nodiscard]] const UIThemeRuntime* Theme() const
         {
             return m_Theme;
         }
@@ -194,13 +194,13 @@ namespace Desert::UI
             if ( m_Theme == nullptr )
                 return ElementStyle( nullptr, nullptr, m_FontScale, m_HighContrast );
 
-            const Assets::UIThemeStyleTable* table = m_Theme->FindStyle( styleName );
+            const UIThemeStyleTable* table         = m_Theme->FindStyle( styleName );
             unknownStyle                           = table == nullptr;
             return ElementStyle( m_Theme, table, m_FontScale, m_HighContrast );
         }
 
     private:
-        const Assets::UIThemeRuntime* m_Theme        = nullptr;
+        const UIThemeRuntime*         m_Theme        = nullptr;
         float                         m_FontScale    = 1.0f;
         bool                          m_HighContrast = false;
     };

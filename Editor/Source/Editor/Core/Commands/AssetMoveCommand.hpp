@@ -7,10 +7,13 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <filesystem>
+#include <ranges>
 #include <map>
 #include <memory>
+#include <format>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -126,5 +129,81 @@ namespace Desert::Editor
         CommandHistory::Get().PushCommand(
              std::make_unique<AssetFolderMoveCommand>( moved.ExtractValue(), std::move( label ) ) );
         return Common::MakeSuccess( to );
+    }
+    // A DELETE ON THE UNDO STACK (ASSET-TRASH): the delete moved each asset into the project's trash, so undo
+    // puts the very same bytes back at the very same paths with their registry rows (GUIDs and every reference
+    // intact), last deleted first; redo trashes them again into new slots. One entry for a whole selection. Not
+    // volatile: it names files by path, not live objects.
+    class AssetTrashCommand final : public ICommand
+    {
+    public:
+        AssetTrashCommand( std::vector<Common::Content::AssetTrashRecord> records, std::string label )
+             : m_Records( std::move( records ) ), m_Label( std::move( label ) )
+        {
+        }
+
+        bool Undo() override
+        {
+            bool all = true;
+            for ( const auto& record : std::views::reverse( m_Records ) )
+                if ( const auto restored = Assets::ContentRegistry::RestoreTrashed( record ); !restored )
+                {
+                    LOG_ERROR( "[Trash] {}", restored.GetError() );
+                    all = false;
+                }
+            return all;
+        }
+
+        bool Redo() override
+        {
+            bool all = true;
+            for ( Common::Content::AssetTrashRecord& record : m_Records )
+            {
+                auto trashed = Assets::ContentRegistry::TrashAsset( record.From, record.Slot.parent_path() );
+                if ( !trashed )
+                {
+                    LOG_ERROR( "[Trash] redo: {}", trashed.GetError() );
+                    all = false;
+                    continue;
+                }
+                record = trashed.ExtractValue();
+            }
+            return all;
+        }
+
+        [[nodiscard]] std::string GetLabel() const override
+        {
+            return m_Label;
+        }
+
+    private:
+        std::vector<Common::Content::AssetTrashRecord> m_Records;
+        std::string                                    m_Label;
+    };
+
+    // The editor's delete: every path into the project's trash (Saved/Trash), one undo entry for what was
+    // trashed. Each refusal is returned by name; the rest are still deleted (and undoable).
+    [[nodiscard]] inline std::vector<std::string>
+    DeleteAssetsWithUndo( const std::vector<std::filesystem::path>& paths )
+    {
+        std::vector<Common::Content::AssetTrashRecord> records;
+        std::vector<std::string>                       refusals;
+        for ( const std::filesystem::path& path : paths )
+        {
+            auto trashed = Assets::ContentRegistry::TrashAsset( path, Common::Content::ProjectTrashRoot() );
+            if ( trashed )
+                records.push_back( trashed.ExtractValue() );
+            else
+                refusals.push_back( trashed.GetError() );
+        }
+        if ( !records.empty() )
+        {
+            std::string label = records.size() == 1
+                                     ? std::format( "Delete {}", records.front().From.filename().string() )
+                                     : std::format( "Delete {} assets", records.size() );
+            CommandHistory::Get().PushCommand(
+                 std::make_unique<AssetTrashCommand>( std::move( records ), std::move( label ) ) );
+        }
+        return refusals;
     }
 } // namespace Desert::Editor

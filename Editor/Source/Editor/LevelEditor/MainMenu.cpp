@@ -10,6 +10,8 @@
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/ThemeManager.hpp"
 #include "Editor/LevelEditor/DocumentHost.hpp"
+#include "Editor/LevelEditor/LevelToolbar.hpp"
+#include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/PreferencesWindow.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
@@ -556,4 +558,35 @@ namespace Desert::Editor
         ImGui::EndMenu();
     }
 
+    void MainMenu::DrawBar( LevelToolbar& toolbar, ProfilerWindow& profiler, UI::WindowChrome* chrome )
+    {
+        ::ImGui::PushStyleVar( ImGuiStyleVar_WindowBorderSize, 0.0f );
+        if ( ::ImGui::BeginMainMenuBar() )
+        {
+            DrawMenus();
+
+            LevelToolbar::DrawProjectSection();
+            toolbar.DrawSceneRenameSection();
+            // Play/Pause/Stop live in the toolbar strip (LevelToolbar::Draw), not the menu bar.
+            //
+            // THIS BAR IS THE WINDOW'S TITLE BAR. The editor asks for a window without a frame (Sandbox.hpp),
+            // so the three window commands and the bar's own gestures come here — only when the window really
+            // is frameless; with a system frame they would be a second set of buttons for the same actions.
+            const float chromeWidth = chrome != nullptr ? UI::WindowChrome::WindowButtonsWidth() : 0.0f;
+            profiler.DrawEngineStats( chromeWidth );
+            if ( chrome != nullptr )
+            {
+                chrome->DrawWindowButtons();
+                // LAST inside the bar: "over the bar and over nothing on it" is only a question with an
+                // answer once everything on it has been submitted.
+                chrome->HandleTitleBarGestures();
+            }
+
+            ::ImGui::EndMainMenuBar();
+
+            m_SceneFiles.DrawDialogs();
+            m_Preferences.Draw();
+        }
+        ::ImGui::PopStyleVar();
+    }
 } // namespace Desert::Editor

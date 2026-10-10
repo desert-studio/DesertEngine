@@ -175,6 +175,7 @@ namespace Common::Constants
             LevelSequence,
             VFX,
             Fracture,
+            WaterWaves,
             Cooked,
             COUNT
         };
@@ -193,6 +194,9 @@ namespace Common::Constants
         // The Cooked tree's own name under the project directory. One spelling, used by the derivation
         // and by the relation test; not a setting (see the refusal above).
         inline constexpr std::string_view COOKED_DIR_NAME = "Cooked";
+
+        // The project's settings folder's own name under the project directory (UE: <Project>/Config).
+        inline constexpr std::string_view PROJECT_CONFIG_DIR_NAME = "Config";
 
         struct ContentDirSpec
         {
@@ -270,6 +274,9 @@ namespace Common::Constants
              /* VFX           */ { "VFX/", DirRoot::Assets },
              // Baked fractures (`.dfrac`, UE fractured Geometry Collections) beside the meshes they cut.
              /* Fracture      */ { "Fractures/", DirRoot::Assets },
+             // Water wave sets (`.dwaves`, UE UWaterWavesAsset) get their own folder for the anim graph's
+             // reason: a water body's waves slot offers only what is scanned from here.
+             /* WaterWaves    */ { "Water/Waves/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -382,6 +389,11 @@ namespace Common::Constants
 
             inline ProjectRootState                                     s_ProjectRoot{};
             inline std::array<std::filesystem::path, CONTENT_DIR_COUNT> s_Dirs = Derive( s_ProjectRoot );
+
+            // <projectDir>/Config: the project's settings tables (UE: FPaths::ProjectConfigDir) — the collision
+            // channel/profile register among them. Not a census row: no content kind is scanned from it and it
+            // hangs off the project folder, not the assets root. Assigned only by SetProjectRoot.
+            inline std::filesystem::path s_ProjectConfig{};
 
             // The storage slot behind a named view: binding a reference is not a read, so it is unchecked.
             inline const std::filesystem::path& Slot( ContentDir d ) noexcept
@@ -506,6 +518,9 @@ namespace Common::Constants
         {
             Detail::s_ProjectRoot = ProjectRootState{ projectDir, assetsRoot };
             Detail::s_Dirs        = Detail::Derive( Detail::s_ProjectRoot );
+            Detail::s_ProjectConfig = projectDir.empty()
+                                           ? std::filesystem::path{}
+                                           : ( projectDir / PROJECT_CONFIG_DIR_NAME ).lexically_normal();
         }
 
         // Sets the engine directory (see the top of this namespace) and re-derives every path that hangs
@@ -606,7 +621,10 @@ namespace Common::Constants
         inline const std::filesystem::path& LEVEL_SEQUENCE_PATH = Detail::Slot( ContentDir::LevelSequence );
         inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
         inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
+        inline const std::filesystem::path& WATER_WAVES_PATH    = Detail::Slot( ContentDir::WaterWaves );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
+        // Empty while no project is open (a read of an empty path finds nothing, the reader refuses by name).
+        inline const std::filesystem::path& PROJECT_CONFIG_PATH = Detail::s_ProjectConfig;
     } // namespace Path
 
     namespace Extensions

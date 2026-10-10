@@ -86,6 +86,7 @@ namespace
                 text << probe.rdbuf();
                 return text.str();
             }
+        ADD_FAILURE() << "no repository file " << relative;
         return {};
     }
 
@@ -691,4 +692,28 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
     EXPECT_EQ( orm->Parts[0].Source.filename().string(), "Bistro_Specular.png" );
     EXPECT_EQ( orm->Parts[0].Channels, "rgb" ) << "R=AO, G=roughness, B=metal keep their places";
     EXPECT_FALSE( orm->NeedsPacking() ) << "one image fills every ORM channel: it binds as is";
+}
+
+// BISTRO-COLOR: the ORCA Bistro Specular map is Falcor's metal-rough - roughness in G, metal in B, R 0 in every
+// one of its 201 maps. Stated as RoughnessMetallic it routes G and B only (the import packs an R of no occlusion),
+// and the image is the whole of roughness and metal: the factors it multiplies are 1, not the template's metal 0.
+TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusionAlone )
+{
+    const SourceMaterial source =
+         WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::RoughnessMetallic );
+    EXPECT_FALSE( source.Has( kFbxSpecularMapKey ) );
+    const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
+    EXPECT_TRUE( fill.UnreadKeys.empty() ) << fill.UnreadKeys.front();
+    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    ASSERT_NE( orm, nullptr ) << "the packed map did not reach the ORM slot";
+    ASSERT_EQ( orm->Parts.size(), 1u );
+    EXPECT_EQ( orm->Parts[0].Channels, "gb" ) << "R of this map is not occlusion";
+    EXPECT_TRUE( orm->NeedsPacking() ) << "the slot's R must come from the packer (no occlusion), not the map";
+    for ( const char* factor : { "MetallicFactor", "RoughnessFactor" } )
+    {
+        const auto it =
+             std::ranges::find_if( fill.Params, [&]( const ImportedParam& p ) { return p.Name == factor; } );
+        ASSERT_NE( it, fill.Params.end() ) << factor;
+        EXPECT_EQ( it->Value.x, 1.0f ) << factor << ": the map is the whole value";
+    }
 }

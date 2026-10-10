@@ -97,6 +97,8 @@ namespace
                       "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
          PathOnlyRow{ ContentKind::Fracture,
                       "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
+         PathOnlyRow{ ContentKind::WaterWaves,
+                      "no referrer yet: the water body component (WATER-W2) writes the .dwaves GUID" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -267,6 +269,15 @@ namespace
                                          Common::Content::AssetGuidToText( guid ) +
                                          "\",\"Versions\":{\"LLYI\":3},\"Dependencies\":[]},"
                                          "\"LayerName\":\"AF10a_Probe\"}\n";
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::WaterWaves:
+            {
+                // No wave set ships with the corpus yet; the least `.dwaves` header the scan reads.
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"WaterWaves","Guid":"{}","Versions":{{"WAVS":1}},"Dependencies":[]}}}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };
             }
             case ContentKind::VFXSystem:

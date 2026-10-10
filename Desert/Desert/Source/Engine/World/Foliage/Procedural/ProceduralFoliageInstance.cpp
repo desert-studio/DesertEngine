@@ -5,28 +5,6 @@
 
 namespace Desert::World::Foliage::Procedural
 {
-    float RandomStream::GetFraction()
-    {
-        MutateSeed();
-        // The 23 high bits of the seed as the mantissa of a float in [1, 2).
-        const uint32_t bits = 0x3F800000u | ( m_Seed >> 9 );
-        return std::bit_cast<float>( bits ) - 1.0f;
-    }
-
-    uint32_t RandomStream::GetUnsignedInt()
-    {
-        MutateSeed();
-        return m_Seed;
-    }
-
-    int32_t RandomStream::RandRange( int32_t min, int32_t max )
-    {
-        const int32_t range = ( max - min ) + 1;
-        if ( range <= 0 )
-            return min;
-        return min + std::min( static_cast<int32_t>( FRand() * static_cast<float>( range ) ), range - 1 );
-    }
-
     float MaxRadius( const Assets::Serialization::FoliageProcedural& type )
     {
         return std::max( type.CollisionRadius, type.ShadeRadius );
@@ -60,7 +38,7 @@ namespace Desert::World::Foliage::Procedural
         return type.ProceduralScale.Min + ( type.ProceduralScale.Max - type.ProceduralScale.Min ) * share;
     }
 
-    float InitAge( const Assets::Serialization::FoliageProcedural& type, RandomStream& stream )
+    float InitAge( const Assets::Serialization::FoliageProcedural& type, Common::Math::RandomStream& stream )
     {
         return type.MaxInitialAge * stream.GetFraction();
     }

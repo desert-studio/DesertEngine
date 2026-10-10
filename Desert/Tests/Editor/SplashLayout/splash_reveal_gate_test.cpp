@@ -88,44 +88,13 @@ TEST( SplashRevealGate, ACachedThumbnailIsDecodedBeforeTheHandOverAndACaptureIsN
     EXPECT_TRUE( Splash::ThumbnailCaptureAllowed( headless ) );
 }
 
-// THUMB2/THM1n: the opening folder's CACHED thumbnails hold the hand-over until they are up — no time bound —
-// and never open the capture gate: capture stays behind the hand-over whatever the upload pass is doing.
-TEST( SplashRevealGate, TheOpeningFolderThumbnailsHoldTheHandOverUntilTheyAreUp )
-{
-    Splash::RevealState s;
-    s.HasSplash           = true;
-    s.RealFrameDrawn      = true;
-    s.ThumbnailsUploading = true;
-    EXPECT_FALSE( Splash::MayReveal( s ) ) << "the window was shown before its folder's cached pictures were up";
-    EXPECT_FALSE( Splash::ThumbnailCaptureAllowed( s ) ) << "the upload pass opened the capture gate";
-    s.ThumbnailsUploading = false;
-    EXPECT_TRUE( Splash::MayReveal( s ) );
-
-    EXPECT_TRUE( Splash::ThumbnailsHoldReveal( 3 ) ) << "a picture still decoding holds the splash, however long";
-    EXPECT_FALSE( Splash::ThumbnailsHoldReveal( 0 ) ) << "nothing pending must not hold the splash";
-}
-
-// THUMB3: the splash may capture the open scene's materials, once the start-up stages are done and the
-// scene is loaded: a capture needs the renderer, and the warm list needs the scene's roots.
-TEST( SplashRevealGate, TheScenesCapturesMayRunOnTheSplashOnceTheSceneIsLoaded )
+// THUMB-LAZY: no thumbnail holds the hand-over. A content-settled editor with its first real frame is
+// shown whatever the browser has not pictured yet; a capture then waits only for the reveal.
+TEST( SplashRevealGate, NoThumbnailHoldsTheHandOver )
 {
     Splash::RevealState s = Ready();
-    EXPECT_TRUE( Splash::SceneThumbnailCaptureAllowed( s ) );
-    EXPECT_FALSE( Splash::ThumbnailCaptureAllowed( s ) ) << "the folder's captures still wait for the reveal";
-
-    s.StartupLoading = true;
-    EXPECT_FALSE( Splash::SceneThumbnailCaptureAllowed( s ) ) << "no renderer before the stages are done";
-    s.StartupLoading   = false;
-    s.SceneLoadPending = true;
-    EXPECT_FALSE( Splash::SceneThumbnailCaptureAllowed( s ) ) << "no scene roots before the scene is loaded";
-    s.SceneLoadPending = false;
-    s.Revealed         = true;
-    EXPECT_FALSE( Splash::SceneThumbnailCaptureAllowed( s ) ) << "after the reveal the whole queue runs instead";
-}
-
-TEST( SplashRevealGate, TheSplashsCapturesHoldTheHandOverUntilEveryOneIsDone )
-{
-    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 3 ) ) << "no time bound: the window waits for every picture";
-    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 400 ) ) << "a folder of hundreds too (owner, THM1m)";
-    EXPECT_FALSE( Splash::SceneCapturesHoldReveal( 0 ) );
+    EXPECT_TRUE( Splash::MayReveal( s ) );
+    EXPECT_FALSE( Splash::ThumbnailCaptureAllowed( s ) ) << "a capture would compete with the settle";
+    s.Revealed = true;
+    EXPECT_TRUE( Splash::ThumbnailCaptureAllowed( s ) );
 }

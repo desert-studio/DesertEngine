@@ -27,11 +27,11 @@ namespace Desert::Core
         void VisitFields( Self& p, Fn&& fn )
         {
             auto& [name, displayName, category, tooltip, type, widget, isTexture, timing, assetKind, isCube,
-                   engineSet, lo, hi, defaultValue, defaultTexture, sampler] = p;
+                   engineSet, lo, hi, defaultValue, defaultTexture, slotIntent, sampler] = p;
             fn( name ), fn( displayName ), fn( category ), fn( tooltip ), fn( type ), fn( widget ),
                  fn( isTexture );
             fn( timing ), fn( assetKind ), fn( isCube ), fn( engineSet ), fn( lo ), fn( hi ), fn( defaultValue ),
-                 fn( defaultTexture ), fn( sampler );
+                 fn( defaultTexture ), fn( slotIntent ), fn( sampler );
         }
 
         template <class Self, class Fn>

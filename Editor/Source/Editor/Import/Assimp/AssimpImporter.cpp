@@ -1131,7 +1131,8 @@ namespace Desert::Editor
         return Common::MakeSuccess( ImportContentKind::StaticMesh );
     }
 
-    ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager )
+    ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager,
+                                         const Assets::SourceImportSettings& settings )
     {
         static ScopedAssimpLogger logger;
         Assimp::Importer          importer;
@@ -1164,10 +1165,20 @@ namespace Desert::Editor
         float                    statedCentimetresPerUnit = 0.0f;
         const bool               stated = ReadStatedUnitScale( *scene, statedCentimetresPerUnit );
         const ImportUnits::Scale unit =
-             ImportUnits::Resolve( path.extension().string(), stated, statedCentimetresPerUnit );
+             ImportUnits::Resolve( path.extension().string(), stated, statedCentimetresPerUnit,
+                                   Assets::MeshFileUnitCentimetres( settings.FileUnit ) );
 
         switch ( unit.From )
         {
+            case ImportUnits::Source::StatedBySettings:
+                if ( stated && statedCentimetresPerUnit != unit.CentimetresPerUnit )
+                    LOG_WARN( "[Import] {}: the file states 1 unit = {} cm and the import settings say {} ({}); "
+                              "the settings win",
+                              fileName, statedCentimetresPerUnit, unit.CentimetresPerUnit,
+                              Assets::MeshFileUnitName( settings.FileUnit ) );
+                LOG_INFO( "[Import] {}: 1 file unit = {} cm ({}); geometry scaled by {}", fileName,
+                          unit.CentimetresPerUnit, ImportUnits::Describe( unit.From ), unit.CentimetresPerUnit );
+                break;
             case ImportUnits::Source::StatedByFile:
             case ImportUnits::Source::FixedByFormat:
                 LOG_INFO( "[Import] {}: 1 file unit = {} cm ({}); geometry scaled by {}", fileName,
@@ -1176,8 +1187,8 @@ namespace Desert::Editor
             case ImportUnits::Source::AssumedCentimetres:
                 // Not a silent guess: the file is about to be treated as centimetres and the log says so,
                 // because a model that turns up 100x wrong is only debuggable if this line exists.
-                LOG_WARN( "[Import] {}: {} — taking 1 file unit = 1 cm. Re-export stating the unit if the "
-                          "model imports at the wrong size.",
+                LOG_WARN( "[Import] {}: {} (an OBJ never states one) — taking 1 file unit = 1 cm. Set the "
+                          "import's File Unit if the model was authored in another unit.",
                           fileName, ImportUnits::Describe( unit.From ) );
                 break;
             case ImportUnits::Source::StatedButUnusable:

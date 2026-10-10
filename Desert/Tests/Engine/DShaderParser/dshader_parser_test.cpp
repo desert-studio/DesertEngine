@@ -3,6 +3,8 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 
+#include <format>
+
 using Desert::Core::Preprocess::DShaderParser;
 using namespace Desert::Core::Formats;
 
@@ -215,6 +217,40 @@ Shader "Bad"
     auto        refused = DShaderParser::Parse( bad );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "EngineSet" ), std::string::npos ) << refused.GetError();
+}
+
+// IMP-DDS-BLOCKS: a texture Property says what its image is for; the importer writes it into a texture asset it
+// creates for that slot. A word outside TextureIntent's table, or Intent on anything but a Texture2D, is refused
+// by name — never read as Unspecified. Mutation: DShaderParser.cpp drop the `intent == Count` refusal => red.
+TEST( DShaderParser, IntentIsCarriedOnATextureAndAnUnknownWordOrAScalarIsRefused )
+{
+    const auto shader = []( const std::string& props )
+    {
+        return std::format(
+             "Shader \"Slots\"\n{{\n    Properties\n    {{\n{}\n    }}\n"
+             "    Vertex   {{ void main() {{ gl_Position = vec4(0.0); }} }}\n"
+             "    Fragment {{ layout( location = 0 ) out vec4 o; void main() {{ o = vec4(1.0); }} }}\n}}\n",
+             props );
+    };
+    auto res = DShaderParser::Parse( shader( R"(        Texture2D u_Normal ("Normal", Intent(NormalMap)) = "normal"
+        Texture2D u_Albedo ("Albedo", Intent(Colour))
+        Texture2D u_Plain  ("Plain"))" ) );
+    ASSERT_TRUE( res.IsSuccess() ) << res.GetError();
+    const auto& params = res.GetValue().Meta.Params;
+    ASSERT_EQ( params.size(), 3u );
+    EXPECT_EQ( params[0].SlotIntent, TextureIntent::NormalMap );
+    EXPECT_EQ( params[1].SlotIntent, TextureIntent::Colour );
+    EXPECT_EQ( params[2].SlotIntent, TextureIntent::Unspecified ) << "no Intent states nothing";
+
+    for ( const char* bad : { R"(        Texture2D u_Normal ("Normal", Intent(Foo)))",
+                              R"(        Texture2D u_Normal ("Normal", Intent(normalmap)))",
+                              R"(        Texture2D u_Normal ("Normal", Intent(Unspecified)))",
+                              R"(        float Height ("Height", Intent(Data)) = 1.0)" } )
+    {
+        auto refused = DShaderParser::Parse( shader( bad ) );
+        ASSERT_FALSE( refused.IsSuccess() ) << bad;
+        EXPECT_NE( refused.GetError().find( "Intent" ), std::string::npos ) << refused.GetError();
+    }
 }
 
 TEST( DShaderParser, ParsesRenderState )

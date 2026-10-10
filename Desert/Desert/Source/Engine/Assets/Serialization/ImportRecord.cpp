@@ -21,7 +21,10 @@ namespace Desert::Assets::Serialization
                       : std::nullopt,
                  settings.SpecularMap == Assets::FbxSpecularMap::Specular
                       ? std::nullopt
-                      : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ) };
+                      : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
+                 settings.FileUnit == Assets::MeshFileUnit::FromFile
+                      ? std::nullopt
+                      : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ) };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -50,10 +53,20 @@ namespace Desert::Assets::Serialization
             const auto specular = Assets::FbxSpecularMapFromName( *text.SpecularMap );
             if ( !specular )
                 return Common::MakeFormattedError<Result>(
-                     "import settings name Specular map meaning '{}'; this build knows Specular and "
-                     "OcclusionRoughnessMetallic",
+                     "import settings name Specular map meaning '{}'; this build knows Specular, "
+                     "OcclusionRoughnessMetallic and RoughnessMetallic",
                      *text.SpecularMap );
             out.SpecularMap = *specular;
+        }
+        if ( text.FileUnit )
+        {
+            const auto unit = Assets::MeshFileUnitFromName( *text.FileUnit );
+            if ( !unit )
+                return Common::MakeFormattedError<Result>(
+                     "import settings name file unit '{}'; this build knows FromFile, Millimetres, "
+                     "Centimetres, Metres, Inches and Feet",
+                     *text.FileUnit );
+            out.FileUnit = *unit;
         }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
@@ -100,6 +113,17 @@ namespace Desert::Assets::Serialization
         if ( importsMesh && !data.Bounds )
             return Common::MakeFormattedError<ImportRecordData>( "import record of a {} states no Bounds",
                                                                  Common::Content::KindName( kind ) );
+        if ( data.Nodes )
+            for ( const ImportRecordNode& node : *data.Nodes )
+            {
+                if ( node.Name.empty() )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record names a node with no Name" );
+                if ( !std::isfinite( node.Placement[0] ) || !std::isfinite( node.Placement[1] ) ||
+                     !std::isfinite( node.Placement[2] ) )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record: the Placement of node '{}' is not finite", node.Name );
+            }
         if ( data.Thumbnail )
         {
             if ( data.Thumbnail->empty() )
@@ -285,8 +309,8 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : Resolve( it->second ) );
     }
 
-    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
-                                                const std::optional<std::vector<std::string>>& nodes )
+    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                        source,
+                                                const std::optional<std::vector<ImportRecordNode>>& nodes )
     {
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
         auto                        data   = ReadImportRecord( source );
