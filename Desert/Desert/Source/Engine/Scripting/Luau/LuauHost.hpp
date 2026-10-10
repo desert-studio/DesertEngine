@@ -130,7 +130,8 @@ namespace Desert::Scripting
     glm::vec3 CheckVec3( lua_State* L, int first );
 
     // ── The host's natives (see the note above) ─────────────────────────────
-    void RegisterHostNatives( lua_State* L );          // log(), Timer.after, World.set/get/has/raycast/cameraRay, valid/destroy/call
+    void RegisterHostNatives(
+         lua_State* L ); // log(), Timer.after, World.set/get/has/raycast/cameraRay, valid/destroy/call
     void RegisterUIBindings( lua_State* L );           // ui table (data store, collections, toasts)
     void RegisterLocalizationBindings( lua_State* L ); // loc table (text/plural/number/money/date/language)
 } // namespace Desert::Scripting

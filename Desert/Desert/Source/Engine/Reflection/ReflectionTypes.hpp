@@ -183,7 +183,7 @@ namespace Desert::Reflection
         std::string Tooltip;                // FUNCTION(Tooltip("..."))  — hover help
         std::string ScriptName;             // FUNCTION(ScriptName("...")) — the name a language binds (UE's
                                             // meta=(ScriptName)); empty = the C++ name
-        bool        ScriptMethod = false;   // FUNCTION(ScriptMethod) — a static whose first parameter is an
+        bool ScriptMethod = false;          // FUNCTION(ScriptMethod) — a static whose first parameter is an
                                             // entity, bound as a method of the entity (UE's meta=(ScriptMethod))
     };
 

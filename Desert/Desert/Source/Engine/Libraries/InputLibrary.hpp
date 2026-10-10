@@ -20,7 +20,8 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptName( "isKeyDown" ), Tooltip( "Whether the named key is held." ) )
         static bool IsKeyDown( const std::string& key );
 
-        FUNCTION( ScriptCallable, ScriptName( "wasPressed" ), Tooltip( "Whether the named key went down this frame." ) )
+        FUNCTION( ScriptCallable, ScriptName( "wasPressed" ),
+                  Tooltip( "Whether the named key went down this frame." ) )
         static bool WasPressed( const std::string& key );
 
         FUNCTION( ScriptCallable, ScriptName( "mouseDelta" ), Tooltip( "This frame's mouse movement (x, y)." ) )
@@ -32,7 +33,8 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptName( "showCursor" ), Tooltip( "Frees the cursor (click UI)." ) )
         static void ShowCursor();
 
-        FUNCTION( ScriptCallable, ScriptName( "isMouseDown" ), Tooltip( "Whether \"left\", \"right\" or \"middle\" is held." ) )
+        FUNCTION( ScriptCallable, ScriptName( "isMouseDown" ),
+                  Tooltip( "Whether \"left\", \"right\" or \"middle\" is held." ) )
         static bool IsMouseDown( const std::string& button );
 
         /// Advances the frame: key edges for WasPressed, and the mouse delta the host computed (capture aware).

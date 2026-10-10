@@ -22,8 +22,9 @@ namespace Desert::Scripting
 {
     // The game's script host — LANGUAGE-FREE: no language type appears here (PIMPL); the one implementation is
     // the Luau plugin (Luau/LuauScriptEngine.cpp: sandboxed slots, the watchdog, compiled-once bytecode). What
-    // the engine offers a script is its public reflected layer (FUNCTION/EVENT), bound by the language. The engine exposes capabilities + lifecycle to scripts, so game behavior lives in hot-reloadable
-    // scripts instead of compiled C++. Engine = mechanism/hot-path; script = behavior/decisions.
+    // the engine offers a script is its public reflected layer (FUNCTION/EVENT), bound by the language. The engine
+    // exposes capabilities + lifecycle to scripts, so game behavior lives in hot-reloadable scripts instead of
+    // compiled C++. Engine = mechanism/hot-path; script = behavior/decisions.
     //
     // `self` is the entity object: its data by record key (self:component("PointLight"), has/add/remove), its
     // verbs as native methods (destroy, call, move, ...). No Luau type appears here (PIMPL).

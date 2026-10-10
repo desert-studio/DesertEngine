@@ -25,13 +25,21 @@ namespace Desert::Libraries
                 if ( c >= '0' && c <= '9' )
                     return static_cast<K>( c ); // KeyCode::D0..D9 == ASCII '0'..'9'
             }
-            static const std::unordered_map<std::string, K> kNamed = {
-                 { "Space", K::Space },     { "Shift", K::LeftShift },       { "LeftShift", K::LeftShift },
-                 { "Ctrl", K::LeftControl }, { "LeftControl", K::LeftControl }, { "Alt", K::LeftAlt },
-                 { "LeftAlt", K::LeftAlt }, { "Tab", K::Tab },               { "Enter", K::Enter },
-                 { "Escape", K::Escape },   { "Left", K::Left },             { "Right", K::Right },
-                 { "Up", K::Up },           { "Down", K::Down } };
-            const auto it = kNamed.find( name );
+            static const std::unordered_map<std::string, K> kNamed = { { "Space", K::Space },
+                                                                       { "Shift", K::LeftShift },
+                                                                       { "LeftShift", K::LeftShift },
+                                                                       { "Ctrl", K::LeftControl },
+                                                                       { "LeftControl", K::LeftControl },
+                                                                       { "Alt", K::LeftAlt },
+                                                                       { "LeftAlt", K::LeftAlt },
+                                                                       { "Tab", K::Tab },
+                                                                       { "Enter", K::Enter },
+                                                                       { "Escape", K::Escape },
+                                                                       { "Left", K::Left },
+                                                                       { "Right", K::Right },
+                                                                       { "Up", K::Up },
+                                                                       { "Down", K::Down } };
+            const auto                                      it     = kNamed.find( name );
             return it == kNamed.end() ? std::nullopt : std::optional<K>( it->second );
         }
 
@@ -115,9 +123,9 @@ namespace Desert::Libraries
         state.MouseDelta  = mouseDelta;
         for ( Common::KeyCode key : TrackedKeys() )
         {
-            const int  code   = static_cast<int>( key );
-            const bool down   = Input::Keyboard::IsKeyPressed( key );
-            state.KeyEdge[code] = down && !state.KeyDownPrev[code];
+            const int  code         = static_cast<int>( key );
+            const bool down         = Input::Keyboard::IsKeyPressed( key );
+            state.KeyEdge[code]     = down && !state.KeyDownPrev[code];
             state.KeyDownPrev[code] = down;
         }
     }

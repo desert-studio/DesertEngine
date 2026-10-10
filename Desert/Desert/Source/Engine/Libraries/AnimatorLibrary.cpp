@@ -29,12 +29,13 @@ namespace Desert::Libraries
             return entity ? entity.GetRegistry()->try_get<ECS::AnimationComponent>( entity.GetHandle() ) : nullptr;
         }
 
-        std::optional<Assets::AssetHandle> LayerGraph( const ECS::AnimationComponent* anim, const std::string& path,
-                                                       const char* verb )
+        std::optional<Assets::AssetHandle> LayerGraph( const ECS::AnimationComponent* anim,
+                                                       const std::string& path, const char* verb )
         {
             if ( anim == nullptr )
             {
-                LOG_ERROR( "[Anim] {}('{}'): the entity has no AnimationComponent to link layers on.", verb, path );
+                LOG_ERROR( "[Anim] {}('{}'): the entity has no AnimationComponent to link layers on.", verb,
+                           path );
                 return std::nullopt;
             }
             const Core::WorldContext* context = Core::WorldContext::Current();
@@ -83,7 +84,8 @@ namespace Desert::Libraries
         const auto* anim = AnimationOf( entity );
         if ( anim == nullptr )
         {
-            LOG_ERROR( "[Anim] getAnimCurve('{}'): the entity has no AnimationComponent, so no clip plays.", name );
+            LOG_ERROR( "[Anim] getAnimCurve('{}'): the entity has no AnimationComponent, so no clip plays.",
+                       name );
             return {};
         }
         const std::optional<float> value =
@@ -133,7 +135,8 @@ namespace Desert::Libraries
         return unlinked;
     }
 
-    bool AnimatorLibrary::SetAnimParam( ECS::Entity entity, const std::string& name, const Reflection::Value& value )
+    bool AnimatorLibrary::SetAnimParam( ECS::Entity entity, const std::string& name,
+                                        const Reflection::Value& value )
     {
         auto* component = AnimationOf( entity );
         if ( component == nullptr )
@@ -181,7 +184,8 @@ namespace Desert::Libraries
             if ( !number )
             {
                 LOG_ERROR( "[Anim] setAnimParam('{}'): AnimGraph '{}' declares it {} and the script passed {}.",
-                           name, anim.Graph->Name, G::TypeName( type ), Reflection::FieldTypeName( value.Type() ) );
+                           name, anim.Graph->Name, G::TypeName( type ),
+                           Reflection::FieldTypeName( value.Type() ) );
                 return false;
             }
             if ( !std::isfinite( *number ) )

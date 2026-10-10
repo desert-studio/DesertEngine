@@ -150,7 +150,8 @@ namespace Desert::Scripting
         {
             const std::optional<LuauEntityRef> ref  = LuauBinder::ToEntity( L, 1 );
             ScriptEngine::Impl&                host = ScriptEngine::Impl::Of( L );
-            if ( !ref || ref->Registry == nullptr || !ref->Registry->valid( ref->Entity ) || host.Scene == nullptr )
+            if ( !ref || ref->Registry == nullptr || !ref->Registry->valid( ref->Entity ) ||
+                 host.Scene == nullptr )
                 return 0;
             host.PendingRelease.push_back( static_cast<uint32_t>( ref->Entity ) );
             host.Scene->DestroyEntity( ECS::Entity{ ref->Entity, *ref->Registry } );
@@ -204,9 +205,9 @@ namespace Desert::Scripting
         lua_pop( L, 1 );
 
         OpenGlobalTable( L, "World" );
-        for ( const luaL_Reg& entry : { luaL_Reg{ "set", &WorldVarSet }, luaL_Reg{ "get", &WorldVarGet },
-                                        luaL_Reg{ "has", &WorldVarHas }, luaL_Reg{ "raycast", &Raycast },
-                                        luaL_Reg{ "cameraRay", &CameraRay } } )
+        for ( const luaL_Reg& entry :
+              { luaL_Reg{ "set", &WorldVarSet }, luaL_Reg{ "get", &WorldVarGet }, luaL_Reg{ "has", &WorldVarHas },
+                luaL_Reg{ "raycast", &Raycast }, luaL_Reg{ "cameraRay", &CameraRay } } )
         {
             lua_pushcfunction( L, entry.func, entry.name );
             lua_setfield( L, -2, entry.name );

@@ -42,6 +42,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIProgressBarData;
         TypeBuilder( "UIProgressBarData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Value", .Type = FieldType::Float, .Offset = offsetof( T, Value ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Value )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Value", .Category = "UI Progress Bar", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
                     .Field( FieldInfo{ .Name = "Background", .Type = FieldType::Vec3, .Offset = offsetof( T, Background ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Background )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Background", .Category = "UI Progress Bar", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "Fill", .Type = FieldType::Vec3, .Offset = offsetof( T, Fill ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Fill )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Fill", .Category = "UI Progress Bar", .IsColor = true, } } )
@@ -52,6 +53,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIToggleData;
         TypeBuilder( "UIToggleData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Value", .Type = FieldType::Bool, .Offset = offsetof( T, Value ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Value )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Value (on)", .Category = "UI Toggle", } } )
                     .Field( FieldInfo{ .Name = "BoxColor", .Type = FieldType::Vec3, .Offset = offsetof( T, BoxColor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BoxColor )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Box Color", .Category = "UI Toggle", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "CheckColor", .Type = FieldType::Vec3, .Offset = offsetof( T, CheckColor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::CheckColor )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Check Color", .Category = "UI Toggle", .IsColor = true, } } )
@@ -62,6 +64,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UISliderData;
         TypeBuilder( "UISliderData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Value", .Type = FieldType::Float, .Offset = offsetof( T, Value ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Value )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Value", .Category = "UI Slider", } } )
                     .Field( FieldInfo{ .Name = "MinValue", .Type = FieldType::Float, .Offset = offsetof( T, MinValue ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MinValue )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Min", .Category = "UI Slider", } } )
                     .Field( FieldInfo{ .Name = "MaxValue", .Type = FieldType::Float, .Offset = offsetof( T, MaxValue ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxValue )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Max", .Category = "UI Slider", } } )
@@ -75,6 +78,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIInputFieldData;
         TypeBuilder( "UIInputFieldData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Text )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Input Field", } } )
                     .Field( FieldInfo{ .Name = "Placeholder", .Type = FieldType::String, .Offset = offsetof( T, Placeholder ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Placeholder )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Placeholder", .Category = "UI Input Field", .Tooltip = "Shown while empty. A leading hash makes it a string-table key instead", } } )
                     .Field( FieldInfo{ .Name = "FontSize", .Type = FieldType::Float, .Offset = offsetof( T, FontSize ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::FontSize )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Font Size", .Category = "UI Input Field", .HasRange = true, .RangeMin = 6.0f, .RangeMax = 96.0f, } } )
@@ -96,6 +100,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIDropdownData;
         TypeBuilder( "UIDropdownData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Options", .Type = FieldType::String, .Offset = offsetof( T, Options ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Options )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Options (';'-separated)", .Category = "UI Dropdown", .Tooltip = "One entry per option. A leading hash on an entry makes that entry a string-table key", } } )
                     .Field( FieldInfo{ .Name = "SelectedIndex", .Type = FieldType::Int, .Offset = offsetof( T, SelectedIndex ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SelectedIndex )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Selected Index", .Category = "UI Dropdown", } } )
                     .Field( FieldInfo{ .Name = "Open", .Type = FieldType::Bool, .Offset = offsetof( T, Open ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Open )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Open", .Category = "UI Dropdown", } } )
@@ -110,6 +115,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIIconData;
         TypeBuilder( "UIIconData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Icon", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Icon ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Icon )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Icon", .Category = "UI Icon", .IsAsset = true, .AssetType = "IconAsset", } } )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "UI Icon", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "Scale", .Type = FieldType::Float, .Offset = offsetof( T, Scale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Scale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Scale", .Category = "UI Icon", .HasRange = true, .RangeMin = 0.2f, .RangeMax = 1.0f, } } )
@@ -119,6 +125,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIImageData;
         TypeBuilder( "UIImageData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Sprite", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Sprite ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Sprite )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Sprite", .Category = "UI Image", .IsAsset = true, .AssetType = "TextureAsset", } } )
                     .Field( FieldInfo{ .Name = "Tint", .Type = FieldType::Vec3, .Offset = offsetof( T, Tint ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Tint )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Tint", .Category = "UI Image", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "Opacity", .Type = FieldType::Float, .Offset = offsetof( T, Opacity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Opacity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Opacity", .Category = "UI Image", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
@@ -129,6 +136,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIRenderTextureData;
         TypeBuilder( "UIRenderTextureData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "ScenePath", .Type = FieldType::String, .Offset = offsetof( T, ScenePath ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ScenePath )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Scene", .Category = "UI Render Texture", .Tooltip = "Path to a .desce rendered live into this element, e.g. Content/Scenes/UI_Portrait.desce", } } )
                     .Field( FieldInfo{ .Name = "Tint", .Type = FieldType::Vec3, .Offset = offsetof( T, Tint ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Tint )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Tint", .Category = "UI Render Texture", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "Opacity", .Type = FieldType::Float, .Offset = offsetof( T, Opacity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Opacity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Opacity", .Category = "UI Render Texture", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
@@ -139,6 +147,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIPathData;
         TypeBuilder( "UIPathData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Curve", .Type = FieldType::Enum, .Offset = offsetof( T, Curve ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Curve )>(), .TypeName = "UIPathCurve", .Meta = PropertyMetadata{ .DisplayName = "Curve", .Category = "UI Path", }, .EnumValues = { EnumValue{ "Linear", 0 }, EnumValue{ "Smooth", 1 }, } } )
                     .Field( FieldInfo{ .Name = "PointCount", .Type = FieldType::Int, .Offset = offsetof( T, PointCount ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PointCount )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Point Count", .Category = "UI Path", .HasRange = true, .RangeMin = 2.0f, .RangeMax = 8.0f, } } )
                     .Field( FieldInfo{ .Name = "Reveal", .Type = FieldType::Float, .Offset = offsetof( T, Reveal ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Reveal )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Reveal", .Category = "UI Path", .Tooltip = "Fraction of the line's LENGTH drawn, from the first point on. Animate as 'Reveal'.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
@@ -165,6 +174,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UITweenData;
         TypeBuilder( "UITweenData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Property", .Type = FieldType::Enum, .Offset = offsetof( T, Property ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Property )>(), .TypeName = "UITweenProperty", .Meta = PropertyMetadata{ .DisplayName = "Property", .Category = "UI Tween", }, .EnumValues = { EnumValue{ "Offset", 0 }, EnumValue{ "Size", 1 }, EnumValue{ "Opacity", 2 }, EnumValue{ "Color", 3 }, } } )
                     .Field( FieldInfo{ .Name = "From", .Type = FieldType::Vec4, .Offset = offsetof( T, From ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::From )>(), .TypeName = "glm::vec4", .Meta = PropertyMetadata{ .DisplayName = "From", .Category = "UI Tween", .Tooltip = "Offset/Size: xy in design px. Opacity: x. Color: rgb.", } } )
                     .Field( FieldInfo{ .Name = "To", .Type = FieldType::Vec4, .Offset = offsetof( T, To ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::To )>(), .TypeName = "glm::vec4", .Meta = PropertyMetadata{ .DisplayName = "To", .Category = "UI Tween", } } )
@@ -180,6 +190,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIScrollViewData;
         TypeBuilder( "UIScrollViewData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "ScrollY", .Type = FieldType::Float, .Offset = offsetof( T, ScrollY ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ScrollY )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Scroll Y", .Category = "UI Scroll View", } } )
                     .Field( FieldInfo{ .Name = "ContentHeight", .Type = FieldType::Float, .Offset = offsetof( T, ContentHeight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ContentHeight )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Content Height", .Category = "UI Scroll View", } } )
                     .Field( FieldInfo{ .Name = "Background", .Type = FieldType::Vec3, .Offset = offsetof( T, Background ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Background )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Background", .Category = "UI Scroll View", .IsColor = true, } } )
@@ -191,6 +202,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIListViewData;
         TypeBuilder( "UIListViewData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "ScrollY", .Type = FieldType::Float, .Offset = offsetof( T, ScrollY ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ScrollY )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Scroll Y", .Category = "UI List View", } } )
                     .Field( FieldInfo{ .Name = "ItemHeight", .Type = FieldType::Float, .Offset = offsetof( T, ItemHeight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ItemHeight )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Item Height", .Category = "UI List View", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 512.0f, } } )
                     .Field( FieldInfo{ .Name = "Spacing", .Type = FieldType::Float, .Offset = offsetof( T, Spacing ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Spacing )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Spacing", .Category = "UI List View", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 128.0f, } } )
@@ -206,6 +218,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UINavigationData;
         TypeBuilder( "UINavigationData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Up", .Type = FieldType::Enum, .Offset = offsetof( T, Up ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Up )>(), .TypeName = "UINavigationRule", .Meta = PropertyMetadata{ .DisplayName = "Up", .Category = "UI Navigation", }, .EnumValues = { EnumValue{ "Escape", 0 }, EnumValue{ "Stop", 1 }, EnumValue{ "Wrap", 2 }, EnumValue{ "Explicit", 3 }, } } )
                     .Field( FieldInfo{ .Name = "UpTarget", .Type = FieldType::String, .Offset = offsetof( T, UpTarget ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::UpTarget )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Up Target", .Category = "UI Navigation", .Tooltip = "Name of the element Up goes to when the rule is Explicit", } } )
                     .Field( FieldInfo{ .Name = "Down", .Type = FieldType::Enum, .Offset = offsetof( T, Down ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Down )>(), .TypeName = "UINavigationRule", .Meta = PropertyMetadata{ .DisplayName = "Down", .Category = "UI Navigation", }, .EnumValues = { EnumValue{ "Escape", 0 }, EnumValue{ "Stop", 1 }, EnumValue{ "Wrap", 2 }, EnumValue{ "Explicit", 3 }, } } )
@@ -221,6 +234,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UICanvasData;
         TypeBuilder( "UICanvasData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "ScaleMode", .Type = FieldType::Enum, .Offset = offsetof( T, ScaleMode ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ScaleMode )>(), .TypeName = "UICanvasScaleMode", .Meta = PropertyMetadata{ .DisplayName = "Scale Mode", .Category = "UI Canvas", }, .EnumValues = { EnumValue{ "Stretch", 0 }, EnumValue{ "ScaleWithScreen", 1 }, EnumValue{ "Letterbox", 2 }, } } )
                     .Field( FieldInfo{ .Name = "RenderMode", .Type = FieldType::Enum, .Offset = offsetof( T, RenderMode ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::RenderMode )>(), .TypeName = "UICanvasRenderMode", .Meta = PropertyMetadata{ .DisplayName = "Render Mode", .Category = "UI Canvas", }, .EnumValues = { EnumValue{ "ScreenSpace", 0 }, EnumValue{ "WorldSpace", 1 }, } } )
                     .Field( FieldInfo{ .Name = "WorldScale", .Type = FieldType::Float, .Offset = offsetof( T, WorldScale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WorldScale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "World Scale", .Category = "UI Canvas", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 4000.0f, } } )
@@ -240,6 +254,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIButtonData;
         TypeBuilder( "UIButtonData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "NormalColor", .Type = FieldType::Vec3, .Offset = offsetof( T, NormalColor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::NormalColor )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Normal", .Category = "UI Button", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "HoverColor", .Type = FieldType::Vec3, .Offset = offsetof( T, HoverColor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::HoverColor )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Hover", .Category = "UI Button", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "PressedColor", .Type = FieldType::Vec3, .Offset = offsetof( T, PressedColor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PressedColor )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Pressed", .Category = "UI Button", .IsColor = true, } } )
@@ -260,6 +275,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIStyleData;
         TypeBuilder( "UIStyleData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Source", .Type = FieldType::Enum, .Offset = offsetof( T, Source ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Source )>(), .TypeName = "UIStyleSource", .Meta = PropertyMetadata{ .DisplayName = "Source", .Category = "UI Style", .Tooltip = "Theme: bound slots come from the canvas's theme, the rest from this element. Local: every slot is this element's own value.", }, .EnumValues = { EnumValue{ "Theme", 0 }, EnumValue{ "Local", 1 }, } } )
                     .Field( FieldInfo{ .Name = "Style", .Type = FieldType::String, .Offset = offsetof( T, Style ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Style )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Style", .Category = "UI Style", .Tooltip = "A style declared by the canvas's theme, e.g. \"Default\" or \"Primary\".", } } )
             .WithDefault<T>()
@@ -268,6 +284,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIRetainerData;
         TypeBuilder( "UIRetainerData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Opacity", .Type = FieldType::Float, .Offset = offsetof( T, Opacity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Opacity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Opacity", .Category = "UI Retainer", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
                     .Field( FieldInfo{ .Name = "Mask", .Type = FieldType::Bool, .Offset = offsetof( T, Mask ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Mask )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Mask", .Category = "UI Retainer Mask", .Tooltip = "Show the layer only where the Mask Element covers it (its alpha, its shape).", } } )
                     .Field( FieldInfo{ .Name = "MaskElement", .Type = FieldType::String, .Offset = offsetof( T, MaskElement ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaskElement )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Mask Element", .Category = "UI Retainer Mask", .Tooltip = "Name of the element on this canvas whose drawn subtree is the mask. It is captured even when hidden, so a hidden element is a pure mask.", .EditCondition = "Mask", } } )
@@ -282,6 +299,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIOverlayData;
         TypeBuilder( "UIOverlayData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Kind", .Type = FieldType::Enum, .Offset = offsetof( T, Kind ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Kind )>(), .TypeName = "UIOverlayKind", .Meta = PropertyMetadata{ .DisplayName = "Kind", .Category = "UI Overlay", }, .EnumValues = { EnumValue{ "Tooltip", 0 }, EnumValue{ "ContextMenu", 1 }, EnumValue{ "Modal", 2 }, EnumValue{ "Toast", 3 }, } } )
                     .Field( FieldInfo{ .Name = "Name", .Type = FieldType::String, .Offset = offsetof( T, Name ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Name )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Name", .Category = "UI Overlay", } } )
                     .Field( FieldInfo{ .Name = "Gap", .Type = FieldType::Vec2, .Offset = offsetof( T, Gap ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Gap )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Gap", .Category = "UI Overlay", } } )
@@ -299,6 +317,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIOverlayTriggerData;
         TypeBuilder( "UIOverlayTriggerData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Overlay", .Type = FieldType::String, .Offset = offsetof( T, Overlay ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Overlay )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Overlay", .Category = "UI Overlay Trigger", } } )
                     .Field( FieldInfo{ .Name = "On", .Type = FieldType::Enum, .Offset = offsetof( T, On ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::On )>(), .TypeName = "UIOverlayTriggerEvent", .Meta = PropertyMetadata{ .DisplayName = "On", .Category = "UI Overlay Trigger", }, .EnumValues = { EnumValue{ "Hover", 0 }, EnumValue{ "LeftClick", 1 }, EnumValue{ "RightClick", 2 }, } } )
                     .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Text )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Overlay Trigger", } } )
@@ -308,6 +327,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UITextData;
         TypeBuilder( "UITextData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Text )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Text", .Tooltip = "Shown as typed. A leading hash makes it a string-table key instead", } } )
                     .Field( FieldInfo{ .Name = "FontSize", .Type = FieldType::Float, .Offset = offsetof( T, FontSize ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::FontSize )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Font Size", .Category = "UI Text", .HasRange = true, .RangeMin = 6.0f, .RangeMax = 200.0f, } } )
                     .Field( FieldInfo{ .Name = "Font", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Font ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Font )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Font", .Category = "UI Text", .IsAsset = true, .AssetType = "FontAsset", } } )
@@ -337,6 +357,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIScreenData;
         TypeBuilder( "UIScreenData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Name", .Type = FieldType::String, .Offset = offsetof( T, Name ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Name )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Screen Name", .Category = "UI Screen", } } )
             .WithDefault<T>()
             .Register();
@@ -344,6 +365,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIScreenStackData;
         TypeBuilder( "UIScreenStackData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "InitialScreen", .Type = FieldType::String, .Offset = offsetof( T, InitialScreen ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::InitialScreen )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Initial Screen", .Category = "UI Screens", } } )
                     .Field( FieldInfo{ .Name = "TransitionTime", .Type = FieldType::Float, .Offset = offsetof( T, TransitionTime ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TransitionTime )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Transition", .Category = "UI Screens", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 3.0f, } } )
                     .Field( FieldInfo{ .Name = "SlidePx", .Type = FieldType::Float, .Offset = offsetof( T, SlidePx ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SlidePx )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Slide (px)", .Category = "UI Screens", .HasRange = true, .RangeMin = -1200.0f, .RangeMax = 1200.0f, } } )
@@ -354,6 +376,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIBindingData;
         TypeBuilder( "UIBindingData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Key", .Type = FieldType::String, .Offset = offsetof( T, Key ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Key )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Key", .Category = "UI Binding", .Tooltip = "Data-store key, e.g. player.hp — write it from Lua with ui.set( key, value )", } } )
                     .Field( FieldInfo{ .Name = "Target", .Type = FieldType::Enum, .Offset = offsetof( T, Target ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Target )>(), .TypeName = "UIBindTarget", .Meta = PropertyMetadata{ .DisplayName = "Target", .Category = "UI Binding", }, .EnumValues = { EnumValue{ "Text", 0 }, EnumValue{ "Value", 1 }, EnumValue{ "Opacity", 2 }, EnumValue{ "Color", 3 }, EnumValue{ "Visible", 4 }, } } )
             .WithDefault<T>()
@@ -362,6 +385,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UILayoutGroupData;
         TypeBuilder( "UILayoutGroupData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Type", .Type = FieldType::Enum, .Offset = offsetof( T, Type ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Type )>(), .TypeName = "UILayoutType", .Meta = PropertyMetadata{ .DisplayName = "Type", .Category = "UI Layout Group", }, .EnumValues = { EnumValue{ "Vertical", 0 }, EnumValue{ "Horizontal", 1 }, EnumValue{ "Grid", 2 }, EnumValue{ "Wrap", 3 }, EnumValue{ "Overlay", 4 }, EnumValue{ "UniformGrid", 5 }, EnumValue{ "SizeBox", 6 }, EnumValue{ "ScaleBox", 7 }, } } )
                     .Field( FieldInfo{ .Name = "Padding", .Type = FieldType::Vec4, .Offset = offsetof( T, Padding ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Padding )>(), .TypeName = "glm::vec4", .Meta = PropertyMetadata{ .DisplayName = "Padding L/T/R/B", .Category = "UI Layout Group", } } )
                     .Field( FieldInfo{ .Name = "Spacing", .Type = FieldType::Float, .Offset = offsetof( T, Spacing ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Spacing )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Spacing", .Category = "UI Layout Group", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 128.0f, } } )
@@ -383,6 +407,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UILayoutData;
         TypeBuilder( "UILayoutData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "AnchorMin", .Type = FieldType::Vec2, .Offset = offsetof( T, AnchorMin ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AnchorMin )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Anchor Min", .Category = "UI Layout", } } )
                     .Field( FieldInfo{ .Name = "AnchorMax", .Type = FieldType::Vec2, .Offset = offsetof( T, AnchorMax ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AnchorMax )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Anchor Max", .Category = "UI Layout", } } )
                     .Field( FieldInfo{ .Name = "OffsetMin", .Type = FieldType::Vec2, .Offset = offsetof( T, OffsetMin ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OffsetMin )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Offset Min", .Category = "UI Layout", } } )
@@ -406,6 +431,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIPointerEventsData;
         TypeBuilder( "UIPointerEventsData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "OnEnterMessage", .Type = FieldType::String, .Offset = offsetof( T, OnEnterMessage ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OnEnterMessage )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "On Enter", .Category = "UI Pointer Events", } } )
                     .Field( FieldInfo{ .Name = "OnExitMessage", .Type = FieldType::String, .Offset = offsetof( T, OnExitMessage ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OnExitMessage )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "On Exit", .Category = "UI Pointer Events", } } )
                     .Field( FieldInfo{ .Name = "OnDownMessage", .Type = FieldType::String, .Offset = offsetof( T, OnDownMessage ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OnDownMessage )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "On Press", .Category = "UI Pointer Events", } } )
@@ -418,6 +444,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIDraggableData;
         TypeBuilder( "UIDraggableData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Payload", .Type = FieldType::String, .Offset = offsetof( T, Payload ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Payload )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Payload", .Category = "UI Drag", } } )
                     .Field( FieldInfo{ .Name = "GhostOpacity", .Type = FieldType::Float, .Offset = offsetof( T, GhostOpacity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::GhostOpacity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Ghost Opacity", .Category = "UI Drag", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
             .WithDefault<T>()
@@ -426,6 +453,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIDropTargetData;
         TypeBuilder( "UIDropTargetData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Accepts", .Type = FieldType::String, .Offset = offsetof( T, Accepts ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Accepts )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Accepts (prefix)", .Category = "UI Drop", } } )
                     .Field( FieldInfo{ .Name = "OnDropMessage", .Type = FieldType::String, .Offset = offsetof( T, OnDropMessage ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OnDropMessage )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "On Drop", .Category = "UI Drop", } } )
                     .Field( FieldInfo{ .Name = "HighlightColor", .Type = FieldType::Vec3, .Offset = offsetof( T, HighlightColor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::HighlightColor )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Highlight", .Category = "UI Drop", .IsColor = true, } } )
@@ -435,6 +463,7 @@ void RegisterReflection_DesertUI()
     {
         using T = ::Desert::UI::UIPanelData;
         TypeBuilder( "UIPanelData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "UI Panel", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "Opacity", .Type = FieldType::Float, .Offset = offsetof( T, Opacity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Opacity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Opacity", .Category = "UI Panel", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
                     .Field( FieldInfo{ .Name = "CornerRadius", .Type = FieldType::Float, .Offset = offsetof( T, CornerRadius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::CornerRadius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Corner Radius", .Category = "UI Panel", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 64.0f, } } )

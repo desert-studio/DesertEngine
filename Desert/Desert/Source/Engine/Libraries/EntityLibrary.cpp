@@ -107,14 +107,14 @@ namespace Desert::Libraries
 
     glm::vec3 EntityLibrary::Forward( ECS::Entity entity )
     {
-        const auto* t = Get<ECS::TransformComponent>( entity );
+        const auto*     t = Get<ECS::TransformComponent>( entity );
         const glm::vec3 forward( 0.0f, 0.0f, -1.0f );
         return t != nullptr ? glm::quat( t->Rotation ) * forward : forward;
     }
 
     glm::vec3 EntityLibrary::Right( ECS::Entity entity )
     {
-        const auto* t = Get<ECS::TransformComponent>( entity );
+        const auto*     t = Get<ECS::TransformComponent>( entity );
         const glm::vec3 right( 1.0f, 0.0f, 0.0f );
         return t != nullptr ? glm::quat( t->Rotation ) * right : right;
     }
@@ -331,11 +331,11 @@ namespace Desert::Libraries
         const Core::WorldContext* context = World( "spawnMarker" );
         if ( context == nullptr )
             return {};
-        ECS::Entity e = context->World->CreateNewEntity( "Marker" );
+        ECS::Entity e                                        = context->World->CreateNewEntity( "Marker" );
         e.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Sphere;
-        auto& t       = e.GetComponent<ECS::TransformComponent>();
-        t.Translation = position;
-        t.Scale       = glm::vec3( scale <= 0.0f ? 0.15f : scale );
+        auto& t                                              = e.GetComponent<ECS::TransformComponent>();
+        t.Translation                                        = position;
+        t.Scale                                              = glm::vec3( scale <= 0.0f ? 0.15f : scale );
         const auto debugColor =
              context->Assets != nullptr
                   ? Assets::FindTemplateByRole( *context->Assets, Common::Content::kDebugColorRole )
@@ -345,7 +345,8 @@ namespace Desert::Libraries
         if ( template_ == nullptr )
         {
             LOG_ERROR( "[Script] World.spawnMarker: {} — the marker draws its mesh's own material",
-                       debugColor ? std::string( "the DebugColor template is not loaded" ) : debugColor.GetError() );
+                       debugColor ? std::string( "the DebugColor template is not loaded" )
+                                  : debugColor.GetError() );
             return e;
         }
         auto& mc      = e.AddComponent<ECS::MaterialComponent>();

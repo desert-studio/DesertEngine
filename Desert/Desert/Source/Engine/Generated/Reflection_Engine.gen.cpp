@@ -17,6 +17,10 @@
 
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
+#include <Engine/Libraries/AnimatorLibrary.hpp>
+#include <Engine/Libraries/EntityLibrary.hpp>
+#include <Engine/Libraries/GameLibrary.hpp>
+#include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
@@ -36,6 +40,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::Core::PostProcessSettings;
         TypeBuilder( "PostProcessSettings", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "EnableSSAO", .Type = FieldType::Bool, .Offset = offsetof( T, EnableSSAO ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::EnableSSAO )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enable SSAO", .Category = "Rendering Features", } } )
                     .Field( FieldInfo{ .Name = "GlobalIllumination", .Type = FieldType::Enum, .Offset = offsetof( T, GlobalIllumination ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::GlobalIllumination )>(), .TypeName = "GIMode", .Meta = PropertyMetadata{ .DisplayName = "Global Illumination", .Category = "Global Illumination", }, .EnumValues = { EnumValue{ "Off", 0 }, EnumValue{ "ScreenSpace", 1 }, EnumValue{ "RSM", 2 }, } } )
                     .Field( FieldInfo{ .Name = "GIIntensity", .Type = FieldType::Float, .Offset = offsetof( T, GIIntensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::GIIntensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "GI Intensity", .Category = "Global Illumination", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 20.0f, } } )
@@ -77,6 +82,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::Core::SceneSettings;
         TypeBuilder( "SceneSettings", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "RenderingPath", .Type = FieldType::Enum, .Offset = offsetof( T, RenderingPath ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::RenderingPath )>(), .TypeName = "RenderPath", .Meta = PropertyMetadata{ .DisplayName = "Render Path", .Category = "Rendering", }, .EnumValues = { EnumValue{ "Forward", 0 }, EnumValue{ "Deferred", 1 }, } } )
                     .Field( FieldInfo{ .Name = "Gravity", .Type = FieldType::Float, .Offset = offsetof( T, Gravity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Gravity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Gravity", .Category = "Physics", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 5000.0f, } } )
                     .Field( FieldInfo{ .Name = "DefaultPawn", .Type = FieldType::AssetHandle, .Offset = offsetof( T, DefaultPawn ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::DefaultPawn )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Default Pawn", .Category = "Game Mode", .IsAsset = true, .AssetType = "PrefabAsset", } } )
@@ -87,8 +93,127 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
+        using T = ::Desert::Libraries::AnimatorLibrary;
+        TypeBuilder( "AnimatorLibrary", sizeof( T ) )
+            .ScriptName( "Animator" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::GetAnimCurve>( "GetAnimCurve", "AnimatorLibrary", "Reflection::Value", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The curve's value on the clip playing now; nothing (logged) when absent.", .ScriptName = "getAnimCurve", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::IsAnimNotifyStateActive>( "IsAnimNotifyStateActive", "AnimatorLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "isAnimNotifyStateActive", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::LinkAnimLayers>( "LinkAnimLayers", "AnimatorLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "path", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "linkAnimLayers", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::UnlinkAnimLayers>( "UnlinkAnimLayers", "AnimatorLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "path", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "unlinkAnimLayers", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetAnimParam>( "SetAnimParam", "AnimatorLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "value", "const Reflection::Value&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "setAnimParam", .ScriptMethod = true } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::EntityLibrary;
+        TypeBuilder( "EntityLibrary", sizeof( T ) )
+            .ScriptName( "Entity" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Name>( "Name", "EntityLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "name", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::AttachTo>( "AttachTo", "EntityLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "target", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "bone", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Socket-attaches to a bone of target.", .ScriptName = "attachTo", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Detach>( "Detach", "EntityLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "detach", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::GetPosition>( "GetPosition", "EntityLibrary", "glm::vec3", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "getPosition", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetPosition>( "SetPosition", "EntityLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "position", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "setPosition", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Translate>( "Translate", "EntityLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "offset", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "translate", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::GetRotation>( "GetRotation", "EntityLibrary", "glm::vec3", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "getRotation", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetRotation>( "SetRotation", "EntityLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "euler", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "setRotation", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::GetScale>( "GetScale", "EntityLibrary", "glm::vec3", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "getScale", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetScale>( "SetScale", "EntityLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "scale", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "setScale", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Forward>( "Forward", "EntityLibrary", "glm::vec3", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "World forward (-Z) of the rotation.", .ScriptName = "forward", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Right>( "Right", "EntityLibrary", "glm::vec3", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "right", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::DistanceTo>( "DistanceTo", "EntityLibrary", "float", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "other", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "-1 when either has no transform.", .ScriptName = "distanceTo", .ScriptMethod = true } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::CharacterLibrary;
+        TypeBuilder( "CharacterLibrary", sizeof( T ) )
+            .ScriptName( "Character" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Move>( "Move", "CharacterLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 4>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "forward", "float" }, ::Desert::Reflection::ParamSpelling{ "right", "float" }, ::Desert::Reflection::ParamSpelling{ "speed", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "forward = W/S axis, right = D/A axis (-1..1), speed.", .ScriptName = "move", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Jump>( "Jump", "CharacterLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "strength", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "jump", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::IsOnGround>( "IsOnGround", "CharacterLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "isOnGround", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetSwimming>( "SetSwimming", "CharacterLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "swimming", "bool" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "setSwimming", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Swim>( "Swim", "CharacterLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "vertical", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The up/down intent while swimming.", .ScriptName = "swim", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::IsSwimming>( "IsSwimming", "CharacterLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "isSwimming", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::AddYaw>( "AddYaw", "CharacterLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "radians", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Turns the whole entity (radians).", .ScriptName = "addYaw", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::AddCameraPitch>( "AddCameraPitch", "CharacterLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "radians", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Tilts the child camera, clamped to +-85 degrees.", .ScriptName = "addCameraPitch", .ScriptMethod = true } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::MaterialLibrary;
+        TypeBuilder( "MaterialLibrary", sizeof( T ) )
+            .ScriptName( "Material" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetMaterialParam>( "SetMaterialParam", "MaterialLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "value", "const glm::vec4&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "value = {x, y, z, w}.", .ScriptName = "setMaterialParam", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::GetMaterialParam>( "GetMaterialParam", "MaterialLibrary", "glm::vec4", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "getMaterialParam", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ClearMaterialParams>( "ClearMaterialParams", "MaterialLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "clearMaterialParams", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetShader>( "SetShader", "MaterialLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "shader", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "setShader", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::GetShader>( "GetShader", "MaterialLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "getShader", .ScriptMethod = true } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::WorldLibrary;
+        TypeBuilder( "WorldLibrary", sizeof( T ) )
+            .ScriptName( "World" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Find>( "Find", "WorldLibrary", "ECS::Entity", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The first entity tagged `name`, or nil.", .ScriptName = "find", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Spawn>( "Spawn", "WorldLibrary", "ECS::Entity", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "prefab", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "position", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Places a prefab; nil (logged) on failure.", .ScriptName = "spawn", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SpawnMarker>( "SpawnMarker", "WorldLibrary", "ECS::Entity", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "position", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "scale", "float" }, ::Desert::Reflection::ParamSpelling{ "color", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "A debug sphere drawn with the DebugColor template.", .ScriptName = "spawnMarker", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::LogLibrary;
+        TypeBuilder( "LogLibrary", sizeof( T ) )
+            .ScriptName( "Log" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Info>( "Info", "LogLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "message", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "info", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Warn>( "Warn", "LogLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "message", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "warn", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Error>( "Error", "LogLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "message", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "error", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::AudioLibrary;
+        TypeBuilder( "AudioLibrary", sizeof( T ) )
+            .ScriptName( "Audio" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Play>( "Play", "AudioLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "clip", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "volume", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Plays a clip once at a volume (1 = as authored).", .ScriptName = "play", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::StopAll>( "StopAll", "AudioLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "stopAll", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::ProjectLibrary;
+        TypeBuilder( "ProjectLibrary", sizeof( T ) )
+            .ScriptName( "project" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Name>( "Name", "ProjectLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "name", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Company>( "Company", "ProjectLibrary", "std::string", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "company", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::LevelLibrary;
+        TypeBuilder( "LevelLibrary", sizeof( T ) )
+            .ScriptName( "level" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Open>( "Open", "LevelLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "level", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Requests travel to a level; false (logged) when refused.", .ScriptName = "open", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::InputLibrary;
+        TypeBuilder( "InputLibrary", sizeof( T ) )
+            .ScriptName( "Input" )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::IsKeyDown>( "IsKeyDown", "InputLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Whether the named key is held.", .ScriptName = "isKeyDown", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::WasPressed>( "WasPressed", "InputLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Whether the named key went down this frame.", .ScriptName = "wasPressed", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::MouseDelta>( "MouseDelta", "InputLibrary", "glm::vec2", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "This frame's mouse movement (x, y).", .ScriptName = "mouseDelta", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::LockCursor>( "LockCursor", "InputLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Captures the cursor (gameplay look).", .ScriptName = "lockCursor", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ShowCursor>( "ShowCursor", "InputLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Frees the cursor (click UI).", .ScriptName = "showCursor", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::IsMouseDown>( "IsMouseDown", "InputLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "button", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Whether \"left\", \"right\" or \"middle\" is held.", .ScriptName = "isMouseDown", .ScriptMethod = false } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::ECS::PostProcessVolumeData;
         TypeBuilder( "PostProcessVolumeData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Unbound", .Type = FieldType::Bool, .Offset = offsetof( T, Unbound ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Unbound )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Infinite Extent (Unbound)", .Category = "Post Process Volume", .Tooltip = "Applies everywhere, whatever the camera position — the level's base grade.", } } )
                     .Field( FieldInfo{ .Name = "Extent", .Type = FieldType::Vec3, .Offset = offsetof( T, Extent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Extent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Extent", .Category = "Post Process Volume", .Tooltip = "Half-size of the box, around the entity's position, inside which the volume applies at full BlendWeight.", .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "BlendRadius", .Type = FieldType::Float, .Offset = offsetof( T, BlendRadius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BlendRadius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Blend Radius", .Category = "Post Process Volume", .Tooltip = "Distance outside the box across which the volume fades out.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
@@ -101,6 +226,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::ExponentialHeightFogData;
         TypeBuilder( "ExponentialHeightFogData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Exponential Height Fog", .Tooltip = "Master switch. Off dispatches nothing: a scene with the fog disabled pays zero GPU cost, exactly like a scene without the component.", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "FogDensity", .Type = FieldType::Float, .Offset = offsetof( T, FogDensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::FogDensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Fog Density", .Category = "Exponential Height Fog", .Tooltip = "Global density of the fog medium, UE's units (per 1000 cm at the fog height). UE's default is 0.02: visibility of a few kilometres at ground level.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 0.5f, .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "FogHeightFalloff", .Type = FieldType::Float, .Offset = offsetof( T, FogHeightFalloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::FogHeightFalloff )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Fog Height Falloff", .Category = "Exponential Height Fog", .Tooltip = "How fast the density thins with altitude (per 1000 cm). At UE's default 0.2 the density halves every 50 m; 0 is a uniform medium with no height dependence at all.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 2.0f, } } )
@@ -121,6 +247,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::HeroCloudData;
         TypeBuilder( "HeroCloudData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Hero Cloud", .Tooltip = "Master switch. Off is not a strength of zero: the instance is not collected at all, so the march's authored loop does not run for it and the frame is the one the procedural sky renders on its own.", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Volume", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Volume ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Volume )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Volume", .Category = "Hero Cloud", .Tooltip = "The sculpted body this cloud is — drag a .dcmv from the Content Browser. The file carries the lumps it was baked from, its own size in kilometres and the four channels the march reads: how deep inside the body a point is, whether the edge there erodes into wisps or billows, how much matter is in it, and the envelope the cutout uses. An empty slot means no cloud, not a default one: a body nobody sculpted appearing in a scene is a cloud nobody can explain.", .IsAsset = true, .AssetType = "CloudModellingVolumeAsset", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Strength", .Type = FieldType::Float, .Offset = offsetof( T, Strength ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Strength )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Strength", .Category = "Hero Cloud", .Tooltip = "How strongly this cloud asserts itself, 0 to 1. It scales the body's depth profile AND its cutout together, so winding it down does not leave a hole where the cloud was — the procedural field comes back as the body fades. That is what makes it the dial to animate a hero cloud in or out of a shot.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
@@ -134,6 +261,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::SkyAtmosphereData;
         TypeBuilder( "SkyAtmosphereData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Atmosphere", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "SkyBrightness", .Type = FieldType::Float, .Offset = offsetof( T, SkyBrightness ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SkyBrightness )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Sky Brightness", .Category = "Atmosphere", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 4.0f, .Units = "x", } } )
                     .Field( FieldInfo{ .Name = "HorizonFalloff", .Type = FieldType::Float, .Offset = offsetof( T, HorizonFalloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::HorizonFalloff )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Horizon Falloff", .Category = "Atmosphere", .HasRange = true, .RangeMin = 0.1f, .RangeMax = 2.0f, } } )
@@ -187,6 +315,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::RadialImpulseFieldData;
         TypeBuilder( "RadialImpulseFieldData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The impulse at the centre; the falloff takes it to zero at the radius. Its length is also the strain a piece inside reads, against the piece's Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Units = "kg*cm/s", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .Tooltip = "Pieces whose centre of mass is farther than this are not touched.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
@@ -196,6 +325,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::StrainFieldData;
         TypeBuilder( "StrainFieldData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The strain at the centre; a piece breaks off where the strain it reads reaches its Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
@@ -205,6 +335,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::KillFieldData;
         TypeBuilder( "KillFieldData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, .Summary = true, } } )
             .WithDefault<T>()
             .Register();
@@ -212,6 +343,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::AnchorFieldData;
         TypeBuilder( "AnchorFieldData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Extent", .Type = FieldType::Vec3, .Offset = offsetof( T, Extent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Extent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Extent", .Category = "Field", .Tooltip = "The box's full size along the entity's own axes, before the entity's scale.", .IsLength = true, .Summary = true, } } )
             .WithDefault<T>()
             .Register();
@@ -219,6 +351,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::WaterBodyData;
         TypeBuilder( "WaterBodyData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "WaterWaves", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterWaves ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterWaves )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Waves", .Category = "Wave", .Tooltip = "The wave set of this body (UE WaterWaves) — drag a .dwaves from the Content Browser. An empty slot is a flat ocean; a set that cannot be read is refused at Play by name.", .IsAsset = true, .AssetType = "WaterWavesAsset", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "OceanExtents", .Type = FieldType::Vec2, .Offset = offsetof( T, OceanExtents ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OceanExtents )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Ocean Extents", .Category = "Water", .Tooltip = "The footprint of the ocean around the entity, X by Z (UE OceanExtents). A point outside it is not in this body.", .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "TargetWaveMaskDepth", .Type = FieldType::Float, .Offset = offsetof( T, TargetWaveMaskDepth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TargetWaveMaskDepth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Target Wave Mask Depth", .Category = "Wave", .Tooltip = "Water depth at which the waves reach their full height; shallower water damps them (UE TargetWaveMaskDepth).", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
@@ -228,6 +361,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::CameraData;
         TypeBuilder( "CameraData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "AutoActivateForPlayer", .Type = FieldType::Bool, .Offset = offsetof( T, AutoActivateForPlayer ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoActivateForPlayer )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Auto Activate for Player", .Category = "Camera", .Tooltip = "Play views through this camera when the player's pawn has no camera of its own. At most one camera in a level may have it.", } } )
                     .Field( FieldInfo{ .Name = "FOV", .Type = FieldType::Float, .Offset = offsetof( T, FOV ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::FOV )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Field of View", .Category = "Camera", .Tooltip = "Vertical field of view, in degrees.", .Header = "Projection", .HasRange = true, .RangeMin = 10.0f, .RangeMax = 120.0f, .Units = "deg", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Near", .Type = FieldType::Float, .Offset = offsetof( T, Near ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Near )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Near", .Category = "Camera", .Tooltip = "Near clip plane distance. Anything closer is not drawn.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 1000.0f, .IsLength = true, } } )
@@ -238,6 +372,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::LandscapeMaterialData;
         TypeBuilder( "LandscapeMaterialData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Material", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Material ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Material )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Material", .Category = "Landscape", .IsAsset = true, .AssetType = "MaterialAsset", .Hidden = true, } } )
             .WithDefault<T>()
             .Register();
@@ -245,6 +380,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::TwoBoneIKData;
         TypeBuilder( "TwoBoneIKData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "EndBone", .Type = FieldType::String, .Offset = offsetof( T, EndBone ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::EndBone )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "End Bone", .Category = "Two-Bone IK", .Tooltip = "The hand/foot bone. Its parent and grandparent become the two limbs", } } )
                     .Field( FieldInfo{ .Name = "Goal", .Type = FieldType::Vec3, .Offset = offsetof( T, Goal ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Goal )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Goal", .Category = "Two-Bone IK", .Tooltip = "Where the end bone should land, in mesh-local centimetres", } } )
                     .Field( FieldInfo{ .Name = "PoleTarget", .Type = FieldType::Vec3, .Offset = offsetof( T, PoleTarget ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PoleTarget )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Pole Target", .Category = "Two-Bone IK", .Tooltip = "Point the elbow/knee bends towards, in mesh-local centimetres", } } )
@@ -255,6 +391,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::ControlRigData;
         TypeBuilder( "ControlRigData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Rig", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Rig ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Rig )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Rig", .Category = "Control Rig", .Tooltip = "The .derig whose controls pose this entity's skeleton", .IsAsset = true, .AssetType = "ControlRigAsset", } } )
             .WithDefault<T>()
             .Register();
@@ -262,6 +399,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::RetargetData;
         TypeBuilder( "RetargetData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Retarget", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Retarget ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Retarget )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Retarget", .Category = "Retarget", .Tooltip = "The .retarget whose rig pair this entity's clips are played through", .IsAsset = true, .AssetType = "RetargetAsset", } } )
             .WithDefault<T>()
             .Register();
@@ -269,6 +407,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::DirectionalLightData;
         TypeBuilder( "DirectionalLightData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "Light", .Tooltip = "Tint of the illumination arriving at scene surfaces. The sun you SEE in the sky is the Sky Atmosphere component's Sun Color / Sun Intensity.", .IsColor = true, .Temperature = true, } } )
                     .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Intensity", .Category = "Light", .Tooltip = "Brightness of the illumination arriving at scene surfaces. NOT a photometric unit (lux/candela): the renderer multiplies radiance by this number directly. The sun you SEE in the sky is the Sky Atmosphere component's Sun Color / Sun Intensity.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, .Units = "x", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "AtmosphereSunLight", .Type = FieldType::Bool, .Offset = offsetof( T, AtmosphereSunLight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AtmosphereSunLight )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Atmosphere Sun Light", .Category = "Atmosphere", .Tooltip = "This light drives the sky and the sky's IBL bake.", } } )
@@ -288,6 +427,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::PointLightData;
         TypeBuilder( "PointLightData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "Light", .IsColor = true, .Temperature = true, } } )
                     .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Intensity", .Category = "Light", .Tooltip = "Linear multiplier on the light colour. NOT a photometric unit (lux/candela): the renderer multiplies radiance by this number directly.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, .Units = "x", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Light", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10000.0f, .IsLength = true, .Summary = true, } } )
@@ -300,6 +440,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::SpotLightData;
         TypeBuilder( "SpotLightData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "Light", .IsColor = true, .Temperature = true, } } )
                     .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Intensity", .Category = "Light", .Tooltip = "Linear multiplier on the light colour. NOT a photometric unit (lux/candela): the renderer multiplies radiance by this number directly.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, .Units = "x", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Range", .Type = FieldType::Float, .Offset = offsetof( T, Range ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Range )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Range", .Category = "Light", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10000.0f, .IsLength = true, .Summary = true, } } )
@@ -313,6 +454,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::ParticleEmitterData;
         TypeBuilder( "ParticleEmitterData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Emitter", } } )
                     .Field( FieldInfo{ .Name = "MaxParticles", .Type = FieldType::Int, .Offset = offsetof( T, MaxParticles ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxParticles )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Max Particles", .Category = "Emitter", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 100000.0f, } } )
                     .Field( FieldInfo{ .Name = "SpawnRate", .Type = FieldType::Float, .Offset = offsetof( T, SpawnRate ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SpawnRate )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Spawn Rate", .Category = "Emitter", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10000.0f, .Units = "/s", .Summary = true, } } )
@@ -339,6 +481,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::SkyboxComponent;
         TypeBuilder( "SkyboxComponent", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "SkyboxHandle", .Type = FieldType::AssetHandle, .Offset = offsetof( T, SkyboxHandle ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SkyboxHandle )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Skybox", .Category = "Skybox", .IsAsset = true, .AssetType = "SkyboxAsset", .Hidden = true, } } )
                     .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Intensity", .Category = "Skybox", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, } } )
                     .Field( FieldInfo{ .Name = "Rotation", .Type = FieldType::Float, .Offset = offsetof( T, Rotation ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Rotation )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Rotation", .Category = "Skybox", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 360.0f, } } )
@@ -349,6 +492,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::ColliderData;
         TypeBuilder( "ColliderData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Shape", .Type = FieldType::Enum, .Offset = offsetof( T, Shape ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Shape )>(), .TypeName = "Physics::ShapeType", .Meta = PropertyMetadata{ .DisplayName = "Shape", .Category = "Collider", .Summary = true, }, .EnumValues = { EnumValue{ "Box", 0 }, EnumValue{ "Sphere", 1 }, EnumValue{ "Capsule", 2 }, EnumValue{ "Mesh", 3 }, EnumValue{ "ConvexHull", 4 }, } } )
                     .Field( FieldInfo{ .Name = "HalfExtents", .Type = FieldType::Vec3, .Offset = offsetof( T, HalfExtents ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::HalfExtents )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Half Extents", .Category = "Collider", .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Collider", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 5000.0f, .IsLength = true, } } )
@@ -361,6 +505,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::AudioSourceData;
         TypeBuilder( "AudioSourceData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Clip", .Type = FieldType::String, .Offset = offsetof( T, Clip ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Clip )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Clip", .Category = "Audio", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Volume", .Type = FieldType::Float, .Offset = offsetof( T, Volume ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Volume )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Volume", .Category = "Audio", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 2.0f, } } )
                     .Field( FieldInfo{ .Name = "Loop", .Type = FieldType::Bool, .Offset = offsetof( T, Loop ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Loop )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Loop", .Category = "Audio", } } )
@@ -372,6 +517,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::RigidBodyData;
         TypeBuilder( "RigidBodyData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Type", .Type = FieldType::Enum, .Offset = offsetof( T, Type ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Type )>(), .TypeName = "Physics::BodyType", .Meta = PropertyMetadata{ .DisplayName = "Type", .Category = "Rigid Body", .Summary = true, }, .EnumValues = { EnumValue{ "Static", 0 }, EnumValue{ "Dynamic", 1 }, EnumValue{ "Kinematic", 2 }, } } )
                     .Field( FieldInfo{ .Name = "Mass", .Type = FieldType::Float, .Offset = offsetof( T, Mass ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Mass )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Mass", .Category = "Rigid Body", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000.0f, .Units = "kg", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Friction", .Type = FieldType::Float, .Offset = offsetof( T, Friction ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Friction )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Friction", .Category = "Rigid Body", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 2.0f, .Advanced = true, } } )
@@ -386,6 +532,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::CharacterControllerData;
         TypeBuilder( "CharacterControllerData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Character", .HasRange = true, .RangeMin = 5.0f, .RangeMax = 500.0f, .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "Height", .Type = FieldType::Float, .Offset = offsetof( T, Height ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Height )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Height", .Category = "Character", .HasRange = true, .RangeMin = 20.0f, .RangeMax = 1000.0f, .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "MaxSlopeDeg", .Type = FieldType::Float, .Offset = offsetof( T, MaxSlopeDeg ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxSlopeDeg )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Max Slope", .Category = "Character", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 89.0f, .Units = "deg", } } )
@@ -397,6 +544,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::PlayerStartData;
         TypeBuilder( "PlayerStartData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Tag", .Type = FieldType::String, .Offset = offsetof( T, Tag ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Tag )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Player Start Tag", .Category = "Player Start", .Tooltip = "Empty = the level's default start. A tagged start is used only when Play asks for its tag.", } } )
             .WithDefault<T>()
             .Register();
@@ -404,6 +552,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::StreamingSourceData;
         TypeBuilder( "StreamingSourceData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Streaming Source", .Tooltip = "Off = the world does not load around this entity.", } } )
                     .Field( FieldInfo{ .Name = "OverrideLoadingRange", .Type = FieldType::Bool, .Offset = offsetof( T, OverrideLoadingRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OverrideLoadingRange )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Override Loading Range", .Category = "Streaming Source", .Tooltip = "Off = the World Partition grid's Loading Range.", } } )
                     .Field( FieldInfo{ .Name = "LoadingRange", .Type = FieldType::Float, .Offset = offsetof( T, LoadingRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LoadingRange )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Loading Range", .Category = "Streaming Source", .Tooltip = "Cells within this distance of the entity load (cm).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000000.0f, .Units = "cm", .EditCondition = "OverrideLoadingRange", } } )
@@ -414,6 +563,7 @@ void RegisterReflection_Engine()
     {
         using T = ::Desert::ECS::VolumetricCloudData;
         TypeBuilder( "VolumetricCloudData", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Cloud Layer", .Tooltip = "Master switch. Off dispatches nothing: a scene with the clouds disabled pays zero GPU cost, exactly like a scene without the component.", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Material", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Material ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Material )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Material", .Category = "Materials", .IsAsset = true, .AssetType = "MaterialAsset", .Hidden = true, } } )
                     .Field( FieldInfo{ .Name = "PlanetRadius", .Type = FieldType::Float, .Offset = offsetof( T, PlanetRadius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PlanetRadius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Planet Radius", .Category = "Cloud Layer", .Tooltip = "Radius of the planet the layer curves around. It is what puts the horizon where it belongs: a flat layer has no horizon at all and either fills the whole lower sky or ends at an invisible edge.", .HasRange = true, .RangeMin = 100.0f, .RangeMax = 7000.0f, .Units = "km", .Advanced = true, } } )

@@ -97,11 +97,11 @@ namespace Desert::Scripting
         impl.DropTimers( [key]( const Impl::PendingTimer& t ) { return t.Owner == key; } );
         impl.LastUpdateError.erase( key ); // fresh sandbox -> fresh error state
 
-        entt::registry*    registry        = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
-        const entt::entity handle          = static_cast<entt::entity>( entity );
-        impl.CurrentOwner                  = key; // Timer.after at the top level belongs to this slot
+        entt::registry*    registry = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
+        const entt::entity handle   = static_cast<entt::entity>( entity );
+        impl.CurrentOwner           = key; // Timer.after at the top level belongs to this slot
         const Core::WorldContext::Scope world( impl.Context );
-        Common::ResultStr<LuauSlot> loaded = impl.Runtime->Load(
+        Common::ResultStr<LuauSlot>     loaded = impl.Runtime->Load(
              path, source.GetValue(),
              { EntityBinding( "self", [registry, handle]() { return LuauEntityRef{ registry, handle }; } ) } );
         impl.Settle();
@@ -123,9 +123,9 @@ namespace Desert::Scripting
         const LuauSlot target = SlotOf( entity, slot );
         if ( target == 0 || !Runtime->Defines( target, function ) )
             return BOOLSUCCESS;
-        CurrentOwner                 = SlotKey( entity, slot ); // Timer.after ownership
+        CurrentOwner = SlotKey( entity, slot ); // Timer.after ownership
         const Core::WorldContext::Scope world( Context );
-        Common::BoolResultStr called = Runtime->Call( target, function, args );
+        Common::BoolResultStr           called = Runtime->Call( target, function, args );
         Settle();
         return called;
     }
@@ -197,8 +197,7 @@ namespace Desert::Scripting
         }
     }
 
-    void ScriptEngine::ApplyProperties( uint32_t entity, uint32_t slot,
-                                        const std::vector<ScriptProperty>& props )
+    void ScriptEngine::ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props )
     {
         const LuauSlot target = m_Impl->SlotOf( entity, slot );
         if ( target == 0 )
@@ -279,7 +278,7 @@ namespace Desert::Scripting
 
     std::vector<ScriptProperty> ReadScriptProperties( const std::string& path )
     {
-        std::vector<ScriptProperty> out;
+        std::vector<ScriptProperty>    out;
         Common::ResultStr<std::string> source = ReadScript( path );
         if ( !source.IsSuccess() )
             return out;

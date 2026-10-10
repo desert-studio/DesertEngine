@@ -545,8 +545,10 @@ namespace Desert::Scripting::LuauBinder
                         // UE's ScriptMethod: the static's first parameter is the entity, so `entity:name(...)`
                         // passes the object itself as that argument.
                         if ( function.Params.empty() || function.Params[0].Type != FieldType::Entity )
+                        {
                             LOG_ERROR( "Luau: {}.{} is a ScriptMethod but its first parameter is not an entity",
                                        type.Name, function.Name );
+                        }
                         else
                         {
                             lua_pushvalue( L, -1 );

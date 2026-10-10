@@ -34,6 +34,7 @@ namespace Desert::Reflection::Generated
     void RegisterReflection_Hair();
     void RegisterReflection_Foliage();
     void RegisterReflection_Scripting();
+    void RegisterReflection_ScriptLuau();
 }
 
 namespace
@@ -68,6 +69,7 @@ namespace
             ::Desert::Reflection::Generated::RegisterReflection_Hair();
             ::Desert::Reflection::Generated::RegisterReflection_Foliage();
             ::Desert::Reflection::Generated::RegisterReflection_Scripting();
+            ::Desert::Reflection::Generated::RegisterReflection_ScriptLuau();
             ::Desert::Reflection::ReflectionRegistry::Get().ResolveStructLinks();
         }
     } g_DesertReflectionAutoRegister;

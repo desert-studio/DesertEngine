@@ -26,7 +26,8 @@ namespace Desert::Libraries
     {
         REFLECT( ScriptName( "Audio" ) )
 
-        FUNCTION( ScriptCallable, ScriptName( "play" ), Tooltip( "Plays a clip once at a volume (1 = as authored)." ) )
+        FUNCTION( ScriptCallable, ScriptName( "play" ),
+                  Tooltip( "Plays a clip once at a volume (1 = as authored)." ) )
         static void Play( const std::string& clip, float volume );
 
         FUNCTION( ScriptCallable, ScriptName( "stopAll" ) )
@@ -50,7 +51,8 @@ namespace Desert::Libraries
     {
         REFLECT( ScriptName( "level" ) )
 
-        FUNCTION( ScriptCallable, ScriptName( "open" ), Tooltip( "Requests travel to a level; false (logged) when refused." ) )
+        FUNCTION( ScriptCallable, ScriptName( "open" ),
+                  Tooltip( "Requests travel to a level; false (logged) when refused." ) )
         static bool Open( const std::string& level );
     };
 } // namespace Desert::Libraries

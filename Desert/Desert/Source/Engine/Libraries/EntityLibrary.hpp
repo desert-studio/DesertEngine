@@ -19,7 +19,8 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "name" ) )
         static std::string Name( ECS::Entity entity );
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "attachTo" ), Tooltip( "Socket-attaches to a bone of target." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "attachTo" ),
+                  Tooltip( "Socket-attaches to a bone of target." ) )
         static void AttachTo( ECS::Entity entity, ECS::Entity target, const std::string& bone );
 
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "detach" ) )
@@ -46,13 +47,15 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "setScale" ) )
         static void SetScale( ECS::Entity entity, const glm::vec3& scale );
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "forward" ), Tooltip( "World forward (-Z) of the rotation." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "forward" ),
+                  Tooltip( "World forward (-Z) of the rotation." ) )
         static glm::vec3 Forward( ECS::Entity entity );
 
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "right" ) )
         static glm::vec3 Right( ECS::Entity entity );
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "distanceTo" ), Tooltip( "-1 when either has no transform." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "distanceTo" ),
+                  Tooltip( "-1 when either has no transform." ) )
         static float DistanceTo( ECS::Entity entity, ECS::Entity other );
     };
 
@@ -61,7 +64,8 @@ namespace Desert::Libraries
     {
         REFLECT( ScriptName( "Character" ) )
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "move" ), Tooltip( "forward = W/S axis, right = D/A axis (-1..1), speed." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "move" ),
+                  Tooltip( "forward = W/S axis, right = D/A axis (-1..1), speed." ) )
         static void Move( ECS::Entity entity, float forward, float right, float speed );
 
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "jump" ) )
@@ -73,16 +77,19 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "setSwimming" ) )
         static void SetSwimming( ECS::Entity entity, bool swimming );
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "swim" ), Tooltip( "The up/down intent while swimming." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "swim" ),
+                  Tooltip( "The up/down intent while swimming." ) )
         static void Swim( ECS::Entity entity, float vertical );
 
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "isSwimming" ) )
         static bool IsSwimming( ECS::Entity entity );
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "addYaw" ), Tooltip( "Turns the whole entity (radians)." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "addYaw" ),
+                  Tooltip( "Turns the whole entity (radians)." ) )
         static void AddYaw( ECS::Entity entity, float radians );
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "addCameraPitch" ), Tooltip( "Tilts the child camera, clamped to +-85 degrees." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "addCameraPitch" ),
+                  Tooltip( "Tilts the child camera, clamped to +-85 degrees." ) )
         static void AddCameraPitch( ECS::Entity entity, float radians );
     };
 
@@ -91,7 +98,8 @@ namespace Desert::Libraries
     {
         REFLECT( ScriptName( "Material" ) )
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "setMaterialParam" ), Tooltip( "value = {x, y, z, w}." ) )
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "setMaterialParam" ),
+                  Tooltip( "value = {x, y, z, w}." ) )
         static void SetMaterialParam( ECS::Entity entity, const std::string& name, const glm::vec4& value );
 
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "getMaterialParam" ) )
@@ -118,7 +126,8 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptName( "spawn" ), Tooltip( "Places a prefab; nil (logged) on failure." ) )
         static ECS::Entity Spawn( const std::string& prefab, const glm::vec3& position );
 
-        FUNCTION( ScriptCallable, ScriptName( "spawnMarker" ), Tooltip( "A debug sphere drawn with the DebugColor template." ) )
+        FUNCTION( ScriptCallable, ScriptName( "spawnMarker" ),
+                  Tooltip( "A debug sphere drawn with the DebugColor template." ) )
         static ECS::Entity SpawnMarker( const glm::vec3& position, float scale, const glm::vec3& color );
     };
 } // namespace Desert::Libraries
