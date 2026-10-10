@@ -18,6 +18,7 @@
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
 #include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
+#include "Editor/Panels/Retarget/RetargetDocument.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
@@ -189,6 +190,21 @@ namespace Desert::Editor
                       return std::make_unique<Editor::AnimationEditorDocument>(
                            Assets::AssetHandle( subject.Owner ), Core::PersonaMode::Skeleton, assetManager.get(),
                            &documents.SubjectEditors() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE RETARGET EDITOR (UE's IK Retargeter editor): the source and target rigs side by side, the chains.
+        // Two previews, so a renderer-slot claimant like the mesh viewer.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Retarget ) ),
+             Registration{
+                  "Retarget", ICON_MDI_SWAP_HORIZONTAL,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
+                      return std::make_unique<Editor::RetargetDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                         assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -471,6 +487,10 @@ namespace Desert::Editor
                std::string( Common::Content::KindSpec( Common::Content::ContentKind::Skeleton ).Extension ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestAnimationEditorDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Common::Content::KindSpec( Common::Content::ContentKind::Retarget ).Extension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestRetargetDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [&assetManager]( const std::string& path )
