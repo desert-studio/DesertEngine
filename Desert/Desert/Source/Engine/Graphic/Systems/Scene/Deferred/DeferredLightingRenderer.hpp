@@ -10,6 +10,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
 
 #include <glm/glm.hpp>
 
@@ -94,12 +95,8 @@ namespace Desert::Graphic::System
         {
             const auto upload = [&graph]( const auto& lights, std::string_view name )
             {
-                using Payload = typename std::decay_t<decltype( lights )>::value_type;
-                const Payload                    none{};
-                const std::span<const std::byte> bytes =
-                     lights.empty() ? std::as_bytes( std::span<const Payload>( &none, 1 ) )
-                                    : std::as_bytes( std::span<const Payload>( lights.data(), lights.size() ) );
-                const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
+                const std::span<const std::byte> bytes  = ShaderProtocols::LightPayloadBytes( lights );
+                const RDG::BufferRef             buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
                 graph.QueueBufferUpload( buffer, bytes );
                 return buffer;
             };
