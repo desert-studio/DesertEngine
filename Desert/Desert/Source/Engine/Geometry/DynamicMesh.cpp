@@ -6,6 +6,7 @@ namespace Desert
 {
     Common::BoolResultWithCodes<Desert::MeshError> DynamicMesh::Invalidate()
     {
+        m_GpuStale = false; // this IS the upload; a direct call (a caller with a renderer) settles the flag
         m_VertexBuffer =
              Graphic::VertexBuffer::Create( (void*)m_Vertices.data(), m_Vertices.size() * sizeof( Vertex ) );
         const auto vertices = m_VertexBuffer->RT_Invalidate();
@@ -79,6 +80,14 @@ namespace Desert
 
         m_Vertices = vertices;
         m_Indices  = indices;
+
+        // NOT YET ON THE GPU (never drawn, or no renderer in this process): the edit is CPU data only and the
+        // whole mesh goes up in one Invalidate when the renderer first submits it (Mesh::EnsureGpuResources).
+        if ( m_GpuStale || !m_VertexBuffer )
+        {
+            MarkGpuStale();
+            return;
+        }
 
         // LOGGED RATHER THAN RETURNED, and the asymmetry with Invalidate above is deliberate. Update is
         // called once per mouse-move while a vertex is being dragged (PolyEditTool), and its single
