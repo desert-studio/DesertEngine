@@ -251,8 +251,9 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     ModelWorld world;
     world.Save();
     world.Packages.Baseline( world.Scene, world.Live() );
-    const std::string thirtyBefore = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) )
-                                          .ExtractValue();
+    const auto thirtyRead = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) );
+    ASSERT_TRUE( thirtyRead ) << thirtyRead.GetError();
+    const std::string thirtyBefore = thirtyRead.GetValue();
 
     world.Tags.erase( 30 ); // unloaded: the scene no longer holds it
     const std::vector<UUID> notLoaded{ UUID( 30 ) };
@@ -268,8 +269,9 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     const auto listed = EE::ListedEntities( world.Scene );
     ASSERT_TRUE( listed ) << listed.GetError();
     EXPECT_EQ( listed.GetValue(), ( std::vector<UUID>{ UUID( 10 ), UUID( 20 ), UUID( 30 ) } ) );
-    EXPECT_EQ( Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) ).ExtractValue(),
-               thirtyBefore );
+    const auto thirtyAfter = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) );
+    ASSERT_TRUE( thirtyAfter ) << thirtyAfter.GetError();
+    EXPECT_EQ( thirtyAfter.GetValue(), thirtyBefore );
     EXPECT_NE( world.Joined().find( "\"A2\"" ), std::string::npos );
 
     // An edit that names no entity is still a delta of the loaded ones: 30 is not written, not removed.
