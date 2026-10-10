@@ -862,21 +862,21 @@ namespace
                 master = binding.Guid;
 
         T::Track    events{ master, "Actions", T::TrackKind::Event, {}, false };
-        T::Section& eventSection = T::AddSection( events, T::FrameNumber{ 0 }, T::FrameNumber{ 48000 } );
+        T::Section& eventSection = T::AddSection( events, A::FrameNumber{ 0 }, A::FrameNumber{ 48000 } );
         auto&       keys         = std::get<T::EventChannel>( std::get<T::Channel>( eventSection.Content ) ).Keys;
-        keys.push_back( T::EventKey{ T::FrameNumber{ 100 }, T::FrameNumber{ 0 }, "Bell", 0,
+        keys.push_back( T::EventKey{ A::FrameNumber{ 100 }, A::FrameNumber{ 0 }, "Bell", 0,
                                      T::EventAction{ T::EventActionKind::PlaySound, "Audio/Bell.wav" } } );
-        keys.push_back( T::EventKey{ T::FrameNumber{ 200 }, T::FrameNumber{ 0 }, "Sparks", 0,
+        keys.push_back( T::EventKey{ A::FrameNumber{ 200 }, A::FrameNumber{ 0 }, "Sparks", 0,
                                      T::EventAction{ T::EventActionKind::ActivateParticles, "" } } );
-        keys.push_back( T::EventKey{ T::FrameNumber{ 300 }, T::FrameNumber{ 0 }, "Open", 0,
+        keys.push_back( T::EventKey{ A::FrameNumber{ 300 }, A::FrameNumber{ 0 }, "Open", 0,
                                      T::EventAction{ T::EventActionKind::CallScript, "OnDoorCue" } } );
-        keys.push_back( T::EventKey{ T::FrameNumber{ 400 }, T::FrameNumber{ 0 }, "Marker", 0, std::nullopt } );
+        keys.push_back( T::EventKey{ A::FrameNumber{ 400 }, A::FrameNumber{ 0 }, "Marker", 0, std::nullopt } );
         sequence.Tracks.push_back( std::move( events ) );
 
         T::Track    sub{ master, "Subsequence", T::TrackKind::Subsequence, {}, false };
-        T::Section& subSection = T::AddSection( sub, T::FrameNumber{ 24000 }, T::FrameNumber{ 72000 } );
+        T::Section& subSection = T::AddSection( sub, A::FrameNumber{ 24000 }, A::FrameNumber{ 72000 } );
         subSection.Content =
-             T::SubsequenceSectionContent{ AssetGuid{ 0xABCD, 0xEF01 }, T::FrameNumber{ 600 }, 0.5 };
+             T::SubsequenceSectionContent{ AssetGuid{ 0xABCD, 0xEF01 }, A::FrameNumber{ 600 }, 0.5 };
         sequence.Tracks.push_back( std::move( sub ) );
         return sequence;
     }
