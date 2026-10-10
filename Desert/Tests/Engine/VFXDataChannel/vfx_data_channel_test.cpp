@@ -456,8 +456,9 @@ TEST( VFXDataChannel, AScriptNameIsResolvedThroughTheAssetManager )
     fs::remove_all( dir );
 }
 
-// VFX-10c census: Lua VFX.useChannel (the Luau C function UseChannel, registered as VFX.useChannel) goes through VFXDataChannels::Use (the AssetManager), never reads the file
-// itself - no asset constructed, no LoadFromFile, no PathForName, no stream in its body.
+// VFX-10c census: Lua VFX.useChannel (the Luau C function UseChannel, registered as VFX.useChannel) goes through
+// VFXDataChannels::Use (the AssetManager), never reads the file itself - no asset constructed, no LoadFromFile, no
+// PathForName, no stream in its body.
 TEST( VFXDataChannel, LuaUseChannelDoesNotReadTheFileItself )
 {
     std::ifstream in( TestSupport::RepositoryRoot() / "Desert" / "Desert" / "Source" / "Engine" / "Scripting" /
