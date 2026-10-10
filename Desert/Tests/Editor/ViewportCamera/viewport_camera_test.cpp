@@ -126,11 +126,13 @@ TEST( ViewportCamera, TheCensusReportsThePoseTheCameraIsActuallyIn )
     const glm::vec3 position( 10.0f, 200.0f, -30.0f );
     const glm::vec3 forward( 0.0f, 0.5f, -1.0f );
 
-    const std::vector<EditableProperty> census = DescribeViewportCamera( position, forward );
+    const std::vector<EditableProperty> census = DescribeViewportCamera( position, forward, 75.0f );
 
-    ASSERT_EQ( census.size(), 2u );
+    ASSERT_EQ( census.size(), 3u );
     EXPECT_EQ( census[0].Name, kViewportCameraPosition );
     EXPECT_EQ( census[1].Name, kViewportCameraDirection );
+    EXPECT_EQ( census[2].Name, Desert::Editor::kViewportCameraFOV );
+    EXPECT_FLOAT_EQ( census[2].Value[0], 75.0f );
 
     EXPECT_FLOAT_EQ( census[0].Value[0], position.x );
     EXPECT_FLOAT_EQ( census[0].Value[1], position.y );
@@ -146,7 +148,7 @@ TEST( ViewportCamera, TheCensusReportsThePoseTheCameraIsActuallyIn )
 TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
 {
     const std::vector<EditableProperty> census =
-         DescribeViewportCamera( glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ) );
+         DescribeViewportCamera( glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f );
 
     for ( const EditableProperty& row : census )
     {
@@ -155,21 +157,23 @@ TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
 
         // Built from the census's own declared component count, and given a value that is legal for both
         // rows (a non-degenerate direction is also a legal position).
-        const std::vector<float> value( static_cast<std::size_t>( row.Components ), 1.0f );
+        // A row with a declared range is given its own minimum.
+        const std::vector<float> value( static_cast<std::size_t>( row.Components ), row.Min.value_or( 1.0f ) );
         EXPECT_TRUE( ValidateViewportCameraWrite( row.Name, value ).IsSuccess() )
              << row.Name << " is offered as settable and refused when written";
     }
 }
 
-// Both rows say they are three components and both say so in their TYPE too. The client checks the count
+// Every row says its component count in its TYPE too (float3 = 3, float = 1). The client checks the count
 // before it sends; a type that disagreed with the count would make one of the two checks wrong.
 TEST( ViewportCamera, TheDeclaredTypeAndTheDeclaredCountAgree )
 {
     for ( const EditableProperty& row :
-          DescribeViewportCamera( glm::vec3( 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ) ) )
+          DescribeViewportCamera( glm::vec3( 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f ) )
     {
-        EXPECT_EQ( row.Type, "float3" ) << row.Name;
-        EXPECT_EQ( row.Components, 3 ) << row.Name;
+        EXPECT_EQ( row.Type,
+                   row.Components == 1 ? std::string( "float" ) : "float" + std::to_string( row.Components ) )
+             << row.Name;
     }
 }
 

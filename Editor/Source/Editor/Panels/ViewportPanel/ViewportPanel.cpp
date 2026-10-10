@@ -16,6 +16,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Core/ViewportCameraProperties.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Import/NodeActors.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
@@ -1475,7 +1476,8 @@ namespace Desert::Editor
                     {
                         float fov = editorCam->GetFOV();
                         ImGui::SetNextItemWidth( kW );
-                        if ( ImGui::SliderFloat( "FOV", &fov, 20.0f, 120.0f, "%.0f" ) )
+                        if ( ImGui::SliderFloat( "FOV", &fov, kViewportCameraMinFOV, kViewportCameraMaxFOV,
+                                                 "%.0f" ) )
                             editorCam->SetFOV( fov );
                     }
                     else
