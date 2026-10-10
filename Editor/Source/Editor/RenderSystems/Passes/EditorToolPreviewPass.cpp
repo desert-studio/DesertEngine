@@ -81,6 +81,10 @@ namespace Desert::Editor::Render
         // The tool keeps a closed shape's near side and both sides of an open one; nothing to cull here.
         faces.CullMode    = Graphic::CullMode::None;
         faces.BlendEnable = true; // UE's preview material is translucent
+        // A flat shape (Disc, Rectangle) placed on a surface lies IN it: without a pull toward the viewer the
+        // coplanar surface wins every other pixel and the preview shows as broken dashes.
+        faces.DepthBiasConstant = 4.0f;
+        faces.DepthBiasSlope    = 1.5f;
 
         Graphic::GraphicsPipelineSpecification edges = faces;
         edges.DebugName                              = "EditorToolPreviewEdges";

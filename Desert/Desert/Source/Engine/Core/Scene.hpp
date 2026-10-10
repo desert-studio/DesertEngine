@@ -66,7 +66,8 @@ namespace Desert::Core
         bool         Hit      = false;
         Common::UUID Entity;                       // hit entity's UUID (valid only when Hit)
         glm::vec3    Point    = glm::vec3( 0.0f );  // world hit point
-        glm::vec3    Normal   = glm::vec3( 0.0f, 1.0f, 0.0f ); // box-face / surface normal; triangle normal (RaycastComplex)
+        glm::vec3    Normal =
+             glm::vec3( 0.0f, 1.0f, 0.0f ); // box-face / surface normal; triangle normal (RaycastComplex)
         float        Distance = 0.0f;
     };
 

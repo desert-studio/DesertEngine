@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/PipelineBuilds.hpp>
 
+#include <bit>
 #include <chrono>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
@@ -332,6 +333,9 @@ namespace Desert::Graphic
             uint32_t LayoutStride    = 0;
             uint32_t LayoutElements  = 0;
             uint64_t LayoutSignature = 0; // FNV-1a over (Type, Offset) of every element, in order
+            // The depth bias is baked into the rasterizer state (no VK_DYNAMIC_STATE_DEPTH_BIAS): bit patterns.
+            uint32_t DepthBiasConstantBits = 0;
+            uint32_t DepthBiasSlopeBits    = 0;
 
             bool operator==( const Key& ) const = default;
         };
@@ -365,6 +369,8 @@ namespace Desert::Graphic
                 mix( static_cast<size_t>( k.LayoutStride ) );
                 mix( static_cast<size_t>( k.LayoutElements ) );
                 mix( static_cast<size_t>( k.LayoutSignature ) );
+                mix( static_cast<size_t>( k.DepthBiasConstantBits ) );
+                mix( static_cast<size_t>( k.DepthBiasSlopeBits ) );
                 return h;
             }
         };
@@ -426,7 +432,9 @@ namespace Desert::Graphic
                 k.StencilBackSig  = pack( s.StencilBack );
             }
 
-            k.LoadRenderPass = s.UseLoadRenderPass;
+            k.LoadRenderPass        = s.UseLoadRenderPass;
+            k.DepthBiasConstantBits = std::bit_cast<uint32_t>( s.DepthBiasConstant );
+            k.DepthBiasSlopeBits    = std::bit_cast<uint32_t>( s.DepthBiasSlope );
             k.VertexPulling  = s.PullingConfig.has_value();
 
             // Vertex pulling makes the backend ignore Layout outright, so folding it in here would fork

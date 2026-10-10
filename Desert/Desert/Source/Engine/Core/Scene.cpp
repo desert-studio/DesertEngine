@@ -248,10 +248,10 @@ namespace Desert::Core
                                           glm::cross( pb - pa, pc - pa );
                             if ( glm::dot( n, ray.Direction ) > 0.0f )
                                 n = -n;
-                            closest     = d;
-                            bestUUID    = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                            bestFace    = glm::normalize( n );
-                            hit         = true;
+                            closest  = d;
+                            bestUUID = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                            bestFace = glm::normalize( n );
+                            hit      = true;
                         }
                     }
                 }
