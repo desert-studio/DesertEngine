@@ -32,6 +32,11 @@ namespace Desert::Geometry
     // triangle is unset in a carried overlay. uvLayer must exist when the mesh has UV layers.
     [[nodiscard]] Common::ResultStr<RenderMeshData> ToRenderMesh( const DynamicMesh3& mesh, int uvLayer = 0 );
 
+    // A triangle's MaterialID attribute, read by the rule ToRenderMesh groups by: a mesh with no attribute set or
+    // no MaterialID attribute has every triangle on material 0. For callers outside the adapters that need the
+    // per-triangle slot without reaching into MeshCore's attribute set (BlockoutSession's RecoverBlockout).
+    [[nodiscard]] int TriangleMaterialID( const DynamicMesh3& mesh, int triangle );
+
     struct ImportedDynamicMesh
     {
         DynamicMesh3  Mesh;

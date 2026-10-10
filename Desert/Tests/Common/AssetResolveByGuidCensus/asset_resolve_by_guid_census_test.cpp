@@ -57,6 +57,8 @@
 #include <string_view>
 #include <vector>
 
+#include "../../TestSupport/engine_dir.hpp"
+
 namespace fs = std::filesystem;
 using Common::Content::AssetGuid;
 using Common::Content::ContentKind;
@@ -448,6 +450,10 @@ TEST( AssetResolveByGuidCensus, EveryKindSurvivesAMoveOrIsANamedRegisterRow )
     fs::remove_all( project );
     fs::create_directories( project );
     Common::Constants::Path::SetProjectRoot( fs::canonical( project ), "Resources/Assets" );
+    // Engine-rooted kinds (Shader: <engine>/Resources/Shaders) are moved under a private engine directory too;
+    // the checkout's Editor/ is never written (the probe once landed in Editor/Resources/Shaders/AF10a_*).
+    fs::create_directories( project / "Engine" );
+    const Desert::TestSupport::EngineDirScope engine( fs::canonical( project / "Engine" ) );
 
     for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
     {

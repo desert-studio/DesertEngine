@@ -83,6 +83,12 @@ namespace Desert::Geometry
         }
     } // namespace
 
+    int TriangleMaterialID( const DynamicMesh3& mesh, int triangle )
+    {
+        const DynamicMeshMaterialAttribute* ids = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
+        return ids != nullptr ? ids->GetValue( triangle ) : 0;
+    }
+
     Common::ResultStr<RenderMeshData> ToRenderMesh( const DynamicMesh3& mesh, int uvLayer )
     {
         const DynamicMeshAttributeSet* attributes = mesh.Attributes();
@@ -120,10 +126,9 @@ namespace Desert::Geometry
                 return Common::MakeError<RenderMeshData>( r.GetError() );
 
         // Triangles grouped by material, ascending triangle ID inside each group.
-        const DynamicMeshMaterialAttribute*  materialIds = attributes->GetMaterialID();
-        std::map<int, std::vector<int>>      byMaterial;
+        std::map<int, std::vector<int>> byMaterial;
         for ( const int t : mesh.TriangleIndicesItr() )
-            byMaterial[materialIds != nullptr ? materialIds->GetValue( t ) : 0].push_back( t );
+            byMaterial[TriangleMaterialID( mesh, t )].push_back( t );
 
         RenderMeshData out;
         for ( const auto& [material, triangles] : byMaterial )
