@@ -24,7 +24,7 @@ namespace
         cube.Translation = glm::vec3( x, 0.0f, z );
         cube.Rotation    = glm::vec3( 0.0f );
         cube.Scale       = glm::vec3( 1.0f );
-        cube.Boxes.push_back( Common::Math::AABB( glm::vec3( -50.0f ), glm::vec3( 50.0f ) ) );
+        cube.Boxes.push_back( Common::Math::AABB{ glm::vec3( -50.0f ), glm::vec3( 50.0f ) } );
         return cube;
     }
 
