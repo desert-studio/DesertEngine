@@ -28,8 +28,8 @@ namespace Desert::Core::EditorRegions
 
         // What `regions` select of the world at `path`, decided over its descriptor index (refreshed first, so an
         // index older than its files is rebuilt rather than used). `regions` null: the whole world.
-        Common::ResultStr<IndexSelection> SelectOverIndex( const std::filesystem::path&           path,
-                                                           const WorldPartitionSerialized&        settings,
+        Common::ResultStr<IndexSelection> SelectOverIndex( const std::filesystem::path&              path,
+                                                           const WorldPartitionSerialized&           settings,
                                                            const std::span<const Rules::CellBounds>* regions )
         {
             auto index = DescriptorIndex::Refresh( path );
@@ -215,8 +215,8 @@ namespace Desert::Core::EditorRegions
         if ( !header )
             return Common::MakeError<Result>( header.GetError() );
         if ( !header.GetValue().Scene.WorldPartition )
-            return Common::MakeError<Result>(
-                 fmt::format( "'{}' lists its entities in files but states no WorldPartition block.", path.string() ) );
+            return Common::MakeError<Result>( fmt::format(
+                 "'{}' lists its entities in files but states no WorldPartition block.", path.string() ) );
 
         // What a load with no region holds (LoadRegions( scene, {} )).
         const std::span<const Rules::CellBounds> none;

@@ -184,9 +184,9 @@ namespace Desert::Editor
             for ( const ::Desert::Core::DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
                 rowIds.push_back( row.Id );
             const ::Desert::Core::EntityPackages& packages = *m_Scene->Packages();
-            m_EditCells = WorldPartitionMap::EditorCellStates(
-                 *m_EditPlan, rowIds,
-                 [&packages]( std::uint64_t id ) { return packages.IsLoaded( Common::UUID( id ) ); } );
+            m_EditCells =
+                 WorldPartitionMap::EditorCellStates( *m_EditPlan, rowIds, [&packages]( std::uint64_t id )
+                                                      { return packages.IsLoaded( Common::UUID( id ) ); } );
             m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
             return;
         }
@@ -599,7 +599,8 @@ namespace Desert::Editor
                 ImGui::BeginTooltip();
                 ImGui::Text( "%s  (%d, %d)", Map::LevelLabel( cellSize, cell.Level ).c_str(), cell.Cell.X,
                              cell.Cell.Z );
-                ImGui::Text( "%s, %zu composite(s)", Map::NameOf( Map::StateOf( plan, residency, *index, m_EditCells ) ),
+                ImGui::Text( "%s, %zu composite(s)",
+                             Map::NameOf( Map::StateOf( plan, residency, *index, m_EditCells ) ),
                              cell.Composites.size() );
                 ImGui::EndTooltip();
             }

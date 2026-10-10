@@ -110,7 +110,8 @@ namespace Desert::Core::ExternalEntities
                 if ( !listed.contains( piece.lexically_normal().generic_string() ) )
                     return Common::MakeFormattedError(
                          "[SceneSerializer] '{}': {} is an entity file the scene does not list (a delete that did "
-                         "not finish, or a merge that kept the file and dropped the entity). Delete it or list it. "
+                         "not finish, or a merge that kept the file and dropped the entity). Delete it or list "
+                         "it. "
                          "Nothing was loaded.",
                          path.string(), piece.string() );
             return BOOLSUCCESS;

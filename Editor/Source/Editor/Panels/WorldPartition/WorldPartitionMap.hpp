@@ -130,8 +130,8 @@ namespace Desert::Editor::WorldPartitionMap
     // levels), on screen or not: the rows sum to the partition's cell count, so a zoomed or followed view
     // cannot make cells vanish from the legend.
     [[nodiscard]] std::vector<LegendRow> Legend( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                                                 const ::Desert::Core::Rules::ResidencyState*     residency,
-                                                 int level, std::span<const CellState> editor = {} );
+                                                 const ::Desert::Core::Rules::ResidencyState* residency, int level,
+                                                 std::span<const CellState> editor = {} );
 
     // The streaming source's loading circle and its unload band, in pixels.
     [[nodiscard]] double RadiusPixels( const View& view, double radiusCm );

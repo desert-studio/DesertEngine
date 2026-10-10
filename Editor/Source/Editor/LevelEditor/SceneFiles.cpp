@@ -263,7 +263,7 @@ namespace Desert::Editor
         // the whole world whatever is loaded (PlaySession::Play completes it from the files). A level template
         // or a recovery copy is not the world's files - it is read whole, as the scene it becomes.
         const bool opensItsFiles = openAs != OpenAs::Untitled && !Autosave::SceneFor( path );
-        const auto read = [&]() -> Common::ResultStr<Desert::Core::EditorRegions::OpenRead>
+        const auto read          = [&]() -> Common::ResultStr<Desert::Core::EditorRegions::OpenRead>
         {
             if ( opensItsFiles )
                 return Desert::Core::EditorRegions::ReadForOpen( path );
@@ -389,7 +389,7 @@ namespace Desert::Editor
         // The records the open left on disk stay the world's: a save keeps them, a region load reads them.
         if ( opened.ByRegion )
         {
-            const Desert::Core::SceneSerializer held( m_Workspace.ActiveScene().get(), m_Assets.get() );
+            const Desert::Core::SceneSerializer         held( m_Workspace.ActiveScene().get(), m_Assets.get() );
             const std::vector<Desert::Core::LiveEntity> live = held.LiveEntities();
             m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded );
             LOG_INFO( "[WorldPartition] '{}' opened unloaded: {} always-loaded composite(s), {} record(s) on disk",
