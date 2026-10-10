@@ -234,11 +234,15 @@ namespace Desert::Editor::ImportOptions
                                                    const Assets::LoadOutcome outcome, const std::string& error )
                          {
                              if ( outcome != Assets::LoadOutcome::Loaded )
+                             {
                                  LOG_ERROR( "[Import] '{}' was reimported but not read again: {}",
                                             path.generic_string(), error );
+                             }
                              else if ( const auto adopted = asset->AdoptReloaded( *read ); !adopted )
+                             {
                                  LOG_ERROR( "[Import] '{}' was read again but not swapped in: {}",
                                             path.generic_string(), adopted.GetError() );
+                             }
                              onSettled();
                          },
                          [path, onSettled]

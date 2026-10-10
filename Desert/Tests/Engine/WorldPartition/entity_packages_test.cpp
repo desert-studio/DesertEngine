@@ -252,7 +252,7 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     world.Save();
     world.Packages.Baseline( world.Scene, world.Live() );
     const std::string thirtyBefore = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) )
-                                          .GetValue();
+                                          .ExtractValue();
 
     world.Tags.erase( 30 ); // unloaded: the scene no longer holds it
     const std::vector<UUID> notLoaded{ UUID( 30 ) };
@@ -268,7 +268,7 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     const auto listed = EE::ListedEntities( world.Scene );
     ASSERT_TRUE( listed ) << listed.GetError();
     EXPECT_EQ( listed.GetValue(), ( std::vector<UUID>{ UUID( 10 ), UUID( 20 ), UUID( 30 ) } ) );
-    EXPECT_EQ( Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) ).GetValue(),
+    EXPECT_EQ( Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) ).ExtractValue(),
                thirtyBefore );
     EXPECT_NE( world.Joined().find( "\"A2\"" ), std::string::npos );
 
