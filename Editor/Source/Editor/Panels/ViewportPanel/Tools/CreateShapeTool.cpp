@@ -253,7 +253,16 @@ namespace Desert::Editor::Tools
             for ( const glm::vec3& corner : face.Corners )
                 mesh.Triangles.push_back( Vertex{ glm::vec4( corner, 1.0f ), colour } );
         }
-        // The form's edges: polygroup and open borders on the near side, and the silhouette.
+        // The form's edges: polygroup and open borders on the near side, and the silhouette. The faces' depth
+        // bias does not reach them - a rasterizer biases polygons, never line primitives - so each end is drawn
+        // a fraction of its distance toward the eye instead (UE's PDI line DepthBias, applied in view space):
+        // a border lying on the surface it was placed on is then not dashed by that surface.
+        constexpr float kEdgeTowardEye = 0.002f;
+        const auto      lifted         = [&]( const glm::vec3& local )
+        {
+            const glm::vec3 p = at( local );
+            return p + ( eye - p ) * kEdgeTowardEye;
+        };
         const glm::vec4 edgeColour( 1.0f, 0.86f, 0.47f, 1.0f );
         for ( const FeatureEdge& edge : m_Edges )
         {
@@ -261,8 +270,8 @@ namespace Desert::Editor::Tools
             const bool b = front[edge.TriB] != 0;
             if ( closed ? !( a || b ) || !( edge.Feature || a != b ) : !edge.Feature )
                 continue;
-            mesh.Edges.push_back( Vertex{ glm::vec4( at( edge.A ), 1.0f ), edgeColour } );
-            mesh.Edges.push_back( Vertex{ glm::vec4( at( edge.B ), 1.0f ), edgeColour } );
+            mesh.Edges.push_back( Vertex{ glm::vec4( lifted( edge.A ), 1.0f ), edgeColour } );
+            mesh.Edges.push_back( Vertex{ glm::vec4( lifted( edge.B ), 1.0f ), edgeColour } );
         }
         Render::ToolPreview::Show( scene, std::move( mesh ) );
     }

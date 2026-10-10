@@ -90,6 +90,10 @@ namespace Desert::Editor::Render
         edges.DebugName                              = "EditorToolPreviewEdges";
         edges.Topology                               = Graphic::PrimitiveTopology::Lines;
         edges.LineWidth                              = 1.0f;
+        // Line primitives are never depth-biased by the rasterizer: the edges come pulled toward the eye by the
+        // tool that built them (CreateShapeTool::ShowPreview), not by a bias that would read as if it worked.
+        edges.DepthBiasConstant = 0.0f;
+        edges.DepthBiasSlope    = 0.0f;
 
         const auto facePipeline = Graphic::GraphicsPipeline::Create( faces );
         if ( !facePipeline )
