@@ -70,9 +70,9 @@ namespace Desert::Animation
         std::vector<ControlBoneDrive> previous = std::move( m_Drives );
         m_Drives                               = std::move( drives );
 
-        if ( !m_Graph.Empty() )
+        if ( HasGraph( RigEvent::Forwards ) )
         {
-            if ( auto reaches = RefuseUnreachableGraph( m_Graph ); !reaches )
+            if ( auto reaches = RefuseUnreachableGraph( GetGraph( RigEvent::Forwards ) ); !reaches )
             {
                 m_Drives = std::move( previous );
                 return reaches;
@@ -81,13 +81,27 @@ namespace Desert::Animation
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr ControlRigStage::SetGraph( RigGraph graph )
+    Common::BoolResultStr ControlRigStage::SetGraph( RigGraph graph, RigEvent event )
     {
         if ( graph.Empty() )
         {
+            if ( event != RigEvent::Forwards )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "an empty graph is not a {} solve to install; a rig without one never calls this",
+                     ToString( event ) );
+            }
             return Common::MakeFormattedError<bool>(
                  "an empty graph is not a forwards solve to install; a rig without one is spelled by never "
                  "calling this, and it behaves as T5.4 shipped — a control reaches its bone by identity" );
+        }
+        // CONSTRUCTION AND BACKWARDS WRITE CONTROLS, NOT BONES: the drives question below belongs to the
+        // forwards solve alone, the only program whose output is the pose.
+        if ( event != RigEvent::Forwards )
+        {
+            m_Graphs[static_cast<size_t>( event )] = std::move( graph );
+            m_Constructed                          = m_Constructed && event != RigEvent::Construction;
+            return Common::MakeSuccess( true );
         }
         if ( m_Drives.empty() )
         {
@@ -101,7 +115,7 @@ namespace Desert::Animation
             return reaches;
         }
 
-        m_Graph = std::move( graph );
+        m_Graphs[static_cast<size_t>( RigEvent::Forwards )] = std::move( graph );
         return Common::MakeSuccess( true );
     }
 
@@ -181,9 +195,24 @@ namespace Desert::Animation
         // byte what it was, which is what the suite's positive control compares against. With a graph, the
         // walk writes control poses; the hierarchy dirties what depends on them, the output hop below reads
         // the resolved globals, and the drive list is untouched by any of it.
-        if ( !m_Graph.Empty() )
+        // ---- Construction, once (UE runs it before the first forwards solve) --------------------------------
+        if ( !m_Constructed && HasGraph( RigEvent::Construction ) )
         {
-            if ( auto ran = m_Graph.Execute( m_Hierarchy, component ); !ran )
+            if ( auto ran =
+                      m_Graphs[static_cast<size_t>( RigEvent::Construction )].Execute( m_Hierarchy, component );
+                 !ran )
+            {
+                m_LastError = std::string( "construction: " ) + ran.GetError();
+                ReportErrorOnChange();
+                return Common::MakeError<bool>( m_LastError );
+            }
+        }
+        m_Constructed = true;
+
+        if ( HasGraph( RigEvent::Forwards ) )
+        {
+            if ( auto ran = m_Graphs[static_cast<size_t>( RigEvent::Forwards )].Execute( m_Hierarchy, component );
+                 !ran )
             {
                 // The rig contributes NOTHING on a refused solve rather than its half-written state. A
                 // graph that failed at node seven has already written nodes one to six into the hierarchy,
@@ -247,5 +276,21 @@ namespace Desert::Animation
             LOG_ERROR( "[ControlRig] {}", m_LastError );
         }
         m_ReportedError = m_LastError;
+    }
+
+    Common::BoolResultStr ControlRigStage::SolveBackwards( const Skeleton& skeleton, ComponentPose& component )
+    {
+        if ( !HasGraph( RigEvent::Backwards ) )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "this rig has no Backwards graph; there is nothing that turns bones into control values" );
+        }
+        component.Invalidate();
+        m_Hierarchy.Evaluate( skeleton, component );
+        if ( !m_Hierarchy.GetStructureError().empty() )
+        {
+            return Common::MakeError<bool>( m_Hierarchy.GetStructureError() );
+        }
+        return m_Graphs[static_cast<size_t>( RigEvent::Backwards )].Execute( m_Hierarchy, component );
     }
 } // namespace Desert::Animation

@@ -48,6 +48,7 @@
 #include <glm/vec3.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -111,6 +112,40 @@ namespace Desert::Animation
      */
     [[nodiscard]] glm::vec3 ControlSideColor( std::string_view controlName );
 
+    /// One limitable channel of a control's local value (UE `FRigControlLimitEnabled` per axis). Rotation
+    /// channels are Euler degrees about X/Y/Z — the numbers an animator types into the inspector.
+    enum class ControlLimitChannel : uint8_t
+    {
+        TranslationX,
+        TranslationY,
+        TranslationZ,
+        RotationX,
+        RotationY,
+        RotationZ,
+        ScaleX,
+        ScaleY,
+        ScaleZ,
+    };
+
+    [[nodiscard]] std::string_view                   ToString( ControlLimitChannel channel );
+    [[nodiscard]] std::optional<ControlLimitChannel> ControlLimitChannelFromText( std::string_view text );
+
+    /// [Min, Max] on one channel. A channel with no entry is unlimited; Min > Max is refused by `Add`.
+    struct ControlLimit
+    {
+        ControlLimitChannel Channel = ControlLimitChannel::TranslationX;
+        float               Min     = 0.0F;
+        float               Max     = 0.0F;
+
+        [[nodiscard]] bool operator==( const ControlLimit& ) const = default;
+    };
+
+    /// @p pose with every limited channel clamped into its range. THE SETTER applies it (UE
+    /// `SetControlValue` clamps through `ApplyLimits`), so every writer — the graph's SetControl, the
+    /// manipulator, a key — gets the same answer and no reader has to remember to clamp.
+    [[nodiscard]] BoneTransform ApplyControlLimits( const std::vector<ControlLimit>& limits,
+                                                    const BoneTransform&             pose );
+
     struct ControlElement
     {
         std::string               Name;
@@ -122,6 +157,8 @@ namespace Desert::Animation
         BoneTransform             Offset;
         BoneTransform             Pose;
         std::vector<ControlSpace> Parents;
+        /// Ranges the local `Pose` is clamped into on every set (and on `Add`).
+        std::vector<ControlLimit> Limits;
     };
 
     /**

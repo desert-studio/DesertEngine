@@ -374,13 +374,20 @@ namespace Desert::Migration
     Common::ResultStr<TargetSkeletonRig> ReadTargetSkeletonRig( const std::filesystem::path& path,
                                                                 const std::string&           text );
 
-    // ANGR 3 -> 4, CRIG 2 -> 3, RTGT 3 -> 4 (ANIM-SKELREF): the file gains TargetSkeleton {Guid, Path} - the one
+    // ANGR 3 -> 4, CRIG 2 -> 3 (then -> 4 by MigrateControlRigToV4), RTGT 3 -> 4 (ANIM-SKELREF): the file gains
+    // TargetSkeleton {Guid, Path} - the one
     // rig of @p rigs the file's own statements fit: every bone name it states of its target (keys "Bone",
     // "BoneName",
     // "*Bone", a Kind "Bone" space's "Target"; never under a "Source*" key) is a bone of the rig, and every clip
     // it plays ("Clip", matched by name in @p clipRigs: clip Name -> its Skeleton GUID) is authored on it. No
     // evidence, or not exactly one fitting rig, is an error naming the candidates. The result is re-read and
     // re-written by the engine's own reader/writer of the kind. @p tag is "ANGR", "CRIG" or "RTGT". PURE.
+    // CRIG 3 -> 4 (ANIM-FIX11): the old `Graph` becomes `Graphs[{Event "Forwards"}]`, each of its nodes gets the
+    // `Position` the rig canvas used to invent for node i — (40 + 260 * (i % 4), 40 + 180 * (i / 4)) — and every
+    // control without `Limits` gets an empty one. Re-read and re-written by the engine's own .derig reader and
+    // writer. PURE.
+    Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text );
+
     Common::ResultStr<std::string>
     StateTargetSkeleton( const std::string& text, const std::string& tag,
                          const std::vector<TargetSkeletonRig>&               rigs,

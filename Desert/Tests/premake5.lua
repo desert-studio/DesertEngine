@@ -317,6 +317,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SkeletonBindEdit.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Retarget/RetargetDocumentModel.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ControlRig/ControlRigDocumentModel.cpp", -- the rig editor model (ControlRigDocument suite)
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/OutlinerColumn.cpp", -- the Sequencer Outliner column (OutlinerColumn suite)
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",

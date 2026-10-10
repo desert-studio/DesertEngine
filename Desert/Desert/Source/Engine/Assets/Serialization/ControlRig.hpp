@@ -71,6 +71,8 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Animation
@@ -97,6 +99,11 @@ namespace Desert::Assets::Serialization
      *   2 - the text asset header (T7c): Kind "ControlRig", the GUID that IS the rig's identity and its
      *       handle (ControlRigAsset's constructor), and this number under `CRIG`; the top-level
      *       FormatVersion is gone. A version-1 file is refused by name; Tools/SceneMigrator mints its GUID.
+     *   3 - `TargetSkeleton`, the GUID of the `.skeleton` the rig names bones of.
+     *   4 - UE Control Rig's authored state: `Graph` became `Graphs`, one per solve event
+     *       ("Construction" / "Forwards" / "Backwards"); every graph node carries its canvas `Position`; every
+     *       control carries `Limits` (possibly empty). Tools/SceneMigrator raises a v3 file: the old Graph
+     *       becomes the Forwards entry and its nodes get the grid positions the canvas used to invent.
      *
      * See the file note for why this is its own sequence and not `Core::kSceneVersion`. An unknown value is
      * refused in BOTH directions rather than read as if it meant what it means here.
@@ -177,6 +184,17 @@ namespace Desert::Assets::Serialization
      * emits the field only when it is not identity, so a round trip is stable in either direction and a
      * hand-edited rig does not grow a block of ones per control.
      */
+    /// One limited channel of a control (`Animation::ControlLimit`). `Channel` is the spelling of
+    /// `Animation::ControlLimitChannel` ("TX".."SZ"; rotations in degrees); an unknown one is refused by name.
+    struct ControlLimitData
+    {
+        std::string Channel;
+        float       Min = 0.0f;
+        float       Max = 0.0f;
+
+        [[nodiscard]] bool operator==( const ControlLimitData& ) const = default;
+    };
+
     struct ControlElementData
     {
         std::string                     Name;
@@ -189,6 +207,7 @@ namespace Desert::Assets::Serialization
         RigTransformData                Offset;
         RigTransformData                Pose;
         std::vector<ControlSpaceData>   Parents;
+        std::vector<ControlLimitData>   Limits;
 
         [[nodiscard]] bool operator==( const ControlElementData& ) const = default;
     };
@@ -256,6 +275,17 @@ namespace Desert::Assets::Serialization
      * swap a read and a write that the author wrote down in a particular order. A link may therefore only
      * name an EARLIER node, which is also why no cycle check appears in this format.
      */
+    /// Where a node sits on the rig canvas, in canvas units. Editor-authored (UE keeps it in the rig asset's
+    /// graph model, `URigVMNode::Position`); the runtime solve never reads it. Two floats rather than a
+    /// glm::vec2, which has no reflector and does not need one for this.
+    struct RigNodePositionData
+    {
+        float X = 0.0f;
+        float Y = 0.0f;
+
+        [[nodiscard]] bool operator==( const RigNodePositionData& ) const = default;
+    };
+
     struct RigGraphNodeData
     {
         std::string                    Name;
@@ -263,6 +293,7 @@ namespace Desert::Assets::Serialization
         std::string                    Target;
         std::string                    Space;
         std::vector<RigGraphInputData> Inputs;
+        RigNodePositionData            Position;
 
         [[nodiscard]] bool operator==( const RigGraphNodeData& ) const = default;
     };
@@ -272,6 +303,8 @@ namespace Desert::Assets::Serialization
     /// array has nowhere to put it.
     struct RigGraphData
     {
+        /// The spelling of `Animation::RigEvent`; at most one graph per event in a rig.
+        std::string                   Event = "Forwards";
         std::vector<RigGraphNodeData> Nodes;
 
         [[nodiscard]] bool operator==( const RigGraphData& ) const = default;
@@ -312,10 +345,41 @@ namespace Desert::Assets::Serialization
          * forwards solve" and "that solve is nothing" cannot both be true, and the writer emits the field
          * only when there is a graph, so a round trip is stable in either direction.
          */
-        std::optional<RigGraphData> Graph;
+        /// One per solve event the rig defines (CRIG 4); a rig with none is a T5.4 identity rig.
+        std::vector<RigGraphData> Graphs;
 
         [[nodiscard]] bool operator==( const ControlRigData& ) const = default;
     };
+
+    /// The graph of @p event ("Construction" / "Forwards" / "Backwards"), or null when the rig defines none.
+    [[nodiscard]] inline const RigGraphData* FindRigGraph( const ControlRigData& data, std::string_view event )
+    {
+        for ( const RigGraphData& graph : data.Graphs )
+        {
+            if ( graph.Event == event )
+            {
+                return &graph;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] inline RigGraphData* FindRigGraph( ControlRigData& data, std::string_view event )
+    {
+        return const_cast<RigGraphData*>( FindRigGraph( std::as_const( data ), event ) );
+    }
+
+    /// The graph of @p event, appended empty when absent — for an editor about to add its first node. An
+    /// empty graph is refused by Validate, so a caller that ends up adding nothing removes it again.
+    [[nodiscard]] inline RigGraphData& EnsureRigGraph( ControlRigData& data, std::string_view event )
+    {
+        if ( RigGraphData* found = FindRigGraph( data, event ) )
+        {
+            return *found;
+        }
+        data.Graphs.push_back( RigGraphData{ std::string( event ), {} } );
+        return data.Graphs.back();
+    }
 
     // ----------------------------------------------------------------------------------------------
     // Pure functions over the file form. No filesystem, no GPU, no globals.
@@ -396,6 +460,8 @@ namespace Desert::Assets::Serialization
     /// a format whose two directions are not testable together is a format whose round trip is an
     /// assumption. Needs the skeleton to turn the stage's bone indices back into names; @p targetSkeleton is that
     /// skeleton's asset reference, which the stage does not carry.
+    /// Nor does the stage carry a graph node's canvas `Position` (editor data the solve never reads): the
+    /// mirror writes the origin, and a caller that has the authored file keeps its positions from there.
     NO_DISCARD Common::ResultStr<ControlRigData> BuildDataFromControlRig( const std::string&  name,
                                                                           const AssetGuidRef& targetSkeleton,
                                                                           const Animation::ControlRigStage& rig,

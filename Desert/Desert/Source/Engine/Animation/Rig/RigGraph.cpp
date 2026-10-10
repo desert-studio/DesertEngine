@@ -201,6 +201,32 @@ namespace Desert::Animation
         return std::nullopt;
     }
 
+    std::string_view ToString( RigEvent event )
+    {
+        switch ( event )
+        {
+            case RigEvent::Construction:
+                return "Construction";
+            case RigEvent::Forwards:
+                return "Forwards";
+            case RigEvent::Backwards:
+                return "Backwards";
+        }
+        return "Forwards";
+    }
+
+    std::optional<RigEvent> RigEventFromText( std::string_view text )
+    {
+        for ( size_t i = 0; i < kRigEventCount; ++i )
+        {
+            if ( ToString( static_cast<RigEvent>( i ) ) == text )
+            {
+                return static_cast<RigEvent>( i );
+            }
+        }
+        return std::nullopt;
+    }
+
     Common::BoolResultStr RefuseDiscardedWork( std::span<const std::string>           names,
                                                std::span<const RigNodeKind>           kinds,
                                                std::span<const std::vector<uint32_t>> producers )

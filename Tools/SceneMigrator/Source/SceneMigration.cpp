@@ -1263,16 +1263,87 @@ namespace Desert::Migration
                             : Common::MakeError<std::string>( read.GetError() );
             }
             if ( tag == "CRIG" )
-            {
-                const auto read = S::ParseControlRig( text );
-                return read ? Common::MakeSuccess( S::WriteControlRig( read.GetValue() ) )
-                            : Common::MakeError<std::string>( read.GetError() );
-            }
+                return MigrateControlRigToV4( text ); // CRIG 3 is not this build's; the chain ends at its reader
             const auto read = S::ParseRetarget( text );
             return read ? Common::MakeSuccess( S::WriteRetarget( read.GetValue() ) )
                         : Common::MakeError<std::string>( read.GetError() );
         }
     } // namespace TargetSkeletonStep
+
+    Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text )
+    {
+        auto read = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "CRIG 3 body does not read: {}", read.error().what() );
+        rfl::Generic::Object document = std::move( read.value() );
+        auto                 header   = document.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        auto versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        if ( !versions.has_value() ||
+             versions.value().get( "CRIG" ).value_or( rfl::Generic() ).to_int().value_or( -1 ) != 3 )
+            return Common::MakeFormattedError<std::string>(
+                 "the header does not state CRIG 3, and this step raises CRIG 3 only" );
+
+        if ( auto controls = document.get( "Controls" ).value_or( rfl::Generic() ).to_array() )
+        {
+            rfl::Generic::Array raised;
+            for ( const rfl::Generic& item : controls.value() )
+            {
+                auto control = item.to_object();
+                if ( !control.has_value() )
+                    return Common::MakeFormattedError<std::string>( "a Controls entry is not an object" );
+                if ( !control.value().get( "Limits" ).has_value() )
+                    control.value()["Limits"] = rfl::Generic( rfl::Generic::Array{} );
+                raised.push_back( rfl::Generic( std::move( control.value() ) ) );
+            }
+            document["Controls"] = rfl::Generic( std::move( raised ) );
+        }
+
+        rfl::Generic::Array graphs;
+        if ( const auto graph = document.get( "Graph" ); graph.has_value() )
+        {
+            const auto old = graph.value().to_object();
+            if ( !old.has_value() )
+                return Common::MakeFormattedError<std::string>( "Graph is not an object" );
+            const auto nodes = old.value().get( "Nodes" ).value_or( rfl::Generic() ).to_array();
+            if ( !nodes.has_value() )
+                return Common::MakeFormattedError<std::string>( "Graph states no Nodes array" );
+            rfl::Generic::Array placed;
+            for ( size_t i = 0; i < nodes.value().size(); ++i )
+            {
+                auto node = nodes.value()[i].to_object();
+                if ( !node.has_value() )
+                    return Common::MakeFormattedError<std::string>( "graph node {} is not an object", i );
+                rfl::Generic::Object position;
+                position["X"]            = rfl::Generic( 40.0 + 260.0 * double( i % 4 ) );
+                position["Y"]            = rfl::Generic( 40.0 + 180.0 * double( i / 4 ) );
+                node.value()["Position"] = rfl::Generic( std::move( position ) );
+                placed.push_back( rfl::Generic( std::move( node.value() ) ) );
+            }
+            rfl::Generic::Object forwards;
+            forwards["Event"] = rfl::Generic( std::string( "Forwards" ) );
+            forwards["Nodes"] = rfl::Generic( std::move( placed ) );
+            graphs.push_back( rfl::Generic( std::move( forwards ) ) );
+            rfl::Generic::Object without;
+            for ( const auto& [key, field] : document )
+                if ( key != "Graph" )
+                    without[key] = field;
+            document = std::move( without );
+        }
+        document["Graphs"] = rfl::Generic( std::move( graphs ) );
+
+        versions.value()["CRIG"]   = rfl::Generic( static_cast<int>( Assets::kControlRigSchemaVersion ) );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        document["Header"]         = rfl::Generic( std::move( header.value() ) );
+
+        namespace S     = Assets::Serialization;
+        const auto back = S::ParseControlRig( rfl::json::write( document ) );
+        if ( !back )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as CRIG {}: {}",
+                                                            Assets::kControlRigSchemaVersion, back.GetError() );
+        return Common::MakeSuccess( S::WriteControlRig( back.GetValue() ) );
+    }
 
     Common::ResultStr<std::string>
     StateTargetSkeleton( const std::string& text, const std::string& tag,
@@ -1281,7 +1352,7 @@ namespace Desert::Migration
     {
         const uint32_t from = tag == "ANGR" ? 3u : tag == "CRIG" ? 2u : 3u;
         const uint32_t to   = tag == "ANGR"   ? Assets::kAnimGraphSchemaVersion
-                              : tag == "CRIG" ? Assets::kControlRigSchemaVersion
+                              : tag == "CRIG" ? 3u
                                               : Assets::kRetargetSchemaVersion;
         auto           read = rfl::json::read<rfl::Generic::Object>( text );
         if ( !read )

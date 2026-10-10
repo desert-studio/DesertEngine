@@ -3,7 +3,7 @@
         "Kind": "ControlRig",
         "Guid": "40479c2b2391cf05aac54971112979c9",
         "Versions": {
-            "CRIG": 3
+            "CRIG": 4
         },
         "Dependencies": []
     },
@@ -37,7 +37,8 @@
                     "Target": "IK_Shoulder",
                     "Weight": 1.0
                 }
-            ]
+            ],
+            "Limits": []
         },
         {
             "Name": "Hand_CTRL",
@@ -63,7 +64,8 @@
                     "Target": "",
                     "Weight": 1.0
                 }
-            ]
+            ],
+            "Limits": []
         }
     ],
     "Drives": [
@@ -76,53 +78,68 @@
             "Bone": "IK_Hand"
         }
     ],
-    "Graph": {
-        "Nodes": [
-            {
-                "Name": "elbowControl",
-                "Kind": "GetControl",
-                "Target": "Elbow_CTRL",
-                "Space": "Global",
-                "Inputs": []
-            },
-            {
-                "Name": "reach",
-                "Kind": "MultiplyTransform",
-                "Target": "",
-                "Space": "",
-                "Inputs": [
-                    {
-                        "Pin": "A",
-                        "Link": {
-                            "Node": "elbowControl",
-                            "Pin": "Transform"
-                        }
-                    },
-                    {
-                        "Pin": "B",
-                        "Transform": {
-                            "Translation": [-70.0, 90.0, 0.0],
-                            "Rotation": [1.0, 0.0, 0.0, 0.0],
-                            "Scale": [1.0, 1.0, 1.0]
-                        }
+    "Graphs": [
+        {
+            "Event": "Forwards",
+            "Nodes": [
+                {
+                    "Name": "elbowControl",
+                    "Kind": "GetControl",
+                    "Target": "Elbow_CTRL",
+                    "Space": "Global",
+                    "Inputs": [],
+                    "Position": {
+                        "X": 40.0,
+                        "Y": 40.0
                     }
-                ]
-            },
-            {
-                "Name": "placeHand",
-                "Kind": "SetControl",
-                "Target": "Hand_CTRL",
-                "Space": "Global",
-                "Inputs": [
-                    {
-                        "Pin": "Transform",
-                        "Link": {
-                            "Node": "reach",
-                            "Pin": "Transform"
+                },
+                {
+                    "Name": "reach",
+                    "Kind": "MultiplyTransform",
+                    "Target": "",
+                    "Space": "",
+                    "Inputs": [
+                        {
+                            "Pin": "A",
+                            "Link": {
+                                "Node": "elbowControl",
+                                "Pin": "Transform"
+                            }
+                        },
+                        {
+                            "Pin": "B",
+                            "Transform": {
+                                "Translation": [-70.0, 90.0, 0.0],
+                                "Rotation": [1.0, 0.0, 0.0, 0.0],
+                                "Scale": [1.0, 1.0, 1.0]
+                            }
                         }
+                    ],
+                    "Position": {
+                        "X": 300.0,
+                        "Y": 40.0
                     }
-                ]
-            }
-        ]
-    }
+                },
+                {
+                    "Name": "placeHand",
+                    "Kind": "SetControl",
+                    "Target": "Hand_CTRL",
+                    "Space": "Global",
+                    "Inputs": [
+                        {
+                            "Pin": "Transform",
+                            "Link": {
+                                "Node": "reach",
+                                "Pin": "Transform"
+                            }
+                        }
+                    ],
+                    "Position": {
+                        "X": 560.0,
+                        "Y": 40.0
+                    }
+                }
+            ]
+        }
+    ]
 }
