@@ -269,6 +269,15 @@ namespace Desert::Graphic
             meshSystem->AddShadowCaster( terrainSystem );
         }
 
+        // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene copy.
+        RegisterSystem<System::WaterRenderer>( "WaterSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
+        if ( const auto init = SP_CAST( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Initialize();
+             !init )
+        {
+            LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
+                       init.GetError() );
+        }
+
         const auto& jumpFloodSystem =
              SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
         if ( !jumpFloodSystem->Initialize() )
@@ -862,6 +871,13 @@ namespace Desert::Graphic
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
 
+        // The water's tiles, once, before its node records: the quadtree walked from the main camera.
+        {
+            DESERT_PROFILE_PASS( "Water: PrepareFrame" );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->PrepareFrame();
+        }
+
         // THE FRAME IS A GRAPH. Every GPU pass of this view from here on is one graph node (Raster, Compute or
         // Copy) that declares what it reads and writes; the graph orders them by those declarations and places
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
@@ -1029,6 +1045,9 @@ namespace Desert::Graphic
             if ( m_EnableSSR && sceneCopy.IsValid() && EnsureSSRResources() )
                 AddFrameSSR( graph, textures, gbuffer, sceneCopy, frame );
 
+            // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
+            // the glass, which then refracts the water behind it.
+            AddFrameWater( graph, textures );
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
 
@@ -1118,6 +1137,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->ClearQueue();
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
@@ -1342,6 +1363,12 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
+    }
+
+    void SceneRenderer::SubmitWaterZone( System::WaterZoneDraw zone )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Submit( std::move( zone ) );
     }
 
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,

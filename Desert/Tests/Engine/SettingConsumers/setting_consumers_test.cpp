@@ -826,6 +826,15 @@ namespace
          { "OceanExtents", kWaterBodyGather },
          { "TargetWaveMaskDepth", kWaterBodyGather },
     };
+    // A water zone (WATER-W6): every field is read by ECS::WaterZoneECSSystem into the quadtree description the
+    // water renderer walks.
+    constexpr const char* kWaterZoneSystem = "Desert/Desert/Source/Engine/ECS/System/WaterZoneECSSystem.hpp";
+    constexpr Row         kWaterZoneRows[] = {
+         { "ZoneExtent", kWaterZoneSystem },
+         { "TileSize", kWaterZoneSystem },
+         { "TessellationFactor", kWaterZoneSystem },
+         { "LODScale", kWaterZoneSystem },
+    };
     // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
     // FieldCommand it hands DestructionWorld::ApplyField.
     constexpr const char* kFieldFire = "Desert/Desert/Source/Engine/ECS/System/DestructionFields.cpp";
@@ -1059,6 +1068,7 @@ namespace
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
          { "WaterBodyData", "WaterBodyComponent", nullptr, CENSUS_ROWS( kWaterBodyRows ) },
+         { "WaterZoneData", "WaterZoneComponent", nullptr, CENSUS_ROWS( kWaterZoneRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
@@ -1275,7 +1285,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // every field read by ECS::FireDestructionField in DestructionFields.cpp).
     // -> 58 with WATER-W2's WaterBodyData (kWaterBodyRows: every field read by WaterBodyGather.cpp into the
     // water body state the physics step queries).
-    EXPECT_EQ( all.size(), 58u );
+    // -> 59 with WATER-W6's WaterZoneData (kWaterZoneRows: every field read by WaterZoneECSSystem.hpp into the
+    // quadtree the water renderer walks).
+    EXPECT_EQ( all.size(), 59u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

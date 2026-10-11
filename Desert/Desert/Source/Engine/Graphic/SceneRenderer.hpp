@@ -35,6 +35,7 @@
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
+#include "Systems/Scene/Water/WaterRenderer.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
 #include "Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp"
 #include "Systems/Scene/PostProcessing/FXAARenderer.hpp"
@@ -211,6 +212,10 @@ namespace Desert::Graphic
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
         void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
                                   const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
+
+        // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
+        // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
+        void SubmitWaterZone( System::WaterZoneDraw zone );
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-lit shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for
@@ -572,6 +577,9 @@ namespace Desert::Graphic
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             System::MeshRenderer* meshRenderer );
+        // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
+        // glass.
+        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
 #endif // DESERT_DEV_INSTRUMENTS
