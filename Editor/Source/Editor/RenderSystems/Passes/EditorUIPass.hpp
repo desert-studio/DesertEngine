@@ -59,6 +59,9 @@ namespace Desert::Editor::Render
         // The engine resources this view draws with; declared first, so it outlives the view built on it.
         ::Desert::UI::RegistryUICanvasResources m_UIResources;
         ::Desert::UI::UIViewContext             m_UIView{ m_UIResources };
+        // `--ui-press` under `--play`: walks seen with the scene in Play. The press waits for the second, whose
+        // `Hot` was elected over the rows gameplay filled on the first (see the press gate in Declare).
+        int m_CliPlayWalks = 0;
 
         // The offscreen worlds behind this view's render-texture elements. By value in the pass for the
         // same reason m_UIView is: closing the document destroys the pass, and destroying this is what
