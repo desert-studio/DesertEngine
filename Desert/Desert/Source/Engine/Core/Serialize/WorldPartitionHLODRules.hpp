@@ -250,7 +250,7 @@ namespace Desert::Core::Rules
                 hlod.NotInstanced.push_back( { index, HLODExclusion::PrefabInstance } );
                 continue;
             }
-            // A landscape tile draws terrain from its height file, not from a mesh block (see LandscapeTile above).
+            // A landscape tile draws terrain from its height file, not from a mesh block (the reason above).
             if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
             {
                 hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeTile } );

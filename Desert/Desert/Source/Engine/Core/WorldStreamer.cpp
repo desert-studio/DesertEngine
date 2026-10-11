@@ -430,11 +430,15 @@ namespace Desert::Core
         // A hole is something the player sees vanish (WP-FAR-1: a whole landscape beyond the loading range), so
         // it is a warning, not a line among the info.
         if ( holes.empty() )
+        {
             LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
                       m_SceneName, units.size(), records.size(), holesText );
+        }
         else
+        {
             LOG_WARN( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
                       m_SceneName, units.size(), records.size(), holesText );
+        }
         return BOOLSUCCESS;
     }
 
