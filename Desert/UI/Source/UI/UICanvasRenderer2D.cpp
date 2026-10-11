@@ -33,49 +33,53 @@ namespace Desert::UI
     {
         namespace
         {
-        // The nearest element at or above @p e that @p handles, walking the parent links (bounded, so a
-        // corrupted parent cycle cannot hang the frame). The bubbling half of Slate's routing: the element
-        // under the pointer is the leaf, and the event goes up until something handles it.
-        template <typename Handles>
-        NodeId NearestAtOrAbove( IUITree& tree, NodeId e, Handles handles )
-        {
-            std::size_t guard = 0;
-            for ( NodeId t = e; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound(); )
+            // The nearest element at or above @p e that @p handles, walking the parent links (bounded, so a
+            // corrupted parent cycle cannot hang the frame). The bubbling half of Slate's routing: the element
+            // under the pointer is the leaf, and the event goes up until something handles it.
+            template <typename Handles>
+            NodeId NearestAtOrAbove( IUITree& tree, NodeId e, Handles handles )
             {
-                if ( handles( t ) )
-                    return t;
-                t = tree.Parent( t );
+                std::size_t guard = 0;
+                for ( NodeId t = e; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound(); )
+                {
+                    if ( handles( t ) )
+                        return t;
+                    t = tree.Parent( t );
+                }
+                return NodeId::Null;
             }
-            return NodeId::Null;
-        }
 
-        // The control a click / hover / drag on @p hot belongs to. A Blocking leaf stops the pointer where
-        // it is (UIHitTest::Blocking), so nothing above it hears it.
-        NodeId PointerTargetOf( IUITree& tree, NodeId hot )
-        {
-            if ( hot == NodeId::Null || !tree.Valid( hot ) )
-                return NodeId::Null;
-            if ( tree.Has<UILayoutData>( hot ) && tree.Get<UILayoutData>( hot )->HitTest == UIHitTest::Blocking )
-                return NodeId::Null;
-            return NearestAtOrAbove( tree, hot,
-                                     [&tree]( NodeId t )
-                                     {
-                                         return tree.Has<UIButtonData>( t ) || tree.Has<UIToggleData>( t ) ||
-                                                tree.Has<UISliderData>( t ) || tree.Has<UIInputFieldData>( t ) ||
-                                                tree.Has<UIDropdownData>( t );
-                                     } );
-        }
+            // The control a click / hover / drag on @p hot belongs to. A Blocking leaf stops the pointer where
+            // it is (UIHitTest::Blocking), so nothing above it hears it.
+            NodeId PointerTargetOf( IUITree& tree, NodeId hot )
+            {
+                if ( hot == NodeId::Null || !tree.Valid( hot ) )
+                    return NodeId::Null;
+                if ( tree.Has<UILayoutData>( hot ) &&
+                     tree.Get<UILayoutData>( hot )->HitTest == UIHitTest::Blocking )
+                    return NodeId::Null;
+                return NearestAtOrAbove( tree, hot,
+                                         [&tree]( NodeId t )
+                                         {
+                                             return tree.Has<UIButtonData>( t ) || tree.Has<UIToggleData>( t ) ||
+                                                    tree.Has<UISliderData>( t ) ||
+                                                    tree.Has<UIInputFieldData>( t ) ||
+                                                    tree.Has<UIDropdownData>( t );
+                                         } );
+            }
 
-        // The scrolling container a wheel notch over @p hot scrolls.
-        NodeId WheelTargetOf( IUITree& tree, NodeId hot )
-        {
-            if ( hot == NodeId::Null || !tree.Valid( hot ) )
-                return NodeId::Null;
-            if ( tree.Has<UILayoutData>( hot ) && tree.Get<UILayoutData>( hot )->HitTest == UIHitTest::Blocking )
-                return NodeId::Null;
-            return NearestAtOrAbove( tree, hot, [&tree]( NodeId t )
-                                     { return tree.Has<UIScrollViewData>( t ) || tree.Has<UIListViewData>( t ); } );
-        }
+            // The scrolling container a wheel notch over @p hot scrolls.
+            NodeId WheelTargetOf( IUITree& tree, NodeId hot )
+            {
+                if ( hot == NodeId::Null || !tree.Valid( hot ) )
+                    return NodeId::Null;
+                if ( tree.Has<UILayoutData>( hot ) &&
+                     tree.Get<UILayoutData>( hot )->HitTest == UIHitTest::Blocking )
+                    return NodeId::Null;
+                return NearestAtOrAbove(
+                     tree, hot, [&tree]( NodeId t )
+                     { return tree.Has<UIScrollViewData>( t ) || tree.Has<UIListViewData>( t ); } );
+            }
         } // namespace
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
