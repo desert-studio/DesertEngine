@@ -121,6 +121,10 @@ namespace
                                "point: theming must not require an edit of every entity" },
          { "UINavigationComponent", "modifier — per-direction navigation rules, explicit targets and the "
                                     "initial-focus mark of an existing control or container; added in Details" },
+         { "UITileViewComponent", "modifier — lays an existing UIListView's items out as tiles (UE UTileView); "
+                                  "added in Details" },
+         { "UITreeViewComponent", "modifier — makes an existing collection-bound UIListView a tree of records "
+                                  "and their children collections (UE UTreeView); added in Details" },
          { "UIRetainerComponent", "modifier — retains an existing element and its subtree into an offscreen "
                                   "layer composited through one effect (UE Retainer Box); added in Details" },
     };

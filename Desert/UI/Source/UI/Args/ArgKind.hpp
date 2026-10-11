@@ -38,6 +38,8 @@ namespace Desert::UI
         Overlay,
         OverlayTrigger,
         Navigation,
+        TileView,
+        TreeView,
         Count
     };
 } // namespace Desert::UI

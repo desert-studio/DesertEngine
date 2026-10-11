@@ -113,6 +113,7 @@ namespace Desert::Editor::Render
                 input.MouseRightDown = pv.RightDown;
                 input.ScrollDelta   = pv.Scroll;
                 input.Keys           = pv.Keys;
+                input.Mods           = pv.Mods;
                 input.TypedText     = pv.TypedText;
                 input.Clipboard      = &clipboard;
             }

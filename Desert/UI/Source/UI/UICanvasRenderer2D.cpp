@@ -812,7 +812,7 @@ namespace Desert::UI
             if ( !tree.Valid( pi.Entity ) || !tree.Has<UIDropdownData>( pi.Entity ) )
                 continue;
             auto&       d       = *tree.GetState<UIDropdownData>( pi.Entity );
-            const auto  options = SplitOptions( ctx.View.Resources().Text(), d.Options );
+            const auto  options = DropdownOptions( ctx.View.Resources().Text(), d );
             const float rowH    = pi.Box.H;
             const Rect  popup{ pi.Box.X, pi.Box.Y + pi.Box.H, pi.Box.W,
                               rowH * static_cast<float>( options.size() ) };

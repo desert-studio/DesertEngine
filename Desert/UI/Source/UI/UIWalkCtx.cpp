@@ -415,11 +415,33 @@ namespace Desert::UI::Walk
         return out;
     }
 
+    // The options of a dropdown (UE UComboBoxString's option list, ComboBoxString.h:21). Bound: one per record
+    // of the data-store collection, labelled by its LabelField — read in place each frame, so a script that
+    // adds a server to the list adds an option. Unbound: the authored ';'-separated Options.
+    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDropdownData& d )
+    {
+        if ( d.Collection.empty() )
+            return SplitOptions( text, d.Options );
+        std::vector<std::string> out;
+        if ( const UICollection* c = UIDataStore::Get().FindCollection( d.Collection ) )
+        {
+            out.reserve( static_cast<std::size_t>( c->Size() ) );
+            for ( int i = 0; i < c->Size(); ++i )
+                out.push_back( text.Resolve( c->Record( i ).Text( d.LabelField ).value_or( std::string() ) ).Text );
+        }
+        return out;
+    }
+
     // Keyboard-focusable controls (Tab cycles between them; Enter activates the focused one).
     bool IsFocusable( IUITree& tree, NodeId e )
     {
-        return tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) || tree.Has<UIToggleData>( e ) ||
-               tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e );
+        if ( tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) || tree.Has<UIToggleData>( e ) ||
+             tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e ) )
+            return true;
+        // A SELECTABLE list takes focus (its arrows move the cursor); a display-only one does not, so Tab does
+        // not stop on a chat log.
+        const UIListViewData* lv = tree.Get<UIListViewData>( e );
+        return lv != nullptr && lv->SelectionMode != UISelectionMode::None;
     }
 
     // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and
