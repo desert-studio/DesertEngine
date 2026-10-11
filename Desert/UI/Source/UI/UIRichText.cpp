@@ -128,10 +128,12 @@ namespace Desert::UI::Walk
             return true;
         }
 
-        // A picture tag's asset: the key a scene file spells it by ("engine:Icons/user.svg",
-        // "assets:Textures/coin.png" — the same AssetHandle::FromCookedPath the scene reader mints it with),
-        // or the bare handle number.
-        bool ParseHandleArg( const std::string& s, uint64_t& out )
+        // A picture tag's asset: the bare handle number, or the key a scene file spells it by. The two kinds
+        // name their asset differently, exactly as a scene's own fields do: an icon IS its path (the scene
+        // reader mints it with AssetHandle::FromCookedPath, "engine:Icons/user.svg"), while a texture is named
+        // by its header GUID and its path is only a locator — so an [img=] key is resolved through the
+        // content registry's row for that path (IUICanvasResources::ImageAtPath), never hashed from the path.
+        bool ParseHandleArg( IUICanvasResources& res, const std::string& s, InlineKind kind, uint64_t& out )
         {
             if ( s.empty() )
                 return false;
@@ -139,6 +141,8 @@ namespace Desert::UI::Walk
             const auto [ptr, ec] = std::from_chars( s.data(), s.data() + s.size(), v );
             if ( ec == std::errc{} && ptr == s.data() + s.size() )
                 out = v;
+            else if ( kind == InlineKind::Image )
+                out = res.ImageAtPath( s );
             else
                 out = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( s ) );
             return out != 0;
@@ -180,11 +184,12 @@ namespace Desert::UI::Walk
 
         // Expand text into styled items. When `rich`, parse the BBCode subset — [color=#rrggbb]..[/color],
         // [b]..[/b], [i]..[/i], [size=N]..[/size] (N in design px, like Font Size), [link=msg]..[/link]
-        // (all nestable), and the self-closing pictures [icon=H] / [img=H] (H = the asset handle) —
-        // consuming the tags; an unrecognised or malformed '[' is emitted literally. Link messages land in
-        // `links`, which the items index.
-        std::vector<StyledChar> BuildStyledChars( const std::string& text, const glm::vec4& baseColor,
-                                                  float baseSize, bool rich, std::vector<std::string>& links )
+        // (all nestable), and the self-closing pictures [icon=K] / [img=K] (K = the asset key or handle,
+        // ParseHandleArg) — consuming the tags; an unrecognised or malformed '[' is emitted literally. Link
+        // messages land in `links`, which the items index.
+        std::vector<StyledChar> BuildStyledChars( IUICanvasResources& res, const std::string& text,
+                                                  const glm::vec4& baseColor, float baseSize, bool rich,
+                                                  std::vector<std::string>& links )
         {
             std::vector<StyledChar> out;
             out.reserve( text.size() );
@@ -259,14 +264,16 @@ namespace Desert::UI::Walk
                             links.push_back( tag.substr( 5 ) );
                             linkStack.push_back( static_cast<int>( links.size() ) - 1 );
                         }
-                        else if ( tag.rfind( "icon=", 0 ) == 0 && ParseHandleArg( tag.substr( 5 ), asset ) )
+                        else if ( tag.rfind( "icon=", 0 ) == 0 &&
+                                  ParseHandleArg( res, tag.substr( 5 ), InlineKind::Icon, asset ) )
                         {
                             StyledChar c = styled( 0xFFFC );
                             c.kind       = InlineKind::Icon;
                             c.asset      = asset;
                             out.push_back( c );
                         }
-                        else if ( tag.rfind( "img=", 0 ) == 0 && ParseHandleArg( tag.substr( 4 ), asset ) )
+                        else if ( tag.rfind( "img=", 0 ) == 0 &&
+                                  ParseHandleArg( res, tag.substr( 4 ), InlineKind::Image, asset ) )
                         {
                             StyledChar c = styled( 0xFFFC );
                             c.kind       = InlineKind::Image;
@@ -397,8 +404,8 @@ namespace Desert::UI::Walk
         };
 
         std::vector<std::string>      linkMessages;
-        const std::vector<StyledChar> chars =
-             BuildStyledChars( t.Text, glm::vec4( t.Color, 1.0f ) * tint, t.FontSize, t.RichText, linkMessages );
+        const std::vector<StyledChar> chars = BuildStyledChars( res, t.Text, glm::vec4( t.Color, 1.0f ) * tint,
+                                                                t.FontSize, t.RichText, linkMessages );
 
         // The font's line box in em; an item of size ratio r stands r times as tall.
         const float lineBoxEm = bf.Ascent - bf.Descent;
