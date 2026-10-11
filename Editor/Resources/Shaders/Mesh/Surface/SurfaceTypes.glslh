@@ -111,13 +111,23 @@ SurfaceOutput DefaultSurfaceOutput()
     } v_Surface;
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
-SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor )
+SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,
+                                 bool frontFacing )
 {
+    // THE BACK FACE OF A TWO-SIDED MATERIAL faces the viewer through the surface's other side, so its normal is
+    // the interpolated one negated (UE MaterialTemplate.ush: `WorldNormal *= TwoSidedSign`, the sign being the
+    // facing of a TWO_SIDED draw). Two-sidedness here is the draw's cull state (MeshRenderer::CullPermutation),
+    // not a shader permutation, but a one-sided draw culls every back face, so a back-facing fragment can only
+    // come from a two-sided one: the fragment's gl_FrontFacing alone is UE's sign. It is passed in because this
+    // header is compiled into the vertex stage too, where the built-in does not exist. Without the flip a leaf
+    // card seen from behind was lit as the side facing away (no sun, the far hemisphere's ambient, a grazing sky
+    // reflection). The whole TBN turns, so a tangent-space normal map lands on the visible side as well.
+    const float facing = frontFacing ? 1.0 : -1.0;
     SurfaceInput i;
     i.WorldPosition = worldPosition;
-    i.Normal        = normalize( normal );
+    i.Normal        = facing * normalize( normal );
     i.UV0           = uv0;
-    i.TBN           = tbn;
+    i.TBN           = facing * tbn;
     i.UV1           = uv1;
     i.VertexColor   = vertexColor;
     i.CameraPosition = cameraUB.CameraPos;
