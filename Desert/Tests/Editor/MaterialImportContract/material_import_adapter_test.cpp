@@ -269,17 +269,17 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
 }
 
 // MAT-AO-ONEHOME: the surface templates have ONE ambient-occlusion parameter, AOStrength (UE's Ambient Occlusion
-// input), and it is applied ONCE — as the strength of the ORM map's R inside PBRResolveORM. The AO the surface
+// input), and it is applied ONCE — as the strength of the ORM map's R inside SurfaceResolveORM. The AO the surface
 // writes is that result untouched, so a strength of 0.5 on a fully occluded texel gives 0.5, not 0.5 * 0.5 = 0.25.
 TEST( MaterialImportAdapter, TheAmbientOcclusionStrengthIsAppliedOnceInEverySurfaceTemplate )
 {
-    const std::string resolve = RepoFile( "Editor/Resources/Shaders/Common/PBRSurfaceInputs.glslh" );
+    const std::string resolve = RepoFile( "Editor/Resources/Shaders/Common/SurfaceInputs.glslh" );
     ASSERT_FALSE( resolve.empty() );
     EXPECT_NE( resolve.find( "float occlusion = 1.0 + occlusionStrength * (ormTexel.x - 1.0);" ),
                std::string::npos )
-         << "PBRResolveORM no longer lerps the occlusion texel by its strength (glTF occlusionStrength)";
+         << "SurfaceResolveORM no longer lerps the occlusion texel by its strength (glTF occlusionStrength)";
 
-    for ( const char* file : { "PBR/StandardSurface.shader", "Toon/Toon.shader" } )
+    for ( const char* file : { "Surface/StandardSurface.shader", "Toon/Toon.shader" } )
     {
         const std::string text = RepoFile( std::format( "Editor/Resources/Shaders/Programs/{}", file ) );
         ASSERT_FALSE( text.empty() ) << file;
@@ -290,10 +290,9 @@ TEST( MaterialImportAdapter, TheAmbientOcclusionStrengthIsAppliedOnceInEverySurf
         for ( size_t at = text.find( "u_Material.AOStrength" ); at != std::string::npos;
               at        = text.find( "u_Material.AOStrength", at + 1 ) )
             ++uses;
-        EXPECT_EQ( uses, 1u ) << file << ": AOStrength must be read once, as PBRResolveORM's strength";
-        EXPECT_NE( text.find( "PBRResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.AOStrength," ),
-                   std::string::npos )
-             << file;
+        EXPECT_EQ( uses, 1u ) << file << ": AOStrength must be read once, as SurfaceResolveORM's strength";
+        EXPECT_NE( text.find( "SurfaceResolveORM( " ), std::string::npos ) << file;
+        EXPECT_NE( text.find( "( u_ORMTexture, uv ).rgb, u_Material.AOStrength," ), std::string::npos ) << file;
         EXPECT_NE( text.find( "s.AmbientOcclusion  = orm.x;" ), std::string::npos )
              << file << ": the resolved occlusion must reach the surface unscaled";
     }

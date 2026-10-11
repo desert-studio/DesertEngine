@@ -70,7 +70,7 @@ Shader "StandardSurface"
         Float       MetallicFactor ("Metallic", Range(0,1), Category("Surface")) = 0
         Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.5
         // UE's Ambient Occlusion input, ONE home: the strength of the ORM map's R (glTF occlusionStrength), applied
-        // once in PBRResolveORM — 1 takes the map as is, 0 ignores it.
+        // once in SurfaceResolveORM — 1 takes the map as is, 0 ignores it.
         Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
         Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
         Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
