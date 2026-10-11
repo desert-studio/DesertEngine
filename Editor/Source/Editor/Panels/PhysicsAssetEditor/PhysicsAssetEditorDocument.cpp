@@ -338,7 +338,7 @@ namespace Desert::Editor
             Report( Common::MakeError<bool>( "the preview has not built its skeletal mesh yet" ), "Simulate" );
             return;
         }
-        // The project's register, as the level's Play reads it (PhysicsECSSystem): no register, no Simulate.
+        // The project's register, as the level's Play reads it: no register, no Simulate.
         auto profiles = Physics::CollisionProfiles::Read( Common::Constants::Path::PROJECT_CONFIG_PATH /
                                                           Physics::kCollisionProfilesFileName );
         if ( !profiles )

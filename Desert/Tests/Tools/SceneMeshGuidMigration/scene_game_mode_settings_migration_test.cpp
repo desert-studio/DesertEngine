@@ -16,7 +16,9 @@ namespace
     std::vector<std::string> Keys( const Migration::SceneSerialized& scene )
     {
         std::vector<std::string> out;
-        for ( const auto& [key, field] : scene.Settings.value().to_object().value() )
+        // Bound first: a range-for over `to_object().value()` iterates an object the temporary took with it.
+        const auto object = scene.Settings.value().to_object();
+        for ( const auto& [key, field] : object.value() )
             out.push_back( key );
         return out;
     }

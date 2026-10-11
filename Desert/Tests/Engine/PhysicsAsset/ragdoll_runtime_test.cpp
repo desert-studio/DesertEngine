@@ -99,6 +99,7 @@ namespace
         floor.HalfExtents = { 2000.0f, 10.0f, 2000.0f };
         floor.Position    = { 0.0f, -10.0f, 0.0f }; // top face at y = 0
         floor.Type        = BodyType::Static;
+        floor.Profile     = Desert::TestSupport::ProfileId( world, EngineProfiles::kBlockAll );
         ASSERT_TRUE( world.CreateBody( floor ).IsSuccess() );
     }
 

@@ -120,6 +120,9 @@ namespace Desert::Editor
         floor.HalfExtents = { 2000.0f, 10.0f, 2000.0f };
         floor.Position    = { 0.0f, -10.0f, 0.0f }; // top face at y = 0, the preview's floor
         floor.Type        = Physics::BodyType::Static;
+        // The engine's profile for static ground (the landscape's): Build guarantees the register has it.
+        const auto floorProfile = world->GetCollisionProfiles().Resolve( Physics::EngineProfiles::kBlockAll );
+        floor.Profile           = floorProfile.GetValue();
         if ( const auto made = world->CreateBody( floor ); !made )
             return Common::MakeError<bool>( made.GetError() );
 

@@ -53,8 +53,8 @@ namespace
 
 TEST( SceneWindSourceMigration, VersionIsTheGenerationAfterUIAnimationSequences )
 {
-    EXPECT_EQ( Migration::kSceneVersionWindSource, Migration::kSceneVersionUIAnimationSequences + 1 );
-    EXPECT_EQ( Migration::kSceneVersionWindSource, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Migration::kSceneVersionWindSource, Migration::kSceneVersionCollisionProfiles + 1 );
+    EXPECT_LT( Migration::kSceneVersionWindSource, Desert::Core::kSceneVersion );
 }
 
 TEST( SceneWindSourceMigration, CloudWindBecomesOneWindSourceWithTheSameDirectionAndSpeed )

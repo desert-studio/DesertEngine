@@ -61,7 +61,11 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 21> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 22> kEntityTables{ {
+         { "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.hpp", "m_Live", Release::Listener,
+           "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp",
+           "on_destroy<RagdollComponent>().connect",
+           "RAG1b: the ragdoll's description and rig signature; OnRagdollDestroyed releases the ragdoll and its row" },
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( doomedEntity )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },

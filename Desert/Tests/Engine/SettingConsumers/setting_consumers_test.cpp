@@ -478,6 +478,8 @@ namespace
 
          // Play instantiates it at the chosen PlayerStart (SPAWN1, UE's GameMode DefaultPawnClass).
          { "DefaultPawn", kPlayerStart },
+         // The GameMode's respawn wait (GP2, UE's RespawnDelay).
+         { "RespawnDelay", "Desert/Desert/Source/Engine/Core/GameMode.cpp" },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -1362,7 +1364,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // water body state the physics step queries).
     // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
     // -> 60 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
-    EXPECT_EQ( all.size(), 60u );
+    // -> 64 with the int/b10 gameplay types (GP1-GP5) merged beside it.
+    EXPECT_EQ( all.size(), 64u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

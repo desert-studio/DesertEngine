@@ -307,8 +307,7 @@ namespace
                 const bool        action = kind == ContentKind::InputAction;
                 const std::string text   = std::format(
                      R"({{"Header":{{"Kind":"{}","Guid":"{}","Versions":{{"{}":1}},"Dependencies":[]}}}})"
-                       "
-                       ",
+                     "\n",
                           action
                           ? "InputAction"
                           : "InputMappingContext",

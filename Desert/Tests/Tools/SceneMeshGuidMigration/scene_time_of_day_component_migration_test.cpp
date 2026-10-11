@@ -40,8 +40,8 @@ namespace
 
 TEST( SceneTimeOfDayComponentMigration, VersionIsTheGenerationAfterUIAnimationSequences )
 {
-    EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Migration::kSceneVersionUIAnimationSequences + 1 );
-    EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Migration::kSceneVersionTimeOfDayComponent, Migration::kSceneVersionWindSource + 1 );
+    EXPECT_LT( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
 }
 
 TEST( SceneTimeOfDayComponentMigration, TheSkysClockBecomesATimeOfDayBlockOnTheSameRecord )
