@@ -36,6 +36,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <unordered_set>
@@ -66,7 +67,8 @@ namespace
     {
         for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../", "../../../../../" } )
         {
-            std::ifstream file( std::string( prefix ) + "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+            std::ifstream file( std::filesystem::path( prefix ) /
+                                "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
             if ( file )
             {
                 std::ostringstream text;

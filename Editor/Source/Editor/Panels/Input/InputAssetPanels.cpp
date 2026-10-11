@@ -16,6 +16,8 @@
 
 #include <array>
 #include <cstddef>
+#include <filesystem>
+#include <format>
 #include <functional>
 #include <vector>
 
@@ -31,6 +33,12 @@ namespace Desert::Editor
         constexpr std::array<const char*, 5> kSwizzleOrders = { "YXZ", "ZYX", "XZY", "YZX", "ZXY" };
         constexpr std::array<const char*, 2> kDeadZoneTypes = { "Axial", "Radial" };
         constexpr std::array<const char*, 4> kTriggerTypes  = { "Down", "Pressed", "Released", "Hold" };
+
+        /// The status line both input asset editors show after a save: what was saved, or why it was not.
+        std::string SaveStatus( const Common::BoolResultStr& saved, const std::filesystem::path& path )
+        {
+            return saved ? std::format( "Saved {}", path.filename().string() ) : saved.GetError();
+        }
 
         template <std::size_t N>
         bool EnumCombo( const char* label, int& value, const std::array<const char*, N>& names )
@@ -133,7 +141,7 @@ namespace Desert::Editor
     InputAssetOwner<S::InputActionData> InputActionPanel::Owner() const
     {
         InputAssetOwner<S::InputActionData> owner;
-        owner.Label   = "Input Action '" + m_Path.stem().string() + "'";
+        owner.Label   = std::format( "Input Action '{}'", m_Path.stem().string() );
         owner.Resolve = [weak = std::weak_ptr<S::InputActionData>( m_Data )]() -> S::InputActionData*
         {
             const auto data = weak.lock();
@@ -186,7 +194,7 @@ namespace Desert::Editor
     {
         const auto saved = SaveSubject<Assets::InputActionAsset>( m_Assets, m_Handle, m_Path, *m_Data );
         m_StatusIsError  = !saved;
-        m_Status         = saved ? "Saved " + m_Path.filename().string() : std::string( saved.GetError() );
+        m_Status         = SaveStatus( saved, m_Path );
         if ( !saved )
         {
             LOG_ERROR( "[Input] '{}' was not saved: {}", m_Path.string(), saved.GetError() );
@@ -214,7 +222,7 @@ namespace Desert::Editor
     InputAssetOwner<S::InputMappingContextData> InputMappingContextPanel::Owner() const
     {
         InputAssetOwner<S::InputMappingContextData> owner;
-        owner.Label   = "Input Mapping Context '" + m_Path.stem().string() + "'";
+        owner.Label   = std::format( "Input Mapping Context '{}'", m_Path.stem().string() );
         owner.Resolve = [weak =
                               std::weak_ptr<S::InputMappingContextData>( m_Data )]() -> S::InputMappingContextData*
         {
@@ -245,7 +253,7 @@ namespace Desert::Editor
             S::InputKeyMappingData& mapping = data.Mappings[i];
             ImGui::PushID( static_cast<int>( i ) );
 
-            std::string current = mapping.Action.Path + " (not in this project)";
+            std::string current = std::format( "{} (not in this project)", mapping.Action.Path );
             for ( const ActionChoice& choice : actions )
                 if ( choice.Ref.Guid == mapping.Action.Guid )
                     current = choice.Label;
@@ -417,7 +425,7 @@ namespace Desert::Editor
             return SaveSubject<Assets::InputMappingContextAsset>( m_Assets, m_Handle, m_Path, *m_Data );
         }();
         m_StatusIsError = !saved;
-        m_Status        = saved ? "Saved " + m_Path.filename().string() : std::string( saved.GetError() );
+        m_Status        = SaveStatus( saved, m_Path );
         if ( !saved )
         {
             LOG_ERROR( "[Input] '{}' was not saved: {}", m_Path.string(), saved.GetError() );

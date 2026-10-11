@@ -3,6 +3,7 @@
 #include <Editor/Panels/ControlRig/ControlRigDocumentModel.hpp>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 
 // ANIM-FIX11: the .derig document's model — open, edit, undo, save, re-read — without a window.
@@ -16,7 +17,7 @@ namespace
     {
         const auto dir = std::filesystem::temp_directory_path() / "ControlRigDocumentTest";
         std::filesystem::create_directories( dir );
-        const auto path = dir / ( stem + ".derig" );
+        const auto path = dir / std::format( "{}.derig", stem );
         std::ofstream( path ) << R"({
       "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 4 }, "Dependencies": [] },
       "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },

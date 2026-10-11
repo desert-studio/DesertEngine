@@ -14,6 +14,7 @@
 #include <Engine/Settings/GameUserSettings.hpp>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -173,9 +174,9 @@ namespace
     protected:
         void SetUp() override
         {
-            m_Root = fs::temp_directory_path() /
-                     ( "desert-gus-" +
-                       std::string( ::testing::UnitTest::GetInstance()->current_test_info()->name() ) );
+            m_Root =
+                 fs::temp_directory_path() /
+                 std::format( "desert-gus-{}", ::testing::UnitTest::GetInstance()->current_test_info()->name() );
             fs::remove_all( m_Root );
             fs::create_directories( m_Root / "Project" );
         }

@@ -146,7 +146,7 @@ namespace Desert::Graphic
                  std::string                            error;
                  const std::shared_ptr<ComputePipeline> pipeline = holder->Get( error );
                  if ( !pipeline )
-                     return Common::MakeError( "SpatialUpscale: " + error );
+                     return Common::MakeFormattedError( "SpatialUpscale: {}", error );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( &push, sizeof( push ) );
                  return Renderer::GetInstance().DispatchCompute(
@@ -203,7 +203,7 @@ namespace Desert::Graphic
                  std::string                            error;
                  const std::shared_ptr<ComputePipeline> pipeline = holder->Get( error );
                  if ( !pipeline )
-                     return Common::MakeError( "Sharpen: " + error );
+                     return Common::MakeFormattedError( "Sharpen: {}", error );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( &push, sizeof( push ) );
                  return Renderer::GetInstance().DispatchCompute(

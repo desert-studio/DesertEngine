@@ -43,7 +43,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/UI/Source/UI/UICanvasLayout.hpp" );
+            std::ifstream probe( fs::path( prefix ) / "Desert/UI/Source/UI/UICanvasLayout.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";

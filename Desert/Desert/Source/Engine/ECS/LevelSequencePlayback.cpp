@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <charconv>
 #include <format>
+#include <iterator>
 
 namespace Desert::ECS
 {
@@ -312,8 +313,9 @@ namespace Desert::ECS
             std::string text = "subsequence cycle: ";
             const auto  from = std::find( path.begin(), path.end(), again );
             for ( auto it = from; it != path.end(); ++it )
-                text += SequenceName( source, *it ) + " -> ";
-            return text + SequenceName( source, again );
+                std::format_to( std::back_inserter( text ), "{} -> ", SequenceName( source, *it ) );
+            std::format_to( std::back_inserter( text ), "{}", SequenceName( source, again ) );
+            return text;
         }
 
         /// Play every Subsequence sample of @p playback's evaluated frame (StepLevelSequence's contract).

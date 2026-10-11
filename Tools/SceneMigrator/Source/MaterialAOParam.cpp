@@ -24,14 +24,15 @@ namespace Desert::Migration
         if ( retired == material.Params.end() )
             return Common::MakeSuccess( Result{} );
         if ( named( kOneHome ) != material.Params.end() )
-            return Common::MakeError<Result>( "'" + source + "' states both " + kOneHome + " and " + kRetired +
-                                              ", two values for the one Ambient Occlusion input: keep one by "
-                                              "hand, then run the migrator again" );
+            return Common::MakeFormattedError<Result>(
+                 "'{}' states both {} and {}, two values for the one Ambient "
+                 "Occlusion input: keep one by hand, then run the migrator again",
+                 source, kOneHome, kRetired );
         retired->Name = kOneHome;
 
         auto written = Assets::WriteMaterialJson( material );
         if ( !written )
-            return Common::MakeError<Result>( "'" + source + "': " + written.GetError() );
+            return Common::MakeFormattedError<Result>( "'{}': {}", source, written.GetError() );
         return Common::MakeSuccess( Result{ written.ExtractValue() } );
     }
 } // namespace Desert::Migration

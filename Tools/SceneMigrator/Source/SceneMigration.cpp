@@ -481,7 +481,7 @@ namespace Desert::Migration
 
         // FNV-1a over the file's name: the same scene migrated twice, on any machine, names the same record.
         uint64_t id = 14695981039346656037ull;
-        for ( const char c : "WindSource:" + fileName )
+        for ( const char c : std::format( "WindSource:{}", fileName ) )
             id = ( id ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
 
         rfl::Generic::Array direction;
@@ -1425,9 +1425,11 @@ namespace Desert::Migration
             if ( entity.PrefabOverrides )
                 for ( const auto& override_ : *entity.PrefabOverrides )
                     if ( override_.Components.get( "ParticleEmitter" ).has_value() )
-                        report.Refused.push_back( who + ": a prefab override states ParticleEmitter keys; raise "
-                                                        "the prefab first and re-state the override on its VFX "
-                                                        "block" );
+                        report.Refused.push_back(
+                             std::format( "{}: a prefab override states ParticleEmitter keys; "
+                                          "raise the prefab first and re-state the override "
+                                          "on its VFX block",
+                                          who ) );
 
             const auto block = entity.Components.get( "ParticleEmitter" );
             if ( !block.has_value() )
@@ -1435,14 +1437,14 @@ namespace Desert::Migration
             const auto fields = block.value().to_object();
             if ( !fields.has_value() )
             {
-                report.Refused.push_back( who + ": ParticleEmitter is " + Describe( block.value() ) +
-                                          ", not an object" );
+                report.Refused.push_back(
+                     std::format( "{}: ParticleEmitter is {}, not an object", who, Describe( block.value() ) ) );
                 continue;
             }
             const auto read = ReadParticleEmitterV43( fields.value() );
             if ( !read )
             {
-                report.Refused.push_back( who + ": " + read.GetError() );
+                report.Refused.push_back( std::format( "{}: {}", who, read.GetError() ) );
                 continue;
             }
 
@@ -1458,7 +1460,8 @@ namespace Desert::Migration
             }
             else
             {
-                relative = "VFX/" + SafeStem( ownerName ) + "_" + SafeStem( who ) + S::kVFXSystemExtension;
+                relative =
+                     std::format( "VFX/{}_{}{}", SafeStem( ownerName ), SafeStem( who ), S::kVFXSystemExtension );
                 Common::Content::TextAssetHeaderSerialized header;
                 header.Guid   = Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) );
                 system.Header = header;

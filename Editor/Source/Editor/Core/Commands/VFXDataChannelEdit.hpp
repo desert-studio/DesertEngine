@@ -20,6 +20,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
+#include <format>
 #include <functional>
 #include <memory>
 #include <string>
@@ -96,7 +97,7 @@ namespace Desert::Editor
     {
         for ( std::size_t n = 0;; ++n )
         {
-            const std::string name = n == 0 ? std::string( "Field" ) : "Field" + std::to_string( n );
+            const std::string name = n == 0 ? std::string( "Field" ) : std::format( "Field{}", n );
             bool              used = false;
             for ( const auto& f : fields )
                 used = used || f.Name == name;

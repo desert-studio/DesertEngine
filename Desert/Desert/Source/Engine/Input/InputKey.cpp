@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <string>
 #include <utility>
 
@@ -90,7 +91,7 @@ namespace Desert::Input
         for ( char c = '0'; c <= '9'; ++c )
             names.emplace_back( 1, c );
         for ( int n = 1; n <= 12; ++n )
-            names.push_back( "F" + std::to_string( n ) );
+            names.push_back( std::format( "F{}", n ) );
         for ( const auto& named : NamedKeys() )
             names.emplace_back( named.first );
         return names;

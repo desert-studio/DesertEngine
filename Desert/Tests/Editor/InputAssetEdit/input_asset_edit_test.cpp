@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -27,7 +28,7 @@ namespace
     Desert::Assets::AssetGuidRef ActionRef( const uint64_t n, const std::string& stem )
     {
         return { Common::Content::AssetGuidToText( Common::Content::AssetGuid{ 0x6d00ull + n, 0x2ull } ),
-                 "project:Input/" + stem + ".deinputaction" };
+                 std::format( "project:Input/{}.deinputaction", stem ) };
     }
 
     struct Fixture

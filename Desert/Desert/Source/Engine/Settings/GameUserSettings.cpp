@@ -10,6 +10,7 @@
 #include <Engine/Localization/LocalizationService.hpp>
 
 #include <format>
+#include <string_view>
 #include <system_error>
 
 namespace Desert::Settings
@@ -22,6 +23,12 @@ namespace Desert::Settings
         Common::BoolResultStr Refuse( std::string reason )
         {
             return Common::MakeError<bool>( std::move( reason ) );
+        }
+
+        /// One shape for every refusal of ApplyGameUserSettings: what was refused, then why.
+        Common::BoolResultStr NotApplied( const std::string_view why )
+        {
+            return Refuse( std::format( "the game user settings were not applied: {}", why ) );
         }
 
         Common::BoolResultStr CheckLevel( const char* group, uint8_t level )
@@ -122,7 +129,7 @@ namespace Desert::Settings
                                                  Engine::FramePacer& pacer )
     {
         if ( const auto valid = ValidateGameUserSettings( settings ); !valid )
-            return Refuse( "the game user settings were not applied: " + valid.GetError() );
+            return NotApplied( valid.GetError() );
 
         // The window: moved only when it is not already there — the packaged game was CREATED from these same
         // DisplaySettings, and re-entering a mode it is in would restore and re-zoom it for nothing.
@@ -132,7 +139,7 @@ namespace Desert::Settings
         if ( window.GetWindowMode() != display.Mode || sizeDiffers )
             if ( const auto moved = window.SetWindowMode( display.Mode, display.ResolutionX, display.ResolutionY );
                  !moved )
-                return Refuse( "the game user settings were not applied: " + moved.GetError() );
+                return NotApplied( moved.GetError() );
         // VSync goes through the swapchain's present pacing (Window::SetDisplay rebuilds it only on a change);
         // the rest of that pacing is kept as it is.
         const std::shared_ptr<Graphic::SwapChain> swapChain = window.GetWindowSwapChain();
@@ -149,7 +156,7 @@ namespace Desert::Settings
         mix.SetClassVolume( Audio::SoundClass::Voice, settings.Audio.Voice );
 
         if ( const auto language = Localization::Localization::Get().SetLanguage( settings.Language ); !language )
-            return Refuse( "the game user settings were not applied: " + language.GetError() );
+            return NotApplied( language.GetError() );
 
         s_AppliedScalability      = settings.Scalability;
         s_AppliedMouseSensitivity = settings.MouseSensitivity;

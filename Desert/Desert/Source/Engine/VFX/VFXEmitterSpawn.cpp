@@ -152,7 +152,7 @@ namespace Desert::VFX
                 const S::VFXModuleInput* in = FindInput( use, name );
                 if ( in == nullptr )
                     return Common::MakeSuccess( std::string() );
-                const std::string prefix = std::string( S::kVFXDataChannelPrefix ) + m.Channel + ".";
+                const std::string prefix = std::format( "{}{}.", S::kVFXDataChannelPrefix, m.Channel );
                 if ( in->Type != type || in->Source != S::VFXInputSource::Binding || !in->Binding ||
                      !in->Binding->starts_with( prefix ) || in->Binding->size() == prefix.size() )
                     return Common::MakeFormattedError<std::string>(

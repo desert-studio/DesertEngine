@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -1220,7 +1221,7 @@ namespace
         return {};
     }
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         std::ifstream in( path );
         if ( !in )
@@ -1786,25 +1787,25 @@ TEST( SettingConsumers, TheScatteringSeriesClampsItsOctavesAtTheSameCeilingTheSl
 // asking it, or when the cloud layer grows its own wind fields back.
 TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
 {
-    const std::string root = RepoRoot();
-    const std::string cloudSystem =
-         ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp" );
+    const std::filesystem::path root = RepoRoot();
+    const std::string           cloudSystem =
+         ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp" );
     EXPECT_NE( cloudSystem.find( "ECS::WindAt(" ), std::string::npos )
          << "the cloud layer's drift must ask ECS::WindAt";
 
-    const std::string cloud = ReadFile( root + "Desert/Desert/Source/Engine/ECS/VolumetricCloudComponent.hpp" );
+    const std::string cloud = ReadFile( root / "Desert/Desert/Source/Engine/ECS/VolumetricCloudComponent.hpp" );
     for ( const char* own : { "glm::vec3 WindDirection", "float WindSpeed" } )
         EXPECT_EQ( cloud.find( own ), std::string::npos ) << "VolumetricCloudData declares its own wind: " << own;
 
     // Foliage sway: the direction (and whether the air moves at all) is the query's; the foliage type keeps only
     // its response (Strength, Speed, Height), and MakeInstanceWind takes the scene's wind, not an angle.
-    const std::string meshSystem = ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
+    const std::string meshSystem = ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
     EXPECT_NE( meshSystem.find( "ECS::WindAt(" ), std::string::npos ) << "foliage sway must ask ECS::WindAt";
     const std::string foliageType =
-         ReadFile( root + "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" );
+         ReadFile( root / "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" );
     EXPECT_EQ( foliageType.find( "DirectionDegrees" ), std::string::npos )
          << "FoliageWind declares its own wind direction";
-    const std::string instanceWind = ReadFile( root + "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" );
+    const std::string instanceWind = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" );
     EXPECT_EQ( instanceWind.find( "directionDegrees" ), std::string::npos )
          << "MakeInstanceWind takes an authored angle instead of the scene's wind";
 
@@ -1812,10 +1813,10 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
     for ( const char* seam : { "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
                                "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
                                "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp" } )
-        EXPECT_NE( ReadFile( root + seam ).find( "ECS::WindAt" ), std::string::npos )
+        EXPECT_NE( ReadFile( root / seam ).find( "ECS::WindAt" ), std::string::npos )
              << seam << ": WindVelocity must be the answer of ECS::WindAt";
 
-    const std::string query = ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/WindField.hpp" );
+    const std::string query = ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/WindField.hpp" );
     EXPECT_NE( query.find( "WindAtFromSources(" ), std::string::npos ) << "ECS::WindAt must run the one pure core";
 }
 
@@ -1824,8 +1825,8 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
 // sky value as the hour; this pins the source of the clock, comments and literals stripped.
 TEST( SettingConsumers, TheSunIsDrivenFromTheTimeOfDayComponentNotTheSky )
 {
-    const std::string text = StripCommentsAndLiterals(
-         ReadFile( RepoRoot() + "Desert/Desert/Source/Engine/ECS/System/TimeOfDayECSSystem.hpp" ) );
+    const std::string text = StripCommentsAndLiterals( ReadFile(
+         std::filesystem::path( RepoRoot() ) / "Desert/Desert/Source/Engine/ECS/System/TimeOfDayECSSystem.hpp" ) );
     ASSERT_FALSE( text.empty() );
     EXPECT_NE( text.find( "registry.view<ECS::TimeOfDayComponent>" ), std::string::npos )
          << "TimeOfDayECSSystem does not view TimeOfDayComponent";

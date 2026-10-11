@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <system_error>
 
 namespace Desert::Editor
@@ -114,7 +115,7 @@ namespace Desert::Editor
         }
         if ( auto saved = Assets::VFXDataChannelAsset::Save( meta->Filepath, m_Working ); !saved )
         {
-            m_Refusal = "Save: " + saved.GetError();
+            m_Refusal = std::format( "Save: {}", saved.GetError() );
             LOG_ERROR( "[VFX] '{}' was not saved: {}", meta->Filepath.string(), saved.GetError() );
             return false;
         }

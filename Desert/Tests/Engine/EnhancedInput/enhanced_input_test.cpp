@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <format>
 
 #include <string>
 #include <vector>
@@ -93,11 +94,10 @@ namespace
     InputKeyMappingData Mapping( uint64_t action, const std::string& key, std::vector<InputModifierData> mods = {},
                                  std::vector<InputTriggerData> triggers = {} )
     {
-        return InputKeyMappingData{
-             { GuidText( action ), "Input/IA_" + std::to_string( action ) + ".deinputaction" },
-             key,
-             std::move( mods ),
-             std::move( triggers ) };
+        return InputKeyMappingData{ { GuidText( action ), std::format( "Input/IA_{}.deinputaction", action ) },
+                                    key,
+                                    std::move( mods ),
+                                    std::move( triggers ) };
     }
 
     // A context as the subsystem gets it from disk: written (header stamped, a GUID minted) and read back.
@@ -589,7 +589,7 @@ TEST( EnhancedInputPlayer, LuaInputTableNamesActionsContextsAndRebinding )
     for ( const char* name :
           { "isKeyDown", "wasPressed", "actionValue", "actionTriggered", "actionStarted", "actionOngoing",
             "actionCompleted", "actionCanceled", "actionSeconds", "addContext", "removeContext", "rebindKey" } )
-        EXPECT_NE( lua.find( std::string( "{ \"" ) + name + "\", &" ), std::string::npos ) << name;
+        EXPECT_NE( lua.find( std::format( "{{ \"{}\", &", name ) ), std::string::npos ) << name;
     EXPECT_NE( lua.find( "luaL_register( L, \"Input\", kInput )" ), std::string::npos )
          << "the entries are the global Input table's";
 }

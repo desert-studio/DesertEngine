@@ -379,7 +379,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
          Desert::Project::ProjectContext::Directory(),
          Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) );
     if ( !userSettings )
-        FailStartup( "Settings: " + userSettings.GetError(), 1 );
+        FailStartup( std::format( "Settings: {}", userSettings.GetError() ), 1 );
     Desert::Player::s_UserSettings = userSettings.GetValue();
 
     ApplicationInfo appInfo;

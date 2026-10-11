@@ -30,7 +30,8 @@ namespace Desert::TestSupport
             std::error_code          ec;
             for ( const auto& project : std::filesystem::directory_iterator( RepositoryRoot() / "Desert", ec ) )
                 if ( project.is_directory() && std::filesystem::is_directory( project.path() / "Source" ) )
-                    found.push_back( "Desert/" + project.path().filename().generic_string() + "/Source" );
+                    found.push_back( ( std::filesystem::path( "Desert" ) / project.path().filename() / "Source" )
+                                          .generic_string() );
             std::sort( found.begin(), found.end() );
             return found;
         }();

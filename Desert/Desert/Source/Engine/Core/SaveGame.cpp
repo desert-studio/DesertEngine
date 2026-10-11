@@ -499,7 +499,7 @@ namespace Desert::Core
         Json::Issues      issues;
         Reflection::DeserializeReflected( type, data, Json::Root( applied, Json::Path{}.Key( label ) ), issues );
         for ( const Json::Issue& issue : issues )
-            report.Problems.push_back( Json::Describe( issue ) + "; skipped" );
+            report.Problems.push_back( std::format( "{}; skipped", Json::Describe( issue ) ) );
         report.AppliedFields += offered > issues.size() ? offered - issues.size() : 0;
     }
 

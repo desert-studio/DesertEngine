@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <fstream>
 #include <regex>
@@ -188,19 +189,20 @@ TEST( SpringArm, CameraLagClosesItsSpeedFractionPerSecondOfTheOrigin )
 
 namespace
 {
-    std::string RepoRootForCensus()
+    std::filesystem::path RepoRootForCensus()
     {
         std::string prefix = "./";
         for ( int up = 0; up < 8; ++up )
         {
-            if ( std::filesystem::exists( prefix + "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" ) )
+            if ( std::filesystem::exists( std::filesystem::path( prefix ) /
+                                          "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" ) )
                 return prefix;
             prefix += "../";
         }
         return {};
     }
 
-    std::string ReadText( const std::string& path )
+    std::string ReadText( const std::filesystem::path& path )
     {
         const std::ifstream in( path );
         std::ostringstream  ss;
@@ -211,9 +213,9 @@ namespace
 
 TEST( JoltCentimetres, EveryLengthSpeedAndForceSettingIsAssignedInTheOnePlace )
 {
-    const std::string root = RepoRootForCensus();
+    const std::filesystem::path root = RepoRootForCensus();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    const std::string source = ReadText( root + "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
+    const std::string source = ReadText( root / "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
 
     const std::string kBegin = "// ---- Jolt in centimetres (the one place) ----";
     const std::string kEnd   = "// ---- end Jolt in centimetres ----";
@@ -236,7 +238,7 @@ TEST( JoltCentimetres, EveryLengthSpeedAndForceSettingIsAssignedInTheOnePlace )
          "mPenetrationRecoverySpeed", "mMaxCollisionIterations", "mMaxConstraintIterations", "mMinTimeRemaining" };
     for ( const char* name : settings )
     {
-        const std::regex assigned( std::string( R"(\.\s*)" ) + name + R"(\s*=[^=])" );
+        const std::regex assigned( std::format( R"(\.\s*{}\s*=[^=])", name ) );
         EXPECT_TRUE( std::regex_search( block, assigned ) )
              << name << " is not assigned in the centimetre block: it runs at Jolt's metre default";
         EXPECT_FALSE( std::regex_search( outside, assigned ) )
@@ -250,9 +252,9 @@ TEST( JoltCentimetres, EveryLengthSpeedAndForceSettingIsAssignedInTheOnePlace )
 
 TEST( JoltCentimetres, EveryConvexShapePassesTheCentimetreConvexRadius )
 {
-    const std::string root = RepoRootForCensus();
+    const std::filesystem::path root = RepoRootForCensus();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    const std::string source = ReadText( root + "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
+    const std::string source = ReadText( root / "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
     EXPECT_NE( source.find( "constexpr float kConvexRadiusCm = 5.0f;" ), std::string::npos )
          << "the engine's convex radius (0.05 m = 5 cm) is gone from the centimetre block";
 
@@ -379,9 +381,9 @@ TEST( CharacterAnimGraph, OnlyDeclaredParametersAreWrittenAndNothingBeforeTheGra
 
 TEST( CharacterAnimGraph, LocomotionSystemHasNoClipNameSwitchLeft )
 {
-    const std::string root = RepoRootForCensus();
+    const std::filesystem::path root = RepoRootForCensus();
     ASSERT_FALSE( root.empty() );
-    const std::string system = ReadText( root + "Desert/Desert/Source/Engine/ECS/System/LocomotionSystem.hpp" );
+    const std::string system = ReadText( root / "Desert/Desert/Source/Engine/ECS/System/LocomotionSystem.hpp" );
     EXPECT_NE( system.find( "PublishAnimGraphParameters" ), std::string::npos )
          << "LocomotionSystem must drive animation through the AnimGraph parameters";
     for ( const char* gone : { "CurrentClip", "LocomotionClipFor", "IdleClip", "RunClip" } )

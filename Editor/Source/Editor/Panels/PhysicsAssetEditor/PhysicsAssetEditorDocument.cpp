@@ -732,7 +732,7 @@ namespace Desert::Editor
                                                      data.GetError() );
 
         // UE names it <Mesh>_PhysicsAsset beside the mesh, and never writes over an asset that is there.
-        const std::string stem = meshPath.stem().string() + "_PhysicsAsset";
+        const std::string stem = std::format( "{}_PhysicsAsset", meshPath.stem().string() );
         std::error_code   ec;
         Path              target = meshPath.parent_path() / ( stem + Physics::kPhysicsAssetExtension );
         for ( int n = 1; std::filesystem::exists( target, ec ); ++n )

@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -47,7 +48,7 @@ TEST( PassOrder, EngineAndEditorHaveNoPhaseOrNumericPassPlacement )
                                          "k_DeferredOverlayPhases", "IsDeferredOverlay", "RegisterPasses" } )
             {
                 if ( source.find( symbol ) != std::string::npos )
-                    offenders.push_back( entry.path().generic_string() + ": " + symbol );
+                    offenders.push_back( std::format( "{}: {}", entry.path().generic_string(), symbol ) );
             }
         }
     }

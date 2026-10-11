@@ -13,7 +13,9 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <algorithm>
+#include <format>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace P = Desert::Core::Preprocess;
@@ -23,15 +25,23 @@ namespace
 {
     std::string Template( const std::string& settings )
     {
-        return "Shader \"SpriteTemplate\"\n{\n    Domain Surface\n\n" + settings +
-               "    ShadingModel Unlit\n\n"
-               "    Surface\n    {\n"
-               "        SurfaceOutput EvaluateSurface( SurfaceInput i )\n        {\n"
-               "            SurfaceOutput s = DefaultSurfaceOutput();\n"
-               "            s.BaseColor = vec3( 0.0 );\n"
-               "            s.Emissive = i.Particle.Color.rgb;\n"
-               "            s.Opacity = DesertDepthFade( i.WorldPosition, i.Particle.Color.a, 50.0 );\n"
-               "            return s;\n        }\n    }\n}\n";
+        return std::format(
+             "Shader \"SpriteTemplate\"\n{{\n    Domain Surface\n\n{}"
+             "    ShadingModel Unlit\n\n"
+             "    Surface\n    {{\n"
+             "        SurfaceOutput EvaluateSurface( SurfaceInput i )\n        {{\n"
+             "            SurfaceOutput s = DefaultSurfaceOutput();\n"
+             "            s.BaseColor = vec3( 0.0 );\n"
+             "            s.Emissive = i.Particle.Color.rgb;\n"
+             "            s.Opacity = DesertDepthFade( i.WorldPosition, i.Particle.Color.a, 50.0 );\n"
+             "            return s;\n        }}\n    }}\n}}\n",
+             settings );
+    }
+
+    /// The line the parser writes into a cell's stage source to switch @p name on.
+    std::string DefineLine( const std::string_view name )
+    {
+        return std::format( "#define {} 1", name );
     }
 
     std::string SpriteCell()
@@ -66,7 +76,7 @@ TEST( SurfaceTemplate, ParticleSpriteUsageAddsOneSpriteCellAfterEveryMeshCell )
 
     const P::DShaderPass* cell = parsed.FindPass( SpriteCell() );
     ASSERT_NE( cell, nullptr );
-    const std::string define = "#define " + std::string( P::kSurfaceParticleSpriteDefine ) + " 1";
+    const std::string define = DefineLine( P::kSurfaceParticleSpriteDefine );
     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
     {
         ASSERT_TRUE( cell->Stages.contains( stage ) );
@@ -92,7 +102,7 @@ TEST( SurfaceTemplate, TranslucentSpriteCellIsToldItBlends )
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
     const P::DShaderPass* cell = parsed.GetValue().FindPass( SpriteCell() );
     ASSERT_NE( cell, nullptr ) << "a translucent template keeps its sprite cell (Forward is its one pass)";
-    const std::string define = "#define " + std::string( P::kSurfaceTranslucentDefine ) + " 1";
+    const std::string define = DefineLine( P::kSurfaceTranslucentDefine );
     EXPECT_NE( cell->Stages.at( ShaderStage::Fragment ).find( define ), std::string::npos );
 
     const auto opaque = P::DShaderParser::Parse( Template( "    Usage ParticleSprites\n" ) );

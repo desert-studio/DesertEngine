@@ -177,7 +177,8 @@ namespace
         AttachToSocket( const Animation::SocketAttachmentDesc& desc ) override
         {
             if ( std::find( m_LeaderBones.begin(), m_LeaderBones.end(), desc.SocketName ) == m_LeaderBones.end() )
-                return Common::MakeError<Animation::SocketAttachmentId>( "no bone '" + desc.SocketName + "'" );
+                return Common::MakeFormattedError<Animation::SocketAttachmentId>( "no bone '{}'",
+                                                                                  desc.SocketName );
             const Animation::SocketAttachmentId id{ ++m_NextId };
             Sockets[id.Value] = desc;
             return Common::MakeSuccess( id );

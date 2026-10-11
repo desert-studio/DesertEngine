@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -182,7 +183,7 @@ TEST( SaveGame, HalfWrittenTempNeverReplacesTheSlot )
     const auto path = SaveGameSlotPath( scratch.Path(), "Slot1", 0 );
     ASSERT_TRUE( path );
     {
-        std::ofstream half( path.GetValue().string() + ".tmp", std::ios::binary );
+        std::ofstream half( std::format( "{}.tmp", path.GetValue().string() ), std::ios::binary );
         half << "{\"Format\": \"DesertSaveGame\", \"Vers";
     }
     const auto read = ReadSaveGameSlot( scratch.Path(), "Slot1", 0 );

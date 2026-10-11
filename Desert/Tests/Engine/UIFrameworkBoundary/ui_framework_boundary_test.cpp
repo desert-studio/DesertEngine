@@ -23,6 +23,8 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
+#include <iterator>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -134,8 +136,9 @@ namespace
                 continue;
             for ( const std::string& target : IncludeTargets( CT::StripComments( ReadAll( entry.path() ) ) ) )
                 if ( const std::string why = Refusal( library, target ); !why.empty() )
-                    offenders.push_back( fs::relative( entry.path(), root ).generic_string() + ": #include " +
-                                         target + " -- " + why );
+                    offenders.push_back( std::format( "{}: #include {} -- {}",
+                                                      fs::relative( entry.path(), root ).generic_string(), target,
+                                                      why ) );
         }
         return offenders;
     }
@@ -147,7 +150,7 @@ namespace
         std::string        line;
         std::string        out;
         while ( std::getline( in, line ) )
-            out += line.substr( 0, line.find( "--" ) ) + "\n";
+            std::format_to( std::back_inserter( out ), "{}\n", line.substr( 0, line.find( "--" ) ) );
         return out;
     }
 
@@ -177,7 +180,7 @@ namespace
     {
         std::string out;
         for ( const std::string& line : lines )
-            out += "\n    " + line;
+            std::format_to( std::back_inserter( out ), "\n    {}", line );
         return out;
     }
 } // namespace
@@ -199,7 +202,7 @@ TEST( UIFrameworkBoundary, TheLibrariesLinkOnlyWhatTheyAreBuiltOn )
     for ( const Library& library : Libraries() )
     {
         const std::string script = StripLuaComments( ReadAll( root / library.Script ) );
-        ASSERT_NE( script.find( std::string( "project \"" ) + library.Name + "\"" ), std::string::npos )
+        ASSERT_NE( script.find( std::format( "project \"{}\"", library.Name ) ), std::string::npos )
              << library.Script << " no longer defines " << library.Name;
         for ( const std::string& linked : LinkedProjects( script ) )
             EXPECT_TRUE( library.Links.contains( linked ) )

@@ -17,19 +17,20 @@ using namespace Desert::Assets::Serialization;
 
 namespace
 {
-    std::string InputContentDir()
+    std::filesystem::path InputContentDir()
     {
         std::string prefix = "./";
         for ( int up = 0; up < 8; ++up )
         {
-            if ( std::filesystem::exists( prefix + "Editor/Resources/Engine/Input/IMC_Default.deinputcontext" ) )
-                return prefix + "Editor/Resources/Engine/Input/";
+            const std::filesystem::path dir = std::filesystem::path( prefix ) / "Editor/Resources/Engine/Input";
+            if ( std::filesystem::exists( dir / "IMC_Default.deinputcontext" ) )
+                return dir;
             prefix += "../";
         }
         return {};
     }
 
-    std::string ReadText( const std::string& path )
+    std::string ReadText( const std::filesystem::path& path )
     {
         const std::ifstream in( path );
         std::ostringstream  ss;
@@ -61,11 +62,11 @@ namespace
 
 TEST( EngineInputContent, EveryEngineInputActionParsesWithItsValueType )
 {
-    const std::string dir = InputContentDir();
+    const std::filesystem::path dir = InputContentDir();
     ASSERT_FALSE( dir.empty() ) << "run from inside the repository";
     for ( const auto& action : kActions )
     {
-        const auto parsed = ParseInputAction( ReadText( dir + action.File ) );
+        const auto parsed = ParseInputAction( ReadText( dir / action.File ) );
         ASSERT_TRUE( parsed ) << action.File << ": " << parsed.GetError();
         EXPECT_EQ( parsed.GetValue().ValueType, action.ValueType ) << action.File;
         ASSERT_TRUE( parsed.GetValue().Header ) << action.File;
@@ -75,19 +76,19 @@ TEST( EngineInputContent, EveryEngineInputActionParsesWithItsValueType )
 
 TEST( EngineInputContent, DefaultContextMapsWasdSpaceCtrlAndMouseToTheirActions )
 {
-    const std::string dir = InputContentDir();
+    const std::filesystem::path dir = InputContentDir();
     ASSERT_FALSE( dir.empty() ) << "run from inside the repository";
 
     // Action file -> its GUID, read from the action's own header (the context must point at these).
     std::map<std::string, std::string> guidOf;
     for ( const auto& action : kActions )
     {
-        const auto parsed = ParseInputAction( ReadText( dir + action.File ) );
+        const auto parsed = ParseInputAction( ReadText( dir / action.File ) );
         ASSERT_TRUE( parsed ) << action.File << ": " << parsed.GetError();
         guidOf[action.File] = parsed.GetValue().Header->Guid;
     }
 
-    const auto parsed = ParseInputMappingContext( ReadText( dir + "IMC_Default.deinputcontext" ) );
+    const auto parsed = ParseInputMappingContext( ReadText( dir / "IMC_Default.deinputcontext" ) );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const InputMappingContextData& context = parsed.GetValue();
     const auto                     valid   = ValidateInputMappingContext( context );

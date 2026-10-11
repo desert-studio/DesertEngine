@@ -13,6 +13,7 @@
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp> // engine: the real parser
 
+#include <format>
 #include <regex>
 #include <set>
 #include <string>
@@ -158,29 +159,29 @@ TEST( ShaderGraphCompiler, TheSpriteCellsInputsCarryEveryParticleFieldTheNodesRe
 
     for ( const std::string& field : fields )
     {
-        const std::regex member( "struct SurfaceParticleInput\\s*\\{[^}]*\\s" + field + ";" );
+        const std::regex member( std::format( "struct SurfaceParticleInput\\s*\\{{[^}}]*\\s{};", field ) );
         EXPECT_TRUE( std::regex_search( types, member ) ) << "SurfaceParticleInput has no " << field;
 
         std::smatch      assigned;
-        const std::regex fill( "i\\.Particle\\." + field + "\\s*=\\s*(v_\\w+)" );
+        const std::regex fill( std::format( "i\\.Particle\\.{}\\s*=\\s*(v_\\w+)", field ) );
         ASSERT_TRUE( std::regex_search( pass, assigned, fill ) )
              << "Pass_ParticleSprite.glslh never fills i.Particle." << field;
         const std::string varying = assigned[1].str();
 
         std::smatch      in;
-        const std::regex inDecl( "layout\\(\\s*location\\s*=\\s*(\\d+)\\s*\\)\\s*in\\s+flat\\s+\\w+\\s+" +
-                                 varying + "\\s*;" );
+        const std::regex inDecl( std::format(
+             "layout\\(\\s*location\\s*=\\s*(\\d+)\\s*\\)\\s*in\\s+flat\\s+\\w+\\s+{}\\s*;", varying ) );
         ASSERT_TRUE( std::regex_search( pass, in, inDecl ) )
              << varying << " is not a stage input of the sprite pass";
 
         std::smatch      out;
-        const std::regex outDecl( "layout\\(\\s*location\\s*=\\s*(\\d+)\\s*\\)\\s*out\\s+flat\\s+\\w+\\s+" +
-                                  varying + "\\s*;" );
+        const std::regex outDecl( std::format(
+             "layout\\(\\s*location\\s*=\\s*(\\d+)\\s*\\)\\s*out\\s+flat\\s+\\w+\\s+{}\\s*;", varying ) );
         ASSERT_TRUE( std::regex_search( vertex, out, outDecl ) )
              << varying << " is not a stage output of the sprite vertex path";
         EXPECT_EQ( in[1].str(), out[1].str() )
              << varying << ": the vertex writes one location, the pass reads another";
-        EXPECT_TRUE( std::regex_search( vertex, std::regex( "\\n\\s*" + varying + "\\s*=" ) ) )
+        EXPECT_TRUE( std::regex_search( vertex, std::regex( std::format( "\\n\\s*{}\\s*=", varying ) ) ) )
              << "the sprite vertex path never writes " << varying;
     }
 }

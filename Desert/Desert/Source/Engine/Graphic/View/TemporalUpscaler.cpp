@@ -193,7 +193,7 @@ namespace Desert::Graphic
                  "ResolveViewResolution: {}; nor does {} resolve 100 %", refused,
                  nativeImplementation->DebugName() );
         ViewResolution clamped = native.GetValue();
-        clamped.Clamped        = refused + ": clamped to 100 %";
+        clamped.Clamped        = std::format( "{}: clamped to 100 %", refused );
         return Common::MakeSuccess( clamped );
     }
 

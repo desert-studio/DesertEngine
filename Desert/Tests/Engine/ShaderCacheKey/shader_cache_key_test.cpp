@@ -3261,7 +3261,7 @@ TEST( ShaderCacheKey, TemporalUpscalerLayoutsMatchTheShippedShadersReflection )
         const auto reflection = ReflectComputeVariant( taa, { { "TAA_QUALITY", std::to_string( quality ) } } );
         ExpectSameLayout( MakeShaderBindingLayout( reflection, "TemporalAA" ),
                           *Desert::Graphic::TemporalAALayout(),
-                          "TemporalAA TAA_QUALITY=" + std::to_string( quality ) );
+                          std::format( "TemporalAA TAA_QUALITY={}", quality ) );
     }
 
     const auto resolve = ShaderPath( "TemporalAA/SupersampleResolve.shader" );
@@ -3292,7 +3292,7 @@ TEST( ShaderCacheKey, MotionBlurLayoutsMatchTheShippedShadersReflection )
                     { "MotionBlurGather", Desert::Graphic::MotionBlurGatherLayout() } };
     for ( const auto& kernel : kernels )
     {
-        const auto path = ShaderPath( ( std::string( "MotionBlur/" ) + kernel.Name + ".shader" ).c_str() );
+        const auto path = ShaderPath( std::format( "MotionBlur/{}.shader", kernel.Name ).c_str() );
         ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( path, {} ), kernel.Name ),
                           *kernel.Layout, kernel.Name );
     }
@@ -3315,7 +3315,7 @@ TEST( ShaderCacheKey, DepthOfFieldLayoutsMatchTheShippedShadersReflection )
                     { "DepthOfFieldRecombine", Desert::Graphic::DofRecombineLayout() } };
     for ( const auto& kernel : kernels )
     {
-        const auto path = ShaderPath( ( std::string( "DepthOfField/" ) + kernel.Name + ".shader" ).c_str() );
+        const auto path = ShaderPath( std::format( "DepthOfField/{}.shader", kernel.Name ).c_str() );
         ExpectSameLayout( MakeShaderBindingLayout( ReflectComputeVariant( path, {} ), kernel.Name ),
                           *kernel.Layout, kernel.Name );
     }

@@ -90,9 +90,9 @@ namespace Desert::Core
 
         auto placed = prefab->Instantiate( &scene, assets, {}, &translation );
         if ( !placed )
-            return Common::MakeError<ECS::Entity>(
-                 "level '" + scene.GetSceneName() +
-                 "': the Default Pawn could not be spawned: " + placed.GetError() );
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "level '{}': the Default Pawn could not be spawned: {}", scene.GetSceneName(),
+                 placed.GetError() );
         ECS::Entity pawn = placed.GetValue();
         // The start's facing is the pawn's facing (UE spawns at the PlayerStart's rotation); only yaw and
         // pitch of a camera matter for Play from Here, and the prefab's own scale is kept.
@@ -121,8 +121,8 @@ namespace Desert::Core
         {
             const auto start = PlayerStartTransform( scene, request.PlayerStartTag );
             if ( !start )
-                return Common::MakeError<ECS::Entity>( "level '" + scene.GetSceneName() +
-                                                       "' names a Default Pawn but " + start.GetError() );
+                return Common::MakeFormattedError<ECS::Entity>( "level '{}' names a Default Pawn but {}",
+                                                                scene.GetSceneName(), start.GetError() );
             spawnAt = start.GetValue();
         }
 
@@ -147,9 +147,9 @@ namespace Desert::Core
                  scene.GetSceneName(), static_cast<uint64_t>( handle ) );
         auto placed = prefab->Instantiate( &scene, assets );
         if ( !placed )
-            return Common::MakeError<ECS::Entity>(
-                 "level '" + scene.GetSceneName() +
-                 "': the Player Controller could not be spawned: " + placed.GetError() );
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "level '{}': the Player Controller could not be spawned: {}", scene.GetSceneName(),
+                 placed.GetError() );
         scene.SetPlayerController( placed.GetValue().GetHandle() );
         return placed;
     }

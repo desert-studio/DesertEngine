@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -56,7 +57,7 @@ namespace
     const S::VFXModuleUse& Find( const std::vector<S::VFXModuleUse>& group, const std::string& name )
     {
         for ( const auto& use : group )
-            if ( use.Module == "engine:" + name )
+            if ( use.Module == std::format( "engine:{}", name ) )
                 return use;
         ADD_FAILURE() << "no module " << name;
         return group.front();
@@ -129,7 +130,7 @@ TEST( ParticleEmitterToVFX, NameAndGuidAreDeterministicAndARerunWritesTheSameFil
     const auto vfx = a[0].Components.get( "VFX" ).value().to_object().value();
     const auto ref = vfx.get( "System" ).value().to_object().value();
     EXPECT_EQ( ref.get( "Path" ).value().to_string().value(),
-               "VFX/Level_" + Common::UUID( 0x1234 ).ToString() + ".dfx" );
+               std::format( "VFX/Level_{}.dfx", Common::UUID( 0x1234 ).ToString() ) );
     EXPECT_EQ( ref.get( "Guid" ).value().to_string().value(),
                Common::Content::AssetGuidToText(
                     Migration::MigrationGuidForPath( ref.get( "Path" ).value().to_string().value() ) ) );
