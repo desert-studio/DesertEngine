@@ -400,10 +400,7 @@
                 1.0
             ],
             "WaterBody": {
-                "WaterWaves": {
-                    "Guid": "",
-                    "Path": ""
-                },
+                "WaterWaves": "",
                 "OceanExtents": [
                     4096000.0,
                     4096000.0

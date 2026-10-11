@@ -2033,6 +2033,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: SSR",
          "Deferred: SSRResolve",
          "Deferred: SSRComposite",
+         "Deferred: Water",
          "Deferred: Glass",
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",

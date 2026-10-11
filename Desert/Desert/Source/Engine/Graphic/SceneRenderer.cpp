@@ -871,13 +871,6 @@ namespace Desert::Graphic
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
 
-        // The water's tiles, once, before its node records: the quadtree walked from the main camera.
-        {
-            DESERT_PROFILE_PASS( "Water: PrepareFrame" );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->PrepareFrame();
-        }
-
         // THE FRAME IS A GRAPH. Every GPU pass of this view from here on is one graph node (Raster, Compute or
         // Copy) that declares what it reads and writes; the graph orders them by those declarations and places
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
@@ -927,6 +920,14 @@ namespace Desert::Graphic
         };
         m_CurrentViewFrame = &frame;
         const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
+
+        // The water's tiles, once, before its node records: the quadtree walked from the main camera. After the
+        // view frame is current: PrepareFrame uploads this frame's view-projection pair from it.
+        {
+            DESERT_PROFILE_PASS( "Water: PrepareFrame" );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->PrepareFrame();
+        }
         if ( const Common::BoolResultStr physical =
                   m_ViewState.History().AllocatePhysical( DeviceImageFactory{}, RendererGraphImageImporter{} );
              !physical )
