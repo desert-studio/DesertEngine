@@ -462,7 +462,8 @@ namespace
         int         status    = 0;
         char*       demangled = abi::__cxa_demangle( type->name(), nullptr, nullptr, &status );
         std::string name( status == 0 && demangled != nullptr ? demangled : type->name() );
-        std::free( demangled ); // NOLINT(cppcoreguidelines-no-malloc): __cxa_demangle allocates with malloc
+        std::free( demangled ); // NOLINT(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory):
+                                // __cxa_demangle mallocs; no gsl::owner here
         return name;
 #else
         return "a non-standard type";

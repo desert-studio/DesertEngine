@@ -36,7 +36,7 @@ namespace Desert::ECS
                                  entt::entity )           = nullptr; // registry.patch<T>: fires on_update<T>
 
         // The reflected type of Data; null only when the registry has not been populated (no reflection linked).
-        const Reflection::TypeInfo* Type() const;
+        [[nodiscard]] const Reflection::TypeInfo* Type() const;
     };
 
     // Every row, in the serializer's order.

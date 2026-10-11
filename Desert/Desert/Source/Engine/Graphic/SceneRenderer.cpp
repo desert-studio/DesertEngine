@@ -1614,7 +1614,7 @@ namespace Desert::Graphic
             return false;
 
         const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
-        return sky && sky->IsEnvironmentSettling();
+        return ( sky != nullptr ) && sky->IsEnvironmentSettling();
     }
 
     float SceneRenderer::CloudVolumeBakeProgress() const

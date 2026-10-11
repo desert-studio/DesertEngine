@@ -87,9 +87,9 @@ namespace Desert::Editor
         /// THE FILE @p entry's THUMBNAIL ORBIT LIVES UNDER, the one its picture is filed under: a material's
         /// .demat; a posed kind's own .skmesh / .skeleton / .anim; a model's or a foliage type's mesh picture.
         /// nullopt for a kind with no orbit (ThumbnailProducers::HasThumbnailOrbit) or a model with no picture.
-        std::optional<std::string> OrbitFileOf( const DirectoryInformation& entry ) const;
+        [[nodiscard]] std::optional<std::string> OrbitFileOf( const DirectoryInformation& entry ) const;
         /// The entries of @p entries whose orbit can be edited (the palette's "Edit Thumbnail: …" commands).
-        std::vector<Subject> SubjectsOf( const std::vector<DirectoryInformation*>& entries ) const;
+        [[nodiscard]] std::vector<Subject> SubjectsOf( const std::vector<DirectoryInformation*>& entries ) const;
 
         /// The Edit Thumbnail command on @p entry (the command's @p label names a refusal).
         Common::BoolResultStr Enter( const DirectoryInformation& entry, std::string_view label );

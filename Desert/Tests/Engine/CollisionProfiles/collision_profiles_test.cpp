@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <optional>
 #include <span>
+#include <format>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -187,7 +188,7 @@ TEST( CollisionProfiles, BuildRefusesEachBrokenRowByName )
         auto withoutEngineProfile = good;
         std::erase_if( withoutEngineProfile.Profiles,
                        [&]( const Physics::CollisionProfileConfig& row ) { return row.Name == engine; } );
-        ExpectRefused( withoutEngineProfile, "the engine profile '" + std::string( engine ) + "' is missing" );
+        ExpectRefused( withoutEngineProfile, std::format( "the engine profile '{}' is missing", engine ) );
     }
 }
 
@@ -261,9 +262,9 @@ TEST( CollisionProfiles, AProfileOutsidePhysicsIgnoresEverything )
 
 TEST( CollisionProfiles, ABodyWithoutAProfileIsRefused )
 {
-    SimWorld          world;
-    Physics::BodyDesc desc; // Profile = kNoProfile
-    const auto        body = world.Physics.CreateBody( desc );
+    SimWorld                world;
+    const Physics::BodyDesc desc{}; // Profile = kNoProfile
+    const auto              body = world.Physics.CreateBody( desc );
     ASSERT_FALSE( body.IsSuccess() );
     EXPECT_NE( body.GetError().find( "carries no collision profile" ), std::string::npos ) << body.GetError();
 

@@ -47,6 +47,8 @@ namespace ReflectedFunctionsFixture
         }
 
         FUNCTION( ScriptCallable )
+        // A const MEMBER on purpose: the suite calls it through an instance to cover the const-member thunk.
+        // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
         [[nodiscard]] std::string Greet( const std::string& name, Mood mood ) const
         {
             return ( mood == Mood::Angry ? "Go away, " : "Hello, " ) + name;
@@ -61,7 +63,8 @@ namespace ReflectedFunctionsFixture
         FUNCTION()
         void SetSmall( std::int8_t value )
         {
-            Count = value;
+            // An 8-bit integer parameter, not a character: the reflected kind under test is Int8.
+            Count = value; // NOLINT(bugprone-signed-char-misuse)
         }
 
         // An EVENT(...) signature (SCR-API-3): no body, no storage — a description the tool registers as an

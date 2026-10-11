@@ -54,7 +54,8 @@ namespace
                  .BakeSignature   = kBakeSignature,
                  .FaceSize        = kFace,
                  .Mips            = kMips,
-                 .Tag             = std::string( Desert::Assets::kEnvRadianceTag ) };
+                 .Tag             = std::string( Desert::Assets::kEnvRadianceTag ),
+                 .Live            = {} };
     }
 
     const std::vector<unsigned char>& Bytes( const Formats::ImageCubeSpecification& spec )
@@ -67,8 +68,8 @@ namespace
 // the writer hands the running environment anything but the file -- the in-memory RGBA32F chain included.
 TEST( EnvironmentFirstRun, TheAdoptedCubeIsTheCubeTheNextRunLoads )
 {
-    Desert::TestSupport::ScratchDir dir( "desert-env-first-run" );
-    const std::filesystem::path     path = dir.Path() / "radiance.tex";
+    Desert::TestSupport::ScratchDir const dir( "desert-env-first-run" );
+    const std::filesystem::path           path = dir.Path() / "radiance.tex";
 
     auto adopted = Desert::Graphic::CacheAndReloadBakedEnvironmentCube( EntryAt( path ), BakedChainWithASun() );
     ASSERT_TRUE( adopted.IsSuccess() ) << adopted.GetError();
@@ -96,8 +97,8 @@ TEST( EnvironmentFirstRun, TheAdoptedCubeIsTheCubeTheNextRunLoads )
 // the ceiling the file clamped it to -- not at the 100000 the bake computed and RGBA32F would have kept.
 TEST( EnvironmentFirstRun, TheAdoptedCubeCarriesTheClampTheFileCarries )
 {
-    Desert::TestSupport::ScratchDir dir( "desert-env-first-run" );
-    const std::filesystem::path     path = dir.Path() / "radiance.tex";
+    Desert::TestSupport::ScratchDir const dir( "desert-env-first-run" );
+    const std::filesystem::path           path = dir.Path() / "radiance.tex";
 
     auto adopted = Desert::Graphic::CacheAndReloadBakedEnvironmentCube( EntryAt( path ), BakedChainWithASun() );
     ASSERT_TRUE( adopted.IsSuccess() ) << adopted.GetError();

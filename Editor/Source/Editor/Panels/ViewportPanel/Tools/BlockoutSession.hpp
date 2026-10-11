@@ -6,7 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/Geometry/EditMeshBridge.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <glm/glm.hpp>
@@ -115,7 +115,7 @@ namespace Desert::Editor::Tools
                               "reopening would overwrite that edit",
                               name, saved->MeshKey, meshKey.GetValue() ) );
         if ( auto scaled = ScaleRefusal( name, world ) )
-            return Common::MakeError<ReopenedBlockout>( std::move( *scaled ) );
+            return Common::MakeError<ReopenedBlockout>( *scaled );
         auto loaded = VB::Load( *saved );
         if ( !loaded.IsSuccess() )
             return Common::MakeError<ReopenedBlockout>( std::format( "'{}': {}", name, loaded.GetError() ) );
@@ -140,7 +140,7 @@ namespace Desert::Editor::Tools
                                                                               float minUnit )
     {
         if ( auto scaled = ScaleRefusal( name, world ) )
-            return Common::MakeError<ReopenedBlockout>( std::move( *scaled ) );
+            return Common::MakeError<ReopenedBlockout>( *scaled );
         std::vector<int>        slotOf( static_cast<size_t>( std::max( mesh.MaxVertexID(), 0 ) ), -1 );
         std::vector<glm::dvec3> positions;
         positions.reserve( static_cast<size_t>( mesh.VertexCount() ) );
@@ -149,8 +149,6 @@ namespace Desert::Editor::Tools
             slotOf[static_cast<size_t>( v )] = static_cast<int>( positions.size() );
             positions.push_back( mesh.GetVertex( v ) );
         }
-        const Geometry::DynamicMeshMaterialAttribute* ids =
-             mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
         std::vector<std::array<int, 3>> triangles;
         std::vector<int>                materials;
         triangles.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
@@ -162,7 +160,7 @@ namespace Desert::Editor::Tools
             const Geometry::Index3i tri = mesh.GetTriangle( t );
             triangles.push_back( { slotOf[static_cast<size_t>( tri.A )], slotOf[static_cast<size_t>( tri.C )],
                                    slotOf[static_cast<size_t>( tri.B )] } );
-            materials.push_back( ids != nullptr ? ids->GetValue( t ) : 0 );
+            materials.push_back( Geometry::TriangleMaterialID( mesh, t ) );
         }
         auto recovered = Geometry::VoxelBlockout::FromBoxMesh( positions, triangles, materials, minUnit );
         if ( !recovered.IsSuccess() )

@@ -48,17 +48,17 @@ namespace Desert::Scripting
         // World.raycast(ox,oy,oz, dx,dy,dz [, maxDist]) -> { hit, entity, x,y,z, nx,ny,nz, dist }.
         int Raycast( lua_State* L )
         {
-            ScriptEngine::Impl& host      = Host( L, "raycast" );
-            const glm::vec3     origin    = CheckVec3( L, 1 );
-            const glm::vec3     direction = CheckVec3( L, 4 );
-            const bool          bounded   = !lua_isnoneornil( L, 7 );
-            const double        maxDist   = luaL_optnumber( L, 7, 0.0 );
-            Common::Math::Ray   ray( origin, direction );
-            Core::RaycastHit    hit;
+            ScriptEngine::Impl&     host      = Host( L, "raycast" );
+            const glm::vec3         origin    = CheckVec3( L, 1 );
+            const glm::vec3         direction = CheckVec3( L, 4 );
+            const bool              bounded   = !lua_isnoneornil( L, 7 );
+            const double            maxDist   = luaL_optnumber( L, 7, 0.0 );
+            Common::Math::Ray const ray( origin, direction );
+            Core::RaycastHit        hit;
             const bool inRange = host.Scene->Raycast( ray, hit ) && ( !bounded || hit.Distance <= maxDist );
 
             lua_newtable( L );
-            lua_pushboolean( L, inRange );
+            lua_pushboolean( L, static_cast<int>( inRange ) );
             lua_setfield( L, -2, "hit" );
             if ( !inRange )
                 return 1;
@@ -81,16 +81,16 @@ namespace Desert::Scripting
         // The active camera's eye ray: ox,oy,oz, dx,dy,dz.
         int CameraRay( lua_State* L )
         {
-            ScriptEngine::Impl& host = Host( L, "cameraRay" );
-            glm::vec3           o( 0.0f );
-            glm::vec3           d( 0.0f, 0.0f, -1.0f );
+            ScriptEngine::Impl const& host = Host( L, "cameraRay" );
+            glm::vec3                 o( 0.0f );
+            glm::vec3                 d( 0.0f, 0.0f, -1.0f );
             if ( auto cam = host.Scene->GetActiveCamera() )
             {
                 const glm::mat4 inv = glm::inverse( cam->GetViewMatrix() );
                 o                   = glm::vec3( inv[3] );
                 d                   = -glm::normalize( glm::vec3( inv[2] ) );
             }
-            for ( float v : { o.x, o.y, o.z, d.x, d.y, d.z } )
+            for ( float const v : { o.x, o.y, o.z, d.x, d.y, d.z } )
                 lua_pushnumber( L, v );
             return 6;
         }
@@ -135,7 +135,7 @@ namespace Desert::Scripting
             const glm::vec3     rgb   = CheckVec3( L, 5 );
             ScriptEngine::Impl& host  = Host( L, "spawnMarker" );
 
-            ECS::Entity e                                        = host.Scene->CreateNewEntity( "Marker" );
+            ECS::Entity const e                                  = host.Scene->CreateNewEntity( "Marker" );
             e.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Sphere;
             auto& t       = e.GetComponent<ECS::TransformComponent>();
             t.Translation                                        = pos;
@@ -183,7 +183,7 @@ namespace Desert::Scripting
         int WorldVarHas( lua_State* L )
         {
             WorldVarGet( L );
-            lua_pushboolean( L, !lua_isnil( L, -1 ) );
+            lua_pushboolean( L, static_cast<int>( !lua_isnil( L, -1 ) ) );
             return 1;
         }
     } // namespace

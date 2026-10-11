@@ -13,7 +13,7 @@ namespace Desert::UI
         explicit WindowClipboard( Window& window ) : m_Window( window )
         {
         }
-        std::string GetText() const override
+        [[nodiscard]] std::string GetText() const override
         {
             return m_Window.GetClipboardText();
         }

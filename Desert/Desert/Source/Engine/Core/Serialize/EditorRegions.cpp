@@ -66,7 +66,7 @@ namespace Desert::Core::EditorRegions
 
             // What the scene holds now, and what of it leaves. A dirty entity refuses the change before anything
             // is read or destroyed.
-            SceneSerializer                   serializer( &scene, assets );
+            SceneSerializer const             serializer( &scene, assets );
             const std::vector<LiveEntity>     live = serializer.LiveEntities();
             std::unordered_set<std::uint64_t> held;
             std::vector<Common::UUID>         leaving;
@@ -129,9 +129,9 @@ namespace Desert::Core::EditorRegions
     RegionSelection SelectRecords( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
                                    std::span<const Rules::CellBounds> regions )
     {
-        RegionSelection                 selection;
-        std::vector<bool>               take( rowIds.size(), false );
-        std::unordered_set<std::size_t> always( plan.AlwaysLoaded.begin(), plan.AlwaysLoaded.end() );
+        RegionSelection                       selection;
+        std::vector<bool>                     take( rowIds.size(), false );
+        std::unordered_set<std::size_t> const always( plan.AlwaysLoaded.begin(), plan.AlwaysLoaded.end() );
         for ( std::size_t c = 0; c < plan.Composites.size(); ++c )
         {
             const Rules::PlannedComposite& composite = plan.Composites[c];
@@ -144,13 +144,16 @@ namespace Desert::Core::EditorRegions
             else if ( !composite.Footprint.has_value() )
                 ++selection.Unplaced;
             else
+            {
+                const Rules::CellBounds& footprint = *composite.Footprint;
                 for ( const Rules::CellBounds& region : regions )
-                    if ( Meets( *composite.Footprint, region ) )
+                    if ( Meets( footprint, region ) )
                     {
                         hold = true;
                         ++selection.InRegions;
                         break;
                     }
+            }
             if ( hold )
                 for ( const std::size_t member : composite.Members )
                     if ( member < take.size() )

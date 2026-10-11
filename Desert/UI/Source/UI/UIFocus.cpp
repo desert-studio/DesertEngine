@@ -23,7 +23,7 @@ namespace Desert::UI
         // FSlateRect::DoRectanglesIntersect: touching edges count.
         bool Intersect( const Box& a, const Box& b )
         {
-            return !( a.R < b.L || a.L > b.R || a.B < b.T || a.T > b.B );
+            return a.R >= b.L && a.L <= b.R && a.B >= b.T && a.T <= b.B;
         }
 
         float DistSq( const Box& a, const Box& b )
@@ -36,18 +36,34 @@ namespace Desert::UI
         // The per-direction functions of FHittestGrid::FindNextFocusableWidgetDefault (HittestGrid.cpp:575):
         // which side of the source the search starts from, which side of a candidate faces it, and the
         // "is further along the axis" comparison with Slate's 0.1 px tolerance.
+        // The direction a wrap restarts from: the boundary's far side.
+        UINavigation OppositeOf( UINavigation dir )
+        {
+            switch ( dir )
+            {
+                case UINavigation::Left:
+                    return UINavigation::Right;
+                case UINavigation::Right:
+                    return UINavigation::Left;
+                case UINavigation::Up:
+                    return UINavigation::Down;
+                default:
+                    return UINavigation::Up;
+            }
+        }
+
         struct Axis
         {
-            UINavigation Dir;
-            bool         Horizontal() const
+            UINavigation       Dir;
+            [[nodiscard]] bool Horizontal() const
             {
                 return Dir == UINavigation::Left || Dir == UINavigation::Right;
             }
-            bool Forward() const
+            [[nodiscard]] bool Forward() const
             {
                 return Dir == UINavigation::Right || Dir == UINavigation::Down;
             }
-            float Source( const Box& b ) const
+            [[nodiscard]] float Source( const Box& b ) const
             {
                 switch ( Dir )
                 {
@@ -61,7 +77,7 @@ namespace Desert::UI
                         return b.B;
                 }
             }
-            float Dest( const Box& b ) const
+            [[nodiscard]] float Dest( const Box& b ) const
             {
                 switch ( Dir )
                 {
@@ -75,7 +91,7 @@ namespace Desert::UI
                         return b.T;
                 }
             }
-            bool Compare( float a, float b ) const
+            [[nodiscard]] bool Compare( float a, float b ) const
             {
                 return Forward() ? a + 0.1f > b : a - 0.1f < b;
             }
@@ -194,10 +210,7 @@ namespace Desert::UI
 
         // EUINavigationRule::Wrap: restart from the boundary's far side (HittestGrid.cpp:516), so the
         // candidate nearest the opposite edge of the same band is taken.
-        const Axis opposite{ dir == UINavigation::Left    ? UINavigation::Right
-                             : dir == UINavigation::Right ? UINavigation::Left
-                             : dir == UINavigation::Up    ? UINavigation::Down
-                                                          : UINavigation::Up };
+        const Axis opposite{ OppositeOf( dir ) };
         return FindSpatial( entries, NodeId::Null, src, ax, opposite.Source( bound ), bound );
     }
 
@@ -245,7 +258,7 @@ namespace Desert::UI
         {
             for ( NodeId n = from; n != NodeId::Null; n = tree.Parent( n ) )
             {
-                const UINavigationData* d = tree.Get<UINavigationData>( n );
+                const auto* d = tree.Get<UINavigationData>( n );
                 if ( d == nullptr )
                     continue;
                 const DirectionRule r = RuleOf( *d, dir );
@@ -292,9 +305,9 @@ namespace Desert::UI
                 deltaPx = std::min( bottom - portBottom, top - portTop ); // taller than the port: its top wins
             if ( deltaPx == 0.0f )
                 continue;
-            if ( UIScrollViewData* sv = tree.GetState<UIScrollViewData>( a ) )
+            if ( auto* sv = tree.GetState<UIScrollViewData>( a ) )
                 sv->ScrollY += deltaPx / port->PxPerDesign;
-            else if ( UIListViewData* lv = tree.GetState<UIListViewData>( a ) )
+            else if ( auto* lv = tree.GetState<UIListViewData>( a ) )
                 lv->ScrollY += deltaPx / port->PxPerDesign;
             // The control moves with the content it sits in, so an outer port sees where it will be.
             top -= deltaPx;
@@ -336,7 +349,7 @@ namespace Desert::UI
                     return it->second;
             for ( std::size_t i = 0; i < entries.size(); ++i )
                 if ( scopeOfEntry[i] == scope )
-                    if ( const UINavigationData* d = tree.Get<UINavigationData>( entries[i].Node );
+                    if ( const auto* d = tree.Get<UINavigationData>( entries[i].Node );
                          d != nullptr && d->InitialFocus )
                         return entries[i].Node;
             return NodeId::Null;

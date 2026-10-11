@@ -230,6 +230,8 @@ namespace Desert::Editor::ImportOptions
                     }
                     Assets::LoadRequest request = Assets::AsyncAssetLoader::Get().Request(
                          twin,
+                         // An ordinary completion callback, never required noexcept (a false positive).
+                         // NOLINTNEXTLINE(bugprone-exception-escape)
                          [asset, path, onSettled]( const Assets::Asset<Assets::AssetBase>& read,
                                                    const Assets::LoadOutcome outcome, const std::string& error )
                          {
@@ -245,6 +247,7 @@ namespace Desert::Editor::ImportOptions
                              }
                              onSettled();
                          },
+                         // NOLINTNEXTLINE(bugprone-exception-escape): as above
                          [path, onSettled]
                          {
                              LOG_ERROR( "[Import] the reload of reimported '{}' was cancelled; the previous "

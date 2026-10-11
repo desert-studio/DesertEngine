@@ -28,7 +28,10 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",        -- The partitioner places a landscape tile by its root's frame (LS-3), and those two functions live
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        -- MODULE-INFRA: the module list above calls each module's RegisterReflection_<Module>() (plan C11).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection_*.gen.cpp",
+        -- The partitioner places a landscape tile by its root's frame (LS-3), and those two functions live
         -- in pure translation units that link only Common.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
@@ -52,7 +55,7 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
     }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 

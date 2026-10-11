@@ -22,13 +22,25 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <optional>
+#include <string_view>
+#include <string>
 #include <system_error>
 #include <utility>
 
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
+
+    namespace
+    {
+        // The status line every refused file operation shows: "<what> failed: <why>".
+        std::string FailedStatus( std::string_view what, std::string_view why )
+        {
+            return std::format( "{} failed: {}", what, why );
+        }
+    } // namespace
 
     // Port pattern: UE Editor/ContentBrowser/Private/AssetContextMenu.cpp (the menu built for the selection,
     // every action an execute on it) and SContentBrowser's rename / delete flow.
@@ -127,9 +139,10 @@ namespace Desert::Editor
         {
             for ( const auto& p : sel )
             {
-                std::string np, err;
+                std::string np;
+                std::string err;
                 if ( !AssetFileOps::Duplicate( p, np, err ) )
-                    m_On.OnStatus( "Duplicate failed: " + err );
+                    m_On.OnStatus( FailedStatus( "Duplicate", err ) );
             }
             m_On.OnRefresh();
         }
@@ -167,8 +180,8 @@ namespace Desert::Editor
 
     void AssetContextMenu::HandleShortcuts( const DirectoryInformation* folder )
     {
-        if ( !ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) || !m_Selection.Current() ||
-             ImGui::GetIO().WantTextInput )
+        if ( !ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) ||
+             m_Selection.Current() == nullptr || ImGui::GetIO().WantTextInput )
             return;
         if ( ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
             static_cast<void>( Rename() );
@@ -225,7 +238,7 @@ namespace Desert::Editor
                                                             "Rename", err ) )
                         m_On.OnRefresh();
                     else
-                        m_On.OnStatus( "Rename failed: " + err );
+                        m_On.OnStatus( FailedStatus( "Rename", err ) );
                 }
                 ImGui::CloseCurrentPopup();
             }
@@ -269,7 +282,7 @@ namespace Desert::Editor
                 const std::vector<std::filesystem::path> paths( m_PendingDeleteList.begin(),
                                                                 m_PendingDeleteList.end() );
                 for ( const std::string& refusal : DeleteAssetsWithUndo( paths ) )
-                    m_On.OnStatus( "Delete failed: " + refusal );
+                    m_On.OnStatus( FailedStatus( "Delete", refusal ) );
                 m_Selection.Deselect();
                 m_On.OnRefresh();
                 ImGui::CloseCurrentPopup();
@@ -282,7 +295,7 @@ namespace Desert::Editor
         }
     }
 
-    void AssetContextMenu::DrawTrashMenu()
+    void AssetContextMenu::DrawTrashMenu() const
     {
         if ( !ImGui::BeginMenu( "Trash" ) )
             return;
@@ -295,12 +308,13 @@ namespace Desert::Editor
             std::error_code   ec;
             const std::string shown =
                  std::filesystem::relative( slot.From, Common::Constants::Path::ASSETS_PATH, ec ).generic_string();
-            const std::string label = "Restore " + ( ec || shown.empty() ? slot.From.generic_string() : shown ) +
-                                      "##" + slot.Slot.filename().string();
+            const std::string label =
+                 std::format( "Restore {}##{}", ec || shown.empty() ? slot.From.generic_string() : shown,
+                              slot.Slot.filename().string() );
             if ( ImGui::MenuItem( label.c_str() ) )
             {
                 if ( const auto restored = Assets::ContentRegistry::RestoreTrashed( slot ); !restored )
-                    m_On.OnStatus( "Restore failed: " + restored.GetError() );
+                    m_On.OnStatus( FailedStatus( "Restore", restored.GetError() ) );
                 m_On.OnRefresh();
             }
         }
@@ -313,7 +327,7 @@ namespace Desert::Editor
             {
                 std::string err;
                 if ( !AssetFileOps::Delete( slot.Slot.string(), err ) )
-                    m_On.OnStatus( "Empty trash failed: " + err );
+                    m_On.OnStatus( FailedStatus( "Empty trash", err ) );
             }
         }
         ImGui::EndMenu();
@@ -335,19 +349,20 @@ namespace Desert::Editor
     void AssetContextMenu::Paste( const DirectoryInformation* folder )
     {
         const std::vector<std::string>& clipboard = m_Selection.Clipboard();
-        if ( clipboard.empty() || !folder )
+        if ( clipboard.empty() || folder == nullptr )
             return;
         const bool cut = m_Selection.ClipboardIsCut();
         for ( const auto& src : clipboard )
         {
-            std::string np, err;
+            std::string np;
+            std::string err;
             const bool  ok = cut ? ContentBrowserUtils::MoveOrRename( src,
                                                                       std::filesystem::path( folder->AssetPath ) /
                                                                            std::filesystem::path( src ).filename(),
                                                                       "Move", err )
                                  : AssetFileOps::CopyInto( src, folder->AssetPath, np, err );
             if ( !ok )
-                m_On.OnStatus( "Paste failed: " + err );
+                m_On.OnStatus( FailedStatus( "Paste", err ) );
         }
         m_Selection.Pasted(); // a cut is consumed by the paste
         m_On.OnRefresh();

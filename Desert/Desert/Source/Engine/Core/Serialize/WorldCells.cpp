@@ -13,6 +13,7 @@
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
+#include <format>
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -427,15 +428,15 @@ namespace Desert::Core::WorldCells
         // The plan is the descriptors': they must be the records', one for one, or the cells would hold
         // records placed by somebody else's descriptor.
         if ( descriptors.size() != records.size() )
-            return Common::MakeError<Result>( "'" + scene.SceneName + "' has " + std::to_string( records.size() ) +
-                                              " records and " + std::to_string( descriptors.size() ) +
-                                              " descriptors; the descriptor index is not this world's" );
+            return Common::MakeError<Result>(
+                 std::format( "'{}' has {} records and {} descriptors; the descriptor index is not this world's",
+                              scene.SceneName, records.size(), descriptors.size() ) );
         for ( std::size_t record = 0; record < records.size(); ++record )
             if ( descriptors[record].Id != static_cast<std::uint64_t>( *records[record].id ) )
                 return Common::MakeError<Result>(
-                     "record " + std::to_string( record ) + " of '" + scene.SceneName + "' is entity " +
-                     std::to_string( static_cast<std::uint64_t>( *records[record].id ) ) +
-                     " but its descriptor is another; the descriptor index is stale" );
+                     std::format( "record {} of '{}' is entity {} but its descriptor is another; the descriptor "
+                                  "index is stale",
+                                  record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
         // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and

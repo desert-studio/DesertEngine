@@ -33,6 +33,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <string_view>
 #include <utility>
 
@@ -165,7 +166,7 @@ namespace Desert::Editor
     void NewAssetMenu::AddPrefabToScene( const std::string& prefabPath )
     {
         auto scene = m_ViewportScene.lock();
-        if ( !scene || !m_AssetManager )
+        if ( !scene || m_AssetManager == nullptr )
             return;
 
         auto prefab = m_AssetManager->FindByPath<Assets::PrefabAsset>( prefabPath );
@@ -203,9 +204,9 @@ namespace Desert::Editor
         }
     }
 
-    void NewAssetMenu::CreateNewFolder( const DirectoryInformation& folder )
+    void NewAssetMenu::CreateNewFolder( const DirectoryInformation& folder ) const
     {
-        std::filesystem::create_directory( folder.AssetPath + "/NewFolder" );
+        std::filesystem::create_directory( std::filesystem::path( folder.AssetPath ) / "NewFolder" );
         m_On.OnRefresh();
     }
 
@@ -236,7 +237,7 @@ namespace Desert::Editor
         m_On.OnRefresh();
     }
 
-    Common::BoolResultStr NewAssetMenu::CreateNewLevelSequence( const DirectoryInformation* folder )
+    Common::BoolResultStr NewAssetMenu::CreateNewLevelSequence( const DirectoryInformation* folder ) const
     {
         if ( folder == nullptr )
             return Common::MakeError( "New Level Sequence: the Assets window has no folder open" );
@@ -326,31 +327,47 @@ namespace Desert::Editor
         m_BakeCancelled.store( false );
         m_BakeRunning = true;
 
-        m_Bake = std::async( std::launch::async,
-                             [this, path, kind]() -> Common::BoolResultStr
-                             {
-                                 // SAVED ON THE WORKER: all four `Save`s are pure file I/O plus a log line —
-                                 // no AssetManager, no ECS, no GPU — exactly the set a job may touch.
-                                 if ( kind == CloudAssetKind::NoiseVolume )
-                                 {
-                                     auto volume = NewCloudAsset::DefaultNoiseVolume( &m_BakeProgress );
-                                     if ( !volume )
-                                         return Common::MakeFormattedError<bool>( "{}", volume.GetError() );
+        m_Bake = std::async(
+             std::launch::async,
+             // `bakePath` by init-capture: a plain `path` capture copies the `const` local into a `const`
+             // member, so the closure's move constructor (std::async moves it) copies a path and can throw.
+             [this, bakePath = path, kind]() -> Common::BoolResultStr
+             {
+                 // A throw here would surface from m_Bake.get() in Poll, on the UI thread, with
+                 // nothing to catch it; the worker turns it into the error this menu already shows.
+                 try
+                 {
+                     // SAVED ON THE WORKER: all four `Save`s are pure file I/O plus a log line —
+                     // no AssetManager, no ECS, no GPU — exactly the set a job may touch.
+                     if ( kind == CloudAssetKind::NoiseVolume )
+                     {
+                         auto volume = NewCloudAsset::DefaultNoiseVolume( &m_BakeProgress );
+                         if ( !volume )
+                             return Common::MakeFormattedError<bool>( "{}", volume.GetError() );
 
-                                     return Assets::CloudNoiseVolumeAsset::Save( path, volume.GetValue() );
-                                 }
+                         return Assets::CloudNoiseVolumeAsset::Save( bakePath, volume.GetValue() );
+                     }
 
-                                 auto body = NewCloudAsset::DefaultModellingVolume(
-                                      [this]( float fraction )
-                                      {
-                                          m_BakeProgress.store( fraction );
-                                          return !m_BakeCancelled.load();
-                                      } );
-                                 if ( !body )
-                                     return Common::MakeFormattedError<bool>( "{}", body.GetError() );
+                     auto body = NewCloudAsset::DefaultModellingVolume(
+                          [this]( float fraction )
+                          {
+                              m_BakeProgress.store( fraction );
+                              return !m_BakeCancelled.load();
+                          } );
+                     if ( !body )
+                         return Common::MakeFormattedError<bool>( "{}", body.GetError() );
 
-                                 return Assets::CloudModellingVolumeAsset::Save( path, body.GetValue() );
-                             } );
+                     return Assets::CloudModellingVolumeAsset::Save( bakePath, body.GetValue() );
+                 }
+                 catch ( const std::exception& error )
+                 {
+                     return Common::MakeFormattedError<bool>( "[NewAssetMenu] bake failed: {}", error.what() );
+                 }
+                 catch ( ... )
+                 {
+                     return Common::MakeFormattedError<bool>( "[NewAssetMenu] bake failed: unknown exception" );
+                 }
+             } );
     }
 
     void NewAssetMenu::Poll()
@@ -373,7 +390,7 @@ namespace Desert::Editor
             // NEVER SILENT (contract §1.4): `Save` refuses an unwritable directory, a full disk and data that
             // would not load back, each with the reason.
             LOG_ERROR( "[Assets] '{}' could not be created: {}", m_BakePath, written.GetError() );
-            m_On.OnStatus( "Could not create '" + m_BakeLabel + "': " + written.GetError() );
+            m_On.OnStatus( std::format( "Could not create '{}': {}", m_BakeLabel, written.GetError() ) );
             return;
         }
 
@@ -382,10 +399,10 @@ namespace Desert::Editor
         // OPENED STRAIGHT AWAY, because creating one of these is the only way to reach its editor at all: the
         // four cloud documents are contextual, keyed on an asset handle, with no View-menu entry.
         // RequestCloudDocument logs its own failures with the path.
-        if ( m_AssetManager &&
+        if ( m_AssetManager != nullptr &&
              RequestCloudDocument( m_AssetManager, m_BakePath ) != CloudDocumentRequest::Requested )
         {
-            m_On.OnStatus( "Created '" + m_BakeLabel + "' but it would not open — the log says why." );
+            m_On.OnStatus( std::format( "Created '{}' but it would not open — the log says why.", m_BakeLabel ) );
             return;
         }
 
@@ -399,7 +416,7 @@ namespace Desert::Editor
         if ( !m_BakeRunning )
             return;
 
-        const std::string line = "Creating '" + m_BakeLabel + "' - this takes a few seconds.";
+        const std::string line = std::format( "Creating '{}' - this takes a few seconds.", m_BakeLabel );
         ImGui::TextUnformatted( line.c_str() );
         ImGui::ProgressBar( m_BakeProgress.load(), ImVec2( -1.0f, 0.0f ) );
     }

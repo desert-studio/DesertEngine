@@ -28,21 +28,21 @@ namespace Desert::UI::Walk
 {
     void DrawChildren( ElementFrame& frame )
     {
-        auto& ctx         = frame.Ctx;
-        auto& tree        = frame.Tree;
-        auto& e           = frame.E;
-        auto& scale       = frame.Scale;
-        auto& dl          = frame.Dl;
-        auto& input       = frame.Input;
-        auto& outClicked  = frame.OutClicked;
-        auto& focused     = frame.Focused;
-        auto& popups      = frame.Popups;
-        auto& focusables  = frame.Focusables;
-        auto& clipRegion  = frame.ClipRegion;
-        auto& st          = frame.St;
-        auto& rect        = frame.ElementRect;
-        auto& interactive = frame.Interactive;
-        auto& childScope  = frame.ChildScope;
+        auto&       ctx         = frame.Ctx;
+        auto&       tree        = frame.Tree;
+        auto&       e           = frame.E;
+        auto&       scale       = frame.Scale;
+        auto&       dl          = frame.Dl;
+        auto&       input       = frame.Input;
+        auto&       outClicked  = frame.OutClicked;
+        auto&       focused     = frame.Focused;
+        auto&       popups      = frame.Popups;
+        auto&       focusables  = frame.Focusables;
+        const auto& clipRegion  = frame.ClipRegion;
+        const auto& st          = frame.St;
+        auto&       rect        = frame.ElementRect;
+        const auto& interactive = frame.Interactive;
+        const auto& childScope  = frame.ChildScope;
 
         Rect childParent = rect;
         // Clip Contents (RectMask2D) OR a scroll view both scissor children to this element's rect.

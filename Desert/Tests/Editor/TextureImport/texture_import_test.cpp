@@ -1208,8 +1208,9 @@ namespace
         }
         file.insert( file.end(), blocks.begin(), blocks.end() );
         fs::create_directories( path.parent_path() );
-        std::ofstream out( path, std::ios::binary );
-        out.write( reinterpret_cast<const char*>( file.data() ), static_cast<std::streamsize>( file.size() ) );
+        std::ofstream     out( path, std::ios::binary );
+        const std::string bytes( file.begin(), file.end() );
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
     }
 
     /// One 16-byte block per block of an 8x8 four-level chain (4 + 1 + 1 + 1), every byte different from its
@@ -1302,8 +1303,8 @@ TEST_F( TextureImport, ABc1DdsAuthoredAsANormalMapIsEncodedToBC5WithoutTheGates 
     WriteDds( source, 8, 8, 4, -1, "DXT1", blocks );
     WriteIntent( source, "NormalMap" );
 
-    TextureImporter importer;
-    LogCapture      log;
+    TextureImporter  importer;
+    const LogCapture log;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
     const auto data = CookedData( source );
@@ -1330,8 +1331,8 @@ TEST_F( TextureImport, ADdsWithoutItsMipsIsEncodedIntoAWholeChainNotStoredShort 
     WriteDds( source, 8, 8, 1, 98, nullptr, blocks );
     WriteIntent( source, "Colour" );
 
-    TextureImporter importer;
-    LogCapture      log;
+    TextureImporter  importer;
+    const LogCapture log;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
     const auto data = CookedData( source );

@@ -40,7 +40,7 @@ namespace
 
         Scripting::LuauSlot Load( const std::string& source )
         {
-            Scripting::LuauBinding self = Scripting::EntityBinding(
+            Scripting::LuauBinding const self = Scripting::EntityBinding(
                  "self", [this] { return Scripting::LuauEntityRef{ &Registry, Entity }; } );
             auto slot = Runtime.Load( "LuauComponents", source, { self } );
             EXPECT_TRUE( slot.IsSuccess() ) << ( slot.IsSuccess() ? "" : slot.GetError() );

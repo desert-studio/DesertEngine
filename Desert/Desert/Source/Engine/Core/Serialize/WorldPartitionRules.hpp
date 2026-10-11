@@ -126,6 +126,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm> // std::max — MSVC does not get it transitively (scripts/CI/StandardIncludes.py)
+#include <format>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -1232,7 +1233,7 @@ namespace Desert::Core::Rules
         [[nodiscard]] inline std::optional<Common::UUID> ParentOf( const Assets::EntityData& record )
         {
             if ( record.parent.has_value() && !record.parent->IsNull() )
-                return *record.parent;
+                return record.parent;
             return std::nullopt;
         }
 
@@ -1372,9 +1373,12 @@ namespace Desert::Core::Rules
             if ( !tile.LandscapeTile.has_value() || tile.LandscapeTile->Root == 0 )
                 return std::nullopt;
             const auto found = byId.find( Common::UUID( tile.LandscapeTile->Root ) );
-            if ( found == byId.end() || !descriptors[found->second].LandscapeRoot.has_value() )
+            if ( found == byId.end() )
                 return std::nullopt;
-            const DescriptorLandscapeRoot&  tiling = *descriptors[found->second].LandscapeRoot;
+            const std::optional<DescriptorLandscapeRoot>& stated = descriptors[found->second].LandscapeRoot;
+            if ( !stated )
+                return std::nullopt;
+            const DescriptorLandscapeRoot&  tiling = *stated;
             World::Landscape::LandscapeRoot root;
             root.Origin       = glm::vec3( world[found->second][3] );
             root.QuadsPerTile = tiling.QuadsPerTile;
@@ -1427,11 +1431,11 @@ namespace Desert::Core::Rules
             {
                 plan.UnplacedPrefabInstances.push_back( record );
                 plan.Issues.push_back(
-                     Common::Json::Issue{ data.Id.has_value() ? "Entities[id=" + std::to_string( *data.Id ) + "]"
-                                                              : "Entities[" + std::to_string( record ) + "]",
+                     Common::Json::Issue{ data.Id.has_value() ? std::format( "Entities[id={}]", *data.Id )
+                                                              : std::format( "Entities[{}]", record ),
                                           "a prefab instance stating its root transform (scene v37)",
-                                          "no " + data.MissingTransform + " on the instance of '" +
-                                               data.PrefabPath.value_or( "" ) + "'" } );
+                                          std::format( "no {} on the instance of '{}'", data.MissingTransform,
+                                                       data.PrefabPath.value_or( "" ) ) } );
             }
 
             if ( const auto parent = Detail::ParentOf( data ); parent.has_value() )

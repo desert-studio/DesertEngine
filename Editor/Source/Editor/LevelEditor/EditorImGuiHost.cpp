@@ -67,7 +67,7 @@ namespace Desert::Editor
         // With viewports enabled, platform windows look identical to regular ones only without rounding and
         // with an opaque background.
         ImGuiStyle& style = ::ImGui::GetStyle();
-        if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
+        if ( ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable ) != 0 )
         {
             style.WindowRounding              = 0.0f;
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;

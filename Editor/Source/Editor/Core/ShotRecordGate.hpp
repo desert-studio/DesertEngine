@@ -63,8 +63,8 @@ namespace Desert::Editor
             // Stability is counted only over frames on which everything else already holds: the size the
             // viewport had under the splash says nothing about the size of the window once it is shown.
             const bool settled = !frame.SceneLoadPending && !frame.StartupLoading && !frame.SplashOnScreen &&
-                                 !frame.ContentSettling && !( frame.AssetsCompiling && !m_Recording ) &&
-                                 !( frame.TexturesStreaming && !m_Recording ) && frame.ViewportWidth > 0 &&
+                                 !frame.ContentSettling && ( !frame.AssetsCompiling || m_Recording ) &&
+                                 ( !frame.TexturesStreaming || m_Recording ) && frame.ViewportWidth > 0 &&
                                  frame.ViewportHeight > 0;
             const bool sameSize = frame.ViewportWidth == m_LastWidth && frame.ViewportHeight == m_LastHeight;
             if ( !settled )

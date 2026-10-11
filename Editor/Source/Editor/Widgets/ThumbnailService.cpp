@@ -51,7 +51,7 @@ namespace Desert::Editor
         if ( identity.empty() )
             return false;
         m_Requests.Ask( identity ); // shown this frame (DropUnwanted)
-        if ( m_Failed.count( identity ) || m_Requests.IsQueued( identity ) )
+        if ( m_Failed.contains( identity ) || m_Requests.IsQueued( identity ) )
             return false;
 
         return NeedsCapture( png, current );

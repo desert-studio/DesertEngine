@@ -30,10 +30,10 @@ local function DesertTestsCommonSettings(deps)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
     -- TestSupport/*.hpp is included as "TestSupport/..." from every layer.
     includedirs { "%{_MAIN_SCRIPT_DIR}/Desert/Tests" }
-    for _, p in pairs(deps.Common.IncludeDir) do
+    for _, p in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { p }
     end
-    for _, p in pairs(deps.TestSpecific.IncludeDir) do
+    for _, p in DesertSortedPairs(deps.TestSpecific.IncludeDir) do
         externalincludedirs { p }
     end
     for _, define in ipairs(deps.TestSpecific.Defines) do
@@ -47,11 +47,11 @@ local function DesertTestsCommonSettings(deps)
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
     filter "configurations:Debug"
-        for _, lib in pairs(deps.TestSpecific.Libraries.Debug) do
+        for _, lib in DesertSortedPairs(deps.TestSpecific.Libraries.Debug) do
             links { lib }
         end
     filter "configurations:Release"
-        for _, lib in pairs(deps.TestSpecific.Libraries.Release) do
+        for _, lib in DesertSortedPairs(deps.TestSpecific.Libraries.Release) do
             links { lib }
         end
     filter {}
@@ -82,8 +82,8 @@ local function DesertRunnerSettings(deps)
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
     -- Every engine third-party include (Jolt, Luau, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
-    -- from the engine's own list so the two stay in sync. pairs() skips the Vulkan keys when no SDK is set.
-    for _, p in pairs(deps.DesertSpecific.IncludeDir) do
+    -- from the engine's own list so the two stay in sync. The iteration skips the Vulkan keys when no SDK is set.
+    for _, p in DesertSortedPairs(deps.DesertSpecific.IncludeDir) do
         externalincludedirs { p }
     end
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
@@ -97,8 +97,6 @@ local function DesertRunnerSettings(deps)
         links {
             "Common",
             "Jolt",
-            -- PUC Lua: only the header tool's ModuleTable.cpp (ModuleBoundary) uses it; scripts run on Luau.
-            "Lua",
             "LuauCodeGen",
             "LuauCompiler",
             "LuauAst",
@@ -172,6 +170,9 @@ local kRunners = {
     end,
     Tools = function(deps)
         DesertRunnerSettings(deps)
+        -- PUC Lua: only the header tool's ModuleTable.cpp (ModuleBoundary, compiled below) uses it; scripts run
+        -- on Luau. Named on every platform: Desert.lib no longer links it, so MSVC gets it from no reference.
+        links { "Lua" }
         -- The tools are executables, so the sources their suites test are compiled here, once.
         files {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",

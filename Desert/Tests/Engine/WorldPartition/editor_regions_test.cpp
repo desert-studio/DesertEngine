@@ -42,7 +42,8 @@ namespace
             std::uint64_t id                = 1;
             for ( int gx = 0; gx < 10; ++gx )
                 for ( int gz = 0; gz < 10; ++gz )
-                    Descriptors.push_back( Cube( id++, 500.0f + 10000.0f * gx, 500.0f + 10000.0f * gz ) );
+                    Descriptors.push_back( Cube( id++, 500.0f + 10000.0f * static_cast<float>( gx ),
+                                                 500.0f + 10000.0f * static_cast<float>( gz ) ) );
             Rules::EntityDescriptor sun;
             sun.Id          = id++;
             sun.Tag         = "Sun";
@@ -51,10 +52,11 @@ namespace
             sun.Reason      = Rules::AlwaysLoadedReason::Author;
             Descriptors.push_back( sun );
             for ( const auto& d : Descriptors )
-                Ids.push_back( *d.Id );
+                if ( d.Id )
+                    Ids.push_back( *d.Id );
         }
 
-        EditorRegions::RegionSelection Select( std::span<const Rules::CellBounds> regions ) const
+        [[nodiscard]] EditorRegions::RegionSelection Select( std::span<const Rules::CellBounds> regions ) const
         {
             const auto plan =
                  Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( Descriptors ), Partition );

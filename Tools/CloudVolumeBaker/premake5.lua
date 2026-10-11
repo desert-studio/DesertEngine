@@ -29,7 +29,7 @@ project "CloudVolumeBaker"
         "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
     }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 

@@ -9,7 +9,7 @@ namespace Desert::Scripting
         int IsKeyDown( lua_State* L )
         {
             const auto key = KeyFromName( luaL_checkstring( L, 1 ) );
-            lua_pushboolean( L, key.has_value() && Input::Keyboard::IsKeyPressed( *key ) );
+            lua_pushboolean( L, static_cast<int>( key.has_value() && Input::Keyboard::IsKeyPressed( *key ) ) );
             return 1;
         }
 
@@ -24,7 +24,7 @@ namespace Desert::Scripting
                 auto it = host.KeyEdge.find( static_cast<int>( *key ) );
                 edge    = it != host.KeyEdge.end() && it->second;
             }
-            lua_pushboolean( L, edge );
+            lua_pushboolean( L, static_cast<int>( edge ) );
             return 1;
         }
 
@@ -57,7 +57,7 @@ namespace Desert::Scripting
                 button = Common::MouseButton::Right;
             else if ( name == "middle" )
                 button = Common::MouseButton::Middle;
-            lua_pushboolean( L, Input::Mouse::Get().IsMouseButtonPressed( button ) );
+            lua_pushboolean( L, static_cast<int>( Input::Mouse::Get().IsMouseButtonPressed( button ) ) );
             return 1;
         }
     } // namespace

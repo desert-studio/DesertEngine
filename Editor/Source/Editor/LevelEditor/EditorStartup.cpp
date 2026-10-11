@@ -16,6 +16,8 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Core/Application.hpp>
 #include <filesystem>
+#include <iterator>
+#include <format>
 #include "Editor/Panels/FileExplorer/AssetThumbnailPool.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Widgets/ThumbnailService.hpp"
@@ -53,7 +55,7 @@ namespace Desert::Editor
             std::string named;
             for ( const std::string& key : keys )
             {
-                named += named.empty() ? key : ", " + key;
+                std::format_to( std::back_inserter( named ), "{}{}", named.empty() ? "" : ", ", key );
                 const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
                 // The render-form bytes through the DDC, not the file at the key: an imported mesh has no
                 // `.stmesh` of its own since AF4h (its row comes from the import record, FIX8), and the

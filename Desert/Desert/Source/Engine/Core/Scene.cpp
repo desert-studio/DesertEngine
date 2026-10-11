@@ -1124,12 +1124,19 @@ namespace Desert::Core
     {
         if ( !root )
             return;
-        if ( root.HasComponent<ECS::UUIDComponent>() )
-            MarkModified( root.GetComponent<ECS::UUIDComponent>().UUID );
-        if ( root.HasComponent<ECS::RelationshipComponent>() )
-            for ( const auto child : root.GetComponent<ECS::RelationshipComponent>().Children )
-                if ( m_Registry.valid( child ) )
-                    MarkModifiedSubtree( ECS::Entity( child, const_cast<entt::registry&>( m_Registry ) ) );
+        // Walked with an explicit stack over the const registry: a deep hierarchy cannot overflow the call stack.
+        std::vector<entt::entity> pending{ root.GetHandle() };
+        while ( !pending.empty() )
+        {
+            const entt::entity entity = pending.back();
+            pending.pop_back();
+            if ( const auto* uuid = m_Registry.try_get<ECS::UUIDComponent>( entity ) )
+                MarkModified( uuid->UUID );
+            if ( const auto* rel = m_Registry.try_get<ECS::RelationshipComponent>( entity ) )
+                for ( const auto child : rel->Children )
+                    if ( m_Registry.valid( child ) )
+                        pending.push_back( child );
+        }
     }
 
     void Scene::DestroyEntity( ECS::Entity entity )

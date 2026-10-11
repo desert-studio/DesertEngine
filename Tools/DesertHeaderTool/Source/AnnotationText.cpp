@@ -29,7 +29,7 @@ namespace Desert::HeaderTool
 
             // Only whitespace may separate adjacent literals; anything else ends this attribute.
             size_t j = b + 1;
-            while ( j < s.size() && std::isspace( (unsigned char)s[j] ) )
+            while ( j < s.size() && ( std::isspace( static_cast<unsigned char>( s[j] ) ) != 0 ) )
                 ++j;
             if ( j >= s.size() || s[j] != '"' )
                 break;
@@ -43,11 +43,11 @@ namespace Desert::HeaderTool
     {
         std::vector<std::string> out;
         std::string              cur;
-        int                      paren = 0, angle = 0;
+        int                      paren = 0;
+        int                      angle = 0;
         bool                     inStr = false;
-        for ( size_t i = 0; i < s.size(); ++i )
+        for ( const char c : s )
         {
-            char c = s[i];
             if ( inStr )
             {
                 cur += c;
@@ -98,9 +98,9 @@ namespace Desert::HeaderTool
 
     std::string Trimmed( std::string v )
     {
-        while ( !v.empty() && std::isspace( (unsigned char)v.front() ) )
+        while ( !v.empty() && ( std::isspace( static_cast<unsigned char>( v.front() ) ) != 0 ) )
             v.erase( v.begin() );
-        while ( !v.empty() && std::isspace( (unsigned char)v.back() ) )
+        while ( !v.empty() && ( std::isspace( static_cast<unsigned char>( v.back() ) ) != 0 ) )
             v.pop_back();
         return v;
     }

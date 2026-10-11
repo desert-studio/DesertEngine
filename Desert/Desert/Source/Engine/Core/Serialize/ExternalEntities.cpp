@@ -7,6 +7,7 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <format>
 #include <algorithm>
 #include <cstdint>
 #include <optional>
@@ -125,6 +126,12 @@ namespace Desert::Core::ExternalEntities
             std::filesystem::remove( DirectoryOf( scenePath ), ec );               // only when empty
             std::filesystem::remove( DirectoryOf( scenePath ).parent_path(), ec ); // only when empty
             return BOOLSUCCESS;
+        }
+
+        // A reader's refusal passed up under the serializer's tag, the form every scene-load error carries.
+        std::string SerializerError( const std::string& reason )
+        {
+            return std::format( "[SceneSerializer] {}", reason );
         }
     } // namespace
 
@@ -333,6 +340,8 @@ namespace Desert::Core::ExternalEntities
                 return Common::MakeError<WriteOutcome>( idDocument.GetError() );
             ids.push_back( idDocument.ExtractValue() );
         }
+        // The records member is replaced by the id list member (as in the writer above); the order is the intent.
+        // NOLINTNEXTLINE(readability-suspicious-call-argument)
         const auto header = scene.WithArrayMember( kRecords, kListMember, ids );
         if ( !header )
             return Common::MakeError<WriteOutcome>(
@@ -489,11 +498,11 @@ namespace Desert::Core::ExternalEntities
         };
         auto scene = Assemble( document.GetValue(), path.string(), read );
         if ( !scene )
-            return Common::MakeError<std::string>( "[SceneSerializer] " + scene.GetError() );
+            return Common::MakeError<std::string>( SerializerError( scene.GetError() ) );
 
         auto onDisk = PiecesOnDisk( path );
         if ( !onDisk )
-            return Common::MakeError<std::string>( "[SceneSerializer] " + onDisk.GetError() );
+            return Common::MakeError<std::string>( SerializerError( onDisk.GetError() ) );
         for ( const std::filesystem::path& piece : onDisk.GetValue() )
             if ( listed.count( piece.lexically_normal().generic_string() ) == 0 )
                 return Common::MakeError<std::string>( fmt::format(
@@ -562,7 +571,7 @@ namespace Desert::Core::ExternalEntities
         };
         auto scene = Assemble( header.GetValue(), path.string(), read );
         if ( !scene )
-            return Common::MakeError<std::string>( "[SceneSerializer] " + scene.GetError() );
+            return Common::MakeError<std::string>( SerializerError( scene.GetError() ) );
         return Common::MakeSuccess( scene.GetValue().Text() );
     }
 } // namespace Desert::Core::ExternalEntities

@@ -33,7 +33,8 @@ namespace Desert::Scripting
         int Valid( lua_State* L )
         {
             const std::optional<LuauEntityRef> ref = LuauBinder::ToEntity( L, 1 );
-            lua_pushboolean( L, ref && ref->Registry != nullptr && ref->Registry->valid( ref->Entity ) );
+            lua_pushboolean(
+                 L, static_cast<int>( ref && ref->Registry != nullptr && ref->Registry->valid( ref->Entity ) ) );
             return 1;
         }
 
@@ -70,11 +71,11 @@ namespace Desert::Scripting
                 return 0;
             const std::vector<LuauSlot> slots = found->second; // the callee may change the map
             const int                   count = lua_gettop( L ) - 2;
-            for ( LuauSlot slot : slots )
+            for ( LuauSlot const slot : slots )
             {
                 if ( slot == 0 || !host.Runtime->Defines( slot, function ) )
                     continue;
-                if ( Common::BoolResultStr r = host.Runtime->CallFrom( slot, function, L, 3, count );
+                if ( Common::BoolResultStr const r = host.Runtime->CallFrom( slot, function, L, 3, count );
                      !r.IsSuccess() )
                     LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
             }

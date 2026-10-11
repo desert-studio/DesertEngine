@@ -515,8 +515,8 @@ namespace Desert::Migration
 
         for ( auto& entity : entities )
         {
-            const std::string who =
-                 entity.id ? "entity " + entity.id->ToString() : std::string( "<record without id>" );
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
             EditBlock( entity.Components, "RigidBody",
                        [&]( rfl::Generic::Object& block )
                        {
@@ -549,7 +549,7 @@ namespace Desert::Migration
                                if ( !block.get( "Type" ).has_value() || block.get( kKey ).has_value() )
                                    return false;
                                const char* profile = nullptr;
-                               if ( !profileOf( block, who + " (prefab override)", profile ) )
+                               if ( !profileOf( block, std::format( "{} (prefab override)", who ), profile ) )
                                    return false;
                                block[kKey] = rfl::Generic( std::string( profile ) );
                                ++report.Bodies;

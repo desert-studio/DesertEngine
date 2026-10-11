@@ -18,12 +18,12 @@ project "DesertHeaderTool"
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 
     -- CommonSpecific carries reflect-cpp: the template data model is a Common::Json value tree.
-    for name, path in pairs(deps.CommonSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 
