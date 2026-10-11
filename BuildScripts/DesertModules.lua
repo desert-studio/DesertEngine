@@ -91,7 +91,7 @@ DesertModules.Placement = {
     P( "AssetCore",       [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|ItemProgress|EvictionDeadline|AssetEviction|AssetEvictionServices|DDCShipRegister|Common)\.]] ),
     P( "Localization",    [[Engine/Localization/|Engine/Assets/StringTable(Asset|Source)\.]] ),
     -- geometry / animation runtime cores
-    P( "Engine",          [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMeshAsset|EditMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]] ),
+    P( "Engine",          [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]] ),
     P( "GeometryCore",    [[Engine/Geometry/]] ),
     P( "Engine",          [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSerialization\.|Timeline/SequenceFormat\.|Modular/)]] ),
     P( "AnimationCore",   [[Engine/Animation/]] ),

@@ -30,7 +30,7 @@ namespace Desert::Editor::Core
         {
             Common::UUID                              Id;
             ECS::Entity                               Entity;
-            std::shared_ptr<const Geometry::EditMesh> Mesh; // Bridge::EditMeshView of the entity's mesh
+            MeshPtr                                   Mesh; // the entity's tool-target mesh
             Geometry::Trs                             Local;
             std::string                               Name;
         };
@@ -65,12 +65,8 @@ namespace Desert::Editor::Core
                 if ( !target.IsSuccess() )
                     return Common::MakeFormattedError<Out>( "{}: entity {}: {}", ToString( op ),
                                                             static_cast<uint64_t>( id ), target.GetError() );
-                auto view = Geometry::Bridge::EditMeshView( target.GetValue().Mesh );
-                if ( !view.IsSuccess() )
-                    return Common::MakeFormattedError<Out>( "{}: entity {}: {}", ToString( op ),
-                                                            static_cast<uint64_t>( id ), view.GetError() );
                 const auto& tc = e.GetComponent<ECS::TransformComponent>();
-                out.push_back( { id, e, view.ExtractValue(),
+                out.push_back( { id, e, target.GetValue().Mesh,
                                  Geometry::Trs{ tc.Translation, tc.Rotation, tc.Scale },
                                  e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
                                                                      : std::string( "Mesh" ) } );
@@ -87,11 +83,12 @@ namespace Desert::Editor::Core
         // part k's material i becomes the index of its slot in the table. A material ID past a part's slots
         // reads as the empty slot, as the renderer draws it.
         std::vector<int> RemapInto( std::vector<Common::AssetHandle>&       table,
-                                    const std::vector<Common::AssetHandle>& slots, const Geometry::EditMesh& mesh )
+                                    const std::vector<Common::AssetHandle>& slots, const Geometry::DynamicMesh3& mesh )
         {
             int top = 0;
-            for ( const int t : mesh.TriangleIds() )
-                top = std::max( top, mesh.Attributes().GetMaterialId( t ) );
+            if ( const auto* materials = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr )
+                for ( const int t : mesh.TriangleIndicesItr() )
+                    top = std::max( top, static_cast<int>( materials->GetValue( t ) ) );
             std::vector<int> remap( std::max( slots.size(), static_cast<size_t>( top ) + 1 ) );
             for ( size_t i = 0; i < remap.size(); ++i )
             {
@@ -165,18 +162,9 @@ namespace Desert::Editor::Core
         std::vector<Target>                     kept   = targets;
         auto                                    refuse = [&]( const Target& t, const std::string& why )
         { return Common::MakeFormattedError<bool>( "{} on '{}': {}", name, t.Name, why ); };
-        // Every result goes back onto the ported core; the first conversion refused refuses the whole edit
-        // below, before anything is applied.
-        std::string shareError;
-        auto        Share = [&]( Geometry::EditMesh&& mesh ) -> MeshPtr
-        {
-            auto converted = Geometry::Bridge::FromEditMesh( std::move( mesh ) );
-            if ( converted.IsSuccess() )
-                return converted.ExtractValue();
-            if ( shareError.empty() )
-                shareError = converted.GetError();
-            return nullptr;
-        };
+        // A result is immutable once an entity holds it: shared, never copied again.
+        auto Share = []( Geometry::DynamicMesh3&& mesh ) -> MeshPtr
+        { return std::make_shared<const Geometry::DynamicMesh3>( std::move( mesh ) ); };
 
         switch ( op )
         {
@@ -242,7 +230,7 @@ namespace Desert::Editor::Core
                     auto parts = Geometry::SplitMesh( *t.Mesh, args.Split );
                     if ( !parts.IsSuccess() )
                         return refuse( t, parts.GetError() );
-                    std::vector<Geometry::EditMesh> meshes = parts.ExtractValue();
+                    std::vector<Geometry::DynamicMesh3> meshes = parts.ExtractValue();
                     LOG_INFO( "[Modeling] {0} '{1}' by {2}: {3} parts", name, t.Name,
                               Geometry::ToString( args.Split ), meshes.size() );
                     changes.push_back( StateOf( t.Id, Share( std::move( meshes[0] ) ), t.Local ) );
@@ -289,8 +277,6 @@ namespace Desert::Editor::Core
             }
         }
 
-        if ( !shareError.empty() )
-            return Common::MakeFormattedError<bool>( "{}: {}", name, shareError );
         auto applied = Commands::ApplyXformEdit( fmt::format( "Modeling: {}", name ), changes, creates, deletes );
         if ( !applied.IsSuccess() )
             return Common::MakeError<bool>( applied.GetError() );

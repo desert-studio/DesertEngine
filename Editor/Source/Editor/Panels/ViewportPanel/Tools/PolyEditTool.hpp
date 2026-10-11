@@ -16,15 +16,15 @@ namespace Desert::Core
 namespace Desert::Geometry
 {
     class DynamicMesh3;
-    class EditMesh;
+    class GroupTopology;
 }
 
 namespace Desert::Editor::Tools
 {
     // PolyEdit (Modeling / Model category), phase 1: click a FACE of the selected entity's mesh — the
     // coplanar polygroup under the cursor highlights green — then LMB-drag to push/pull it along its normal
-    // (an EditMesh corner is one vertex, so shared edges follow). A full 3-axis gizmo + the rest of the
-    // PolyGroup-Edit operations (Extrude, Bevel, Inset, …) come next. Edits the entity's EditMesh (the source of
+    // (a DynamicMesh3 corner is one vertex, so shared edges follow). A full 3-axis gizmo + the rest of the
+    // PolyGroup-Edit operations (Extrude, Bevel, Inset, …) come next. Edits the entity's DynamicMesh3 (the source of
     // truth, StaticMeshComponent::EditableMesh); a finished drag is one undo step.
     class PolyEditTool
     {
@@ -44,12 +44,17 @@ namespace Desert::Editor::Tools
         void        FinishDrag();
         bool        PickFace( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
         // The mesh's nearest triangle under the ray (placed by `world`), or Geometry::InvalidId.
-        static int HitTriangle( const Geometry::EditMesh& mesh, const glm::mat4& world,
-                                const Common::Math::Ray& ray );
+        int HitTriangle( const std::shared_ptr<const Geometry::DynamicMesh3>& mesh, const glm::mat4& world,
+                         const Common::Math::Ray& ray );
+
+        // The group topology a pick runs on (PickElement), rebuilt only when the entity's mesh changes - a pick
+        // runs on every mouse move. Holding the mesh keeps the topology's pointer valid.
+        std::shared_ptr<const Geometry::DynamicMesh3> m_TopologyMesh;
+        std::shared_ptr<const Geometry::GroupTopology> m_Topology;
 
         Common::UUID     m_Entity = Common::UUID::Null(); // entity whose mesh we edit (the current selection)
-        std::vector<int> m_SelVerts;                      // EditMesh vertex IDs moved together
-        std::vector<int> m_SelTris;                       // EditMesh triangle IDs of the face (for the highlight)
+        std::vector<int> m_SelVerts;                      // mesh vertex IDs moved together
+        std::vector<int> m_SelTris;                       // mesh triangle IDs of the face (for the highlight)
         glm::vec3        m_FaceNormalLocal{ 0, 1, 0 };
         glm::vec3        m_CentroidWorld{ 0 };
         bool             m_HasSel   = false;

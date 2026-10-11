@@ -60,14 +60,7 @@ project "SceneMigrator"
         -- THE FOLIAGE TYPE FORMAT, for the v32 -> v33 step: the `.defoliage` it writes is the engine's own
         -- WriteFoliageType output, not a second statement of the format.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
-        -- THE EDITMESH AND ITS SAVED FORM, for the v21 -> v22 step: the step welds the v21 render arrays with
-        -- the editor's own Geometry::FromRenderMesh and writes Geometry::ToSerialized, so the block it stores
-        -- is the one the loader reads - not a second statement of either format.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",

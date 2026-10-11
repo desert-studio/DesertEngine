@@ -3,7 +3,7 @@
 // Engine/Source/Runtime/Engine/Classes/EditorFramework/AssetImportData.h:14-40 (FAssetImportInfo::FSourceFile),
 // adapted: the pattern "editable source + material slots + import provenance inside the asset, render data
 // derived" is kept; the storage is AF1's envelope sections instead of UObject properties, FMeshDescription is our
-// EditMeshSer written as a fixed little-endian binary image (not FMeshDescription's bulk data), one source model
+// MeshSavedForm written as a fixed little-endian binary image (not FMeshDescription's bulk data), one source model
 // instead of one per LOD (authored LODs are the deriver's business, AF4c), FSourceFile's MD5 + timestamp is one
 // PakContentHash (freshness is content, never mtime), and the skin keeps named bones + sparse influences in the
 // shape of FSkeletalMeshImportData (RefBonesBinary names, Influences) rather than a USkeleton reference.
@@ -82,12 +82,12 @@ namespace Desert::Assets
                 for ( const int i : v )
                     I32( i );
             }
-            void Overlay( const Geometry::EditMeshOverlaySer& o )
+            void Overlay( const Geometry::MeshOverlaySavedForm& o )
             {
                 Floats( o.Values );
                 Ints( o.Triangles );
             }
-            void OptionalOverlay( const std::optional<Geometry::EditMeshOverlaySer>& o )
+            void OptionalOverlay( const std::optional<Geometry::MeshOverlaySavedForm>& o )
             {
                 U8( o ? 1 : 0 );
                 if ( o )
@@ -171,14 +171,14 @@ namespace Desert::Assets
                     i = I32();
                 return v;
             }
-            Geometry::EditMeshOverlaySer Overlay()
+            Geometry::MeshOverlaySavedForm Overlay()
             {
-                Geometry::EditMeshOverlaySer o;
+                Geometry::MeshOverlaySavedForm o;
                 o.Values    = Floats();
                 o.Triangles = Ints();
                 return o;
             }
-            std::optional<Geometry::EditMeshOverlaySer> OptionalOverlay()
+            std::optional<Geometry::MeshOverlaySavedForm> OptionalOverlay()
             {
                 const uint8_t present = U8();
                 if ( Ok && present > 1 )
@@ -190,7 +190,7 @@ namespace Desert::Assets
         };
 
         // ── validation (shared by encode and decode: a file this build writes is a file it reads) ─────
-        Common::BoolResultStr ValidateOverlay( const Geometry::EditMeshOverlaySer& o, const std::string_view layer,
+        Common::BoolResultStr ValidateOverlay( const Geometry::MeshOverlaySavedForm& o, const std::string_view layer,
                                                const size_t components, const size_t triangleCount )
         {
             if ( o.Values.size() % components != 0 )
@@ -220,7 +220,7 @@ namespace Desert::Assets
             return Common::MakeSuccess( true );
         }
 
-        Common::BoolResultStr ValidateModel( const Geometry::EditMeshSer& m, const size_t lod, const size_t slots )
+        Common::BoolResultStr ValidateModel( const Geometry::MeshSavedForm& m, const size_t lod, const size_t slots )
         {
             if ( m.Positions.size() % 3 != 0 || m.Triangles.size() % 3 != 0 )
                 return Common::MakeFormattedError<bool>( "mesh source LOD{} has {} position floats and {} "
@@ -257,7 +257,7 @@ namespace Desert::Assets
             if ( m.Colors )
                 if ( auto r = ValidateOverlay( *m.Colors, "colour", 4, triangles ); !r.IsSuccess() )
                     return r;
-            for ( const Geometry::EditMeshOverlaySer& uv : m.UVs )
+            for ( const Geometry::MeshOverlaySavedForm& uv : m.UVs )
                 if ( auto r = ValidateOverlay( uv, "UV", 2, triangles ); !r.IsSuccess() )
                     return r;
             return Common::MakeSuccess( true );
@@ -370,7 +370,7 @@ namespace Desert::Assets
             w.U32( static_cast<uint32_t>( s.Models.size() ) );
             for ( const MeshSourceModel& model : s.Models )
             {
-                const Geometry::EditMeshSer& m = model.Mesh;
+                const Geometry::MeshSavedForm& m = model.Mesh;
                 w.Floats( m.Positions );
                 w.Ints( m.Triangles );
                 w.Ints( m.PolyGroups );
@@ -379,7 +379,7 @@ namespace Desert::Assets
                 w.OptionalOverlay( m.Tangents );
                 w.OptionalOverlay( m.Colors );
                 w.U32( static_cast<uint32_t>( m.UVs.size() ) );
-                for ( const Geometry::EditMeshOverlaySer& uv : m.UVs )
+                for ( const Geometry::MeshOverlaySavedForm& uv : m.UVs )
                     w.Overlay( uv );
             }
             w.U32( static_cast<uint32_t>( s.MaterialSlots.size() ) );
@@ -420,7 +420,7 @@ namespace Desert::Assets
             s.Models.resize( r.Count( 23 ) );
             for ( MeshSourceModel& model : s.Models )
             {
-                Geometry::EditMeshSer& m = model.Mesh;
+                Geometry::MeshSavedForm& m = model.Mesh;
                 m.Positions              = r.Floats();
                 m.Triangles              = r.Ints();
                 m.PolyGroups             = r.Ints();
@@ -429,7 +429,7 @@ namespace Desert::Assets
                 m.Tangents               = r.OptionalOverlay();
                 m.Colors                 = r.OptionalOverlay();
                 m.UVs.resize( r.Count( 8 ) );
-                for ( Geometry::EditMeshOverlaySer& uv : m.UVs )
+                for ( Geometry::MeshOverlaySavedForm& uv : m.UVs )
                     uv = r.Overlay();
             }
             s.MaterialSlots.resize( r.Count( 20 ) );
@@ -488,7 +488,7 @@ namespace Desert::Assets
         return deps;
     }
 
-    std::optional<CC::EnvelopeBounds> MeshSourceBounds( const Geometry::EditMeshSer& mesh )
+    std::optional<CC::EnvelopeBounds> MeshSourceBounds( const Geometry::MeshSavedForm& mesh )
     {
         if ( mesh.Positions.size() < 3 )
             return std::nullopt;

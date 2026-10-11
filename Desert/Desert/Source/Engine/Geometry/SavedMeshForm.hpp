@@ -33,27 +33,27 @@ namespace Desert::Geometry
     // TWO CORES, ONE FORM. EditMeshSerialization and DynamicMeshSerialization both read and write this struct;
     // it lives on its own so the DynamicMesh3 side does not include EditMesh. The field layout IS the scene
     // format (StaticMesh.EditMesh): changing it is a schema change.
-    struct EditMeshOverlaySer
+    struct MeshOverlaySavedForm
     {
         std::vector<float> Values;    // Components() floats per element
         std::vector<int>   Triangles; // 3 per triangle, in triangle order; -1 x3 = unset in this layer
 
-        bool operator==( const EditMeshOverlaySer& ) const = default;
+        bool operator==( const MeshOverlaySavedForm& ) const = default;
     };
 
-    struct EditMeshSer
+    struct MeshSavedForm
     {
         std::vector<float> Positions;   // xyz per vertex, cm
         std::vector<int>   Triangles;   // 3 vertex indices per triangle, winding a -> b -> c
         std::vector<int>   PolyGroups;  // one per triangle
         std::vector<int>   MaterialIds; // one per triangle
 
-        std::optional<EditMeshOverlaySer> Normals;  // 3 floats per element
-        std::optional<EditMeshOverlaySer> Tangents; // 4: xyz + bitangent sign
-        std::optional<EditMeshOverlaySer> Colors;   // 4: linear RGBA
-        std::vector<EditMeshOverlaySer>   UVs;      // 2 each, one entry per UV layer
+        std::optional<MeshOverlaySavedForm> Normals;  // 3 floats per element
+        std::optional<MeshOverlaySavedForm> Tangents; // 4: xyz + bitangent sign
+        std::optional<MeshOverlaySavedForm> Colors;   // 4: linear RGBA
+        std::vector<MeshOverlaySavedForm>   UVs;      // 2 each, one entry per UV layer
 
-        bool operator==( const EditMeshSer& ) const = default;
+        bool operator==( const MeshSavedForm& ) const = default;
     };
 
 } // namespace Desert::Geometry

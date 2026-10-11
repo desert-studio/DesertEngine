@@ -173,7 +173,7 @@ namespace
 
         EntityData edited = Record( kEdited, "Edited", CellCentre( 1, 1 ) + glm::vec3( 30.0f, 0.0f, 30.0f ) );
         Desert::Assets::StaticMeshComponentSer built;
-        built.EditMesh = Desert::Geometry::EditMeshSer{};
+        built.EditMesh = Desert::Geometry::MeshSavedForm{};
         WithMesh( edited, built );
         records.push_back( edited );
 

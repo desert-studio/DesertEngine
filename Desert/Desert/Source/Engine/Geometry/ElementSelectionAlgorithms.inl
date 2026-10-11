@@ -1,12 +1,11 @@
 #pragma once
 
-// The element-selection algorithms, written once over a MESH VIEW so both cores run the very same code while
-// the bridge lives: EditMesh (EditMeshSelection.cpp, until P8b) and the ported core (DynamicMeshSelection.cpp,
-// through DynamicMeshElements). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
+// The element-selection algorithms, written over a MESH VIEW: the ported core reads them through
+// DynamicMeshElements (DynamicMeshSelection.cpp). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
 // Max*Id, GetPosition, GetTriangle, GetTriangleEdges, GetEdgeVertices, GetVertexNeighbours and
-// Attributes().GetPolyGroup. Included by exactly those two files.
+// Attributes().GetPolyGroup. Included by DynamicMeshSelection.cpp only.
 
-#include "Engine/Geometry/EditMeshSelection.hpp"
+#include "Engine/Geometry/ElementSelection.hpp"
 
 #include <glm/geometric.hpp>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "EditMesh.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -17,10 +17,10 @@ namespace Desert::Geometry
     // WHOLE-OBJECT TRANSFORM OPERATIONS - UE's XForm tab: Edit Pivot (UEditPivotTool), Bake Transform
     // (UBakeTransformTool), Merge (UCombineMeshesTool), Split (USplitMeshesTool) and Pattern (UPatternTool).
     //
-    // Same contract as the other EditMesh operation headers: pure functions, the input is not touched, the
-    // result is a NEW mesh; a refusal leaves nothing half-done and names what and where. What is new here is
-    // that each of these also answers "where does the entity end up": a transform comes in and, for Edit
-    // Pivot and Bake, a different one goes out, chosen so that every vertex stays where it is in the WORLD.
+    // Same contract as the other mesh operation headers (MeshRegionOperation.hpp): pure functions, the input is
+    // not touched, the result is a NEW mesh; a refusal leaves nothing half-done and names what and where. What is
+    // new here is that each of these also answers "where does the entity end up": a transform comes in and, for
+    // Edit Pivot and Bake, a different one goes out, chosen so that every vertex stays where it is in the WORLD.
     // Units are centimetres; +Y is up (the engine's convention - CutPlane's default normal).
 
     // An entity's LOCAL transform in the engine's own spelling (ECS::TransformComponent): Matrix() is
@@ -43,16 +43,16 @@ namespace Desert::Geometry
     };
 
     // The axis-aligned box of the live vertices, in the mesh's space. Refused for a mesh with no vertex.
-    [[nodiscard]] Common::ResultStr<MeshBox> ComputeMeshBox( const EditMesh& mesh );
+    [[nodiscard]] Common::ResultStr<MeshBox> ComputeMeshBox( const DynamicMesh3& mesh );
 
     struct TransformedMesh
     {
-        EditMesh Mesh;
+        DynamicMesh3 Mesh;
         // The linear part's determinant was negative (a mirror): every triangle is wound the other way round,
         // so a surface that faced outwards still does.
         bool WindingReversed = false;
         // The linear part was not a rotation times a uniform scale, so a transformed tangent would no longer
-        // lie in the transformed surface: the tangent layer was rebuilt (ComputeTangentsAt) instead.
+        // lie in the transformed surface: the tangent layer was rebuilt (RecomputeTangentSpace) instead.
         bool TangentsRebuilt = false;
     };
 
@@ -60,15 +60,15 @@ namespace Desert::Geometry
     //   * positions: transform * p;
     //   * normals: the inverse transpose of the linear part, renormalised - the one map that keeps a normal
     //     perpendicular to its surface under a non-uniform scale;
-    //   * tangents: the linear part, renormalised, the bitangent sign negated when the determinant is
-    //     negative (a reflection turns a right-handed frame left-handed); rebuilt instead when the map is not
-    //     conformal (see TransformedMesh::TangentsRebuilt);
+    //   * tangents and bitangents (normal layers 1 and 2): the linear part, renormalised - the bitangent is a
+    //     layer of its own, so a reflection needs no sign; rebuilt instead when the map is not conformal (see
+    //     TransformedMesh::TangentsRebuilt);
     //   * a negative determinant reverses every triangle's corner order (and its overlay elements with it);
     //   * UVs, colours, polygroups, materials: unchanged. Topology: unchanged, IDs compacted.
     // Refused: a transform whose linear part is singular (|det| below 1e-12 of its scale) - it would flatten
     // the mesh; a non-affine matrix (a projective bottom row).
-    [[nodiscard]] Common::ResultStr<TransformedMesh> TransformMesh( const EditMesh&  mesh,
-                                                                    const glm::mat4& transform );
+    [[nodiscard]] Common::ResultStr<TransformedMesh> TransformMesh( const DynamicMesh3& mesh,
+                                                                    const glm::mat4&    transform );
 
     // ── Edit Pivot ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -86,22 +86,22 @@ namespace Desert::Geometry
     // chain included) - the world-space choices are mapped back through it, so a child entity's pivot lands on
     // the world point, not on its parent-relative image. Refused: an empty mesh (bounds choices); a singular
     // `meshToWorld` (world choices).
-    [[nodiscard]] Common::ResultStr<glm::vec3> ResolvePivot( const EditMesh& mesh, PivotLocation location,
+    [[nodiscard]] Common::ResultStr<glm::vec3> ResolvePivot( const DynamicMesh3& mesh, PivotLocation location,
                                                              const glm::mat4& meshToWorld,
                                                              const glm::vec3& worldPoint );
 
     struct XformOutcome
     {
-        EditMesh    Mesh;
-        Trs         Transform; // the entity's new LOCAL transform
-        std::string Report;
+        DynamicMesh3 Mesh;
+        Trs          Transform; // the entity's new LOCAL transform
+        std::string  Report;
     };
 
     // EDIT PIVOT: the entity's origin moves to `pivot` (mesh space) and the vertices move back by the same
     // amount - the mesh is translated by -pivot and Translation grows by (R * S) * pivot, so
     // local' * v' == local * v for every vertex, and the world, which is parent * local, does not change.
     // Rotation and Scale are kept. Refused: a pivot that is not finite; a transform with a zero scale.
-    [[nodiscard]] Common::ResultStr<XformOutcome> EditPivot( const EditMesh& mesh, const Trs& local,
+    [[nodiscard]] Common::ResultStr<XformOutcome> EditPivot( const DynamicMesh3& mesh, const Trs& local,
                                                              const glm::vec3& pivot );
 
     // ── Bake Transform ─────────────────────────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ namespace Desert::Geometry
     // under a kept non-uniform scale becomes a shear in the vertices - the only map that keeps the world).
     // A negative scale reverses the winding (TransformMesh). Refused: nothing chosen; a transform that is
     // singular (a zero scale: the object has no volume left to bake).
-    [[nodiscard]] Common::ResultStr<XformOutcome> BakeTransform( const EditMesh& mesh, const Trs& local,
+    [[nodiscard]] Common::ResultStr<XformOutcome> BakeTransform( const DynamicMesh3& mesh, const Trs& local,
                                                                  const BakeOptions& options );
 
     // ── Merge ──────────────────────────────────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ namespace Desert::Geometry
     struct MergePart
     {
         // By reference: a part lives only for the call, and a null part has no meaning.
-        const EditMesh& Mesh;
+        const DynamicMesh3& Mesh;
         // Maps this part's space into the result's (inverse(targetWorld) * partWorld for entities).
         glm::mat4 ToResult{ 1.0f };
         // Material ID i of this part becomes MaterialRemap[i] in the result; empty keeps the IDs. An ID
@@ -137,8 +137,8 @@ namespace Desert::Geometry
 
     struct MergeOutcome
     {
-        EditMesh    Mesh;
-        std::string Report; // layers dropped because some part lacked them
+        DynamicMesh3 Mesh;
+        std::string  Report; // layers dropped because some part lacked them
     };
 
     // MERGE the parts into one mesh (UE's Merge: the inputs' triangles side by side, nothing welded). Each
@@ -162,7 +162,8 @@ namespace Desert::Geometry
     // SPLIT the mesh into parts, in the order of each part's lowest triangle ID. Each part keeps its
     // triangles' positions (same space - the entities share the source's transform), attributes, seams,
     // polygroups and materials. Refused: an empty mesh; a mesh that is one part already.
-    [[nodiscard]] Common::ResultStr<std::vector<EditMesh>> SplitMesh( const EditMesh& mesh, SplitMethod method );
+    [[nodiscard]] Common::ResultStr<std::vector<DynamicMesh3>> SplitMesh( const DynamicMesh3& mesh,
+                                                                          SplitMethod         method );
 
     // ── Pattern ────────────────────────────────────────────────────────────────────────────────────────
 

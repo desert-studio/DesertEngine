@@ -13,7 +13,8 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <array>
 #include <mutex>
@@ -135,21 +136,24 @@ namespace Desert::Editor
                 slotOfSubmesh.push_back( slotOf( sub ) );
             }
 
-            auto lifted = Geometry::Bridge::EditMeshFromMeshAssetData( part );
+            auto lifted = Geometry::DynamicMeshFromMeshAssetData( part );
             if ( !lifted.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "'{}' LOD{} cannot become a source model: {}", name,
                                                            level, lifted.GetError() );
-            Geometry::ImportedEditMesh welded = lifted.ExtractValue();
+            Geometry::ImportedDynamicMesh welded = lifted.ExtractValue();
             out.DroppedDegenerate += welded.DroppedDegenerate;
             out.DroppedDuplicate += welded.DroppedDuplicate;
             out.DetachedTriangles += welded.DetachedTriangles;
-            Geometry::EditMesh& mesh = welded.Mesh;
-            // FromMeshAssetData numbers materials by submesh; the source numbers them by the shared slot table.
-            for ( int t = 0; t < mesh.MaxTriangleId(); ++t )
-                if ( mesh.IsTriangle( t ) )
-                    mesh.Attributes().SetMaterialId(
-                         t, slotOfSubmesh[static_cast<size_t>( mesh.Attributes().GetMaterialId( t ) )] );
-            out.Source.Models.push_back( { Geometry::Bridge::SavedFormFromEditMesh( mesh ) } );
+            Geometry::DynamicMesh3& mesh = welded.Mesh;
+            // DynamicMeshFromMeshAssetData numbers materials by submesh; the source numbers them by the shared
+            // slot table.
+            if ( auto* materials = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr )
+                for ( const int t : mesh.TriangleIndicesItr() )
+                {
+                    const int32_t slot = slotOfSubmesh[static_cast<size_t>( materials->GetValue( t ) )];
+                    materials->SetValue( t, &slot );
+                }
+            out.Source.Models.push_back( { Geometry::ToSerialized( mesh ) } );
         }
         return Common::MakeSuccess( std::move( out ) );
     }

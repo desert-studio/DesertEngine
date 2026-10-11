@@ -15,8 +15,8 @@
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <gtest/gtest.h>
@@ -42,7 +42,7 @@ namespace
     MeshPtr Box( int subdivisions, glm::vec3 size = glm::vec3( 200.0f, 100.0f, 50.0f ) )
     {
         auto shape = Geometry::MakeBox( size, glm::ivec3( subdivisions, 1, 1 ) );
-        auto edit  = Geometry::ShapeToEditMesh( shape );
+        auto edit  = Geometry::ShapeToDynamicMesh( shape );
         EXPECT_TRUE( edit.IsSuccess() );
         auto dyn = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( edit.GetValue() ), "box" );
         EXPECT_TRUE( dyn.IsSuccess() ) << ( dyn.IsSuccess() ? "" : dyn.GetError() );
@@ -213,7 +213,7 @@ TEST_F( ToolTarget, ASameSizeRewriteInsideOneWriteTimeTickLiftsTheNewContent )
     EXPECT_EQ( third.GetValue().Mesh, second.GetValue().Mesh ) << "the element selection tracks by identity";
 }
 
-// The undo plan, walked through the states an edit leaves: commit, undo, redo. EditMeshCommand, XformCommand
+// The undo plan, walked through the states an edit leaves: commit, undo, redo. MeshReplacementCommand, XformCommand
 // (changed and deleted entities) and the split rollback all decide through PlanMeshRestore; the commands
 // themselves upload to the device (ECS::SetEditableMesh) and are exercised in the editor frame.
 TEST( ToolTargetUndo, AnEditOnALiftCommitsAnEditableMeshAndItsUndoDropsIt )

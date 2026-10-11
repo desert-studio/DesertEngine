@@ -286,7 +286,7 @@ TEST( ImportedMeshAsset, ExportDebrisIsSkippedAndTheRestKeepsItsGroups )
 
     // Every surviving face keeps ITS group: 8 plane faces and the fin; the dropped faces' groups (108, 109)
     // are gone rather than shifted onto the fin.
-    const Geometry::EditMeshSer& mesh = source.GetValue().Source.Models[0].Mesh;
+    const Geometry::MeshSavedForm& mesh = source.GetValue().Source.Models[0].Mesh;
     ASSERT_EQ( mesh.Triangles.size(), 9u * 3u );
     std::vector<int> groups = mesh.PolyGroups;
     std::ranges::sort( groups );

@@ -236,8 +236,7 @@ local kRunners = {
             -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
         }
         includedirs {
-            -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
-            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/EditMesh",
+            -- One suite reads SettingConsumers' table.
             "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/SettingConsumers",
             -- Header-only tool cores the image and lattice censuses measure with.
             "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",

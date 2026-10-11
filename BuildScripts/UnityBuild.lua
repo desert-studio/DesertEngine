@@ -59,8 +59,6 @@ DesertUnity.OptOut = {
     { pattern = "**Source/Engine/Assets/CloudNoiseVolume.cpp", why = "clang unity check: redefinition of 'kFormatRgba8'" },
     { pattern = "**Source/Engine/Assets/CloudNoiseVolumeSheet.cpp", why = "clang unity check: redefinition of 'kBytesPerVoxel'" },
     { pattern = "**Source/Engine/Assets/Serialization/TextureBinary.cpp", why = "clang unity check: redefinition of 'kByteOrderTag'" },
-    { pattern = "**Source/Engine/Geometry/EditMeshAttributes.cpp", why = "clang unity check: redefinition of 'Next'" },
-    { pattern = "**Source/Engine/Geometry/EditMeshConversion.cpp", why = "clang unity check: no viable conversion from 'EditMesh' to 'const FDynamicMesh3'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp", why = "clang unity check: redefinition of 'BytesToMiB'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp", why = "clang unity check: non-constexpr declaration of 'GroupCount' follows constexpr declaration" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp", why = "clang unity check: redefinition of 'kGroupSize'" },

@@ -938,7 +938,7 @@ TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
     EXPECT_TRUE( outcome.WrittenMeshes.empty() );
     const auto asset = Assets::LoadMeshSourceAsset( Editor::CookPaths::MeshAsset( m_Lamps ) );
     ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
-    const Geometry::EditMeshSer& mesh = asset.GetValue().Source.Models.front().Mesh;
+    const Geometry::MeshSavedForm& mesh = asset.GetValue().Source.Models.front().Mesh;
     ASSERT_EQ( mesh.Triangles.size(), 9u ) << "one triangle per node";
 
     // Each triangle's centroid and its first edge (the authored +X edge), in cm.

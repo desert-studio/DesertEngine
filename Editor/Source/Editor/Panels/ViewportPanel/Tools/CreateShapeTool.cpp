@@ -8,7 +8,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -106,7 +106,7 @@ namespace Desert::Editor::Tools
                                                             const MS::ShapeSettings&  settings,
                                                             const MS::OutputSettings& output, const Spot& spot )
     {
-        auto mesh = Geometry::ShapeToEditMesh( Build( settings ) );
+        auto mesh = Geometry::ShapeToDynamicMesh( Build( settings ) );
         if ( !mesh.IsSuccess() )
             return Common::MakeFormattedError<Common::UUID>( "the {} was not placed: {}",
                                                              MS::ShapeName( settings.Kind ), mesh.GetError() );
@@ -116,7 +116,8 @@ namespace Desert::Editor::Tools
         transform.Translation       = spot.Point;
         transform.Rotation          = glm::eulerAngles( spot.Rotation );
         auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
-        if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( smc, mesh.ExtractValue() );
+        if ( auto set = ECS::SetEditableMesh(
+                  smc, std::make_shared<const Geometry::DynamicMesh3>( mesh.ExtractValue() ) );
              !set.IsSuccess() )
         {
             scene.DestroyEntity( entity );
@@ -124,7 +125,7 @@ namespace Desert::Editor::Tools
                                                              MS::ShapeName( settings.Kind ), set.GetError() );
         }
         const Common::UUID id = entity.GetComponent<ECS::UUIDComponent>().UUID;
-        // Output: Static Mesh swaps the EditMesh for a new asset BEFORE the creation is recorded, so the one
+        // Output: Static Mesh swaps the editable mesh for a new asset BEFORE the creation is recorded, so the one
         // step below creates the finished static-mesh entity. A refused write takes the entity back out:
         // the tool placed nothing rather than something other than what the Output setting asked for.
         if ( output.Type == MS::OutputType::StaticMesh )
@@ -135,7 +136,7 @@ namespace Desert::Editor::Tools
                 return Common::MakeFormattedError<Common::UUID>(
                      "the {} was not placed: {}", MS::ShapeName( settings.Kind ), written.GetError() );
             }
-        // ONE undo step: undo removes the entity (snapshotting it through the scene serializer - the EditMesh
+        // ONE undo step: undo removes the entity (snapshotting it through the scene serializer - the editable mesh
         // or the mesh reference), redo brings it back under the same UUID.
         Commands::NotifyCreated( { id } );
         Core::SelectionManager::SetSelected( id );

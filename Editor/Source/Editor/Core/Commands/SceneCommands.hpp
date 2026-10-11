@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Editor/Core/CommandHistory.hpp> // ICommand: RecordEditMeshChange takes one by unique_ptr
+#include <Editor/Core/CommandHistory.hpp> // ICommand: RecordMeshChange takes one by unique_ptr
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
@@ -67,11 +67,11 @@ namespace Desert::Editor::Commands
     // Rename the entity's tag undoably. No-ops on empty/unchanged names.
     void Rename( const Common::UUID& uuid, const std::string& newName );
 
-    // Record a finished edit of the entity's EditMesh (a PolyEdit drag): @p before is the mesh the component
+    // Record a finished edit of the entity's editable mesh (UE's FMeshReplacementChange) (a PolyEdit drag): @p before is the mesh the component
     // held when the edit began; the component's CURRENT EditableMesh is the "after". One undo step; no-op when
     // the two are the same object. The meshes are immutable, so both are kept by reference. @p alongside is
     // undone / redone with the mesh as part of the SAME step (a mesh operation's selection change).
-    void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
+    void RecordMeshChange( const Common::UUID& uuid, const std::string& label,
                                std::shared_ptr<const Geometry::DynamicMesh3> before,
                                std::unique_ptr<ICommand>                     alongside = nullptr );
 
@@ -80,13 +80,13 @@ namespace Desert::Editor::Commands
     // and given @p otherHalf. The mesh change, the copy and @p alongside are ONE undo step. Refused - nothing
     // left created or recorded - when the copy cannot be made or cannot take the mesh; the caller then puts
     // @p before back on the source.
-    [[nodiscard]] Common::ResultStr<Common::UUID> RecordEditMeshSplit(
+    [[nodiscard]] Common::ResultStr<Common::UUID> RecordMeshSplit(
          const Common::UUID& uuid, const std::string& label, std::shared_ptr<const Geometry::DynamicMesh3> before,
          std::shared_ptr<const Geometry::DynamicMesh3> otherHalf, std::unique_ptr<ICommand> alongside = nullptr );
 
     // ---- XForm (Modeling): whole-entity mesh + transform edits as ONE undo step ----
 
-    // What an entity holds after an XForm operation: its mesh (by reference, like EditMeshCommand), its LOCAL
+    // What an entity holds after an XForm operation: its mesh (by reference, like MeshReplacementCommand), its LOCAL
     // transform, and - when set - its material slots (Merge unites the parts' slots) and its visibility.
     struct XformEntityState
     {
@@ -195,11 +195,11 @@ namespace Desert::Editor::Commands
     // THE ENTITY'S EDITMESH BECOMES A STATIC MESH ASSET (UE: Convert to Static Mesh / Output: New Static Mesh).
     // Writes a NEW .stmesh (StaticMeshOutput.hpp: under the cooked mesh folder, `folder` inside it, named
     // `name` or the entity's name, never overwriting), registers and loads it, points the component's
-    // MeshHandle at it and REMOVES the EditMesh: the asset is now the one copy of the geometry, as a UE
+    // MeshHandle at it and REMOVES the editable mesh: the asset is now the one copy of the geometry, as a UE
     // StaticMeshActor holds a reference and no mesh of its own. Material slots are kept - the asset's
     // submesh k carries slot k's material, which is what the entity drew with.
     //
-    // ONE undo step restores the EditMesh entity. THE FILE STAYS after an undo, as UE leaves the package a
+    // ONE undo step restores the editable-mesh entity. THE FILE STAYS after an undo, as UE leaves the package a
     // transaction created: redo needs it, another entity may already reference it, and deleting user content
     // from an undo is the one undo nobody can take back. Returns the path written.
     [[nodiscard]] Common::ResultStr<std::filesystem::path>

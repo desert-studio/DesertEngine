@@ -60,12 +60,12 @@ namespace Desert::Destruction
                 for ( const int i : v )
                     I32( i );
             }
-            void Overlay( const Geometry::EditMeshOverlaySer& o )
+            void Overlay( const Geometry::MeshOverlaySavedForm& o )
             {
                 Floats( o.Values );
                 Ints( o.Triangles );
             }
-            void OptionalOverlay( const std::optional<Geometry::EditMeshOverlaySer>& o )
+            void OptionalOverlay( const std::optional<Geometry::MeshOverlaySavedForm>& o )
             {
                 U8( o ? 1 : 0 );
                 if ( o )
@@ -155,14 +155,14 @@ namespace Desert::Destruction
                     i = I32();
                 return v;
             }
-            Geometry::EditMeshOverlaySer Overlay()
+            Geometry::MeshOverlaySavedForm Overlay()
             {
-                Geometry::EditMeshOverlaySer o;
+                Geometry::MeshOverlaySavedForm o;
                 o.Values    = Floats();
                 o.Triangles = Ints();
                 return o;
             }
-            std::optional<Geometry::EditMeshOverlaySer> OptionalOverlay()
+            std::optional<Geometry::MeshOverlaySavedForm> OptionalOverlay()
             {
                 if ( U8() == 0 )
                     return std::nullopt;

@@ -1,8 +1,7 @@
 // FDYNAMICMESH3 AS A .stmesh AND BACK (P7).
 //
-// The reference is the EditMesh pair (EditMeshAsset.hpp). The DynamicMesh3 under test is NOT built from the
-// same render arrays the EditMesh path writes (that would compare a function with itself): it is read from
-// the EditMesh's scene block through the P6 reader, the independent road a scene mesh takes into the new core.
+// The DynamicMesh3 under test is read from its scene block through the P6 reader, the road a scene mesh takes
+// into the core.
 // Meshes: the six generator shapes (with polygroups and two materials) and every tracked scene mesh.
 
 #include <gtest/gtest.h>
@@ -30,8 +29,7 @@ namespace
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
-#include <Engine/Geometry/EditMeshAsset.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/ShapeGenerators.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
@@ -55,17 +53,21 @@ namespace
     struct Case
     {
         std::string Name;
-        EditMesh    Mesh;
+        DynamicMesh3 Mesh;
     };
 
     // Odd polygroups on material `odd`, the rest on 0: two submeshes, and with odd = 2 a gap the file
     // compacts away.
-    EditMesh Shape( const Common::ResultStr<EditMesh>& made, int odd )
+    DynamicMesh3 Shape( const Common::ResultStr<DynamicMesh3>& made, int odd )
     {
         EXPECT_TRUE( made.IsSuccess() ) << ( made.IsSuccess() ? "" : made.GetError() );
-        EditMesh mesh = made.IsSuccess() ? made.GetValue() : EditMesh{};
-        for ( const int t : mesh.TriangleIds() )
-            mesh.Attributes().SetMaterialId( t, mesh.Attributes().GetPolyGroup( t ) % 2 == 1 ? odd : 0 );
+        DynamicMesh3 mesh = made.IsSuccess() ? made.GetValue() : DynamicMesh3{};
+        if ( mesh.HasAttributes() && mesh.Attributes()->HasMaterialID() )
+            for ( const int t : mesh.TriangleIndicesItr() )
+            {
+                const int32_t material = mesh.GetTriangleGroup( t ) % 2 == 1 ? odd : 0;
+                mesh.Attributes()->GetMaterialID()->SetValue( t, &material );
+            }
         return mesh;
     }
 
@@ -102,7 +104,7 @@ namespace
                      const auto block = ReadBlockOf<Assets::StaticMeshComponentSer>( staticMesh->Raw() );
                      if ( !block || !block->EditMesh )
                          return;
-                     auto mesh = FromSerialized( *block->EditMesh );
+                     auto mesh = DynamicMeshFromSerialized( *block->EditMesh, entry.path().string() );
                      EXPECT_TRUE( mesh.IsSuccess() ) << entry.path();
                      if ( mesh.IsSuccess() )
                          out.push_back( { entry.path().filename().string() + ":" + tag, mesh.ExtractValue() } );
@@ -117,17 +119,17 @@ namespace
             std::vector<Case> out;
             out.push_back(
                  { "box",
-                   Shape( ShapeToEditMesh( MakeBox( glm::vec3( 200, 100, 50 ), glm::ivec3( 2, 1, 1 ) ) ), 1 ) } );
+                   Shape( ShapeToDynamicMesh( MakeBox( glm::vec3( 200, 100, 50 ), glm::ivec3( 2, 1, 1 ) ) ), 1 ) } );
             out.push_back(
                  { "sphere",
-                   Shape( ShapeToEditMesh( MakeSphere( { 50.0f, SphereType::LatLong, 1, 16, 24 } ) ), 2 ) } );
+                   Shape( ShapeToDynamicMesh( MakeSphere( { 50.0f, SphereType::LatLong, 1, 16, 24 } ) ), 2 ) } );
             out.push_back(
-                 { "cylinder", Shape( ShapeToEditMesh( MakeCylinder( { 40.0f, 150.0f, 24, 1 } ) ), 1 ) } );
-            out.push_back( { "cone", Shape( ShapeToEditMesh( MakeCone( { 40.0f, 150.0f, 24, 1 } ) ), 2 ) } );
+                 { "cylinder", Shape( ShapeToDynamicMesh( MakeCylinder( { 40.0f, 150.0f, 24, 1 } ) ), 1 ) } );
+            out.push_back( { "cone", Shape( ShapeToDynamicMesh( MakeCone( { 40.0f, 150.0f, 24, 1 } ) ), 2 ) } );
             out.push_back(
-                 { "capsule", Shape( ShapeToEditMesh( MakeCapsule( { 30.0f, 120.0f, 8, 24, 1 } ) ), 1 ) } );
+                 { "capsule", Shape( ShapeToDynamicMesh( MakeCapsule( { 30.0f, 120.0f, 8, 24, 1 } ) ), 1 ) } );
             out.push_back(
-                 { "pyramid", Shape( ShapeToEditMesh( MakePyramid( glm::vec3( 100, 120, 100 ) ) ), 1 ) } );
+                 { "pyramid", Shape( ShapeToDynamicMesh( MakePyramid( glm::vec3( 100, 120, 100 ) ) ), 1 ) } );
             AddScenes( out );
             return out;
         }();
@@ -246,18 +248,6 @@ TEST( DynamicMeshAsset, CorpusHoldsShapesAndSceneMeshes )
     EXPECT_GT( Cases().size(), 6u ) << "no tracked scene mesh was found";
 }
 
-TEST( DynamicMeshAsset, BothCoresWriteTheSameBytes )
-{
-    for ( const Case& c : Cases() )
-    {
-        const std::string before = Bytes( ToMeshAssetData( c.Mesh, kSlots ), c.Name );
-        const std::string after  = Bytes( DynamicMeshToMeshAssetData( NewCore( c ), kSlots ), c.Name );
-        EXPECT_FALSE( before.empty() ) << c.Name;
-        EXPECT_EQ( before.size(), after.size() ) << c.Name;
-        EXPECT_TRUE( before == after ) << c.Name << ": the two cores wrote different .stmesh bytes";
-    }
-}
-
 TEST( DynamicMeshAsset, FileToMeshToFileIsByteStable )
 {
     for ( const Case& c : Cases() )
@@ -269,7 +259,7 @@ TEST( DynamicMeshAsset, FileToMeshToFileIsByteStable )
              read.GetValue().Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) )
              << c.Name;
         const std::string second = Bytes( DynamicMeshToMeshAssetData( read.GetValue().Mesh, kSlots ), c.Name );
-        // THE ONE BOUNDED DIFFERENCE, shared with the EditMesh reader: a mesh whose MaterialIDs have gaps is read
+        // THE ONE BOUNDED DIFFERENCE, as UE's reader has it: a mesh whose MaterialIDs have gaps is read
         // back compacted (MaterialID = submesh index), so its submesh NAMES ("MaterialID <id>") change once and
         // nothing else does; the second trip is then byte-stable. Every other mesh is stable at once.
         Ser::MeshAssetData       renamed = Decoded( first );
@@ -290,12 +280,6 @@ TEST( DynamicMeshAsset, FileToMeshToFileIsByteStable )
         EXPECT_TRUE( Bytes( DynamicMeshToMeshAssetData( third.GetValue().Mesh, kSlots ), c.Name ) == second )
              << c.Name << ": the compacted file is not a fixed point";
 
-        // and the old core reads the new core's file to the same bytes the new core does
-        auto old = FromMeshAssetData( Decoded( first ) );
-        ASSERT_TRUE( old.IsSuccess() ) << c.Name << ": " << old.GetError();
-        const std::string oldBytes = Bytes( ToMeshAssetData( old.GetValue().Mesh, kSlots ), c.Name );
-        EXPECT_TRUE( oldBytes == second ) << c.Name << ": the old core read the file to other bytes, first at "
-                                          << FirstDifference( second, oldBytes );
     }
 }
 
@@ -381,7 +365,7 @@ TEST( DynamicMeshAsset, WhatTheFileCannotHoldIsRefusedByName )
     EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( DynamicMesh3{}, kSlots ) ).find( "no triangle" ),
                std::string::npos );
 
-    // the same meshes the EditMesh reader refuses
+    // what the reader refuses
     Ser::MeshAssetData skinned = OneBoxFile();
     skinned.IsSkinned          = true;
     EXPECT_NE( RefusalOf( DynamicMeshFromMeshAssetData( skinned ) ).find( "skinned" ), std::string::npos );
@@ -397,10 +381,9 @@ TEST( DynamicMeshAsset, WhatTheFileCannotHoldIsRefusedByName )
         face.V2 = face.V1;
     EXPECT_NE( RefusalOf( DynamicMeshFromMeshAssetData( flat ) ).find( "none of the asset's" ),
                std::string::npos );
-    EXPECT_FALSE( FromMeshAssetData( flat ).IsSuccess() ) << "the two cores disagree on what they open";
 }
 
-TEST( DynamicMeshAsset, BothCoresSkipDegenerateAndDuplicateFacesAlike )
+TEST( DynamicMeshAsset, DegenerateAndDuplicateFacesAreSkippedAndCounted )
 {
     // The rule is UE's MeshDescription -> DynamicMesh one, and both cores follow it: a repeated face and a face
     // with two corners on one vertex are skipped and counted, and every other face keeps its own polygroup and
@@ -418,24 +401,15 @@ TEST( DynamicMeshAsset, BothCoresSkipDegenerateAndDuplicateFacesAlike )
         dirty.Submeshes[k].IndexOffset += 6;
 
     auto dynamic = DynamicMeshFromMeshAssetData( dirty );
-    auto edit    = FromMeshAssetData( dirty );
     ASSERT_TRUE( dynamic.IsSuccess() ) << dynamic.GetError();
-    ASSERT_TRUE( edit.IsSuccess() ) << edit.GetError();
     const ImportedDynamicMesh& d = dynamic.GetValue();
-    const ImportedEditMesh&    e = edit.GetValue();
     EXPECT_EQ( d.DroppedDuplicate, 1 );
     EXPECT_EQ( d.DroppedDegenerate, 1 );
     EXPECT_EQ( d.DetachedTriangles, 0 );
-    EXPECT_EQ( e.DroppedDuplicate, d.DroppedDuplicate ) << "the two cores report different counts";
-    EXPECT_EQ( e.DroppedDegenerate, d.DroppedDegenerate ) << "the two cores report different counts";
-    EXPECT_EQ( e.DetachedTriangles, d.DetachedTriangles ) << "the two cores report different counts";
-    EXPECT_EQ( e.Mesh.TriangleCount(), d.Mesh.TriangleCount() ) << "the two cores disagree on what they open";
     EXPECT_EQ( static_cast<size_t>( d.Mesh.TriangleCount() ), clean.Indices.size() );
     EXPECT_TRUE( d.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
 
     // what survives writes back exactly the clean file: groups and bitangent signs followed their faces
     EXPECT_TRUE( Bytes( DynamicMeshToMeshAssetData( d.Mesh, kSlots ), "dirty" ) == Ser::EncodeMeshBinary( clean ) )
          << "the skipped faces moved another face's data";
-    EXPECT_TRUE( Bytes( ToMeshAssetData( e.Mesh, kSlots ), "dirty" ) == Ser::EncodeMeshBinary( clean ) )
-         << "the EditMesh reader moved another face's data";
 }

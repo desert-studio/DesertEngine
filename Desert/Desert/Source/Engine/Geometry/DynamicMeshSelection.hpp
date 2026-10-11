@@ -1,10 +1,8 @@
 #pragma once
 
 // Element picking and selection on the PORTED core (P10): DynamicMesh3 for the elements, GroupTopology for the
-// polygroups. The algorithms are the ones the EditMesh path runs (ElementSelectionAlgorithms.inl, one source for
-// both until P8b), read through a view of the DynamicMesh3, so a selection's IDs are the DynamicMesh3's own:
-// vertex, triangle and group IDs agree with the EditMesh view of the same mesh; EDGE IDs are the DynamicMesh3's,
-// and an operation still on the bridge converts them (Bridge::ToEditMeshSelection).
+// polygroups. The algorithms (ElementSelectionAlgorithms.inl) read the DynamicMesh3 through a view, so a
+// selection's IDs are the DynamicMesh3's own.
 //
 // PickElement is ported from UE's FMeshTopologySelector::FindSelectedElement (see DynamicMeshSelection.cpp for
 // what was adapted): a vertex is the within-tolerance one nearest ALONG THE RAY, an edge the one with the least
@@ -12,7 +10,7 @@
 // ExpandToOneRingNeighbours / ContractBorderByOneRingNeighbours on closed manifolds; UE 5.8 has no Grow/Shrink in
 // GeometrySelectionUtil.
 
-#include "Engine/Geometry/EditMeshSelection.hpp"
+#include "Engine/Geometry/ElementSelection.hpp"
 // The complete types, not forward declarations: this adapter is the editor's door to the two MeshCore types a
 // selection is made of (MeshElementSelection holds the mesh and owns the topology), and the MeshCore include
 // gate (scripts/CI/MeshCoreIncludes.sh) lets only the Geometry adapters include MeshCore/ from outside it.

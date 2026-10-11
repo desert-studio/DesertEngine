@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace Desert::Geometry
 {
@@ -36,6 +37,9 @@ namespace Desert::Geometry
         std::shared_ptr<const DynamicMesh3> Mesh;
         // The moved region (Extrude, Push/Pull) or the inset region (Inset, Outset), in the selection's mode.
         ElementSelection Selection{ ElementMode::Triangle };
+        // What the operation did beyond the mesh itself, in numbers, for the log (Clean's counts). Empty when
+        // the topology change says it all.
+        std::string Report;
     };
 
     // Runs `operation` on a copy of `before`. `distance` is in cm: positive for Extrude / Inset / Outset, signed

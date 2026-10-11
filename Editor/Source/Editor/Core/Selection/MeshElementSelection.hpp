@@ -12,7 +12,7 @@
 namespace Desert::Editor::Core
 {
     // The Modeling Mode's mesh element selection (UE: the PolygonSelectionMechanic every mesh-editing tool
-    // shares): which vertices / edges / triangles / polygroups of the selected entity's EditMesh the next
+    // shares): which vertices / edges / triangles / polygroups of the selected entity's editable mesh the next
     // operation works on. One per editor, like ModelingState; the viewport tool (ElementSelectTool) picks
     // and draws, the Modeling panel and the command palette read and change it.
     //
@@ -103,7 +103,7 @@ namespace Desert::Editor::Core
         void Restore( const Common::UUID& entity, Geometry::ElementSelection selection );
 
         // The same selection change as an undo sub-step that is NOT pushed: a mesh operation records it with
-        // its mesh edit, so the edit and the selection it leaves are one step (Commands::RecordEditMeshChange).
+        // its mesh edit, so the edit and the selection it leaves are one step (Commands::RecordMeshChange).
         [[nodiscard]] static std::unique_ptr<ICommand> MakeSelectionChange( const Common::UUID&        entity,
                                                                             Geometry::ElementSelection before,
                                                                             Geometry::ElementSelection after,

@@ -17,7 +17,6 @@ G=Desert/Desert/Source/Engine/Geometry
 D=Desert/Desert/Source/Engine/Destruction
 # path | reason
 ALLOW=(
-    "$G/EditMeshBridge.hpp|the bridge between EditMesh and DynamicMesh3: its API converts one into the other"
     "$G/DynamicMeshAsset.hpp|adapter: the asset holds a DynamicMesh3"
     "$G/DynamicMeshAsset.cpp|adapter: reads and writes the DynamicMesh3 attribute set"
     "$G/DynamicMeshRenderConversion.hpp|adapter: DynamicMesh3 -> render mesh"
@@ -29,6 +28,9 @@ ALLOW=(
     "$G/MeshRegionOperation.cpp|adapter: drives the ported OffsetMeshRegion/InsetMeshRegion and their helpers"
     "$G/MeshPlaneOperation.hpp|adapter: Plane Cut / Mirror on a DynamicMesh3 (P14)"
     "$G/MeshPlaneOperation.cpp|adapter: drives the ported MeshPlaneCut/MeshMirror (P14)"
+    "$G/MeshElementOperation.cpp|adapter: Delete/Offset/Bevel/Cut/Clean on a DynamicMesh3 (drives the ported MeshBevel/MergeCoincidentMeshEdges)"
+    "$G/DynamicMeshXformOperations.hpp|adapter: the XForm tab's operations take and return DynamicMesh3"
+    "$G/DynamicMeshXformOperations.cpp|adapter: carries the DynamicMesh3 attribute overlays through a transform / merge / split"
     "$G/MeshBooleanOperation.hpp|adapter: RunMeshBoolean takes and returns DynamicMesh3 around the ported MeshBoolean (P17c)"
     "$D/FractureBake.hpp|fracture operation (UE PlanarCut's place): BakeFracture takes the source as a DynamicMesh3"
     "$D/FractureBake.cpp|fracture operation: builds cell meshes with attribute overlays, Intersect-cuts them (MeshBoolean) and splits islands (MeshConnectedComponents)"
@@ -49,7 +51,7 @@ for f in $hits; do
         status=1
     fi
 done
-[ "$status" = 1 ] && echo "  Go through Engine/Geometry/EditMeshBridge.hpp or a DynamicMesh* adapter, or add a named row with its reason to ALLOW in $0."
+[ "$status" = 1 ] && echo "  Go through a DynamicMesh* / Mesh*Operation adapter, or add a named row with its reason to ALLOW in $0."
 
 for row in "${ALLOW[@]}"; do
     f="${row%%|*}"

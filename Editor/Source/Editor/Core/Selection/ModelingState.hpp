@@ -5,7 +5,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
@@ -84,7 +84,7 @@ namespace Desert::Editor::Core
         // the cursor, falling back to the ground where there is none (UE's placement Ground / On Scene).
         // What a creating tool's Accept leaves in the scene (UE: UCreateMeshObjectTypeProperties::OutputType).
         // StaticMesh (the default, owner decision B4) writes a new .stmesh and the entity draws the asset;
-        // Dynamic keeps the EditMesh on the entity, editable in place and saved inside the scene.
+        // Dynamic keeps the editable mesh on the entity, editable in place and saved inside the scene.
         enum class OutputType
         {
             StaticMesh,

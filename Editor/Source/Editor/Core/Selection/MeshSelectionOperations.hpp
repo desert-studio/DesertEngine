@@ -3,7 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
-#include <Engine/Geometry/EditMeshBridge.hpp> // the EditMesh operations cross here until P11-P17
+#include <Engine/Geometry/MeshElementOperation.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 
@@ -18,7 +18,7 @@ namespace Desert::Core
 namespace Desert::Editor::Core
 {
     // The Select Elements tool's verbs (UE's PolyEdit Delete / Extrude / Push-Pull / Offset / Inset / Outset):
-    // run a Geometry operation (EditMeshOperations.hpp) on the tracked entity's mesh and current selection,
+    // run a Geometry operation (MeshRegionOperation / MeshElementOperation / MeshPlaneOperation) on the tracked entity's mesh and current selection,
     // put the result on the component through SetEditableMesh (its only writer), select what the operation
     // produced, and record the mesh AND that selection as ONE undo step. A refusal changes nothing and comes
     // back as the operation's own message.

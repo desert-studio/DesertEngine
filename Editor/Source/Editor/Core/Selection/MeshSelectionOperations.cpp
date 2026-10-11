@@ -11,7 +11,7 @@
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/MeshElementOperation.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 
@@ -224,7 +224,7 @@ namespace Desert::Editor::Core
         const Geometry::ElementSelection                     selection = state.Selection();
         std::shared_ptr<const Geometry::DynamicMesh3>        otherHalf; // Plane Cut, Keep Both Halves
         std::shared_ptr<const Geometry::DynamicMesh3>        after;
-        Geometry::MeshEditOutcome                            outcome;
+        Geometry::RegionOutcome                              outcome;
         if ( const auto regionOperation = ToRegionOperation( operation ) )
         {
             auto region = Geometry::RunRegionOperation( *regionOperation, *before, selection, distance );
@@ -289,75 +289,34 @@ namespace Desert::Editor::Core
         }
         else
         {
-            auto view = Geometry::Bridge::EditMeshView( before );
-            if ( !view.IsSuccess() )
-                return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ), view.GetError() );
-            const Geometry::EditMesh& beforeMesh = *view.GetValue();
-            // The operations still run on the EditMesh (P11-P19): the selection in its edge IDs.
-            auto inEditIds = Geometry::Bridge::ToEditMeshSelection( *before, beforeMesh, selection );
-            if ( !inEditIds.IsSuccess() )
-                return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ),
-                                                         inEditIds.GetError() );
-            const Geometry::ElementSelection editSelection = inEditIds.ExtractValue();
-
-            Common::ResultStr<Geometry::MeshEditOutcome> result;
-            switch ( operation )
+            auto result = [&]() -> Common::ResultStr<Geometry::RegionOutcome>
             {
-                case MeshOperation::Delete:
-                    result = Geometry::DeleteSelection( beforeMesh, editSelection );
-                    break;
-                case MeshOperation::Extrude:
-                case MeshOperation::PushPull:
-                case MeshOperation::Inset:
-                case MeshOperation::Outset:
-                case MeshOperation::FillHole:
-                case MeshOperation::WeldEdges:
-                case MeshOperation::InsertEdgeLoop:
-                case MeshOperation::Mirror:
-                case MeshOperation::PlaneCut:
-                case MeshOperation::Subdivide:
-                case MeshOperation::Simplify:
-                    return Common::MakeFormattedError<bool>( "Mesh {}: runs on DynamicMesh3, not the EditMesh",
-                                                             ToString( operation ) );
-                case MeshOperation::Offset:
-                    result = Geometry::OffsetSelection( beforeMesh, editSelection, distance );
-                    break;
-                case MeshOperation::Bevel:
-                    result = Geometry::BevelSelection( beforeMesh, editSelection, distance );
-                    break;
-                case MeshOperation::Cut:
-                    if ( !args.CutPlane )
-                        return Common::MakeError<bool>( "Mesh Cut: no cut line - draw it in the viewport with the "
-                                                        "knife (Alt+K, then two clicks)" );
-                    result = Geometry::CutSelection( beforeMesh, editSelection, *args.CutPlane );
-                    break;
-                case MeshOperation::Clean:
+                switch ( operation )
                 {
-                    // Clean is mesh-wide: it takes no selection and leaves none (every ID may change).
-                    auto cleaned = Geometry::CleanMesh( beforeMesh, args.WeldTolerance );
-                    if ( cleaned.IsSuccess() )
-                    {
-                        Geometry::CleanOutcome clean = cleaned.ExtractValue();
-                        clean.Edit.Selection         = Geometry::ElementSelection( editSelection.Mode() );
-                        result                       = Common::MakeSuccess( std::move( clean.Edit ) );
-                    }
-                    else
-                        result = Common::MakeError<Geometry::MeshEditOutcome>( cleaned.GetError() );
-                    break;
+                    case MeshOperation::Delete:
+                        return Geometry::DeleteSelection( *before, selection );
+                    case MeshOperation::Offset:
+                        return Geometry::OffsetSelection( *before, selection, distance );
+                    case MeshOperation::Bevel:
+                        return Geometry::BevelSelection( *before, selection, distance );
+                    case MeshOperation::Cut:
+                        if ( !args.CutPlane )
+                            return Common::MakeError<Geometry::RegionOutcome>(
+                                 "Mesh Cut: no cut line - draw it in the viewport with the knife (Alt+K, then two "
+                                 "clicks)" );
+                        return Geometry::CutSelection( *before, selection, *args.CutPlane );
+                    case MeshOperation::Clean:
+                        // Clean is mesh-wide: it takes no selection and leaves none (every ID may change).
+                        return Geometry::CleanMesh( *before, args.WeldTolerance, selection.Mode() );
+                    default:
+                        return Common::MakeFormattedError<Geometry::RegionOutcome>(
+                             "Mesh {}: not an element operation", ToString( operation ) );
                 }
-            }
+            }();
             if ( !result.IsSuccess() )
                 return Common::MakeError<bool>( result.GetError() );
             outcome = result.ExtractValue();
-
-            // Two statements, not one argument list: reading `outcome` beside a move out of it leaves the
-            // order to the compiler (clang left-to-right, MSVC right-to-left), which ArgumentOrder forbids.
-            auto* const selection = &outcome.Selection;
-            auto        converted = Geometry::Bridge::FromEditMesh( std::move( outcome.Mesh ), selection );
-            if ( !converted.IsSuccess() )
-                return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ),
-                                                         converted.GetError() );
-            after = converted.ExtractValue();
+            after   = outcome.Mesh;
         }
         if ( auto set = ECS::SetEditableMesh( smc, after ); !set.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Mesh {}: the result could not be put on the entity: {}",
@@ -393,7 +352,7 @@ namespace Desert::Editor::Core
              MeshElementSelection::MakeSelectionChange( entity, selection, outcome.Selection, label );
         if ( otherHalf )
         {
-            auto split = Commands::RecordEditMeshSplit( entity, label, committed, otherHalf,
+            auto split = Commands::RecordMeshSplit( entity, label, committed, otherHalf,
                                                         std::move( selectionChange ) );
             if ( !split.IsSuccess() )
             {
@@ -428,7 +387,7 @@ namespace Desert::Editor::Core
                       otherHalf->TriangleCount(), static_cast<uint64_t>( split.GetValue() ) );
         }
         else
-            Commands::RecordEditMeshChange( entity, label, committed, std::move( selectionChange ) );
+            Commands::RecordMeshChange( entity, label, committed, std::move( selectionChange ) );
         const int groupsBefore = CountPolygroups( *before );
         const int groupsAfter  = CountPolygroups( *after );
         LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d}), {5} polygroups ({6:+d})",

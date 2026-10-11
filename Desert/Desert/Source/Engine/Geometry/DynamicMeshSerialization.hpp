@@ -41,7 +41,7 @@ namespace Desert::Geometry
     // IDS ARE COMPACTED ON WRITE, as the EditMesh writer does: vertices, triangles and each overlay's
     // elements are numbered densely in ascending ID order; an element no live triangle uses is not written.
 
-    [[nodiscard]] EditMeshSer ToSerialized( const DynamicMesh3& mesh );
+    [[nodiscard]] MeshSavedForm ToSerialized( const DynamicMesh3& mesh );
 
     // Refused, naming @p owner (the entity the block belongs to), the array and the numbers, on anything the
     // writer above could not have produced: a length that is not a whole number of records, an index out of
@@ -49,6 +49,6 @@ namespace Desert::Geometry
     // element named twice by one triangle or by corners of two different vertices, an element no triangle
     // uses, more UV layers than the core holds, and the tangent cases above. The result passes
     // DynamicMesh3::CheckValidity.
-    [[nodiscard]] Common::ResultStr<DynamicMesh3> DynamicMeshFromSerialized( const EditMeshSer& saved,
+    [[nodiscard]] Common::ResultStr<DynamicMesh3> DynamicMeshFromSerialized( const MeshSavedForm& saved,
                                                                              std::string_view   owner );
 } // namespace Desert::Geometry

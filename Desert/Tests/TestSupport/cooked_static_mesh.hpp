@@ -36,7 +36,7 @@ namespace Desert::TestSupport
         asset.Guid              = Common::Content::AssetGuid::Generate();
         asset.Name              = name;
         asset.Import.Provenance = Assets::MeshSourceProvenance::Recovered;
-        Geometry::EditMeshSer mesh;
+        Geometry::MeshSavedForm mesh;
         mesh.Positions             = { 0.0f, 0.0f, 0.0f, width, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
         mesh.Triangles             = { 0, 1, 2 };
         mesh.PolyGroups            = { 0 };
