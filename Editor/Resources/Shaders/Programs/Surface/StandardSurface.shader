@@ -58,6 +58,8 @@ Shader "StandardSurface"
         "fbx.OcclusionRoughnessMetallic" -> u_ORMTexture.rgb
         "fbx.RoughnessMetallic"         -> u_ORMTexture.gb
         "fbx.alphaCutoff"               -> AlphaCutoff
+        "fbx.alphaMask"                 -> u_OpacityTexture
+        "fbx.alphaMask"                 -> OpacityChannel
     }
 
     // ONE parameter layout for every cell (forward, instanced, GBuffer, skinned): the cells share this one
