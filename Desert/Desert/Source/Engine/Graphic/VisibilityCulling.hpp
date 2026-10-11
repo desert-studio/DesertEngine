@@ -8,7 +8,6 @@
 
 #include <glm/glm.hpp>
 
-#include <algorithm>
 #include <cmath>
 
 namespace Desert::Graphic
@@ -31,11 +30,14 @@ namespace Desert::Graphic
         return frustum.Intersects( Geometry::TransformBounds( transform, localBounds ) );
     }
 
-    // HOW FAR A VIEW'S LENS STRETCHES EVERY DRAW AND CULL DISTANCE. Distances are authored for a 90-degree lens;
-    // through a lens of focal scale k an object at distance d covers the screen it would cover at d / k through
-    // that one, so it stays drawn to k times the authored distance. The measure is LOD's own (the projection's
-    // focal terms, Geometry::BoundsScreenRadiusSquared), so culling and LOD never disagree about the lens: a
-    // zoomed-in camera gets finer LODs AND sees farther, a wide one coarser LODs AND sees nearer.
+    // HOW FAR A VIEW'S LENS STRETCHES EVERY DRAW AND CULL DISTANCE. Distances are authored for a 90-degree
+    // HORIZONTAL lens; through a lens of horizontal focal scale k an object at distance d is as wide on screen as
+    // it would be at d / k through that one, so it stays drawn to k times the authored distance. A zoomed-in
+    // camera sees farther, a wide one nearer.
+    // HORIZONTAL, |Projection[0][0]| alone, and not LOD's max of both focal terms: that max is the larger screen
+    // axis, so it grows with the viewport's aspect — a 90-degree editor view (FOV is horizontal there, UE's
+    // Maintain X FOV) 1.67 times wider than tall read 1.67 and drew a 5000 cm limit out to 8370 cm. A draw
+    // distance is a property of the lens, not of the window's shape; UE's DesiredFOV is horizontal too.
     // UE scales MaxDrawDistance and the foliage CullDistance by ViewDistanceScale x
     // CalculateFieldOfViewDistanceScale(View.DesiredFOV) (SceneVisibility.cpp; Engine/Public/UnrealEngine.h), a
     // per-project lerp over FOV in cvars; here the lens itself is the scale, with no curve to tune.
@@ -44,7 +46,7 @@ namespace Desert::Graphic
     {
         if ( std::abs( view.Projection[2][3] ) == 0.0f )
             return 1.0f;
-        const float focal = std::max( std::abs( view.Projection[0][0] ), std::abs( view.Projection[1][1] ) );
+        const float focal = std::abs( view.Projection[0][0] );
         return focal > 0.0f ? focal : 1.0f;
     }
 
