@@ -352,6 +352,13 @@ void RegisterReflection_DesertUI()
             .Register();
     }
     {
+        using T = ::Desert::UI::UITabsData;
+        TypeBuilder( "UITabsData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "PushHistory", .Type = FieldType::Bool, .Offset = offsetof( T, PushHistory ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PushHistory )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Tabs Push History", .Category = "UI Tabs", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::UI::UIBindingData;
         TypeBuilder( "UIBindingData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Key", .Type = FieldType::String, .Offset = offsetof( T, Key ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Key )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Key", .Category = "UI Binding", .Tooltip = "Data-store key, e.g. player.hp — write it from Lua with ui.set( key, value )", } } )

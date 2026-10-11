@@ -35,7 +35,7 @@
 namespace Desert::UI
 {
     struct UICanvasContext;
-    struct UIViewContext;
+    class UIViewContext;
 
     // One owner's machine: its current screen, the one handing over, and the history BackScreen pops.
     struct UIScreenMachine

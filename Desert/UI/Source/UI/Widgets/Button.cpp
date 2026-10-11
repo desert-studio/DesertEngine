@@ -60,7 +60,7 @@ namespace Desert::UI::Walk
         // Resting colour is Selected (persistent highlight) or Normal; hover cross-fades toward
         // HoverColor (eased), press snaps to PressedColor, Disabled overrides everything.
         const glm::vec3 rest = selected ? st.Color( StyleSlot::ButtonSelected, b.SelectedColor )
-                                          : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
+                                        : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
         const float     ht   = HoverEase( ctx, e, hover && !down );
         const glm::vec3 c    = b.Disabled ? st.Color( StyleSlot::ButtonDisabled, b.DisabledColor )
                                : down     ? st.Color( StyleSlot::ButtonPressed, b.PressedColor )

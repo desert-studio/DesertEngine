@@ -149,9 +149,10 @@ namespace Desert::UI::Walk
     void RequestScreen( WalkCtx& ctx, const IUITree& tree, NodeId from, const std::string& name, bool back )
     {
         UIScreenRequest r;
-        r.Back  = back;
-        r.Name  = name;
-        r.Owner = back ? BackScreenTarget( ctx.Canvas, tree, from ) : ShowScreenTarget( ctx.Canvas, tree, from, name );
+        r.Back = back;
+        r.Name = name;
+        r.Owner =
+             back ? BackScreenTarget( ctx.Canvas, tree, from ) : ShowScreenTarget( ctx.Canvas, tree, from, name );
         if ( r.Owner == NodeId::Null )
         {
             if ( !back ) // Back with nowhere to go is ignored, as it always was; a missing page is an error
