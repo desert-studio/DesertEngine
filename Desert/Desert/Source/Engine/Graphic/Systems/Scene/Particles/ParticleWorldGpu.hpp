@@ -92,16 +92,16 @@ namespace Desert::Graphic::System
     // the pool; its alive lists are the two halves [2 Base + h Count, 2 Base + (h + 1) Count) of the alive list.
     struct ParticleEmitterGpu
     {
-        std::shared_ptr<ShaderResources::StorageBuffer> Steps;        // this tick's step table
-        std::shared_ptr<ShaderResources::StorageBuffer> Counters;     // two draw slots, uploaded per tick
-        std::shared_ptr<ShaderResources::StorageBuffer> DispatchArgs; // Spawn+Update's and the next compact's
+        std::shared_ptr<ShaderResources::StorageBuffer> Steps;         // this tick's step table
+        std::shared_ptr<ShaderResources::StorageBuffer> Counters;      // two draw slots, uploaded per tick
+        std::shared_ptr<ShaderResources::StorageBuffer> DispatchArgs;  // Spawn+Update's and the next compact's
         std::shared_ptr<ShaderResources::StorageBuffer> ChannelSpawns; // this tick's Spawn from Channel particles
 
         ParticlePoolRange Range;
         uint32_t          StepCapacity    = 0;
         uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
-        uint64_t          Generation   = 0;    // the VFXWorld instance generation this state belongs to
-        bool              NeedsReset   = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
+        uint64_t          Generation      = 0;    // the VFXWorld instance generation this state belongs to
+        bool              NeedsReset      = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
     };
 
     // One emitter active in this scene update.

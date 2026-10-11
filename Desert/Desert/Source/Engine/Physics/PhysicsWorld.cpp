@@ -852,7 +852,8 @@ namespace Desert::Physics
                 const JPH::RVec3  from = world.Bodies->GetPosition( id );
                 const JPH::Quat   turn = world.Bodies->GetRotation( id );
                 world.Bodies->MoveKinematic( id, from + ( target.Position - from ) * share,
-                                             turn.SLERP( target.Rotation, share ).Normalized(), kFixedStepSeconds );
+                                             turn.SLERP( target.Rotation, share ).Normalized(),
+                                             kFixedStepSeconds );
             }
             // Jolt clears a body's forces after every update, so a held force is given again on each step.
             for ( const Impl::HeldForce& force : world.HeldForces )
@@ -1268,7 +1269,7 @@ namespace Desert::Physics
                                                                          ToJolt( dir * maxDistance ) );
         JPH::ShapeCastSettings                                     settings;
         JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-        const NotCharacterBodyFilter notCharacter;
+        const NotCharacterBodyFilter                               notCharacter;
         m_Impl->System.GetNarrowPhaseQuery().CastShape( cast, settings, JPH::RVec3::sZero(), collector, {}, {},
                                                         notCharacter );
         if ( !collector.HadHit() )
@@ -1368,7 +1369,8 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return;
         SetTransform( handle, position, rotation ); // also drops the interpolation pose
-        m_Impl->Bodies->SetLinearAndAngularVelocity( JPH::BodyID( handle ), JPH::Vec3::sZero(), JPH::Vec3::sZero() );
+        m_Impl->Bodies->SetLinearAndAngularVelocity( JPH::BodyID( handle ), JPH::Vec3::sZero(),
+                                                     JPH::Vec3::sZero() );
         m_Impl->KinematicTargets.erase( handle ); // a pending MoveKinematic would drag it back
     }
 
@@ -1631,7 +1633,8 @@ namespace Desert::Physics
         };
         const auto toWorldAxis = [&]( const glm::vec3& a ) { return ToJolt( glm::normalize( rotation * a ) ); };
 
-        // Every part is in the engine's Ragdoll profile (UE's Ragdoll preset); Build guarantees the register has it.
+        // Every part is in the engine's Ragdoll profile (UE's Ragdoll preset); Build guarantees the register has
+        // it.
         const auto             ragdollProfile = m_Impl->Profiles.Resolve( EngineProfiles::kRagdoll );
         const JPH::ObjectLayer layer          = LayerOf( ragdollProfile.GetValue(), /*moving=*/true );
 

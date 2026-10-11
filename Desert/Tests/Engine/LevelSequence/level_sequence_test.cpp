@@ -1145,10 +1145,10 @@ TEST( LevelSequencePlayback, ASubsequenceMovesItsActorsAndFiresItsEventsAtTheMap
     events.Sections.push_back( std::move( keys ) );
     inner.Tracks.push_back( std::move( events ) );
 
-    const AssetGuid   innerGuid{ 9, 1 };
-    T::Sequence       outer  = Playing( innerGuid, 20, 80 );
-    outer.TickRate           = A::FrameRate{ 60, 1 }; // 60 ticks/s: inner tick = (parent - 20) / 2
-    const auto        source = SourceOf( { { "Inner", &inner } }, { { "Inner", innerGuid } } );
+    const AssetGuid innerGuid{ 9, 1 };
+    T::Sequence     outer = Playing( innerGuid, 20, 80 );
+    outer.TickRate        = A::FrameRate{ 60, 1 }; // 60 ticks/s: inner tick = (parent - 20) / 2
+    const auto source     = SourceOf( { { "Inner", &inner } }, { { "Inner", innerGuid } } );
 
     World                             world;
     const ECS::LevelSequenceComponent component;

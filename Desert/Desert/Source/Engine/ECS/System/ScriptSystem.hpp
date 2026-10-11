@@ -239,17 +239,18 @@ namespace Desert::ECS
             const auto* queue = registry.try_ctx<PhysicsEventQueue>();
             if ( queue == nullptr || queue->Publication == m_DeliveredPhysics )
                 return;
-            m_DeliveredPhysics = queue->Publication;
+            m_DeliveredPhysics                     = queue->Publication;
             const std::vector<PhysicsEvent> events = queue->Events; // a callback may destroy, never re-publish
             for ( const PhysicsEvent& event : events )
             {
                 if ( event.Kind == PhysicsEventKind::Hit || !registry.valid( event.Self ) ||
                      !registry.has<ScriptComponent>( event.Self ) )
                     continue;
-                const char*    callback = event.Kind == PhysicsEventKind::BeginOverlap ? "OnBeginOverlap"
-                                                                                        : "OnEndOverlap";
-                const uint32_t id       = static_cast<uint32_t>( event.Self );
-                const auto     slots    = static_cast<uint32_t>( registry.get<ScriptComponent>( event.Self ).Scripts.size() );
+                const char* callback =
+                     event.Kind == PhysicsEventKind::BeginOverlap ? "OnBeginOverlap" : "OnEndOverlap";
+                const uint32_t id = static_cast<uint32_t>( event.Self );
+                const auto     slots =
+                     static_cast<uint32_t>( registry.get<ScriptComponent>( event.Self ).Scripts.size() );
                 for ( uint32_t slot = 0; slot < slots && registry.valid( event.Self ); ++slot )
                 {
                     const auto& script = registry.get<ScriptComponent>( event.Self ).Scripts[slot];

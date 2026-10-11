@@ -244,8 +244,8 @@ namespace Desert::Graphic::System
 
     SystemRasterPass HeightFogRenderer::ApplyPass()
     {
-        SystemRasterPass               config;
-        const auto                     target = m_TargetFramebuffer.lock();
+        SystemRasterPass config;
+        const auto       target = m_TargetFramebuffer.lock();
         if ( !target || !m_ApplyPipeline )
             return config;
 

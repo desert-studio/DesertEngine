@@ -87,8 +87,8 @@ namespace Desert::ECS::CharacterMovement
         return std::max( ( height - 2.0f * radius ) * 0.5f, 1.0f );
     }
 
-    Common::ResultStr<Physics::CharacterHandle> CreateCharacter( CharacterControllerComponent& cc,
-                                                                 Physics::PhysicsWorld& world, const glm::vec3& center )
+    Common::ResultStr<Physics::CharacterHandle>
+    CreateCharacter( CharacterControllerComponent& cc, Physics::PhysicsWorld& world, const glm::vec3& center )
     {
         const CharacterControllerData& data = cc.Data;
         Physics::CharacterDesc         desc;

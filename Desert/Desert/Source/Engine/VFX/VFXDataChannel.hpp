@@ -168,16 +168,16 @@ namespace Desert::VFX
     /// engine:SpawnFromChannel as the CPU reads it (VFXEmitterSpawn CompileSpawnPlan).
     struct VFXChannelSpawnModule
     {
-        std::string        Channel;
-        std::uint32_t      ParticlesPerEntry  = 1;
-        std::uint32_t      MaxEntriesPerFrame = 1;
-        float              MaxDistance        = 0.0f; ///< centimetres from the emitter; 0 = no distance filter
-        std::string        PositionField;  ///< a Position field -> spawn position; empty = the emitter's
-        std::string        DirectionField; ///< a Direction field -> start velocity direction; empty = cone
-        std::string        FilterField;    ///< a Float or Int field; empty = no predicate
-        std::string        ColorField;     ///< a Color field -> the particle's Tint (multiplies colour over life)
-        std::string        LifetimeField;  ///< a Float or Int field -> the particle's lifetime in seconds
-        std::string SizeField; ///< a Float or Int field -> the particle's base-size scale (x size over life)
+        std::string   Channel;
+        std::uint32_t ParticlesPerEntry  = 1;
+        std::uint32_t MaxEntriesPerFrame = 1;
+        float         MaxDistance        = 0.0f; ///< centimetres from the emitter; 0 = no distance filter
+        std::string   PositionField;             ///< a Position field -> spawn position; empty = the emitter's
+        std::string   DirectionField;            ///< a Direction field -> start velocity direction; empty = cone
+        std::string   FilterField;               ///< a Float or Int field; empty = no predicate
+        std::string   ColorField;    ///< a Color field -> the particle's Tint (multiplies colour over life)
+        std::string   LifetimeField; ///< a Float or Int field -> the particle's lifetime in seconds
+        std::string   SizeField;     ///< a Float or Int field -> the particle's base-size scale (x size over life)
         VFXChannelFilterOp FilterOp    = VFXChannelFilterOp::Greater;
         float              FilterValue = 0.0f;
 

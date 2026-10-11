@@ -84,7 +84,7 @@ namespace Desert::Scripting
             return 3;
         }
 
-        template <bool Input::TriggerEvents::* Event>
+        template <bool Input::TriggerEvents::*Event>
         int ActionEvent( lua_State* L )
         {
             ScriptEngine::Impl& host = ScriptEngine::Impl::Of( L );
@@ -114,7 +114,8 @@ namespace Desert::Scripting
 
         int RemoveContext( lua_State* L )
         {
-            lua_pushboolean( L, ScriptEngine::Impl::Of( L ).PlayerInput.RemoveContext( luaL_checkstring( L, 1 ) ) );
+            lua_pushboolean( L,
+                             ScriptEngine::Impl::Of( L ).PlayerInput.RemoveContext( luaL_checkstring( L, 1 ) ) );
             return 1;
         }
 
@@ -134,9 +135,12 @@ namespace Desert::Scripting
     // Input actions and mapping contexts.
     void RegisterInputBindings( lua_State* L )
     {
-        constexpr luaL_Reg kInput[] = { { "isKeyDown", &IsKeyDown },     { "wasPressed", &WasPressed },
-                                        { "mouseDelta", &MouseDelta },   { "lockCursor", &LockCursor },
-                                        { "showCursor", &ShowCursor },   { "isMouseDown", &IsMouseDown },
+        constexpr luaL_Reg kInput[] = { { "isKeyDown", &IsKeyDown },
+                                        { "wasPressed", &WasPressed },
+                                        { "mouseDelta", &MouseDelta },
+                                        { "lockCursor", &LockCursor },
+                                        { "showCursor", &ShowCursor },
+                                        { "isMouseDown", &IsMouseDown },
                                         { "actionValue", &ActionValue },
                                         { "actionTriggered", &ActionEvent<&Input::TriggerEvents::Triggered> },
                                         { "actionStarted", &ActionEvent<&Input::TriggerEvents::Started> },
@@ -144,7 +148,8 @@ namespace Desert::Scripting
                                         { "actionCompleted", &ActionEvent<&Input::TriggerEvents::Completed> },
                                         { "actionCanceled", &ActionEvent<&Input::TriggerEvents::Canceled> },
                                         { "actionSeconds", &ActionSeconds },
-                                        { "addContext", &AddContext },   { "removeContext", &RemoveContext },
+                                        { "addContext", &AddContext },
+                                        { "removeContext", &RemoveContext },
                                         { "rebindKey", &RebindKey },
                                         { nullptr, nullptr } };
         luaL_register( L, "Input", kInput );

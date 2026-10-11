@@ -105,7 +105,7 @@ namespace Desert::VFX
         Common::ResultStr<VFXChannelSpawnModule> ReadChannelSpawn( const S::VFXModuleUse& use,
                                                                    const std::string&     where )
         {
-            using Result                                             = VFXChannelSpawnModule;
+            using Result                                              = VFXChannelSpawnModule;
             static constexpr std::array<std::string_view, 12> kInputs = {
                  "Channel",     "ParticlesPerEntry", "MaxEntriesPerFrame",
                  "MaxDistance", "Position",          "Direction",

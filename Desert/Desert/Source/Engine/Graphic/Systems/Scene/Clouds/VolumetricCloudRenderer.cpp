@@ -2159,8 +2159,8 @@ namespace Desert::Graphic::System
 
     SystemRasterPass VolumetricCloudRenderer::CompositePass()
     {
-        SystemRasterPass               config;
-        const auto                     target = m_TargetFramebuffer.lock();
+        SystemRasterPass config;
+        const auto       target = m_TargetFramebuffer.lock();
         if ( !target || !m_CompositePipeline )
             return config;
 

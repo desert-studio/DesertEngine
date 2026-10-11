@@ -333,8 +333,8 @@ namespace Desert::Graphic
                 const auto& jumpFloodSystem =
                      SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
                 // Tonemap consumes the Jump Flood output (the outlined scene).
-                RegisterSystem<System::TonemapRenderer>(
-                     "TonemapSystem", this, jumpFloodSystem->GetSystemFramebuffer() );
+                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this,
+                                                         jumpFloodSystem->GetSystemFramebuffer() );
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
@@ -344,8 +344,8 @@ namespace Desert::Graphic
             case 6:
             {
                 // Backdrop blur: a blurred snapshot of the scene colour the UI canvas samples for "glass" panels.
-                // Runs before the UI extension point (whose passes write into this same target, so it cannot sample
-                // it directly).
+                // Runs before the UI extension point (whose passes write into this same target, so it cannot
+                // sample it directly).
                 RegisterSystem<System::BackdropBlurRenderer>( "BackdropBlurSystem", this, m_TargetFramebuffer );
                 if ( const auto& backdropSystem =
                           SP_CAST( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
@@ -447,7 +447,8 @@ namespace Desert::Graphic
 
                 RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer );
                 if ( const auto velocityViewInit =
-                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )->Initialize();
+                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )
+                               ->Initialize();
                      !velocityViewInit )
                     LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
                 return "SceneColorCopy";
@@ -456,7 +457,8 @@ namespace Desert::Graphic
             {
                 RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer );
                 if ( const auto velocityViewInit =
-                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )->Initialize();
+                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )
+                               ->Initialize();
                      !velocityViewInit )
                     LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
                 return "VelocityView";
@@ -1696,9 +1698,9 @@ namespace Desert::Graphic
                                                                    const ViewFrame&      frame,
                                                                    const RDG::TextureRef exposure )
     {
-        // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and above
-        // 100 % the fixed SSAA downsample after the temporal method, or alone without one (TemporalUpscaler.hpp
-        // WHERE IT RUNS).
+        // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and
+        // above 100 % the fixed SSAA downsample after the temporal method, or alone without one
+        // (TemporalUpscaler.hpp WHERE IT RUNS).
         const bool spatial     = IsSpatialUpscale( frame );
         const bool supersample = frame.Split.Mode == Common::Scalability::ScaleMode::Supersample;
         const bool temporal    = frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr;
@@ -1763,8 +1765,8 @@ namespace Desert::Graphic
                     return withoutTemporal( added.GetError() );
                 resolvedColor = added.GetValue().SceneColor;
             }
-            // Above 100 % the temporal output is at RenderExtent; the downsample brings it to OutputExtent, where the
-            // overlay target set and the post chain are.
+            // Above 100 % the temporal output is at RenderExtent; the downsample brings it to OutputExtent, where
+            // the overlay target set and the post chain are.
             if ( supersample )
             {
                 const Common::ResultStr<RDG::TextureRef> downsampled =

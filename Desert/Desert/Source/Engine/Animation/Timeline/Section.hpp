@@ -129,9 +129,8 @@ namespace Desert::Animation::Timeline
     };
 
     /// What a section holds. A track's sections all hold the same alternative (`Validate` refuses a mix).
-    using SectionContent =
-         std::variant<Channel, AnimationSectionContent, CameraCutSectionContent, AudioSectionContent,
-                      SubsequenceSectionContent>;
+    using SectionContent = std::variant<Channel, AnimationSectionContent, CameraCutSectionContent,
+                                        AudioSectionContent, SubsequenceSectionContent>;
 
     /**
      * @brief One section.

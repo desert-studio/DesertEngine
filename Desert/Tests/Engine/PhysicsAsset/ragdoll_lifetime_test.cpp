@@ -178,8 +178,8 @@ TEST( RagdollLifetime, ComponentRoundTripsThroughTheSceneText )
     const auto parsed    = Common::Json::Read<Common::Json::Object>( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << text;
 
-    Desert::ECS::RagdollData read; // defaults: null asset, Kinematic — so "unchanged" cannot pass as "read"
-    Common::Json::Issues     issues;
+    Desert::ECS::RagdollData  read; // defaults: null asset, Kinematic — so "unchanged" cannot pass as "read"
+    Common::Json::Issues      issues;
     const Common::Json::Value root( parsed.GetValue() );
     Desert::Reflection::DeserializeReflected( *type, &read, Common::Json::Root( root ), issues, nullptr );
     for ( const auto& issue : issues )

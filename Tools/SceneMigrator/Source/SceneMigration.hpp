@@ -219,7 +219,8 @@ namespace Desert::Migration
     //       (MigrateSoundRefsV45ToV46.) Scenes and prefabs alike.
     inline constexpr int kSceneVersionSoundAssets = 46;
 
-    //  47 - A PARTICLE SPRITE COMPOSITES BY ITS MATERIAL (VFX-08). ParticleEmitter.Blend (0 Additive, 1 AlphaBlend,
+    //  47 - A PARTICLE SPRITE COMPOSITES BY ITS MATERIAL (VFX-08). ParticleEmitter.Blend (0 Additive, 1
+    //  AlphaBlend,
     //       missing = AlphaBlend) is removed: how a sprite composites is the blend mode of the material it draws
     //       with (UE BLEND_Additive), and ParticleEmitter.Material names that material (empty = the engine's
     //       translucent sprite template ParticleSpriteDefault). MigrateParticleSpriteMaterialsV46ToV47: an
@@ -669,16 +670,16 @@ namespace Desert::Migration
 
         bool                    CollisionProfilesRaised = false; // below kSceneVersionCollisionProfiles
         CollisionProfilesReport CollisionProfiles;
-        bool             WindSourceRaised = false; // below kSceneVersionWindSource
-        WindSourceReport WindSource;
+        bool                     WindSourceRaised = false; // below kSceneVersionWindSource
+        WindSourceReport         WindSource;
         bool                     TimeOfDayComponentRaised = false; // below kSceneVersionTimeOfDayComponent
         TimeOfDayComponentReport TimeOfDayComponent;
         bool                     GameModeSettingsRaised = false; // below kSceneVersionGameModeSettings
         int                      GameModeKeysAdded      = 0;
-        bool                    SoundRefsRaised = false; // below kSceneVersionSoundAssets
-        SoundRefsReport         SoundRefs;
+        bool                     SoundRefsRaised        = false; // below kSceneVersionSoundAssets
+        SoundRefsReport          SoundRefs;
 
-        bool                          ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
+        bool ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
         ParticleSpriteMaterialsReport ParticleSpriteMaterials;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.

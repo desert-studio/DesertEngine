@@ -152,7 +152,7 @@ TEST( PhysicsAssetEditor, SimulateRunsInAPrivateWorldAndStopResets )
     ASSERT_TRUE( scene.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
 
     Editor::PhysicsAssetPreviewSimulation sim;
-    const auto                            started = sim.Start( asset, rig, animator.GetLocalPose(), TestSupport::PhysicsTestProfiles() );
+    const auto started = sim.Start( asset, rig, animator.GetLocalPose(), TestSupport::PhysicsTestProfiles() );
     ASSERT_TRUE( started.IsSuccess() ) << started.GetError();
     ASSERT_NE( sim.World(), nullptr );
     EXPECT_NE( sim.World(), &scene );
@@ -177,7 +177,8 @@ TEST( PhysicsAssetEditor, SimulateRunsInAPrivateWorldAndStopResets )
     EXPECT_FALSE( sim.Overrides( rig, animator.GetLocalPose() ).IsSuccess() );
 
     // Every Start begins from the pose, not from where the last run fell.
-    ASSERT_TRUE( sim.Start( asset, rig, animator.GetLocalPose(), TestSupport::PhysicsTestProfiles() ).IsSuccess() );
+    ASSERT_TRUE(
+         sim.Start( asset, rig, animator.GetLocalPose(), TestSupport::PhysicsTestProfiles() ).IsSuccess() );
     EXPECT_NEAR( sim.Parts()[0].Position.y, 100.0f, 1e-2f );
 }
 

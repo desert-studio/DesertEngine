@@ -276,7 +276,8 @@ namespace Desert::Editor
     {
         if ( folder == nullptr )
             return Common::MakeError( "New Input Action: the Assets window has no folder open" );
-        const auto path = UniqueIn( *folder, "IA_NewAction", std::string( Assets::Serialization::kInputActionExtension ) );
+        const auto path =
+             UniqueIn( *folder, "IA_NewAction", std::string( Assets::Serialization::kInputActionExtension ) );
         if ( const auto saved = Assets::InputActionAsset::Save( path, Assets::Serialization::InputActionData{} );
              !saved )
             return Common::MakeFormattedError( "New Input Action: {}", saved.GetError() );
@@ -289,8 +290,8 @@ namespace Desert::Editor
     {
         if ( folder == nullptr )
             return Common::MakeError( "New Input Mapping Context: the Assets window has no folder open" );
-        const auto path =
-             UniqueIn( *folder, "IMC_NewContext", std::string( Assets::Serialization::kInputMappingContextExtension ) );
+        const auto path = UniqueIn( *folder, "IMC_NewContext",
+                                    std::string( Assets::Serialization::kInputMappingContextExtension ) );
         if ( const auto saved =
                   Assets::InputMappingContextAsset::Save( path, Assets::Serialization::InputMappingContextData{} );
              !saved )
@@ -304,8 +305,8 @@ namespace Desert::Editor
     {
         if ( folder == nullptr )
             return Common::MakeError( "New VFX Data Channel: the Assets window has no folder open" );
-        const auto path =
-             UniqueIn( *folder, "NewVFXDataChannel", std::string( Assets::Serialization::kVFXDataChannelExtension ) );
+        const auto path = UniqueIn( *folder, "NewVFXDataChannel",
+                                    std::string( Assets::Serialization::kVFXDataChannelExtension ) );
         // UE's new UNiagaraDataChannel holds no variable; ours must hold one (a channel with no field spawns
         // nothing and the validator refuses it), so it starts with the field every channel spawn binds first.
         Assets::Serialization::VFXDataChannelData data;

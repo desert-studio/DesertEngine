@@ -53,10 +53,10 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::LevelSequence: // the Sequencer's Level timeline (ANIM-LSEQ)
             case Assets::AssetTypeID::InputAction:   // the Input Action editor (GP1d)
             case Assets::AssetTypeID::InputMappingContext: // the Input Mapping Context editor (GP1d)
-            case Assets::AssetTypeID::PhysicsAsset:  // the Physics Asset editor (RAG1c)
-            case Assets::AssetTypeID::AnimGraph:     // the Anim Graph window over the `.danimgraph` (ANIM-FIX8)
-            case Assets::AssetTypeID::ControlRig:    // the Control Rig editor (ControlRigDocument)
-            case Assets::AssetTypeID::Retarget:      // the IK Retargeter editor (RetargetDocument)
+            case Assets::AssetTypeID::PhysicsAsset:        // the Physics Asset editor (RAG1c)
+            case Assets::AssetTypeID::AnimGraph:      // the Anim Graph window over the `.danimgraph` (ANIM-FIX8)
+            case Assets::AssetTypeID::ControlRig:     // the Control Rig editor (ControlRigDocument)
+            case Assets::AssetTypeID::Retarget:       // the IK Retargeter editor (RetargetDocument)
             case Assets::AssetTypeID::VFXDataChannel: // the `.dfxch` field-list editor (VFX-10c)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:

@@ -210,10 +210,9 @@ namespace Desert::Core
                                                     label, key, name ) );
                                   return;
                               }
-                              const auto        kind  = record.Find( "Type" );
-                              const auto        value = record.Find( "Value" );
-                              const std::string kindName =
-                                   StringAt( kind );
+                              const auto                kind     = record.Find( "Type" );
+                              const auto                value    = record.Find( "Value" );
+                              const std::string         kindName = StringAt( kind );
                               Scripting::ScriptProperty read;
                               read.Name   = std::string( name );
                               bool usable = false;
@@ -476,10 +475,9 @@ namespace Desert::Core
                  const auto field =
                       std::find_if( type.Fields.begin(), type.Fields.end(),
                                     [&]( const Reflection::FieldInfo& f ) { return f.Name == name; } );
-                 const auto        savedType = record.Find( "Type" );
-                 const auto        value     = record.Find( "Value" );
-                 const std::string savedTypeName =
-                      StringAt( savedType );
+                 const auto        savedType     = record.Find( "Type" );
+                 const auto        value         = record.Find( "Value" );
+                 const std::string savedTypeName = StringAt( savedType );
                  if ( field == type.Fields.end() )
                      report.Problems.push_back( std::format( "{}.{} no longer exists; skipped", label, name ) );
                  else if ( !field->Meta.SaveGame )
@@ -590,7 +588,7 @@ namespace Desert::Core
             {
                 auto&                         transform   = registry.get<ECS::TransformComponent>( pawn );
                 const ECS::TransformComponent before      = transform;
-                glm::vec3 translation = transform.Translation, rotation = transform.Rotation,
+                glm::vec3                     translation = transform.Translation, rotation = transform.Rotation,
                           scale = transform.Scale;
                 const auto t    = pawnRecord->Find( "Translation" );
                 const auto r    = pawnRecord->Find( "Rotation" );

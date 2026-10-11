@@ -26,9 +26,10 @@ namespace Desert::ECS::CharacterMovement
     [[nodiscard]] float CylinderHalfHeight( float height, float radius );
 
     /// Creates the character's capsule (standing, in the controller's Collision Profile) centred at @p center
-    /// and resets the movement state. Refused by name when the profile is unknown or the world refuses the capsule.
-    Common::ResultStr<Physics::CharacterHandle> CreateCharacter( CharacterControllerComponent& cc, Physics::PhysicsWorld& world,
-                          const glm::vec3& center );
+    /// and resets the movement state. Refused by name when the profile is unknown or the world refuses the
+    /// capsule.
+    Common::ResultStr<Physics::CharacterHandle>
+    CreateCharacter( CharacterControllerComponent& cc, Physics::PhysicsWorld& world, const glm::vec3& center );
 
     /// UE GetMaxSpeed for the current mode: Max Walk Speed Crouched when crouched, Max Walk Speed otherwise.
     [[nodiscard]] float MaxSpeed( const CharacterControllerComponent& cc );

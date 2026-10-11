@@ -86,23 +86,23 @@ namespace Desert::Scripting
                                                              host->WorldVars = lua_ref( L, -1 );
                                                              lua_pop( L, 1 );
 
-                 RegisterLogBindings( L );
-                 RegisterEntityCoreBindings( L );
-                 RegisterCharacterBindings( L );
-                 RegisterMaterialBindings( L );
-                 RegisterInputBindings( L );
-                 RegisterTimerBindings( L );
-                 RegisterWorldBindings( L );
-                 RegisterAudioBindings( L );
-                 RegisterVFXBindings( L );
-                 RegisterProjectBindings( L );
-                 RegisterLevelBindings( L );
-                 RegisterAnimationBindings( L );
-                 RegisterUIBindings( L );
-                 RegisterLocalizationBindings( L );
-                 RegisterGameModeBindings( L );
-                 RegisterSaveGameBindings( L );
-             } );
+                                                             RegisterLogBindings( L );
+                                                             RegisterEntityCoreBindings( L );
+                                                             RegisterCharacterBindings( L );
+                                                             RegisterMaterialBindings( L );
+                                                             RegisterInputBindings( L );
+                                                             RegisterTimerBindings( L );
+                                                             RegisterWorldBindings( L );
+                                                             RegisterAudioBindings( L );
+                                                             RegisterVFXBindings( L );
+                                                             RegisterProjectBindings( L );
+                                                             RegisterLevelBindings( L );
+                                                             RegisterAnimationBindings( L );
+                                                             RegisterUIBindings( L );
+                                                             RegisterLocalizationBindings( L );
+                                                             RegisterGameModeBindings( L );
+                                                             RegisterSaveGameBindings( L );
+                                                         } );
     }
 
     ScriptEngine::~ScriptEngine() = default;
@@ -441,7 +441,8 @@ namespace Desert::Scripting
                 if ( target == 0 || !m_Impl->Runtime->Defines( target, hook ) )
                     continue;
                 m_Impl->CurrentOwner = Impl::SlotKey( entity, slot );
-                if ( Common::BoolResultStr r = m_Impl->Runtime->CallWithEntity( target, hook, registry, event.Pawn );
+                if ( Common::BoolResultStr r =
+                          m_Impl->Runtime->CallWithEntity( target, hook, registry, event.Pawn );
                      !r.IsSuccess() )
                     LOG_ERROR( "[Lua] {} error: {}", hook, r.GetError() );
                 m_Impl->Settle();

@@ -123,9 +123,10 @@ namespace Desert::ECS
                     continue;
                 }
                 // A rig has no name of its own: it is named by its root bone in a refusal.
-                const std::string_view rigName =
-                     skeleton.GetBones().empty() ? std::string_view() : std::string_view( skeleton.GetBones()[0].Name );
-                auto asset = assets( data.PhysicsAsset, meshSkeleton.GetValue(), rigName );
+                const std::string_view rigName = skeleton.GetBones().empty()
+                                                      ? std::string_view()
+                                                      : std::string_view( skeleton.GetBones()[0].Name );
+                auto                   asset   = assets( data.PhysicsAsset, meshSkeleton.GetValue(), rigName );
                 if ( !asset.IsSuccess() )
                 {
                     Refuse( entity, asset.GetError() );

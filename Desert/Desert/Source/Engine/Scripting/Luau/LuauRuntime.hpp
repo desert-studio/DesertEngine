@@ -160,7 +160,7 @@ namespace Desert::Scripting
 
         /// The array part (1..n) of the slot's global `table` as names: empty when the global is nil; refused
         /// when it is not a table or an entry is not a string (the error names the entry's 1-based index).
-        [[nodiscard]] Common::ResultStr<std::vector<std::string>> ReadStringList( LuauSlot slot,
+        [[nodiscard]] Common::ResultStr<std::vector<std::string>> ReadStringList( LuauSlot    slot,
                                                                                   const char* table ) const;
 
         /// THE CONSOLE (REPL): runs `code` as an expression first, then as a statement, in one sandbox that

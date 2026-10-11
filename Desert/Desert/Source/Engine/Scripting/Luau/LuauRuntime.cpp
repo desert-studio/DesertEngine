@@ -488,7 +488,7 @@ namespace Desert::Scripting
         return entries;
     }
 
-    Common::ResultStr<std::vector<std::string>> LuauRuntime::ReadStringList( LuauSlot slot,
+    Common::ResultStr<std::vector<std::string>> LuauRuntime::ReadStringList( LuauSlot    slot,
                                                                              const char* table ) const
     {
         using Names = std::vector<std::string>;

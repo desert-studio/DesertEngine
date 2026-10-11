@@ -113,8 +113,8 @@ namespace Desert::Scripting
         // THE LOCAL PLAYER'S ENHANCED INPUT (GP1b). TickPlayerInput runs once per played frame, after
         // SetFrameMouseDelta and before the scripts: the first call of a Play session is UE's BeginPlay (the
         // EnhancedInputPlayerComponents' contexts are added); EndPlayerInput ends the session.
-        void                     TickPlayerInput( entt::registry& registry, float deltaSeconds );
-        void                     EndPlayerInput();
+        void TickPlayerInput( entt::registry& registry, float deltaSeconds );
+        void EndPlayerInput();
         // The scene's GameMode events since last frame (Core/GameMode.hpp), in order: a PawnDied unpossesses the
         // player's input and calls OnPawnDied(pawn) on every script; a PlayerRestarted possesses the new pawn
         // (its input contexts) and calls OnPlayerRestarted(pawn). After TickPlayerInput, before the scripts run.

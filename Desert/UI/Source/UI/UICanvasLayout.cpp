@@ -550,8 +550,8 @@ namespace Desert::UI
                 child.SkippedBy = scope.SkippedBy;
             else
                 child.SkippedBy = node.Drawn ? NodeId::Null : e;
-            child.Row       = scope.Row;
-            child.RowIndex  = scope.RowIndex;
+            child.Row      = scope.Row;
+            child.RowIndex = scope.RowIndex;
 
             if ( isList && !tree.Get<UIListViewData>( e )->Collection.empty() )
             {

@@ -217,8 +217,8 @@ namespace Desert::ECS
                     continue;
                 const auto& transform = characters.get<TransformComponent>( entity );
 
-                if ( const auto created =
-                          CharacterMovement::CreateCharacter( cc, *m_World, transform.Translation ); // capsule centre
+                if ( const auto created = CharacterMovement::CreateCharacter(
+                          cc, *m_World, transform.Translation ); // capsule centre
                      !created )
                 {
                     m_RefusedCharacters.insert( entity );
@@ -468,8 +468,8 @@ namespace Desert::ECS
                     continue;
 
                 // World move intent from the script's camera-relative one (y = forward, x = right); the model
-                // (walking / falling / crouch / swimming, UE CharacterMovementComponent) is CharacterMovement::Step,
-                // run on every FIXED step.
+                // (walking / falling / crouch / swimming, UE CharacterMovementComponent) is
+                // CharacterMovement::Step, run on every FIXED step.
                 const glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
                 CharacterMovement::Step( cc, *m_World, wish, dt );
 

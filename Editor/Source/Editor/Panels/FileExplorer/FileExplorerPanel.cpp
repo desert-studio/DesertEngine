@@ -144,26 +144,26 @@ namespace Desert::Editor
                 { .OnRefresh            = [this] { QueueRefresh(); },
                   .OnSelectAfterRefresh = [this]( const std::string& path ) { m_SelectAfterRefresh = path; },
                   .OnStatus             = [this]( const std::string& line ) { m_FileOpStatus = line; } } ),
-           m_ItemMenu( m_Selection, m_ThumbnailEdit,
-                       { .OnRefresh     = [this] { QueueRefresh(); },
-                         .OnOpenFolder  = [this]( DirectoryInformation* dir ) { ChangeDirectory( dir ); },
-                         .OnStatus      = [this]( const std::string& line ) { m_FileOpStatus = line; },
-                         .CanAddToScene = [this] { return m_NewAssetMenu.CanAddPrefabToScene(); },
-                         .OnAddToScene  = [this]( const std::string& path )
-                         { m_NewAssetMenu.AddPrefabToScene( path ); },
-                         .CanCreatePhysicsAsset = [this] { return m_AssetManager != nullptr; },
-                         .OnCreatePhysicsAsset  = [this]( const std::string& mesh ) -> Common::BoolResultStr
-                         {
-                             const auto created = CreatePhysicsAssetForMesh( *m_AssetManager, mesh );
-                             if ( !created )
-                                 return Common::MakeError<bool>( created.GetError() );
-                             LOG_INFO( "[Content Browser] Created physics asset '{}'",
-                                       created.GetValue().generic_string() );
-                             // Opened through the path route, as a double-click on it would.
-                             if ( m_SubjectEditors != nullptr )
-                                 (void)m_SubjectEditors->OpenPath( created.GetValue().string() );
-                             return Common::MakeSuccess( true );
-                         } } )
+           m_ItemMenu(
+                m_Selection, m_ThumbnailEdit,
+                { .OnRefresh     = [this] { QueueRefresh(); },
+                  .OnOpenFolder  = [this]( DirectoryInformation* dir ) { ChangeDirectory( dir ); },
+                  .OnStatus      = [this]( const std::string& line ) { m_FileOpStatus = line; },
+                  .CanAddToScene = [this] { return m_NewAssetMenu.CanAddPrefabToScene(); },
+                  .OnAddToScene  = [this]( const std::string& path ) { m_NewAssetMenu.AddPrefabToScene( path ); },
+                  .CanCreatePhysicsAsset = [this] { return m_AssetManager != nullptr; },
+                  .OnCreatePhysicsAsset  = [this]( const std::string& mesh ) -> Common::BoolResultStr
+                  {
+                      const auto created = CreatePhysicsAssetForMesh( *m_AssetManager, mesh );
+                      if ( !created )
+                          return Common::MakeError<bool>( created.GetError() );
+                      LOG_INFO( "[Content Browser] Created physics asset '{}'",
+                                created.GetValue().generic_string() );
+                      // Opened through the path route, as a double-click on it would.
+                      if ( m_SubjectEditors != nullptr )
+                          (void)m_SubjectEditors->OpenPath( created.GetValue().string() );
+                      return Common::MakeSuccess( true );
+                  } } )
     {
         // NO LOAD STEP FOR THE PINNED FOLDERS ANY MORE (К5). They are read out of EditorPreferences where
         // they are drawn; a panel-local copy taken at construction is the shape К6 removed from the gizmo

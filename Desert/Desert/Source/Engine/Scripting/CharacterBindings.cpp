@@ -100,11 +100,12 @@ namespace Desert::Scripting
     // Gameplay verbs of a character entity; each is a no-op without a CharacterControllerComponent.
     void RegisterCharacterBindings( lua_State* L )
     {
-        for ( const luaL_Reg& method : { luaL_Reg{ "move", &Move }, luaL_Reg{ "jump", &Jump },
-                                         luaL_Reg{ "crouch", &Crouch }, luaL_Reg{ "isCrouched", &IsCrouched },
-                                         luaL_Reg{ "isOnGround", &IsOnGround }, luaL_Reg{ "setSwimming", &SetSwimming },
-                                         luaL_Reg{ "swim", &Swim }, luaL_Reg{ "isSwimming", &IsSwimming },
-                                         luaL_Reg{ "addYaw", &AddYaw }, luaL_Reg{ "addCameraPitch", &AddCameraPitch } } )
+        for ( const luaL_Reg& method :
+              { luaL_Reg{ "move", &Move }, luaL_Reg{ "jump", &Jump }, luaL_Reg{ "crouch", &Crouch },
+                luaL_Reg{ "isCrouched", &IsCrouched }, luaL_Reg{ "isOnGround", &IsOnGround },
+                luaL_Reg{ "setSwimming", &SetSwimming }, luaL_Reg{ "swim", &Swim },
+                luaL_Reg{ "isSwimming", &IsSwimming }, luaL_Reg{ "addYaw", &AddYaw },
+                luaL_Reg{ "addCameraPitch", &AddCameraPitch } } )
             LuauBinder::SetEntityMethod( L, method.name, method.func );
     }
 } // namespace Desert::Scripting

@@ -83,7 +83,7 @@ namespace Desert::Physics
         inline constexpr std::string_view kPhysicsActor    = "PhysicsActor";    ///< simulated bodies (migration)
         inline constexpr std::string_view kPawn            = "Pawn";            ///< character capsules
         inline constexpr std::string_view kDestructible    = "Destructible";    ///< fractured geometry
-        inline constexpr std::string_view kRagdoll         = "Ragdoll";         ///< physics asset bodies (UE preset)
+        inline constexpr std::string_view kRagdoll         = "Ragdoll"; ///< physics asset bodies (UE preset)
     } // namespace EngineProfiles
 
     /// Index of a profile in a CollisionProfiles register.

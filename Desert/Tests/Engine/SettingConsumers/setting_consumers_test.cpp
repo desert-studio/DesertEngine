@@ -662,13 +662,13 @@ namespace
     // GP2a: the movement model (UE CharacterMovementComponent) is the one reader of every field.
     constexpr const char* kCharacterMovement = "Desert/Desert/Source/Engine/ECS/System/CharacterMovement.cpp";
     constexpr Row         kCharacterControllerRows[] = {
-         { "Radius", kCharacterMovement },          { "Height", kCharacterMovement },
-         { "MaxSlopeDeg", kCharacterMovement },     { "MaxWalkSpeed", kCharacterMovement },
-         { "MaxAcceleration", kCharacterMovement }, { "BrakingDecelerationWalking", kCharacterMovement },
-         { "GroundFriction", kCharacterMovement },  { "BrakingFrictionFactor", kCharacterMovement },
-         { "JumpZVelocity", kCharacterMovement },   { "AirControl", kCharacterMovement },
-         { "GravityScale", kCharacterMovement },    { "MaxWalkSpeedCrouched", kCharacterMovement },
-         { "CrouchedHeight", kCharacterMovement },  { "MaxSwimSpeed", kCharacterMovement },
+         { "Radius", kCharacterMovement },           { "Height", kCharacterMovement },
+         { "MaxSlopeDeg", kCharacterMovement },      { "MaxWalkSpeed", kCharacterMovement },
+         { "MaxAcceleration", kCharacterMovement },  { "BrakingDecelerationWalking", kCharacterMovement },
+         { "GroundFriction", kCharacterMovement },   { "BrakingFrictionFactor", kCharacterMovement },
+         { "JumpZVelocity", kCharacterMovement },    { "AirControl", kCharacterMovement },
+         { "GravityScale", kCharacterMovement },     { "MaxWalkSpeedCrouched", kCharacterMovement },
+         { "CrouchedHeight", kCharacterMovement },   { "MaxSwimSpeed", kCharacterMovement },
          { "CollisionProfile", kCharacterMovement },
     };
 

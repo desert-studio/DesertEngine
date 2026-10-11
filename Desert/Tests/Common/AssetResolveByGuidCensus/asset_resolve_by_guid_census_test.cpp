@@ -312,11 +312,9 @@ namespace
                 const bool        action = kind == ContentKind::InputAction;
                 const std::string text   = std::format(
                      R"({{"Header":{{"Kind":"{}","Guid":"{}","Versions":{{"{}":1}},"Dependencies":[]}}}})"
-                     "\n",
-                          action
-                          ? "InputAction"
-                          : "InputMappingContext",
-                     Common::Content::AssetGuidToText( guid ), action ? "INAC" : "INMC" );
+                       "\n",
+                     action ? "InputAction" : "InputMappingContext", Common::Content::AssetGuidToText( guid ),
+                     action ? "INAC" : "INMC" );
                 return { text.begin(), text.end() };
             }
             case ContentKind::VFXDataChannel:

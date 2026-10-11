@@ -124,7 +124,8 @@ namespace
 TEST( SaveGame, RestoredPawnBodyIsTeleportedAndStopped )
 {
     Physics::PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 0.0f, TestSupport::PhysicsTestProfiles() ) ); // no gravity: only the teleport and the old velocity move the body
+    ASSERT_TRUE( world.Init( 0.0f, TestSupport::PhysicsTestProfiles() ) ); // no gravity: only the teleport and the
+                                                                           // old velocity move the body
     Physics::BodyDesc desc;
     desc.Type        = Physics::BodyType::Dynamic;
     desc.HalfExtents = glm::vec3( 50.0f );
@@ -170,7 +171,7 @@ TEST( SaveGame, RestoredPawnCharacterIsTeleported )
     const auto         character  = world.CreateCharacter( desc );
     ASSERT_TRUE( character.IsSuccess() ) << character.GetError();
     controller.RuntimeCharacter = character.GetValue();
-    const auto document           = CaptureSaveGame( registry, pawn, kArena, NoFlaggedFields( {} ) );
+    const auto document         = CaptureSaveGame( registry, pawn, kArena, NoFlaggedFields( {} ) );
 
     registry.get<ECS::TransformComponent>( pawn ).Translation        = glm::vec3( 0.0f );
     registry.get<ECS::CharacterControllerComponent>( pawn ).Velocity = glm::vec3( 0.0f, 0.0f, -900.0f );
