@@ -182,7 +182,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 3,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/552553028708678611.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/552553028708678611.dlht"
             }
         },
         {
@@ -193,7 +193,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 0,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/617190809073116995.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/617190809073116995.dlht"
             }
         },
         {
@@ -204,7 +204,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 1,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/858951070901459976.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/858951070901459976.dlht"
             }
         },
         {
@@ -215,7 +215,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 4,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1079343606234595652.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/1079343606234595652.dlht"
             }
         },
         {
@@ -226,7 +226,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 3,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1664369492442274479.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/1664369492442274479.dlht"
             }
         },
         {
@@ -237,7 +237,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 3,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1898658614684538848.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/1898658614684538848.dlht"
             }
         },
         {
@@ -248,7 +248,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 0,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/2282751315417327572.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/2282751315417327572.dlht"
             }
         },
         {
@@ -259,7 +259,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 2,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3202185892103781528.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/3202185892103781528.dlht"
             }
         },
         {
@@ -270,7 +270,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 2,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3247434968917253149.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/3247434968917253149.dlht"
             }
         },
         {
@@ -281,7 +281,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 0,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3354561897683486278.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/3354561897683486278.dlht"
             }
         },
         {
@@ -292,7 +292,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 4,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3437977225075825397.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/3437977225075825397.dlht"
             }
         },
         {
@@ -303,7 +303,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 1,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3935059941509137403.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/3935059941509137403.dlht"
             }
         },
         {
@@ -314,7 +314,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 4,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4005684272586579653.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/4005684272586579653.dlht"
             }
         },
         {
@@ -325,7 +325,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 4,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4202662370123154685.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/4202662370123154685.dlht"
             }
         },
         {
@@ -336,7 +336,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 4,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4416490062810327308.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/4416490062810327308.dlht"
             }
         },
         {
@@ -347,7 +347,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 0,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4459609067371845214.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/4459609067371845214.dlht"
             }
         },
         {
@@ -358,7 +358,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 4,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4600921004673520800.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/4600921004673520800.dlht"
             }
         },
         {
@@ -369,7 +369,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 2,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5165378544274085974.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/5165378544274085974.dlht"
             }
         },
         {
@@ -380,7 +380,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 1,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5710109555744683174.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/5710109555744683174.dlht"
             }
         },
         {
@@ -391,7 +391,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 1,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5956319789856725724.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/5956319789856725724.dlht"
             }
         },
         {
@@ -402,7 +402,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 2,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/6223693448079367070.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/6223693448079367070.dlht"
             }
         },
         {
@@ -413,7 +413,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 1,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/6700483812159057663.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/6700483812159057663.dlht"
             }
         },
         {
@@ -424,7 +424,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 0,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7120846084722932246.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/7120846084722932246.dlht"
             }
         },
         {
@@ -435,7 +435,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 1,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7136352683913827322.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/7136352683913827322.dlht"
             }
         },
         {
@@ -446,7 +446,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 1,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7441566162943197918.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/7441566162943197918.dlht"
             }
         },
         {
@@ -457,7 +457,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 3,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/8525897167276534560.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/8525897167276534560.dlht"
             }
         },
         {
@@ -468,7 +468,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 3,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/8566978775750307345.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/8566978775750307345.dlht"
             }
         },
         {
@@ -479,7 +479,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 3,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10036623360204464982.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/10036623360204464982.dlht"
             }
         },
         {
@@ -490,7 +490,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 3,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10194274029672881653.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/10194274029672881653.dlht"
             }
         },
         {
@@ -501,7 +501,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 2,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10504863819318263314.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/10504863819318263314.dlht"
             }
         },
         {
@@ -512,7 +512,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 2,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11146067486683134422.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/11146067486683134422.dlht"
             }
         },
         {
@@ -523,7 +523,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 4,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11307825136121944800.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/11307825136121944800.dlht"
             }
         },
         {
@@ -534,7 +534,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 4,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11692722598547063634.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/11692722598547063634.dlht"
             }
         },
         {
@@ -545,7 +545,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 2,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/12998054759439527145.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/12998054759439527145.dlht"
             }
         },
         {
@@ -556,7 +556,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 0,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13683847744952981151.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/13683847744952981151.dlht"
             }
         },
         {
@@ -567,7 +567,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 4,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13698932293366319779.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/13698932293366319779.dlht"
             }
         },
         {
@@ -578,7 +578,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 2,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13816187284253525180.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/13816187284253525180.dlht"
             }
         },
         {
@@ -589,7 +589,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 0,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13911333189603593047.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/13911333189603593047.dlht"
             }
         },
         {
@@ -600,7 +600,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 0,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14139591465500008517.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/14139591465500008517.dlht"
             }
         },
         {
@@ -611,7 +611,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 4,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14621378694642521931.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/14621378694642521931.dlht"
             }
         },
         {
@@ -622,7 +622,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 0,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14700595386023265797.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/14700595386023265797.dlht"
             }
         },
         {
@@ -633,7 +633,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 3,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14780545736905199093.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/14780545736905199093.dlht"
             }
         },
         {
@@ -644,7 +644,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 1,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14953458643715926919.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/14953458643715926919.dlht"
             }
         },
         {
@@ -655,7 +655,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 1,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/15208556050485368750.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/15208556050485368750.dlht"
             }
         },
         {
@@ -666,7 +666,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 2,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/16438699695907860214.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/16438699695907860214.dlht"
             }
         },
         {
@@ -677,7 +677,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 2,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/16880126168322484078.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/16880126168322484078.dlht"
             }
         },
         {
@@ -688,7 +688,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 0,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17269368749528931952.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/17269368749528931952.dlht"
             }
         },
         {
@@ -699,7 +699,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 3,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17897814715666174129.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/17897814715666174129.dlht"
             }
         },
         {
@@ -710,7 +710,7 @@
                 "Landscape": "7310021741400003",
                 "TileX": 3,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17959159743720275283.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/17959159743720275283.dlht"
             }
         },
         {
@@ -721,7 +721,7 @@
                 "Landscape": "7310021741400004",
                 "TileX": 1,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17980529733751588335.dlht"
+                "HeightFile": "Content/Scenes/G3_TwoTerrains_Landscape/17980529733751588335.dlht"
             }
         },
         {
