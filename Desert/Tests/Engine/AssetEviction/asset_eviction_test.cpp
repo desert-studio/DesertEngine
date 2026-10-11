@@ -19,6 +19,7 @@
 // the real `AssetEviction::Run` against a recording double and asserts the exact set of handles it
 // touched. See Engine/Assets/AssetEviction.hpp.
 
+#include "TestSupport/source_roots.hpp"
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <gtest/gtest.h>
 
@@ -1089,35 +1090,36 @@ TEST( AssetEviction, EveryDependencyResolverSaysWhatItMatchesItsTargetBy )
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
 
     std::set<std::string> found;
-    for ( const auto& entry : fs::recursive_directory_iterator( root + "Desert/Desert/Source" ) )
-    {
-        if ( !entry.is_regular_file() )
-            continue;
-        const std::string ext = entry.path().extension().string();
-        if ( ext != ".hpp" && ext != ".cpp" && ext != ".h" )
-            continue;
-
-        std::ifstream     in( entry.path() );
-        std::stringstream buffer;
-        buffer << in.rdbuf();
-
-        // Comments AND literals stripped: a resolver named in a comment must not be able to satisfy this
-        // census, which would be a false pass — the shape AssetResolverCensus records the same choice for.
-        const std::string text = Text::StripCommentsAndLiterals( buffer.str() );
-
-        for ( const std::size_t at : Text::WordPositions( text, "ResolveDependencies" ) )
+    for ( const std::string& tree : Desert::TestSupport::EngineRoots() )
+        for ( const auto& entry : fs::recursive_directory_iterator( root + tree ) )
         {
-            if ( !DefinesAResolverAt( text, at ) )
+            if ( !entry.is_regular_file() )
+                continue;
+            const std::string ext = entry.path().extension().string();
+            if ( ext != ".hpp" && ext != ".cpp" && ext != ".h" )
                 continue;
 
-            // GENERIC SPELLING, not native: `path::string()` hands back backslashes on Windows and the
-            // rows below are written with forward slashes. That exact confusion turned `dev` red on
-            // 2026-09-16 and is now held by ReservedIdentifiers.NoPathFilterUsesTheNativeSpelling.
-            std::string relative = fs::relative( entry.path(), root ).generic_string();
-            found.insert( relative );
-            break;
+            std::ifstream     in( entry.path() );
+            std::stringstream buffer;
+            buffer << in.rdbuf();
+
+            // Comments AND literals stripped: a resolver named in a comment must not be able to satisfy this
+            // census, which would be a false pass — the shape AssetResolverCensus records the same choice for.
+            const std::string text = Text::StripCommentsAndLiterals( buffer.str() );
+
+            for ( const std::size_t at : Text::WordPositions( text, "ResolveDependencies" ) )
+            {
+                if ( !DefinesAResolverAt( text, at ) )
+                    continue;
+
+                // GENERIC SPELLING, not native: `path::string()` hands back backslashes on Windows and the
+                // rows below are written with forward slashes. That exact confusion turned `dev` red on
+                // 2026-09-16 and is now held by ReservedIdentifiers.NoPathFilterUsesTheNativeSpelling.
+                std::string relative = fs::relative( entry.path(), root ).generic_string();
+                found.insert( relative );
+                break;
+            }
         }
-    }
 
     std::set<std::string> registered;
     for ( const ResolverRow& row : kDependencyResolvers )

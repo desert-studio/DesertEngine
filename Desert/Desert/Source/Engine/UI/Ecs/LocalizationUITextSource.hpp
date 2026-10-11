@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/UI/UITextSource.hpp>
+#include <UI/UITextSource.hpp>
 
 namespace Desert::UI
 {

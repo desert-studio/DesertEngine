@@ -24,6 +24,7 @@
 // these rows are a question for the owner (does the engine want asset eviction at all?) rather than a
 // cleanup. What the row must carry is WHO decides, so that a year from now the entry is readable.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -102,10 +103,10 @@ namespace
     // are excluded.
     std::vector<fs::path> ProjectSources( const std::string& root )
     {
-        const char* trees[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source",
-                                "Tools" };
+        const std::vector<std::string> trees =
+             Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } );
         std::vector<fs::path> files;
-        for ( const char* tree : trees )
+        for ( const std::string& tree : trees )
         {
             const fs::path  base = fs::path( root ) / tree;
             std::error_code ec;
@@ -142,8 +143,8 @@ namespace
     // header and cannot declare one of our pure virtuals.
     void BuildIncludeClosure( const std::string& root, Tree& tree )
     {
-        const char* roots[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source",
-                                "Runtime/Source" };
+        const std::vector<std::string> roots =
+             Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } );
 
         std::set<std::string> known;
         for ( const auto& f : tree.Files )
@@ -186,7 +187,7 @@ namespace
 
                 std::vector<fs::path> candidates;
                 candidates.push_back( f.parent_path() / name );
-                for ( const char* r : roots )
+                for ( const std::string& r : roots )
                     candidates.push_back( fs::path( root ) / r / name );
                 for ( const auto& c : candidates )
                 {

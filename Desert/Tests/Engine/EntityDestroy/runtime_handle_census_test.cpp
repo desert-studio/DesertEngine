@@ -14,6 +14,7 @@
 #include "runtime_handle_register.hpp"
 
 #include "../SettingConsumers/setting_consumers_reader.hpp"
+#include "TestSupport/source_roots.hpp"
 
 #include <gtest/gtest.h>
 
@@ -300,22 +301,27 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
+    // Every library the engine is built on, not only Desert/Desert: a table that moves into Desert/UI or a
+    // library yet to come is still a table a destroyed entity must leave.
     std::set<std::pair<std::string, std::string>> found;
-    for ( const auto& e : fs::recursive_directory_iterator( root + "Desert/Desert/Source/Engine" ) )
+    for ( const std::string& tree : Desert::TestSupport::EngineRoots() )
     {
-        const auto ext = e.path().extension();
-        if ( !e.is_regular_file() || ( ext != ".hpp" && ext != ".cpp" && ext != ".h" ) )
-            continue;
-        const std::string rel = fs::relative( e.path(), root ).generic_string();
-        for ( const std::string& member : EntityKeyedMembers( Code( e.path() ) ) )
+        for ( const auto& e : fs::recursive_directory_iterator( root + tree ) )
         {
-            found.insert( { rel, member } );
-            const bool registered =
-                 std::any_of( kEntityTables.begin(), kEntityTables.end(),
-                              [&]( const EntityTableRow& r ) { return r.File == rel && r.Member == member; } );
-            EXPECT_TRUE( registered ) << rel << ": `" << member
-                                      << "` is keyed by entt::entity and has no row in "
-                                         "runtime_handle_register.hpp. Say how a destroyed entity leaves it.";
+            const auto ext = e.path().extension();
+            if ( !e.is_regular_file() || ( ext != ".hpp" && ext != ".cpp" && ext != ".h" ) )
+                continue;
+            const std::string rel = fs::relative( e.path(), root ).generic_string();
+            for ( const std::string& member : EntityKeyedMembers( Code( e.path() ) ) )
+            {
+                found.insert( { rel, member } );
+                const bool registered =
+                     std::any_of( kEntityTables.begin(), kEntityTables.end(),
+                                  [&]( const EntityTableRow& r ) { return r.File == rel && r.Member == member; } );
+                EXPECT_TRUE( registered ) << rel << ": `" << member
+                                          << "` is keyed by entt::entity and has no row in "
+                                             "runtime_handle_register.hpp. Say how a destroyed entity leaves it.";
+            }
         }
     }
 

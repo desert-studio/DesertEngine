@@ -15,6 +15,7 @@
 //   6. THE TOOL. Tools/WorldCook's own RunWorldCook writes a directory, verifies it from disk, and removes what
 //      an earlier cook left.
 
+#include "TestSupport/source_roots.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
@@ -520,9 +521,9 @@ TEST( WorldCells, NoSourceSpellsTheRetiredWp8Magic )
     }
     std::size_t       scanned       = 0;
     bool              sawWorldCells = false;
-    const char* const trees[]       = { "Desert/Desert/Source", "Desert/Common/Source", "Tools", "Editor/Source",
-                                        "Runtime/Source" };
-    for ( const char* tree : trees )
+    const std::vector<std::string> trees =
+         Desert::TestSupport::LibraryRootsAnd( { "Tools", "Editor/Source", "Runtime/Source" } );
+    for ( const std::string& tree : trees )
     {
         if ( !fs::exists( root / tree ) )
             continue;

@@ -4,7 +4,7 @@
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
-#include <Engine/UI/UICanvasContext.hpp>
+#include <UI/UICanvasContext.hpp>
 
 namespace Desert::Editor::Render
 {

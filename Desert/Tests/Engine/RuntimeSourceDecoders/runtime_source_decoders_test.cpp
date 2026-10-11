@@ -31,6 +31,7 @@
 // `stbi_load` in comments are named below as the negative control, and must stay both raw-positive and
 // stripped-negative so the control cannot quietly go vacuous.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -50,11 +51,7 @@ namespace
 {
     // The trees a packaged player is built from. Common is here because the engine and the runtime link
     // it, so a decoder added there reaches the player exactly as one added to the engine would.
-    constexpr const char* kRuntimeTrees[] = {
-         "Desert/Desert/Source",
-         "Desert/Common/Source",
-         "Runtime/Source",
-    };
+    const std::vector<std::string> kRuntimeTrees = Desert::TestSupport::LibraryRootsAnd( { "Runtime/Source" } );
 
     struct Exception
     {
@@ -187,7 +184,7 @@ namespace
     std::vector<Finding> Census( const fs::path& root )
     {
         std::vector<Finding> findings;
-        for ( const char* tree : kRuntimeTrees )
+        for ( const std::string& tree : kRuntimeTrees )
         {
             const fs::path base = root / tree;
             if ( !fs::exists( base ) )
@@ -220,7 +217,7 @@ TEST( RuntimeSourceDecoders, NoRuntimeSourceReachesAnImageDecoderOutsideTheRegis
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
 
     // THE TREES MUST EXIST AND BE NON-EMPTY, or "no offender" is the answer of a census that read nothing.
-    for ( const char* tree : kRuntimeTrees )
+    for ( const std::string& tree : kRuntimeTrees )
         ASSERT_TRUE( fs::is_directory( root / tree ) ) << tree << " is not where this census expects it";
 
     std::string unregistered;

@@ -28,6 +28,7 @@
 // Why this lives in a header at all: CloudsPanel.cpp is one of the editor translation units no suite
 // compiles (scripts/CI/UnreachedSources.sh), so a rule written there is a rule nothing can assert.
 
+#include "TestSupport/source_roots.hpp"
 #include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
@@ -439,8 +440,8 @@ namespace
     std::vector<fs::path> CensusSources( const std::string& root )
     {
         std::vector<fs::path> out;
-        for ( const char* tree :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+        for ( const std::string& tree :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
         {
             std::error_code ec;
             for ( auto it = fs::recursive_directory_iterator( fs::path( root ) / tree, ec );

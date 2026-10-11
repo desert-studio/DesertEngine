@@ -16,6 +16,7 @@
 // to agree with each other, which is the defect class DEV_CONTRACT 2.3.1 says a unit test never catches
 // and a RELATION test does. The relations below are therefore read out of the source files themselves.
 
+#include "TestSupport/source_roots.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
@@ -230,9 +231,8 @@ TEST( TeardownOrder, NoResourceServiceClearIsAnEmptyBody )
 // is the way out.
 TEST( TeardownOrder, StdExitAppearsOnlyBeforeTheApplicationExists )
 {
-    const std::vector<std::filesystem::path> trees = {
-         RepoRoot() / "Desert" / "Desert" / "Source", RepoRoot() / "Desert" / "Common" / "Source",
-         RepoRoot() / "Editor" / "Source", RepoRoot() / "Runtime" / "Source" };
+    const std::vector<std::filesystem::path> trees = Desert::TestSupport::Under(
+         RepoRoot(), Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) );
 
     // Both hold a CreateApplication and nothing else that runs during a frame.
     const std::set<std::string> allowed = { "Sandbox.hpp", "Main.cpp" };

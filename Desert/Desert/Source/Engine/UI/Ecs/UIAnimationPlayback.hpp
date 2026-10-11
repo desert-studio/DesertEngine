@@ -16,7 +16,7 @@
  * authored level shows the frame under the playhead, as UE's designer does, and Play starts the run at t = 0.
  */
 
-#include <Engine/UI/UIAnimationSource.hpp>
+#include <UI/UIAnimationSource.hpp>
 #include <Engine/Animation/Timeline/Evaluator.hpp>
 
 #include <Engine/UI/Ecs/EcsUITree.hpp>

@@ -7,6 +7,7 @@
 // row must be deleted with the move, so the register can only shrink. The DESERT_JSON_STRUCT marks are
 // counted here too, and two types may not claim one format name.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -91,8 +92,8 @@ namespace
                rel.starts_with( "Desert/Tests/Common/JsonFacade/" );
     }
 
-    const std::vector<std::string> kSourceRoots = { "Desert/Common/Source", "Desert/Desert/Source", "Desert/Tests",
-                                                    "Editor/Source",        "Runtime/Source",       "Tools" };
+    const std::vector<std::string> kSourceRoots =
+         Desert::TestSupport::LibraryRootsAnd( { "Desert/Tests", "Editor/Source", "Runtime/Source", "Tools" } );
 
     std::vector<std::string> SourceFiles( const std::string& root )
     {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
-#include <Engine/Text/BakedFont.hpp>
+#include <Render2DCore/Text/BakedFont.hpp>
 
 #include <cstddef>
 #include <cstdint>

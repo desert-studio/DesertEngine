@@ -17,7 +17,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
-#include <Engine/UI/UIOverlay.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <ImGui/imgui.h>
 

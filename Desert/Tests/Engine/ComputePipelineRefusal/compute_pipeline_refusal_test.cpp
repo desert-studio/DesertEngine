@@ -23,6 +23,7 @@
 //   * restore `GetPipelineShaderStageCreateInfos()[0]` in VulkanPipelineCompute::Invalidate
 //        -> TheStageListIsNeverIndexed red.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Engine/Graphic/Pipeline.hpp>
@@ -154,7 +155,8 @@ namespace
     std::vector<std::pair<std::string, std::string>> EngineSources( const std::string& root )
     {
         std::vector<std::pair<std::string, std::string>> out;
-        for ( const char* subtree : { "Desert/Desert/Source", "Editor/Source", "Runtime/Source" } )
+        for ( const std::string& subtree :
+              Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
         {
             const fs::path base = fs::path( root ) / subtree;
             if ( !fs::exists( base ) )

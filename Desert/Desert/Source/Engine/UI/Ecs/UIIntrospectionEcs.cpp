@@ -1,7 +1,8 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/UI/Ecs/EcsUITree.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIIntrospection.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
 
 #include <algorithm>
 #include <cstdint>

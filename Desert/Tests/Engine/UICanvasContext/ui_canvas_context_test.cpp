@@ -30,9 +30,9 @@
 #include <Engine/Animation/Timeline/Section.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Animation/Timeline/Track.hpp>
-#include <Engine/UI/UICanvasContext.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <UI/UICanvasContext.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <TestSupport/ui_canvas_resources_mock.hpp>
 
 #include <gtest/gtest.h>

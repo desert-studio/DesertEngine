@@ -1,7 +1,7 @@
 // Unit tests for the pure CPU 2D draw-list geometry builder (the batcher's front end). No GPU / Vulkan /
 // ECS — just verifies that primitives emit the expected vertices, indices and state batches.
 
-#include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Render2DCore/DrawList2D.hpp>
 #include <Engine/Graphic/Render2D/PreparedDraws.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialFallback.hpp>
 

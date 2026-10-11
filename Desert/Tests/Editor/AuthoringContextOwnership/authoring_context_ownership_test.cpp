@@ -37,6 +37,7 @@
 // is 07 §1.3's defect and the one thing §5.3 deliberately left broken so that its change stayed a move
 // of ownership.
 
+#include "TestSupport/source_roots.hpp"
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 
 #include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
@@ -598,7 +599,8 @@ TEST( AuthoringContextCensus, SkeletonEditModeIsReadNowhereAndItsHeaderIsGone )
     EXPECT_FALSE( fs::exists( root + "Editor/Source/Editor/Core/Selection/SkeletonEditMode.hpp" ) );
 
     const Walk walk = CountIdentifier(
-         root, { "Editor/Source", "Desert/Desert/Source", "Desert/Tests", "Runtime" }, "SkeletonEditMode" );
+         root, Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Desert/Tests", "Runtime" } ),
+         "SkeletonEditMode" );
 
     EXPECT_GT( walk.Files, 200 ) << "the walk found almost nothing — the roots are wrong, not the tree";
 
@@ -622,7 +624,8 @@ TEST( AuthoringContextCensus, ControlRigEditModeIsReadNowhereAndItsHeaderIsGone 
     EXPECT_FALSE( fs::exists( root + "Editor/Source/Editor/Core/Selection/ControlRigEditMode.hpp" ) );
 
     const Walk walk = CountIdentifier(
-         root, { "Editor/Source", "Desert/Desert/Source", "Desert/Tests", "Runtime" }, "ControlRigEditMode" );
+         root, Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Desert/Tests", "Runtime" } ),
+         "ControlRigEditMode" );
 
     EXPECT_GT( walk.Files, 200 ) << "the walk found almost nothing — the roots are wrong, not the tree";
 

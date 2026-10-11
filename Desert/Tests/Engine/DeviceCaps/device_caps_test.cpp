@@ -9,6 +9,7 @@
 // file each, and the VkDevice is built from the very object DeviceCapsProbe enabled things on. A raw
 // vkGetPhysicalDeviceFeatures or vkCreateDevice anywhere else would be a second opinion about what the
 // device has, which is what DeviceCaps exists to prevent.
+#include "TestSupport/source_roots.hpp"
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 
 #include "../SettingConsumers/setting_consumers_reader.hpp"
@@ -71,8 +72,8 @@ namespace
     std::vector<SourceFile> FirstPartySources( const std::string& root )
     {
         std::vector<SourceFile> out;
-        for ( const char* tree :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+        for ( const std::string& tree :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) )
         {
             std::error_code ec;
             for ( auto it = fs::recursive_directory_iterator( fs::path( root ) / tree, ec );

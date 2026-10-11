@@ -1,7 +1,7 @@
 #include "Internal/ScriptRuntime.hpp"
 
-#include <Engine/UI/UIDataStore.hpp>
-#include <Engine/UI/UIOverlay.hpp>
+#include <UI/UIDataStore.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 #include <format>
 #include <string>

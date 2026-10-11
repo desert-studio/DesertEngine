@@ -3,7 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <Common/Core/Units.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::Core
 {
