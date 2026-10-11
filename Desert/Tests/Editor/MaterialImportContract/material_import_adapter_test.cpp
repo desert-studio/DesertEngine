@@ -68,6 +68,13 @@ namespace fs = std::filesystem;
 
 namespace
 {
+    // The importer's resolver hands back a reference as found on disk: an absolute path (the FBX base colour's
+    // alpha is read from it at import). These references name no file, so the path is absolute and absent.
+    fs::path FoundOnDisk( const std::string& ref )
+    {
+        return fs::temp_directory_path() / "MaterialImportAdapter-absent" / ref;
+    }
+
     // 2x2 RGBA PNG with alpha (0, 255 / 255, 0); its colour channels are read back, not assumed.
     constexpr std::array<uint8_t, 76> kPng = {
          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -391,7 +398,7 @@ TEST( MaterialImportAdapter, EveryFbxSurfaceKeyReachesTheOrmTextureAndItsFactors
     map( aiTextureType_SHININESS, "gloss.png" );
 
     const SourceMaterial source = ReadSourceMaterial( mat, SourceFormatOf( "helmet.fbx" ), "M",
-                                                      []( const std::string& ref ) { return fs::path( ref ); } )
+                                                      FoundOnDisk )
                                        .Material;
     const std::vector<ImportTemplate> templates = { Template( "Surface/StandardSurface.shader" ),
                                                     Template( "Unlit/Unlit.shader" ) };
@@ -603,17 +610,17 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
         if ( withDiffuse )
             mat.AddProperty( &diffuse, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
         return FillFromTemplate( ReadSourceMaterial( mat, SourceFormatOf( "chair.fbx" ), "M",
-                                                     []( const std::string& ref ) { return fs::path( ref ); } )
+                                                     FoundOnDisk )
                                       .Material,
                                  Template( "Surface/StandardSurface.shader" ) );
     };
     const TemplateFill onlyBase = read( false );
     ASSERT_NE( Slot( onlyBase, "u_AlbedoTexture" ), nullptr ) << "an FBX base_color_map was dropped";
-    EXPECT_EQ( Slot( onlyBase, "u_AlbedoTexture" )->Parts.front().Source, fs::path( "base.png" ) );
+    EXPECT_EQ( Slot( onlyBase, "u_AlbedoTexture" )->Parts.front().Source.filename(), fs::path( "base.png" ) );
     const TemplateFill both = read( true );
     ASSERT_NE( Slot( both, "u_AlbedoTexture" ), nullptr );
     ASSERT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.size(), 1u );
-    EXPECT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.front().Source, fs::path( "diffuse.png" ) );
+    EXPECT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.front().Source.filename(), fs::path( "diffuse.png" ) );
 }
 
 // MAT1s: the glTF sampler of a texture (wrapS/wrapT/magFilter) rides on its key to the template's slot, and a
@@ -660,7 +667,7 @@ namespace
         mat.AddProperty( &albedo, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
         mat.AddProperty( &specular, AI_MATKEY_TEXTURE( aiTextureType_SPECULAR, 0 ) );
         return ReadSourceMaterial( mat, SourceFormatOf( "BistroExterior.fbx" ), "Paris_Wall",
-                                   []( const std::string& ref ) { return fs::path( ref ); } )
+                                   FoundOnDisk )
              .Material;
     }
 } // namespace
