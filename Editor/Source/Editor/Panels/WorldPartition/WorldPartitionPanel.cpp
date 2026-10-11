@@ -66,7 +66,7 @@ namespace Desert::Editor
             const int    pieces = std::max( 8, static_cast<int>( 96.0 * angle / 360.0 ) );
             const auto   rim    = [&]( double degrees )
             {
-                const double     r = degrees * std::numbers::pi / 180.0;
+                const double r = degrees * std::numbers::pi / 180.0;
                 // The same turn as the rules (about +Y): +X goes to −Z.
                 const glm::dvec2 axis = sector.Axis;
                 const glm::dvec2 dir( axis.x * std::cos( r ) + axis.y * std::sin( r ),

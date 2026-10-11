@@ -196,8 +196,8 @@ namespace Desert::Core
         // Takes @p sources as this frame's; the first frame with none logs the one named error (THE SOURCES).
         void UseSources( std::vector<Rules::StreamingSource> sources );
         // Gives each of the first @p entities.size() sources the velocity its entity moved at since the last Tick.
-        void StampVelocities( std::vector<Rules::StreamingSource>& sources, std::span<const std::uint32_t> entities,
-                              double nowSeconds );
+        void StampVelocities( std::vector<Rules::StreamingSource>& sources,
+                              std::span<const std::uint32_t> entities, double nowSeconds );
 
         // One HLOD as the streamer takes it: the cell unit it stands in for and its records.
         struct CellHLOD

@@ -231,9 +231,9 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( streamer ) );
     }
 
-    std::vector<Rules::StreamingSource> WorldStreamer::GatherSources( Scene&                                  scene,
-                                                                      std::span<const Rules::StreamingSource> instruments,
-                                                                      std::vector<std::uint32_t>* entities )
+    std::vector<Rules::StreamingSource>
+    WorldStreamer::GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments,
+                                  std::vector<std::uint32_t>* entities )
     {
         std::vector<Rules::StreamingSource> sources;
         entt::registry&                     registry = scene.GetRegistry();
@@ -246,7 +246,7 @@ namespace Desert::Core
             Rules::StreamingSource source;
             source.Position = glm::vec3( world[3] );
             // The entity's forward is its local −Z (the camera's convention), in world axes.
-            source.Facing = -glm::vec3( world[2] );
+            source.Facing                = -glm::vec3( world[2] );
             source.Priority              = data.Priority;
             source.UseVelocityForSorting = data.UseVelocityForSorting;
             // One shape, always (UE's FStreamingSourceShape on the component): with the defaults it is exactly
@@ -279,7 +279,8 @@ namespace Desert::Core
             now[entities[index]] = sources[index].Position;
             const auto before    = m_SourcePositions.find( entities[index] );
             if ( before != m_SourcePositions.end() && elapsed > 0.0 )
-                sources[index].Velocity = ( sources[index].Position - before->second ) / static_cast<float>( elapsed );
+                sources[index].Velocity =
+                     ( sources[index].Position - before->second ) / static_cast<float>( elapsed );
         }
         m_SourcePositions = std::move( now );
         m_SourcesAt       = nowSeconds;

@@ -340,7 +340,8 @@ namespace Desert::Core::Rules
         for ( StreamingSource& source : widened )
         {
             source.RangeScale *= 1.0f + settings.UnloadMargin;
-            source.AngleScale *= 1.0f + settings.UnloadMargin; // a sector's edge has the same band (UE's ExtraAngle)
+            source.AngleScale *=
+                 1.0f + settings.UnloadMargin; // a sector's edge has the same band (UE's ExtraAngle)
         }
         auto keptWish = QueryStreamingCells( plan, partition, widened );
         if ( !keptWish.IsSuccess() )

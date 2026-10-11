@@ -186,14 +186,14 @@ namespace Desert::Core::Rules
                                                                   const WorldPartitionGridSerialized& grid )
     {
         const glm::dvec2 position = Detail::Ground( source.Position );
-        glm::dvec2       forward  = source.Facing ? Detail::UnitOrZero( Detail::Ground( *source.Facing ) )
-                                                  : glm::dvec2( 0.0 );
-        const bool       faces    = forward != glm::dvec2( 0.0 );
+        glm::dvec2       forward =
+             source.Facing ? Detail::UnitOrZero( Detail::Ground( *source.Facing ) ) : glm::dvec2( 0.0 );
+        const bool faces = forward != glm::dvec2( 0.0 );
         if ( !faces )
             forward = { 0.0, -1.0 };
         const glm::dvec2 right( -forward.y, forward.x );
-        const glm::dvec2 velocity = source.UseVelocityForSorting ? Detail::Ground( source.Velocity )
-                                                                 : glm::dvec2( 0.0 );
+        const glm::dvec2 velocity =
+             source.UseVelocityForSorting ? Detail::Ground( source.Velocity ) : glm::dvec2( 0.0 );
         const auto heading = [&]( const glm::dvec2& axis )
         { return Detail::UnitOrZero( ( faces ? axis : glm::dvec2( 0.0 ) ) + velocity ); };
 
@@ -214,14 +214,14 @@ namespace Desert::Core::Rules
             const double range = shape.UseGridLoadingRange
                                       ? static_cast<double>( grid.LoadingRange ) * shape.LoadingRangeScale
                                       : static_cast<double>( shape.Radius );
-            sector.Radius = range * static_cast<double>( source.RangeScale );
-            sector.Angle  = shape.IsSector ? std::min( 360.0, static_cast<double>( shape.SectorAngle ) *
-                                                                    static_cast<double>( source.AngleScale ) )
-                                           : 360.0;
+            sector.Radius      = range * static_cast<double>( source.RangeScale );
+            sector.Angle       = shape.IsSector ? std::min( 360.0, static_cast<double>( shape.SectorAngle ) *
+                                                                        static_cast<double>( source.AngleScale ) )
+                                                : 360.0;
             if ( !( sector.Angle > 0.0 ) )
                 continue;
             // Local X is right, local Z is backward (the forward is −Z).
-            sector.Centre  = position + right * static_cast<double>( shape.Location.x ) -
+            sector.Centre = position + right * static_cast<double>( shape.Location.x ) -
                             forward * static_cast<double>( shape.Location.z );
             sector.Axis    = Detail::TurnAboutUp( forward, static_cast<double>( shape.Yaw ) );
             sector.Heading = heading( sector.Axis );
@@ -233,10 +233,10 @@ namespace Desert::Core::Rules
     struct WantedCell
     {
         std::size_t Cell     = kNoRecord; // index into WorldPartitionPlan::Cells
-        double      Distance = 0.0; // from the nearest wanting shape of Priority to the square, cm; 0 inside
+        double      Distance = 0.0;       // from the nearest wanting shape of Priority to the square, cm; 0 inside
         std::size_t Source   = kNoRecord; // that source; the lowest index when two are equally near
         int         Priority = 0;         // the highest Priority among the sources that want the cell
-        double      SortKey  = 0.0; // Distance weighted by that shape's heading (THE ORDER); the lowest wins
+        double      SortKey  = 0.0;       // Distance weighted by that shape's heading (THE ORDER); the lowest wins
     };
 
     struct StreamingWish
@@ -302,7 +302,7 @@ namespace Desert::Core::Rules
     {
         // The part of a convex polygon where n·(p − apex) ≥ 0 (one Sutherland–Hodgman pass).
         [[nodiscard]] inline std::vector<glm::dvec2> ClipToHalfPlane( const std::vector<glm::dvec2>& polygon,
-                                                                       const glm::dvec2& apex, const glm::dvec2& n )
+                                                                      const glm::dvec2& apex, const glm::dvec2& n )
         {
             std::vector<glm::dvec2> out;
             const std::size_t       count = polygon.size();
@@ -322,7 +322,8 @@ namespace Desert::Core::Rules
 
         // Distance from @p p to a convex polygon (counter-clockwise or clockwise); 0 inside or on it, +∞ for
         // an empty one.
-        [[nodiscard]] inline double DistanceToConvexPolygon( const glm::dvec2& p, const std::vector<glm::dvec2>& polygon )
+        [[nodiscard]] inline double DistanceToConvexPolygon( const glm::dvec2&              p,
+                                                             const std::vector<glm::dvec2>& polygon )
         {
             if ( polygon.empty() )
                 return std::numeric_limits<double>::infinity();
@@ -338,17 +339,19 @@ namespace Desert::Core::Rules
                 anyRight                = anyRight || cross < 0.0;
                 const double lengthSq   = edge.x * edge.x + edge.y * edge.y;
                 const double t =
-                     lengthSq > 0.0 ? std::clamp( ( ( p.x - a.x ) * edge.x + ( p.y - a.y ) * edge.y ) / lengthSq, 0.0, 1.0 )
-                                    : 0.0;
+                     lengthSq > 0.0
+                          ? std::clamp( ( ( p.x - a.x ) * edge.x + ( p.y - a.y ) * edge.y ) / lengthSq, 0.0, 1.0 )
+                          : 0.0;
                 const glm::dvec2 closest = a + edge * t;
-                nearest = std::min( nearest, std::hypot( p.x - closest.x, p.y - closest.y ) );
+                nearest                  = std::min( nearest, std::hypot( p.x - closest.x, p.y - closest.y ) );
             }
             return ( anyLeft && anyRight ) ? nearest : 0.0;
         }
 
         // The two inward normals of a convex wedge (half-angle ≤ 90°) at an apex, around @p axis: a point is
         // in the wedge when it is on the positive side of both.
-        [[nodiscard]] inline std::pair<glm::dvec2, glm::dvec2> WedgeNormals( const glm::dvec2& axis, double halfDegrees )
+        [[nodiscard]] inline std::pair<glm::dvec2, glm::dvec2> WedgeNormals( const glm::dvec2& axis,
+                                                                             double            halfDegrees )
         {
             const glm::dvec2 left  = TurnAboutUp( axis, halfDegrees );  // the boundary ray on one side
             const glm::dvec2 right = TurnAboutUp( axis, -halfDegrees ); // and on the other
@@ -372,8 +375,8 @@ namespace Desert::Core::Rules
     {
         if ( sector.IsCircle() )
             return DistanceToCellSquare( sector.Centre.x, sector.Centre.y, cell, levelCellSize );
-        const double                  lowX  = static_cast<double>( cell.X ) * levelCellSize;
-        const double                  lowZ  = static_cast<double>( cell.Z ) * levelCellSize;
+        const double                  lowX = static_cast<double>( cell.X ) * levelCellSize;
+        const double                  lowZ = static_cast<double>( cell.Z ) * levelCellSize;
         const std::vector<glm::dvec2> square{ { lowX, lowZ },
                                               { lowX + levelCellSize, lowZ },
                                               { lowX + levelCellSize, lowZ + levelCellSize },
@@ -384,21 +387,23 @@ namespace Desert::Core::Rules
             // A convex slice: the square clipped by both of its sides.
             const auto [a, b] = Detail::WedgeNormals( sector.Axis, half );
             return Detail::DistanceToConvexPolygon(
-                 sector.Centre,
-                 Detail::ClipToHalfPlane( Detail::ClipToHalfPlane( square, sector.Centre, a ), sector.Centre, b ) );
+                 sector.Centre, Detail::ClipToHalfPlane( Detail::ClipToHalfPlane( square, sector.Centre, a ),
+                                                         sector.Centre, b ) );
         }
         // A reflex slice is everything but the convex wedge behind it, i.e. the union of the two half-planes
         // outside that wedge's sides: the nearer of the square's two parts.
         const auto [a, b] = Detail::WedgeNormals( -sector.Axis, 180.0 - half );
-        return std::min(
-             Detail::DistanceToConvexPolygon( sector.Centre, Detail::ClipToHalfPlane( square, sector.Centre, -a ) ),
-             Detail::DistanceToConvexPolygon( sector.Centre, Detail::ClipToHalfPlane( square, sector.Centre, -b ) ) );
+        return std::min( Detail::DistanceToConvexPolygon( sector.Centre,
+                                                          Detail::ClipToHalfPlane( square, sector.Centre, -a ) ),
+                         Detail::DistanceToConvexPolygon( sector.Centre,
+                                                          Detail::ClipToHalfPlane( square, sector.Centre, -b ) ) );
     }
 
     // THE ORDER's weight of a cell for one shape: (cos·0.5 + 0.5) of the angle between the shape's heading
     // and the direction from the cell's nearest point to the shape's centre — 0 straight ahead, 1 straight
     // behind (UE's SourceCosAngleRatio); 1 with no heading, so the key is the plain distance; 0 inside.
-    [[nodiscard]] inline double HeadingWeight( const SourceSector& sector, const CellCoord& cell, double levelCellSize )
+    [[nodiscard]] inline double HeadingWeight( const SourceSector& sector, const CellCoord& cell,
+                                               double levelCellSize )
     {
         if ( sector.Heading == glm::dvec2( 0.0 ) )
             return 1.0;
@@ -445,11 +450,13 @@ namespace Desert::Core::Rules
                      " cm; a range must be finite and non-negative" );
             }
             if ( !std::isfinite( source.AngleScale ) || source.AngleScale < 0.0f ||
-                 ( source.Facing.has_value() && ( !std::isfinite( source.Facing->x ) || !std::isfinite( source.Facing->z ) ) ) ||
+                 ( source.Facing.has_value() &&
+                   ( !std::isfinite( source.Facing->x ) || !std::isfinite( source.Facing->z ) ) ) ||
                  !std::isfinite( source.Velocity.x ) || !std::isfinite( source.Velocity.z ) )
             {
                 return Common::MakeError<StreamingWish>( std::format(
-                     "QueryStreamingCells: streaming source {} has AngleScale {}, a facing that is {} and velocity "
+                     "QueryStreamingCells: streaming source {} has AngleScale {}, a facing that is {} and "
+                     "velocity "
                      "({}, {}); a scale must be finite and non-negative, a facing and a velocity finite",
                      index, source.AngleScale, source.Facing ? "stated" : "absent", source.Velocity.x,
                      source.Velocity.z ) );
@@ -457,15 +464,16 @@ namespace Desert::Core::Rules
             for ( std::size_t shapeIndex = 0; shapeIndex < source.Shapes.size(); ++shapeIndex )
             {
                 const StreamingSourceShape& shape = source.Shapes[shapeIndex];
-                const bool                  valid =
-                     std::isfinite( shape.LoadingRangeScale ) && shape.LoadingRangeScale >= 0.0f &&
-                     std::isfinite( shape.Radius ) && shape.Radius >= 0.0f && std::isfinite( shape.SectorAngle ) &&
-                     shape.SectorAngle >= 0.0f && shape.SectorAngle <= 360.0f && std::isfinite( shape.Location.x ) &&
-                     std::isfinite( shape.Location.z ) && std::isfinite( shape.Yaw );
+                const bool valid = std::isfinite( shape.LoadingRangeScale ) && shape.LoadingRangeScale >= 0.0f &&
+                                   std::isfinite( shape.Radius ) && shape.Radius >= 0.0f &&
+                                   std::isfinite( shape.SectorAngle ) && shape.SectorAngle >= 0.0f &&
+                                   shape.SectorAngle <= 360.0f && std::isfinite( shape.Location.x ) &&
+                                   std::isfinite( shape.Location.z ) && std::isfinite( shape.Yaw );
                 if ( !valid )
                 {
                     return Common::MakeError<StreamingWish>( std::format(
-                         "QueryStreamingCells: streaming source {} shape {} has LoadingRangeScale {}, Radius {} cm, "
+                         "QueryStreamingCells: streaming source {} shape {} has LoadingRangeScale {}, Radius {} "
+                         "cm, "
                          "SectorAngle {}, Location ({}, {}) and Yaw {}; scales and radii must be finite and "
                          "non-negative, an angle within 0..360 and a placement finite",
                          index, shapeIndex, shape.LoadingRangeScale, shape.Radius, shape.SectorAngle,
@@ -519,8 +527,8 @@ namespace Desert::Core::Rules
 
                 for ( int level = 0; level <= lastLevel; ++level )
                 {
-                    const auto begin = plan.Cells.begin() +
-                                       static_cast<std::ptrdiff_t>( levelBegin[static_cast<std::size_t>( level )] );
+                    const auto begin = plan.Cells.begin() + static_cast<std::ptrdiff_t>(
+                                                                 levelBegin[static_cast<std::size_t>( level )] );
                     const auto end = plan.Cells.begin() + static_cast<std::ptrdiff_t>(
                                                                levelBegin[static_cast<std::size_t>( level ) + 1] );
                     const double size = LevelCellSize( grid.CellSize, level );
