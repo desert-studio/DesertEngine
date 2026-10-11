@@ -153,6 +153,7 @@ namespace Desert::UI::Walk
     bool          PointIn( const Rect& r, const glm::vec2& p );
     bool          Accepts( const UIDropTargetData& t, const std::string& payload );
     std::vector<std::string> SplitOptions( IUITextSource& text, const std::string& s );
+    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDropdownData& d );
     bool                     IsFocusable( IUITree& tree, NodeId e );
     TextureRef               ResolveSpriteImage( IUICanvasResources& res, const Common::AssetHandle& handle );
     const void*              ResolveUIMaterial( WalkCtx& ctx, NodeId e, const Common::AssetHandle& handle );

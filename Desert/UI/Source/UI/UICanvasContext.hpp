@@ -8,6 +8,7 @@
 #include <UI/UIAnimationSource.hpp>
 #include <UI/UIDataStore.hpp>
 #include <UI/UIFocus.hpp>
+#include <UI/UIListSelection.hpp>
 #include <UI/UILayout.hpp>
 #include <UI/UIMaterialSource.hpp>
 #include <UI/UIRenderTextureSource.hpp>
@@ -184,6 +185,12 @@ namespace Desert::UI
         // Bound lists already reported for not having exactly one child (their entry template). Per entity,
         // said once, like WarnedStyles.
         std::unordered_set<NodeId> WarnedListTemplates;
+
+        // --- List, tile and tree views (UI-LIST+) ---------------------------------------------------------
+        // What each list remembers between frames as a VIEW of it rather than as the scene's data: which
+        // rows are selected (UE keeps it in the widget, never in the asset), which tree rows are expanded,
+        // and the tree's linearised rows, rebuilt only when the expansion or a collection it read changed.
+        std::unordered_map<NodeId, UIListViewState> Lists;
         // Style names this cell has already refused (Ю13): a UIStyleComponent naming a style the canvas's
         // theme does not declare. Per NAME rather than per ENTITY, because a mistyped style is normally on
         // the twenty elements that were duplicated from one another and the interesting fact is the name,
@@ -378,6 +385,14 @@ namespace Desert::UI
         std::vector<Common::KeyCode> ConsumedKeys;
         // Which control each screen / overlay / canvas last had focused, and which scopes were up last frame.
         FocusMemory Focus;
+        // The scrollbar thumb the pointer is dragging (pressed on it and still held), and where on the thumb it
+        // was grabbed, in the container's pixels. One per view: there is one pointer.
+        struct ScrollThumbDrag
+        {
+            NodeId Owner  = NodeId::Null;
+            float  GrabPx = 0.0f;
+        };
+        ScrollThumbDrag ThumbDrag;
         // The option an open dropdown's keyboard highlight is on (view state: two views of one dropdown each
         // keep their own). Erased when the list closes.
         std::unordered_map<NodeId, int> DropdownHighlight;
@@ -545,6 +560,7 @@ namespace Desert::UI
             ConsumedKeys.clear();
             Focus = FocusMemory{};
             DropdownHighlight.clear();
+            ThumbDrag = ScrollThumbDrag{};
             Tint           = glm::vec4( 1.0f );
             WarnedMaterial = Common::AssetHandle{};
             ViewportPx     = Rect{};

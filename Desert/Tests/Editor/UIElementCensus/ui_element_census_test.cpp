@@ -64,9 +64,12 @@ namespace
          "Desert/UI/Source/UI/Widgets/Slider.cpp",
          "Desert/UI/Source/UI/Widgets/Text.cpp",
          "Desert/UI/Source/UI/Widgets/Toggle.cpp",
+         // UI-LIST+: a list's shape (tile grid, tree rows) is resolved once for both walks -- layout and
+         // draw -- in UIListSelection.cpp (ResolveListShape), which is where UITileView is read.
+         "Desert/UI/Source/UI/UIListSelection.cpp",
     };
     constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIWalkCtx.cpp + Widgets/ + "
-                                      "UIOverlay.cpp + UIAnimationPlayback.cpp)";
+                                      "UIOverlay.cpp + UIAnimationPlayback.cpp + UIListSelection.cpp)";
 
     // The registry adapter behind the walk's IUITree: `Row<ECS::UIxxxComponent, Kind>` per ArgKind. The walk
     // asks the tree for UI argument data (`tree.Has<UIPanelData>`), and this table is what names the
@@ -126,6 +129,10 @@ namespace
                                "point: theming must not require an edit of every entity" },
          { "UINavigationComponent", "modifier — per-direction navigation rules, explicit targets and the "
                                     "initial-focus mark of an existing control or container; added in Details" },
+         { "UITileViewComponent", "modifier — lays an existing UIListView's items out as tiles (UE UTileView); "
+                                  "added in Details" },
+         { "UITreeViewComponent", "modifier — makes an existing collection-bound UIListView a tree of records "
+                                  "and their children collections (UE UTreeView); added in Details" },
          { "UIRetainerComponent", "modifier — retains an existing element and its subtree into an offscreen "
                                   "layer composited through one effect (UE Retainer Box); added in Details" },
     };

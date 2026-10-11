@@ -161,6 +161,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UISliderComponent, Data, "UI
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIScrollViewComponent, Data, "UIScrollViewData",
                                      "UI Scroll View" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIListViewComponent, Data, "UIListViewData", "UI List View" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITileViewComponent, Data, "UITileViewData", "UI Tile View" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITreeViewComponent, Data, "UITreeViewData", "UI Tree View" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIInputFieldComponent, Data, "UIInputFieldData",
                                      "UI Input Field" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIDropdownComponent, Data, "UIDropdownData", "UI Dropdown" )

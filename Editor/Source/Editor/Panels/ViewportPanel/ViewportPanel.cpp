@@ -1628,6 +1628,7 @@ namespace Desert::Editor
                         mods = mods | ::Desert::UI::UIKeyMods::Alt;
                     if ( io.KeySuper )
                         mods = mods | ::Desert::UI::UIKeyMods::Super;
+                    pv.Mods = mods;
                     using Common::KeyCode;
                     static constexpr std::pair<ImGuiKey, KeyCode> kUIKeys[] = {
                          { ImGuiKey_Tab, KeyCode::Tab },
@@ -1637,6 +1638,9 @@ namespace Desert::Editor
                          { ImGuiKey_Delete, KeyCode::Delete },
                          { ImGuiKey_Home, KeyCode::Home },
                          { ImGuiKey_End, KeyCode::End },
+                         { ImGuiKey_PageUp, KeyCode::PageUp },
+                         { ImGuiKey_PageDown, KeyCode::PageDown },
+                         { ImGuiKey_Space, KeyCode::Space },
                          { ImGuiKey_LeftArrow, KeyCode::Left },
                          { ImGuiKey_RightArrow, KeyCode::Right },
                          { ImGuiKey_UpArrow, KeyCode::Up },

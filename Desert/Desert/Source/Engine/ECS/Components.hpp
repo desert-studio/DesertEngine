@@ -1085,6 +1085,16 @@ namespace Desert::ECS
         COMPONENT( Key( "UIListView" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UI::UIListViewData Data;
     };
+    struct UITileViewComponent
+    {
+        COMPONENT( Key( "UITileView" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITileViewData Data;
+    };
+    struct UITreeViewComponent
+    {
+        COMPONENT( Key( "UITreeView" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITreeViewData Data;
+    };
     struct UIInputFieldComponent
     {
         COMPONENT( Key( "UIInputField" ), Block( Data ), Run( UIAfterRenderTexture ) )

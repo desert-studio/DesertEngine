@@ -100,7 +100,15 @@ namespace Desert::Editor::Render
                 // context menu never opened: measured, and it looks exactly like "the flag does nothing".
                 // `Hot` is the PREVIOUS frame's winner, so a non-null one means the UI is up and the
                 // element under the pointer this frame is the same one.
-                const bool ready     = m_UIView.Hot != UI::NodeId::Null;
+                //
+                // Under `--play` the canvas is walked for the whole load before Play starts, while the rows a
+                // script fills on OnStart do not exist yet: an edge spent there landed on an empty list and an
+                // expander or a row was never pressed. The press waits for the second walk in Play, whose `Hot`
+                // was elected over the filled rows.
+                if ( shot.PlayActive() && scene->IsPlaying() )
+                    ++m_CliPlayWalks;
+                const bool live      = !shot.PlayActive() || m_CliPlayWalks >= 2;
+                const bool ready     = live && m_UIView.Hot != UI::NodeId::Null;
                 input.MouseDown      = ready && shot.UIPress == ShotOptions::UIButtonHeld::Left;
                 input.MouseRightDown = ready && shot.UIPress == ShotOptions::UIButtonHeld::Right;
             }
@@ -113,6 +121,7 @@ namespace Desert::Editor::Render
                 input.MouseRightDown = pv.RightDown;
                 input.ScrollDelta   = pv.Scroll;
                 input.Keys           = pv.Keys;
+                input.Mods           = pv.Mods;
                 input.TypedText     = pv.TypedText;
                 input.Clipboard      = &clipboard;
             }

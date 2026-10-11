@@ -381,6 +381,7 @@ namespace
     constexpr const char* kUIWalkCtx       = "Desert/UI/Source/UI/UIWalkCtx.cpp";
     constexpr const char* kUIFocus         = "Desert/UI/Source/UI/UIFocus.cpp";
     constexpr const char* kUIScreenMachine = "Desert/UI/Source/UI/UIScreenMachine.cpp";
+    constexpr const char* kUIListSelection = "Desert/UI/Source/UI/UIListSelection.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -948,6 +949,23 @@ namespace
          // chat behaviour that pins the scroll to the end — both read by the canvas walk.
          { "Collection", kUIScrollList },
          { "FollowEnd", kUIScrollList },
+         // UI-LIST+: selection (mode, the two row brushes, the change message) — the list's input and row
+         // backdrop in the walk.
+         { "SelectionMode", kUIScrollList },
+         { "SelectionColor", kUIScrollList },
+         { "HoverColor", kUIScrollList },
+         { "OnSelectionChangedMessage", kUIScrollList },
+    };
+
+    // UI-LIST+: the tile grid's width is read where a list's rows are resolved for both walks; the tree's
+    // children field there too, its indent and expander where the rows are drawn.
+    constexpr Row kTileViewRows[] = {
+         { "ItemWidth", kUIListSelection },
+    };
+    constexpr Row kTreeViewRows[] = {
+         { "ChildrenField", kUIListSelection },
+         { "Indent", kUIScrollList },
+         { "ExpanderColor", kUIScrollList },
     };
 
     constexpr Row kInputFieldRows[] = {
@@ -971,7 +989,9 @@ namespace
     };
 
     constexpr Row kDropdownRows[] = {
-         { "Options", kCanvasRenderer },   { "SelectedIndex", kUIDropdown },    { "Open", kUIDropdown },
+         // The options — authored or from a collection — are resolved in one place, DropdownOptions.
+         { "Options", kUIWalkCtx },        { "Collection", kUIWalkCtx },        { "LabelField", kUIWalkCtx },
+         { "SelectedIndex", kUIDropdown }, { "Open", kUIDropdown },
          { "FontSize", kCanvasRenderer },  { "Background", kCanvasRenderer },   { "TextColor", kCanvasRenderer },
          { "Highlight", kCanvasRenderer }, { "CornerRadius", kCanvasRenderer },
     };
@@ -1125,6 +1145,8 @@ namespace
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
          { "UIScrollViewData", "UIScrollViewComponent", nullptr, CENSUS_ROWS( kScrollViewRows ) },
          { "UIListViewData", "UIListViewComponent", nullptr, CENSUS_ROWS( kListViewRows ) },
+         { "UITileViewData", "UITileViewComponent", nullptr, CENSUS_ROWS( kTileViewRows ) },
+         { "UITreeViewData", "UITreeViewComponent", nullptr, CENSUS_ROWS( kTreeViewRows ) },
          { "UIInputFieldData", "UIInputFieldComponent", nullptr, CENSUS_ROWS( kInputFieldRows ) },
          { "UIDropdownData", "UIDropdownComponent", nullptr, CENSUS_ROWS( kDropdownRows ) },
          { "UITweenData", "UITweenComponent", nullptr, CENSUS_ROWS( kTweenRows ) },
@@ -1333,7 +1355,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // water body state the physics step queries).
     // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
     // -> 60 with UI-SWITCHER's UITabsData (kTabsRows: PushHistory read by RequestScreen in UIWalkCtx.cpp).
-    EXPECT_EQ( all.size(), 60u );
+    // -> 62 with UI-LIST+'s UITileViewData and UITreeViewData (kTileViewRows, kTreeViewRows).
+    EXPECT_EQ( all.size(), 62u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
