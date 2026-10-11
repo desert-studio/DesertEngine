@@ -566,6 +566,13 @@ namespace
          { "LensFlareStreakLength", kSceneRenderer },
          { "LensFlareStreakAngle", kSceneRenderer },
          { "LensFlareChromaShift", kSceneRenderer },
+         { "DepthOfFieldFocalDistance", kSceneRenderer },
+         { "DepthOfFieldFstop", kSceneRenderer },
+         { "DepthOfFieldSensorWidth", kSceneRenderer },
+         { "DepthOfFieldMaxBokehSize", kSceneRenderer },
+         { "MotionBlurAmount", kSceneRenderer },
+         { "MotionBlurMax", kSceneRenderer },
+         { "MotionBlurTargetFPS", kSceneRenderer },
     };
 
     constexpr Row kDirLightRows[] = {

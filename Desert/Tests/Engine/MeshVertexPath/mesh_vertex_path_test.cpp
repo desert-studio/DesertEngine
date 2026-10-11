@@ -70,6 +70,11 @@ using namespace Desert::Graphic::API::Vulkan;
 
 namespace
 {
+    // The three MESH paths. MeshVertexPath::ParticleSprite (the fourth, VFX-08) is left out on purpose: it has
+    // one cell (Forward), no caster and no G-buffer, and only a template declaring `Usage ParticleSprites`
+    // carries it, so the default template these tests reflect has none. Its cell is covered by SurfaceTemplate's
+    // ParticleSpriteUsageAddsOneSpriteCellAfterEveryMeshCell and the table rows below by MeshCellPath /
+    // TemplateCellShader.
     constexpr MeshVertexPath kAllPaths[] = { MeshVertexPath::Static, MeshVertexPath::Skinned,
                                              MeshVertexPath::Instanced };
 
@@ -138,6 +143,10 @@ namespace
     {
         // An empty name is a hole of the table, remembered as one.
         static std::map<std::pair<int, int>, std::string> cache;
+        // The sprite path's cell exists only on a template with `Usage ParticleSprites`; the default template has
+        // none, so for these reflection tests it is a hole (see kAllPaths).
+        if ( path == MeshVertexPath::ParticleSprite )
+            return nullptr;
         const std::pair<int, int> key{ static_cast<int>( path ), static_cast<int>( pass ) };
         auto                      slot = cache.find( key );
         if ( slot == cache.end() )
@@ -1055,8 +1064,10 @@ TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStati
                 EXPECT_FALSE( plain.has_value() ) << "a template without a Surface block has no " << where
                                                   << " cell, got " << plain.value_or( "" );
         }
-    // Every path has Forward, GBuffer and ShadowDepth; only Static has Glass.
-    EXPECT_EQ( surfaceCells, Desert::Graphic::kMeshVertexPathCount * 3u + 1u );
+    // Every MESH path has Forward, GBuffer and ShadowDepth; only Static has Glass; the fourth path,
+    // ParticleSprite, has its Forward cell alone (registered here because the lambda registers every
+    // "SomeSurface/" name, as a template with `Usage ParticleSprites` does).
+    EXPECT_EQ( surfaceCells, ( Desert::Graphic::kMeshVertexPathCount - 1u ) * 3u + 1u + 1u );
 }
 
 // THE CASTER IS CHOSEN BY BLEND MODE (SURF2-mask). A Masked material casts through ITS template's ShadowDepth

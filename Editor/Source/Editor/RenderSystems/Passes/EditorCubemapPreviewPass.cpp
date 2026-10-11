@@ -10,7 +10,7 @@ namespace Desert::Editor::Render
     EditorCubemapPreviewPass::~EditorCubemapPreviewPass()
     {
         if ( const auto scene = m_Scene.lock() )
-            scene->UnregisterExternalPass( "CubemapPreview" );
+            scene->UnregisterExtensionPass( "CubemapPreview" );
     }
 
     Common::BoolResultStr EditorCubemapPreviewPass::Install( const std::shared_ptr<::Desert::Core::Scene>& scene )
@@ -41,13 +41,11 @@ namespace Desert::Editor::Render
 
         m_Material = std::make_unique<Graphic::MaterialCubemapSphere>();
 
-        Graphic::ExternalPassSpecification pass;
+        Graphic::ExtensionPass pass;
         pass.Name                  = "CubemapPreview";
-        pass.Phase                 = Graphic::RenderPhase::Debug;
-        pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
-        pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
-                               Graphic::RDG::PassContext&          context ) -> Common::BoolResultStr
+        pass.Point                 = Graphic::RDG::ExtensionPoint::Overlay;
+        pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
+                               Graphic::RDG::PassContext&           context ) -> Common::BoolResultStr
         {
             if ( !ctx.Camera || !m_ResolveCube )
                 return BOOLSUCCESS;
@@ -72,13 +70,13 @@ namespace Desert::Editor::Render
         // frame the pass exists: the block names no graph resource, and the exec opens it only when it draws.
         // The material's VALUES stay per view (Update( camera, cube, ... ) in the exec): one pass object serves
         // every view of the scene.
-        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& )
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& )
         {
             declared.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                                m_Material->GetMaterialExecutor()->GetRouteFill() );
         };
 
-        scene->RegisterExternalPass( std::move( pass ) );
+        scene->RegisterExtensionPass( std::move( pass ) );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::Render

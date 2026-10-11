@@ -123,6 +123,9 @@ namespace Desert::Assets
         // AudioSourceComponent) names this GUID; the source path lives only here — see
         // Engine/Assets/SoundAsset.hpp.
         Sound,
+        // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
+        // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
+        VFXDataChannel,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -232,6 +235,9 @@ namespace Desert::Assets
             // A SOUND IS SCENE-SCOPED for the retarget's reason: `AudioSourceData::Sound` is an `AssetHandle`
             // held by a live entity.
             case AssetTypeID::Sound:
+            // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
+            // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
+            case AssetTypeID::VFXDataChannel:
             case AssetTypeID::Count:
                 return false;
         }
@@ -312,6 +318,8 @@ namespace Desert::Assets
                 return "PhysicsAsset";
             case AssetTypeID::Sound:
                 return "Sound";
+            case AssetTypeID::VFXDataChannel:
+                return "VFXDataChannel";
             case AssetTypeID::Count:
                 return "Count";
         }

@@ -69,6 +69,9 @@ namespace Desert::Assets
     inline constexpr uint32_t kInputActionSchemaVersion         = 1;
     inline constexpr uint32_t kInputMappingContextSchemaTag     = Common::Content::FourCC( "INMC" );
     inline constexpr uint32_t kInputMappingContextSchemaVersion = 1;
+    // A .dfxch: the VFX data channel file layout, stated in the header from its first version (VFX-10).
+    inline constexpr uint32_t kVFXDataChannelSchemaTag     = Common::Content::FourCC( "VFXD" );
+    inline constexpr uint32_t kVFXDataChannelSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

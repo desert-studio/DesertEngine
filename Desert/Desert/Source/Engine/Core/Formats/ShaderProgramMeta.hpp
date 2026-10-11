@@ -313,7 +313,18 @@ namespace Desert::Core::Formats
         Opaque,
         Masked,      // the pass headers discard below u_Material.OpacityMaskClipValue
         Translucent, // drawn over the composited scene by the translucency pass; Forward cells only
+        // UE BLEND_Additive: everything Translucent is (Forward cells only, the translucency pass header, the
+        // DESERT_SURFACE_TRANSLUCENT define) except how the pass composites it: colour x opacity ADDED to the
+        // scene (SrcAlpha, One) instead of laid over it. Fire, sparks, glows. The particle emitter's own
+        // over/additive switch moved here (VFX-08): how a sprite composites is a property of its material.
+        Additive,
     };
+
+    // Every blend mode drawn by the translucency pass rather than written into depth / the G-buffer.
+    constexpr bool IsTranslucentBlend( const SurfaceBlendMode blend )
+    {
+        return blend == SurfaceBlendMode::Translucent || blend == SurfaceBlendMode::Additive;
+    }
 
     struct ShaderProgramMeta
     {

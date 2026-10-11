@@ -72,6 +72,8 @@ namespace Desert::Editor::ThumbnailProducers
               "UE (UWaterWavesAsset): the class icon; a wave generator has no still of its own" },
          Row{ FileType::PhysicsAsset, Producer::TypeIcon,
               "the class icon until the physics asset editor (RAG1c) renders the bodies (UE renders them)" },
+         Row{ FileType::VFXDataChannel, Producer::TypeIcon,
+              "UE (UNiagaraDataChannel): the class icon; a field layout has no picture" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

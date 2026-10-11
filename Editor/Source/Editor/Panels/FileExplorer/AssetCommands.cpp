@@ -128,6 +128,12 @@ namespace Desert::Editor
                            return Common::MakeError(
                                 "New Input Mapping Context: the Assets window does not exist" );
                        return Explorer()->CreateNewInputMappingContext();
+                   },
+                   [this]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError( "New VFX Data Channel: the Assets window does not exist" );
+                       return Explorer()->CreateNewVFXDataChannel();
                    } ) )
             commands.push_back( std::move( command ) );
     }

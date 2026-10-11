@@ -8,10 +8,10 @@
 //
 // WHAT IS ASSERTED HERE AND WHAT IS NOT. "Over" is ultimately a position in a Vulkan command buffer. No
 // test on this machine can observe one, so it is not described here -- it is turned into a REGISTER that
-// can be read (RenderPhase::k_DeferredOverlayPhases) and asserted on integers, together with the graph's
-// own sort. The frame half of the witness is scripts/MacOS/UIOverSceneWitness.sh: a live editor driven
-// A->B->A through the control channel, finding the canvas's marker panel in the picture. Two instruments,
-// named, and neither pretending to be the other.
+// can be read: the order of the calls in SceneRenderer::OnUpdate, which IS the frame's order (no phase sort,
+// no numeric placement), asserted on the source. The frame half of the witness is
+// scripts/MacOS/UIOverSceneWitness.sh: a live editor driven A->B->A through the control channel, finding the
+// canvas's marker panel in the picture. Two instruments, named, and neither pretending to be the other.
 //
 // THE LOAD-BEARING TEST IS `TheHotElementSurvivesTheViewVisitingAnotherSceneAndComingBack`. Everything
 // else checks one fact; that one checks the RELATION a view change can break -- the pointer's answer
@@ -20,11 +20,13 @@
 // belong to, which is this project's recurring defect (entity ids are unique only inside a registry).
 
 #include <Engine/ECS/Components.hpp>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIDataStore.hpp>
-#include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/UI/UIIntrospection.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>
@@ -55,31 +57,24 @@ using Desert::UI::UIViewContext;
 namespace ECS         = Desert::ECS;
 namespace R2D         = Desert::Graphic::Render2D;
 namespace UI          = Desert::UI;
-namespace RenderPhase = Desert::Graphic::RenderPhase;
-using Desert::Graphic::OrderRenderPhases;
-using Desert::Graphic::RenderPhaseDependencies;
-using Desert::Graphic::RenderPhaseID;
 
 namespace
 {
-    // The engine's own declaration order, which is what SceneRenderer feeds the sort. Read from the
-    // register in RenderPhase.hpp rather than typed out, so a phase added there arrives here too.
-    std::vector<RenderPhaseID> BuiltinDeclarationOrder()
+    // SceneRenderer.cpp's text, found from the test's working directory (the suite runs from its build
+    // directory or the repo root); empty when it cannot be found, which the test reports.
+    std::string SceneRendererSource()
     {
-        return { Desert::Graphic::RenderPhase::k_BuiltinOrder,
-                 Desert::Graphic::RenderPhase::k_BuiltinOrder + Desert::Graphic::RenderPhase::k_BuiltinCount };
-    }
-
-    // The phase edges SceneRenderer::RebuildRenderGraph declares. A SECOND COPY, and it is the same
-    // second copy Desert/Tests/Engine/RenderGraphSort already keeps -- the edges are built inside a
-    // function that creates Vulkan render passes as it goes, so no suite can ask the real one for them.
-    // Only the two edges this file's claim rests on are restated, so the copy is as small as the claim.
-    RenderPhaseDependencies EnginePhaseEdges()
-    {
-        RenderPhaseDependencies deps;
-        deps[Desert::Graphic::RenderPhase::Lighting]    = { Desert::Graphic::RenderPhase::Geometry };
-        deps[Desert::Graphic::RenderPhase::PostProcess] = { Desert::Graphic::RenderPhase::Lighting };
-        return deps;
+        for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../", "../../../../../" } )
+        {
+            std::ifstream file( std::string( prefix ) + "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+            if ( file )
+            {
+                std::ostringstream text;
+                text << file.rdbuf();
+                return text.str();
+            }
+        }
+        return {};
     }
 
     // gtest cannot print `entt::null` -- formatting it instantiates entt's conversion operator with
@@ -194,44 +189,27 @@ namespace
 // OVER: the position in the frame, as the only thing about it that a test can read.
 // ---------------------------------------------------------------------------------------------------
 
-TEST( CanvasOverScene, TheUIPhaseIsNotDrawnByTheMainGraphLoop )
+TEST( CanvasOverScene, TheUIPointIsAddedAfterEverythingThatDrawsTheScene )
 {
-    // The whole of "over 3D" in one bit. The graph sorts the UI phase last but the executor SKIPS the
-    // phases named in this register and draws each afterwards, past the deferred lighting composite; a
-    // UI phase missing from it would be drawn inside the loop, before the composite, and lit geometry
-    // would paint over the canvas. That is the particle top-down defect with a different victim.
-    EXPECT_TRUE( RenderPhase::IsDeferredOverlay( RenderPhase::UI ) );
-
-    // The other two are in the register for the same reason and are asserted here rather than trusted:
-    // the register is one statement and all three of its rows decide a frame.
-    EXPECT_TRUE( RenderPhase::IsDeferredOverlay( RenderPhase::Transparency ) );
-    EXPECT_TRUE( RenderPhase::IsDeferredOverlay( RenderPhase::Debug ) );
-
-    // ...and the negative control, without which the test above passes on a predicate that says yes to
-    // everything: the phases the main loop DOES draw must not be in it.
-    EXPECT_FALSE( RenderPhase::IsDeferredOverlay( RenderPhase::Geometry ) );
-    EXPECT_FALSE( RenderPhase::IsDeferredOverlay( RenderPhase::Lighting ) );
-    EXPECT_FALSE( RenderPhase::IsDeferredOverlay( RenderPhase::PostProcess ) );
-    EXPECT_FALSE( RenderPhase::IsDeferredOverlay( RenderPhase::Sky ) );
-}
-
-TEST( CanvasOverScene, TheUIPhaseSortsAfterEverythingThatDrawsTheScene )
-{
-    // Being skipped by the loop is not enough on its own: the pass still has to be ordered after the
-    // scene's own phases, because ExecuteUI walks the SORTED list. Asked of the graph's real sort.
-    const std::vector<RenderPhaseID> order =
-         OrderRenderPhases( { RenderPhase::Sky, RenderPhase::Geometry, RenderPhase::Lighting,
-                              RenderPhase::Transparency, RenderPhase::PostProcess, RenderPhase::UI },
-                            EnginePhaseEdges(), BuiltinDeclarationOrder() );
-
-    const auto at = [&order]( RenderPhaseID id )
-    { return static_cast<std::size_t>( std::find( order.begin(), order.end(), id ) - order.begin() ); };
-    ASSERT_LT( at( RenderPhase::UI ), order.size() ) << "the UI phase did not survive the sort at all";
-    EXPECT_GT( at( RenderPhase::UI ), at( RenderPhase::Sky ) );
-    EXPECT_GT( at( RenderPhase::UI ), at( RenderPhase::Geometry ) );
-    EXPECT_GT( at( RenderPhase::UI ), at( RenderPhase::Lighting ) );
-    EXPECT_GT( at( RenderPhase::UI ), at( RenderPhase::Transparency ) );
-    EXPECT_GT( at( RenderPhase::UI ), at( RenderPhase::PostProcess ) );
+    // The whole of "over 3D": the UI extension point (the editor's canvas pass) is added to the frame AFTER the
+    // opaque raster, the deferred lighting composite, the translucency and the overlays, and before the post
+    // chain (the Jump Flood outline first). The frame's order is the order of these calls in OnUpdate; a UI
+    // point added before the composite would be painted over by lit geometry - the particle top-down defect
+    // with a different victim.
+    const std::string source = SceneRendererSource();
+    ASSERT_FALSE( source.empty() ) << "SceneRenderer.cpp not found from the working directory";
+    const auto at = [&source]( const char* call )
+    {
+        const std::size_t position = source.find( call );
+        EXPECT_NE( position, std::string::npos ) << call << " is not called in SceneRenderer.cpp";
+        return position;
+    };
+    const std::size_t ui = at( "AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );" );
+    EXPECT_GT( ui, at( "AddFrameBasePass( graph, textures );" ) );
+    EXPECT_GT( ui, at( "AddFrameTranslucency( graph, textures );" ) );
+    EXPECT_GT( ui, at( "AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );" ) );
+    // ...and the negative side: the post chain starts after it.
+    EXPECT_LT( ui, at( "AddFrameJumpFlood( graph, textures );" ) );
 }
 
 TEST( CanvasOverScene, TheCanvasDrawsWithThreeDEntitiesBesideItInTheRegistry )

@@ -15,7 +15,7 @@ namespace Desert::Graphic
             // X = Depth, Y = Stencil. Depth clears to 0 because the engine renders REVERSED-Z and 0 IS
             // THE FAR PLANE (Core/Projection.hpp) — an empty pixel must read as "infinitely far", and
             // under this convention that is 0, not 1. The one pass that still wants 1 is the shadow
-            // cascade, which is deliberately standard-Z and overrides this via PassConfig::ClearDepth.
+            // cascade, which is deliberately standard-Z and overrides this via SystemRasterPass::ClearDepth.
             glm::vec2 DepthStencil = { Core::kDepthClear, 0.0f };
         } ClearColor;
 

@@ -535,6 +535,45 @@ namespace Desert::Graphic::API::Vulkan
                                                               uint32_t groupCountX, uint32_t groupCountY,
                                                               uint32_t groupCountZ )
     {
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        if ( const Common::BoolResultStr bound = BindComputePassState( bindings, pipeline, cmd ); !bound )
+            return bound;
+        vkCmdDispatch( cmd, groupCountX, groupCountY, groupCountZ );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                                      const ComputePipeline&   pipeline,
+                                                                      const RDG::BufferRef     args,
+                                                                      const uint64_t           offset )
+    {
+        const RDG::PassContext& context = bindings.GetContext();
+        if ( offset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: dispatch arguments at byte {}, not a multiple of four",
+                                               context.GetPassName(), offset );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: dispatch arguments: {}", context.GetPassName(),
+                                               declared.GetError() );
+        if ( offset + sizeof( VkDispatchIndirectCommand ) > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError( "{}: dispatch arguments at byte {} past the end of '{}' ({} bytes)",
+                                               context.GetPassName(), offset, declared.GetValue().Name,
+                                               declared.GetValue().Desc->Bytes );
+        const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !buffer )
+            return Common::MakeFormattedError( "{}: dispatch arguments: {}", context.GetPassName(),
+                                               buffer.GetError() );
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        if ( const Common::BoolResultStr bound = BindComputePassState( bindings, pipeline, cmd ); !bound )
+            return bound;
+        vkCmdDispatchIndirect( cmd, buffer.GetValue()->GetBuffer(), offset );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::BindComputePassState( const RDG::PassBindings& bindings,
+                                                                   const ComputePipeline&   pipeline,
+                                                                   VkCommandBuffer&         out )
+    {
         const RDG::PassContext&                  context = bindings.GetContext();
         const std::string_view                   pass    = context.GetPassName();
         const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
@@ -588,7 +627,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !push.empty() )
             vkCmdPushConstants( cmd.GetValue(), compute.GetVkPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                 static_cast<uint32_t>( push.size() ), push.data() );
-        vkCmdDispatch( cmd.GetValue(), groupCountX, groupCountY, groupCountZ );
+        out = cmd.GetValue();
         return Common::MakeSuccess( true );
     }
 
@@ -604,6 +643,35 @@ namespace Desert::Graphic::API::Vulkan
             return bound;
         // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
         DrawCounted( vertexCount, instanceCount, 0, 0 );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::DrawProceduralIndirect( const RDG::PassBindings& bindings,
+                                                                     const GraphicsPipeline&  pipeline,
+                                                                     const MaterialExecutor*  material,
+                                                                     const RDG::BufferRef     args,
+                                                                     const uint64_t           offset )
+    {
+        const RDG::PassContext& context = bindings.GetContext();
+        if ( offset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: indirect arguments at byte {}, not a multiple of four",
+                                               context.GetPassName(), offset );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               declared.GetError() );
+        if ( offset + sizeof( VkDrawIndirectCommand ) > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError( "{}: indirect arguments at byte {} past the end of '{}' ({} bytes)",
+                                               context.GetPassName(), offset, declared.GetValue().Name,
+                                               declared.GetValue().Desc->Bytes );
+        const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !buffer )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               buffer.GetError() );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+            return bound;
+        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), offset, 1,
+                           static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
         return Common::MakeSuccess( true );
     }
 

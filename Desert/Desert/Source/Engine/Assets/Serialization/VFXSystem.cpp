@@ -118,8 +118,13 @@ namespace Desert::Assets::Serialization
             if ( b.starts_with( kVFXParticlesPrefix ) && b.size() > kVFXParticlesPrefix.size() )
                 return BOOLSUCCESS; // attributes are derived from the stack (VFX-04); the name is all a file
                                     // states
+            if ( b.starts_with( kVFXDataChannelPrefix ) && b.size() > kVFXDataChannelPrefix.size() )
+                return BOOLSUCCESS; // the channel is the scene's: CompileSpawnPlan reads the spelling, the world
+                                    // binds the fields to the channel's layout (VFX/VFXDataChannel
+                                    // BindChannelSpawn)
             return Common::MakeFormattedError<bool>(
-                 "{}: Binding '{}' is neither User.<param> nor Particles.<attr>", what, b );
+                 "{}: Binding '{}' is neither User.<param>, Particles.<attr> nor DataChannel.<channel>[.<field>]",
+                 what, b );
         }
 
         Common::BoolResultStr CheckGroup( const std::vector<VFXModuleUse>& group, const VFXSystemData& system,

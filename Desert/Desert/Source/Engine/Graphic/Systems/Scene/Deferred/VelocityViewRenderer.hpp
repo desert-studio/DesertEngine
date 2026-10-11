@@ -33,10 +33,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
-
         // The pipeline that draws into a target of @p format at @p samples, made the first time it is asked for.
         [[nodiscard]] Common::BoolResultStr Prepare( const Core::Formats::ImageFormat format,
                                                      const uint32_t                   samples )

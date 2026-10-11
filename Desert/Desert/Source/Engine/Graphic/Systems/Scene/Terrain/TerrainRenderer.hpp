@@ -54,7 +54,11 @@ namespace Desert::Graphic::System
         using RenderSystem::RenderSystem;
 
         virtual Common::BoolResultStr Initialize() override;
-        void                          RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The terrain draw on the scene target, after the meshes in SceneRenderer::AddFrameBasePass (LOAD: depth
+        // shared, so terrain and meshes resolve against each other). Empty (no TargetFramebuffer) without a target
+        // or pipeline.
+        [[nodiscard]] SystemRasterPass GeometryPass();
 
         // The caster pipeline is built against the cascade targets, which the mesh renderer owns and makes.
         // Under a zero-cascade budget there are none and none is built (RecordShadowCascade is never reached).

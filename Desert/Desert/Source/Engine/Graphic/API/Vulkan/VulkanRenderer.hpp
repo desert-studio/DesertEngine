@@ -57,9 +57,16 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings, const ComputePipeline& pipeline,
                                                uint32_t groupCountX, uint32_t groupCountY,
                                                uint32_t groupCountZ ) override;
+        Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                       const ComputePipeline& pipeline, RDG::BufferRef args,
+                                                       uint64_t offset ) override;
         Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                               const MaterialExecutor* material, uint32_t vertexCount,
                                               uint32_t instanceCount ) override;
+        Common::BoolResultStr DrawProceduralIndirect( const RDG::PassBindings& bindings,
+                                                      const GraphicsPipeline&  pipeline,
+                                                      const MaterialExecutor* material, RDG::BufferRef args,
+                                                      uint64_t offset ) override;
         Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                            const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                            IndexBuffer& indexBuffer, uint32_t indexCount,
@@ -105,6 +112,10 @@ namespace Desert::Graphic::API::Vulkan
         // Everything an in-graph draw records before its draw call (DrawProcedural, DrawIndexed): the pass's
         // command buffer check, the exec's descriptor sets from @p bindings + the material's written slots, the
         // pipeline, the sets and the push constants. Error when any of it cannot be recorded.
+        // Binds @p pipeline, its descriptor sets for this exec and the push constants on the pass's command buffer
+        // (the shared part of DispatchCompute and DispatchComputeIndirect); @p cmd receives that command buffer.
+        Common::BoolResultStr BindComputePassState( const RDG::PassBindings& bindings,
+                                                    const ComputePipeline& pipeline, VkCommandBuffer& cmd );
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                      const GraphicsPipeline&  pipeline,
                                                      const MaterialExecutor*  material );

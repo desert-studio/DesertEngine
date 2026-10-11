@@ -18,7 +18,7 @@ namespace Desert::Graphic
     // (cloud front distance and scene distance, kilometres), which the shader upsamples the first through -- are
     // the reconstruction CloudTemporalResolve wrote this frame, imported into the frame graph and bound by
     // shader name (u_CloudScatter / u_CloudGuide) through RDG::PassBindings in the composite pass
-    // (VolumetricCloudRenderer::RegisterPasses). The pipeline's blend state does the rest.
+    // (VolumetricCloudRenderer::CompositePass). The pipeline's blend state does the rest.
     class MaterialCloudComposite final : public Material
     {
     public:

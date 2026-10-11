@@ -84,6 +84,7 @@ namespace Common::Content
         InputMappingContext,
         PhysicsAsset,
         Sound,
+        VFXDataChannel,
         COUNT,
     };
 
@@ -183,6 +184,9 @@ namespace Common::Content
              // UE's USoundWave: a text asset naming its imported audio source beside it (SoundAsset.hpp). Under
              // the assets root, as a texture is: a sound sits beside whatever uses it.
              /* Sound                */ { "Sound", ".desound", &P::ASSETS_PATH },
+             // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
+             // (Engine/Assets/Serialization/VFXDataChannel.hpp).
+             /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
         } };
     }
 

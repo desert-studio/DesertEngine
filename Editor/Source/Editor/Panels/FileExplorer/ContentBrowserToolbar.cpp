@@ -48,6 +48,7 @@ namespace Desert::Editor
              { "Input Actions", static_cast<int>( FileType::InputAction ) },
              { "Input Mapping Contexts", static_cast<int>( FileType::InputMappingContext ) },
              { "Water Waves", static_cast<int>( FileType::WaterWaves ) },
+             { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
         };
     } // namespace
 

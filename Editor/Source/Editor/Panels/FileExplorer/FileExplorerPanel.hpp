@@ -105,6 +105,9 @@ namespace Desert::Editor
         // listed. The ONE creation route of the context menu and the palette (ContentCreateCommands.hpp).
         Common::BoolResultStr CreateNewInputAction();
         Common::BoolResultStr CreateNewInputMappingContext();
+        // A `.dfxch` with one Position field in the current folder, selected once listed. The ONE creation route
+        // for the context menu and the palette's "Assets / New VFX Data Channel".
+        Common::BoolResultStr CreateNewVFXDataChannel();
 
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before
