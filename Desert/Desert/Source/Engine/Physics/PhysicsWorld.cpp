@@ -35,6 +35,7 @@
 #include <mutex>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -343,12 +344,37 @@ namespace Desert::Physics
             const CollisionProfiles*    Profiles = nullptr;
             std::mutex                  Mutex;
             std::vector<ContactImpulse> Contacts;
+            std::vector<ContactEvent>   Events; // this step's, under Mutex; sorted and handed over after the step
 
             void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
                                  const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
             {
                 Respond( body1, body2, settings );
                 Record( body1, body2, manifold, settings );
+                RecordAdded( body1, body2, manifold, settings );
+            }
+
+            // The bodies cannot be read here (one may be gone): the shape pair is looked up among the overlaps
+            // RecordAdded counted, and the body pair's last shape pair to part ends its overlap.
+            void OnContactRemoved( const JPH::SubShapeIDPair& pair ) override
+            {
+                const std::lock_guard lock( Mutex );
+                const auto            shapes = SensorShapes.find( ShapePairKey( pair ) );
+                if ( shapes == SensorShapes.end() )
+                    return;
+                const uint64_t bodies = shapes->second;
+                SensorShapes.erase( shapes );
+                const auto count = OverlapCounts.find( bodies );
+                if ( count == OverlapCounts.end() || --count->second > 0u )
+                    return;
+                OverlapCounts.erase( count );
+                ContactEvent event;
+                event.Kind    = ContactEventKind::EndOverlap;
+                event.Body1   = static_cast<BodyHandle>( bodies >> 32u );
+                event.Body2   = static_cast<BodyHandle>( bodies & 0xFFFFFFFFu );
+                event.Notify1 = true;
+                event.Notify2 = true;
+                Events.push_back( event );
             }
             void OnContactPersisted( const JPH::Body& body1, const JPH::Body& body2,
                                      const JPH::ContactManifold& manifold,
@@ -359,6 +385,85 @@ namespace Desert::Physics
             }
 
         private:
+            struct ShapePair
+            {
+                uint32_t Body1, Sub1, Body2, Sub2;
+                bool     operator==( const ShapePair& ) const = default;
+            };
+            struct ShapePairHash
+            {
+                size_t operator()( const ShapePair& k ) const
+                {
+                    const uint64_t a = ( static_cast<uint64_t>( k.Body1 ) << 32u ) | k.Sub1;
+                    const uint64_t b = ( static_cast<uint64_t>( k.Body2 ) << 32u ) | k.Sub2;
+                    return std::hash<uint64_t>{}( a ) ^ ( std::hash<uint64_t>{}( b ) * 0x9E3779B97F4A7C15ull );
+                }
+            };
+            static ShapePair ShapePairKey( const JPH::SubShapeIDPair& pair )
+            {
+                return { pair.GetBody1ID().GetIndexAndSequenceNumber(), pair.GetSubShapeID1().GetValue(),
+                         pair.GetBody2ID().GetIndexAndSequenceNumber(), pair.GetSubShapeID2().GetValue() };
+            }
+            static uint64_t BodyPairKey( BodyHandle a, BodyHandle b )
+            {
+                return ( static_cast<uint64_t>( a ) << 32u ) | b;
+            }
+
+            // The overlapping shape pairs, each with its body pair; how many shape pairs each body pair has.
+            std::unordered_map<ShapePair, uint64_t, ShapePairHash> SensorShapes;
+            std::unordered_map<uint64_t, uint32_t>                 OverlapCounts;
+
+            // A new contact becomes an event (UE: a Hit when a blocking contact begins, a BeginOverlap when the
+            // first shape pair of an overlapping body pair touches).
+            void RecordAdded( const JPH::Body& body1, const JPH::Body& body2, const JPH::ContactManifold& manifold,
+                              const JPH::ContactSettings& settings )
+            {
+                const CollisionProfileId profile1 = ProfileOf( body1.GetObjectLayer() );
+                const CollisionProfileId profile2 = ProfileOf( body2.GetObjectLayer() );
+                ContactEvent             event;
+                event.Body1  = body1.GetID().GetIndexAndSequenceNumber();
+                event.Body2  = body2.GetID().GetIndexAndSequenceNumber();
+                event.Normal = ToGlm( manifold.mWorldSpaceNormal );
+                glm::vec3 point( 0.0f );
+                for ( JPH::uint i = 0; i < manifold.mRelativeContactPointsOn1.size(); ++i )
+                    point += ToGlm( manifold.GetWorldSpaceContactPointOn1( i ) );
+                if ( !manifold.mRelativeContactPointsOn1.empty() )
+                    event.Point = point / static_cast<float>( manifold.mRelativeContactPointsOn1.size() );
+
+                if ( settings.mIsSensor )
+                {
+                    if ( !Profiles->GeneratesOverlapEvents( profile1 ) ||
+                         !Profiles->GeneratesOverlapEvents( profile2 ) )
+                        return;
+                    event.Kind    = ContactEventKind::BeginOverlap;
+                    event.Notify1 = true;
+                    event.Notify2 = true;
+                    const JPH::SubShapeIDPair pair( body1.GetID(), manifold.mSubShapeID1, body2.GetID(),
+                                                    manifold.mSubShapeID2 );
+                    const std::lock_guard     lock( Mutex );
+                    const uint64_t            bodies = BodyPairKey( event.Body1, event.Body2 );
+                    if ( !SensorShapes.emplace( ShapePairKey( pair ), bodies ).second )
+                        return;
+                    if ( OverlapCounts[bodies]++ == 0u )
+                        Events.push_back( event );
+                    return;
+                }
+
+                event.Notify1 = Profiles->GeneratesHitEvents( profile1 );
+                event.Notify2 = Profiles->GeneratesHitEvents( profile2 );
+                if ( ( !event.Notify1 && !event.Notify2 ) || manifold.mRelativeContactPointsOn1.empty() )
+                    return;
+                event.Kind = ContactEventKind::Hit;
+                JPH::CollisionEstimationResult estimate;
+                JPH::EstimateCollisionResponse(
+                     body1, body2, manifold, estimate, settings.mCombinedFriction, settings.mCombinedRestitution,
+                     System->GetPhysicsSettings().mMinVelocityForRestitution, kImpulseEstimateIterations );
+                for ( JPH::uint i = 0; i < manifold.mRelativeContactPointsOn1.size(); ++i )
+                    event.Impulse += estimate.mContactImpulse[i];
+                const std::lock_guard lock( Mutex );
+                Events.push_back( event );
+            }
+
             // An Overlap pair's contact is a sensor contact: Jolt finds it and does not solve it (UE: the
             // bodies pass through each other; the overlap itself is reported by the event queue).
             void Respond( const JPH::Body& body1, const JPH::Body& body2, JPH::ContactSettings& settings ) const
@@ -432,7 +537,91 @@ namespace Desert::Physics
 
         ImpulseListener              Impulses;
         std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
+        std::vector<ContactEvent>    StepEvents;   // the last Step call's, handed out by GetContactEvents
+        std::function<void( float )> PreStepCallback;
         std::function<void( float )> StepCallback;
+
+        // The fixed step's clock. The bank is double: a float bank fed 1/240 four times must reach exactly
+        // the step a 1/60 frame reaches, or two frame rates would take their steps a frame apart.
+        double   Bank      = 0.0;
+        uint64_t StepCount = 0;
+
+        // A force held for every step of the next Step call (added outside a step), see PhysicsWorld.hpp.
+        enum class ForceKind : uint8_t
+        {
+            Force,
+            ForceAtPoint,
+            Torque,
+        };
+        struct HeldForce
+        {
+            JPH::BodyID Body;
+            ForceKind   Kind;
+            JPH::Vec3   Value;
+            JPH::RVec3  Point;
+        };
+        std::vector<HeldForce> HeldForces;
+        bool                   InStep           = false; // inside the pre-step callback: forces act on this step
+        bool                   HeldForcesWaited = false; // a Step took no step: the next frame's forces replace
+
+        // The poses before the last step, for the Interpolated getters: the bodies Jolt had active then (a
+        // sleeping body does not move, so it needs none), and every character.
+        struct Pose
+        {
+            glm::vec3 Position;
+            glm::quat Rotation;
+        };
+        std::unordered_map<BodyHandle, Pose> PreviousPoses;
+        std::vector<glm::vec3>               PreviousCharacterPositions; // parallel to Characters
+
+        void HoldOrApply( const HeldForce& force )
+        {
+            if ( InStep )
+            {
+                Apply( force );
+                return;
+            }
+            if ( HeldForcesWaited )
+            {
+                HeldForces.clear();
+                HeldForcesWaited = false;
+            }
+            HeldForces.push_back( force );
+        }
+
+        void Apply( const HeldForce& force ) const
+        {
+            switch ( force.Kind )
+            {
+                case ForceKind::Force:
+                    Bodies->AddForce( force.Body, force.Value );
+                    break;
+                case ForceKind::ForceAtPoint:
+                    Bodies->AddForce( force.Body, force.Value, force.Point );
+                    break;
+                case ForceKind::Torque:
+                    Bodies->AddTorque( force.Body, force.Value );
+                    break;
+            }
+        }
+
+        void KeepPoses()
+        {
+            JPH::BodyIDVector active;
+            System.GetActiveBodies( JPH::EBodyType::RigidBody, active );
+            PreviousPoses.clear();
+            for ( const JPH::BodyID id : active )
+            {
+                JPH::RVec3 position;
+                JPH::Quat  rotation{};
+                Bodies->GetPositionAndRotation( id, position, rotation );
+                PreviousPoses[id.GetIndexAndSequenceNumber()] = { ToGlm( position ), ToGlm( rotation ) };
+            }
+            PreviousCharacterPositions.resize( Characters.size() );
+            for ( size_t i = 0; i < Characters.size(); ++i )
+                if ( Characters[i] != nullptr )
+                    PreviousCharacterPositions[i] = ToGlm( Characters[i]->GetPosition() );
+        }
     };
 
     PhysicsWorld::PhysicsWorld()  = default;
@@ -510,18 +699,75 @@ namespace Desert::Physics
         if ( !m_Impl || dt <= 0.0f )
             return;
 
-        // Fixed 60 Hz steps; clamp the backlog so a hitch can't spiral into a long catch-up.
-        constexpr float kFixed = 1.0f / 60.0f;
-        m_Accumulator          = std::min( m_Accumulator + dt, 0.25f );
-        while ( m_Accumulator >= kFixed )
+        Impl&          world = *m_Impl;
+        constexpr auto kStep = static_cast<double>( kFixedStepSeconds );
+        world.Bank += static_cast<double>( dt );
+        uint32_t taken = 0;
+        world.StepEvents.clear();
+        while ( world.Bank >= kStep && taken < kMaxStepsPerFrame )
         {
-            m_Impl->Impulses.Contacts.clear();
-            m_Impl->System.Update( kFixed, 1, m_Impl->TempAllocator.get(), m_Impl->JobSystem.get() );
-            m_Accumulator -= kFixed;
-            m_Impl->StepContacts.swap( m_Impl->Impulses.Contacts );
-            if ( m_Impl->StepCallback )
-                m_Impl->StepCallback( kFixed );
+            world.KeepPoses();
+            world.InStep = true;
+            if ( world.PreStepCallback )
+                world.PreStepCallback( kFixedStepSeconds );
+            world.InStep = false;
+            // Jolt clears a body's forces after every update, so a held force is given again on each step.
+            for ( const Impl::HeldForce& force : world.HeldForces )
+                world.Apply( force );
+
+            world.Impulses.Contacts.clear();
+            world.System.Update( kFixedStepSeconds, 1, world.TempAllocator.get(), world.JobSystem.get() );
+            world.Bank -= kStep;
+            ++world.StepCount;
+            ++taken;
+            world.StepContacts.swap( world.Impulses.Contacts );
+            {
+                // The solver's threads found the contacts in no fixed order: sorted, the events of a step are
+                // the same on every machine that took it.
+                std::vector<ContactEvent>& events = world.Impulses.Events;
+                std::stable_sort(
+                     events.begin(), events.end(), []( const ContactEvent& a, const ContactEvent& b )
+                     { return std::tie( a.Body1, a.Body2, a.Kind ) < std::tie( b.Body1, b.Body2, b.Kind ); } );
+                world.StepEvents.insert( world.StepEvents.end(), events.begin(), events.end() );
+                events.clear();
+            }
+            if ( world.StepCallback )
+                world.StepCallback( kFixedStepSeconds );
         }
+        // UE MaxSubsteps: a hitch longer than the steps allowed loses the rest instead of catching it up.
+        // The part of a step already banked is kept, so the next step falls where it would have.
+        world.Bank = std::fmod( world.Bank, kStep );
+
+        if ( taken > 0 )
+        {
+            world.HeldForces.clear();
+            world.HeldForcesWaited = false;
+        }
+        else
+            world.HeldForcesWaited = !world.HeldForces.empty();
+    }
+
+    uint64_t PhysicsWorld::GetStepCount() const
+    {
+        return m_Impl ? m_Impl->StepCount : 0u;
+    }
+
+    double PhysicsWorld::GetSimulatedSeconds() const
+    {
+        return static_cast<double>( GetStepCount() ) * static_cast<double>( kFixedStepSeconds );
+    }
+
+    float PhysicsWorld::GetInterpolationAlpha() const
+    {
+        if ( !m_Impl )
+            return 0.0f;
+        return static_cast<float>( m_Impl->Bank / static_cast<double>( kFixedStepSeconds ) );
+    }
+
+    void PhysicsWorld::SetPreStepCallback( std::function<void( float )> callback )
+    {
+        if ( m_Impl )
+            m_Impl->PreStepCallback = std::move( callback );
     }
 
     void PhysicsWorld::SetStepCallback( std::function<void( float )> callback )
@@ -535,6 +781,13 @@ namespace Desert::Physics
         if ( !m_Impl )
             return {};
         return m_Impl->StepContacts;
+    }
+
+    std::span<const ContactEvent> PhysicsWorld::GetContactEvents() const
+    {
+        if ( !m_Impl )
+            return {};
+        return m_Impl->StepEvents;
     }
 
     Common::ResultStr<BodyHandle> PhysicsWorld::CreateCompoundBody( const CompoundBodyDesc& desc )
@@ -870,6 +1123,29 @@ namespace Desert::Physics
         m_Impl->Bodies->SetPositionAndRotation( JPH::BodyID( handle ),
                                                 JPH::RVec3( position.x, position.y, position.z ),
                                                 ToJolt( rotation ), JPH::EActivation::Activate );
+        m_Impl->PreviousPoses.erase( handle ); // a teleport is drawn where it lands, not swept to it
+    }
+
+    glm::vec3 PhysicsWorld::GetInterpolatedPosition( BodyHandle handle ) const
+    {
+        const glm::vec3 current = GetPosition( handle );
+        if ( !m_Impl )
+            return current;
+        const auto previous = m_Impl->PreviousPoses.find( handle );
+        if ( previous == m_Impl->PreviousPoses.end() )
+            return current;
+        return glm::mix( previous->second.Position, current, GetInterpolationAlpha() );
+    }
+
+    glm::quat PhysicsWorld::GetInterpolatedRotation( BodyHandle handle ) const
+    {
+        const glm::quat current = GetRotation( handle );
+        if ( !m_Impl )
+            return current;
+        const auto previous = m_Impl->PreviousPoses.find( handle );
+        if ( previous == m_Impl->PreviousPoses.end() )
+            return current;
+        return glm::slerp( previous->second.Rotation, current, GetInterpolationAlpha() );
     }
 
     void PhysicsWorld::SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity )
@@ -884,6 +1160,30 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return;
         m_Impl->Bodies->AddImpulse( JPH::BodyID( handle ), ToJolt( impulse ) );
+    }
+
+    void PhysicsWorld::AddForce( BodyHandle handle, const glm::vec3& force )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        m_Impl->HoldOrApply(
+             { JPH::BodyID( handle ), Impl::ForceKind::Force, ToJolt( force ), JPH::RVec3::sZero() } );
+    }
+
+    void PhysicsWorld::AddForceAtPoint( BodyHandle handle, const glm::vec3& force, const glm::vec3& point )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        m_Impl->HoldOrApply( { JPH::BodyID( handle ), Impl::ForceKind::ForceAtPoint, ToJolt( force ),
+                               JPH::RVec3( point.x, point.y, point.z ) } );
+    }
+
+    void PhysicsWorld::AddTorque( BodyHandle handle, const glm::vec3& torque )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        m_Impl->HoldOrApply(
+             { JPH::BodyID( handle ), Impl::ForceKind::Torque, ToJolt( torque ), JPH::RVec3::sZero() } );
     }
 
     glm::vec3 PhysicsWorld::GetLinearVelocity( BodyHandle handle ) const
@@ -959,10 +1259,13 @@ namespace Desert::Physics
             *freeSlot                         = character;
             const auto handle                 = static_cast<CharacterHandle>( freeSlot - slots.begin() );
             m_Impl->CharacterProfiles[handle] = desc.Profile;
+            if ( handle < m_Impl->PreviousCharacterPositions.size() )
+                m_Impl->PreviousCharacterPositions[handle] = desc.Position; // not the slot's last tenant
             return Common::MakeSuccess( handle );
         }
         slots.push_back( character );
         m_Impl->CharacterProfiles.push_back( desc.Profile );
+        m_Impl->PreviousCharacterPositions.resize( slots.size(), desc.Position );
         return Common::MakeSuccess( static_cast<CharacterHandle>( slots.size() - 1 ) );
     }
 
@@ -994,6 +1297,14 @@ namespace Desert::Physics
         return ToGlm( m_Impl->Characters[handle]->GetPosition() );
     }
 
+    glm::vec3 PhysicsWorld::GetInterpolatedCharacterPosition( CharacterHandle handle ) const
+    {
+        const glm::vec3 current = GetCharacterPosition( handle );
+        if ( !m_Impl || handle >= m_Impl->PreviousCharacterPositions.size() || m_Impl->StepCount == 0 )
+            return current;
+        return glm::mix( m_Impl->PreviousCharacterPositions[handle], current, GetInterpolationAlpha() );
+    }
+
     bool PhysicsWorld::IsCharacterOnGround( CharacterHandle handle ) const
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
@@ -1007,5 +1318,7 @@ namespace Desert::Physics
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
             return;
         m_Impl->Characters[handle]->SetPosition( ToJolt( position ) );
+        if ( handle < m_Impl->PreviousCharacterPositions.size() )
+            m_Impl->PreviousCharacterPositions[handle] = position; // a teleport is drawn where it lands
     }
 } // namespace Desert::Physics

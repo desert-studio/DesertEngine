@@ -22,6 +22,17 @@ project "Lua"
         root .. "/ltests.c",
     }
 
+    -- Coexistence with Luau (BuildScripts/ThirdParty/Luau.lua) while the scripting layer moves over; deleted
+    -- with this project. Luau's lua_* FUNCTIONS have C++ linkage, so they are mangled and never meet ours, but a
+    -- namespace-scope VARIABLE keeps its plain name under the Itanium ABI (clang/gcc; MSVC mangles it): Luau's
+    -- lapi.cpp defines `lua_ident` exactly as lapi.c does, and a link holding both is a duplicate symbol. Of the
+    -- two archives' external symbols this is the only shared name (nm -g of libLua.a vs libLuau*.a). PUC's copy
+    -- is renamed here because nothing reads it (lua.h declares it; no engine, sol2 or tool source names it).
+    defines { "lua_ident=desert_puc_lua_ident" }
+    -- gmake does not rebuild on a changed define, so an archive built before the rename would still link; a new
+    -- archive name makes every tree build the renamed one instead of reusing the stale libLua.a.
+    targetname "LuaPuc"
+
     filter "system:windows"
         systemversion "latest"
 

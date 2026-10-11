@@ -1,6 +1,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 
 #include "Editor/Core/CommandHistory.hpp"
+#include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/ShotOptions.hpp"
 #include "Editor/Core/ThemeManager.hpp"
 #include "Editor/Core/ToastManager.hpp"
@@ -152,6 +153,11 @@ namespace Desert::Editor
             return;
 
         Desert::Core::SceneLoadPhases phases( "Stop restore" );
+        // THE SELECTION OUTLIVES PLAY (UEditorEngine::EndPlayMap, PlayLevel.cpp:266-300 and 695-705: the selected
+        // PIE actors are mapped to their editor counterparts and selected again after the PIE world goes). The
+        // snapshot restore below rebuilds every authored entity under its own UUID, so a UUID is the counterpart;
+        // one that Play spawned (the pawn) is not in the restored world and drops out.
+        const std::vector<Common::UUID> selectedBeforeStop = Core::SelectionManager::GetSelection();
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         CommandHistory::Get().Clear(); // anything recorded during Play targets entities about to be rebuilt
         m_WorldStreamer.reset();       // before Clear: the snapshot below brings every cell back
@@ -186,7 +192,12 @@ namespace Desert::Editor
         phases.Lap( "initialise the scene", incoming );
 
         m_Workspace.ActiveSceneReplaced();
-        phases.Lap( "rebuild the render registry, drop the old world's selection", incoming );
+        std::vector<Common::UUID> counterparts;
+        for ( const Common::UUID& uuid : selectedBeforeStop )
+            if ( scene->FindEntityByID( uuid ) )
+                counterparts.push_back( uuid );
+        Core::SelectionManager::SetSelection( std::move( counterparts ) );
+        phases.Lap( "rebuild the render registry, select the played selection's authored counterparts", incoming );
         phases.LogSummary();
 
         scene->SetState( SceneState::Edit );

@@ -56,11 +56,11 @@ namespace Desert::Core::Serialize
             data.Scale       = tc.Scale;
         }
 
-        // ---- Components (generic, registry-driven) ----
-        for ( const auto& serializer : ComponentRegistry::Get().All() )
+        // ---- Components (generic, registry-driven), in the file's key order ----
+        for ( const ComponentSerializer* serializer : ComponentRegistry::Get().InFileOrder() )
         {
-            if ( serializer.Has( entity ) )
-                data.Components[serializer.Key] = serializer.Serialize( entity, assetManager );
+            if ( serializer->Has( entity ) )
+                data.Components[serializer->Key] = serializer->Serialize( entity, assetManager );
         }
 
         return data;

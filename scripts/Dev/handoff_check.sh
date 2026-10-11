@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # handoff_check.sh [base=origin/dev] — everything a branch must pass before hand-off, in one call.
-# Runs every built test in build/Bin/Tests/Debug from the tree root (exit codes, 300 s cap, HANDOFF_JOBS=4 in
-# parallel, reds re-run alone), RepoOnlyIncludes --require-replacements, llvm@18 clang-format + glued text on changed lines,
+# Builds the layer runners and runs every suite of build/TestManifest.txt as `<runner> --desert-suite=<Suite>`, each
+# in its own scratch directory (exit codes, HANDOFF_SUITE_TIMEOUT=900 s cap, HANDOFF_JOBS=4 in parallel, reds re-run
+# alone), RepoOnlyIncludes --require-replacements, llvm@18 clang-format + glued text on changed lines,
 # and the .claude guard; warns on test binaries older than their .o or linked libs; red if the suites left anything
 # new in the checkout (names the suite that wrote it). Exit 0 = all green.
 # On green with a clean tree, writes .cache/handoff/<full HEAD sha>.ok (the summary line); any red deletes it.
@@ -20,14 +21,15 @@ LOG=$(dev_logdir handoff)
 start=$(date +%s)
 fail=0
 
-# (a) every test binary, from the root: several suites resolve fixtures relative to the working directory.
-# Parallel for time; a suite that fails in parallel is re-run ALONE before it counts as red, so two suites
-# sharing a temp path cannot manufacture a red.
+# (a) every suite of the manifest, one run per suite: a whole runner (EngineTests holds 273 suites) cannot fit one
+# cap and its single exit code names no suite. Parallel for time; a suite that fails in parallel is re-run ALONE
+# before it counts as red, so two suites sharing a temp path cannot manufacture a red.
 BIN=build/Bin/Tests/Debug
+MANIFEST=build/TestManifest.txt
 # run_one (records each run's window), tree_state and trace_leaks — step (h) — live in tree_leaks.sh, which
 # also runs the same check standalone on named suites.
 source "$(dirname "$0")/tree_leaks.sh"
-export -f run_one dev_capped
+export -f run_one dev_capped unit_bin unit_suite
 dev_regen_makefiles "$LOG" || exit 2
 # A suite deleted on this branch keeps its old .make (premake never removes one), and the build below stops on
 # "No rule to make target" — LODFold did this in five trees on 09-26. A test makefile that the regeneration did not
@@ -44,9 +46,10 @@ fi
 # binary at all, and an agent that fixed that by hand spent a whole second pass (~45 min) per branch, five times on
 # 09-25. make rebuilds only what is out of date, so on a fresh tree this is seconds. HANDOFF_NO_BUILD=1 skips it.
 if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
-    suites=$(grep -l "TARGETDIR = ../Bin/Tests/Debug" "$DEV_PROJECTS"/*.make 2>/dev/null | xargs -n1 basename | sed 's/\.make$//')
-    if ! printf '%s\n' $suites | xargs "$DEV_ROOT/scripts/Dev/suite.sh" --build-only >"$LOG/build.log" 2>&1; then
-        echo "handoff_check: building the suites FAILED; log $LOG/build.log"; tail -5 "$LOG/build.log"; exit 1
+    # suite.sh maps every manifest suite to its runner and builds each runner once.
+    [ -s "$MANIFEST" ] || { echo "handoff_check: $MANIFEST is missing or empty after premake"; exit 1; }
+    if ! awk '{ print $2 }' "$MANIFEST" | xargs "$DEV_ROOT/scripts/Dev/suite.sh" --build-only >"$LOG/build.log" 2>&1; then
+        echo "handoff_check: building the runners FAILED; log $LOG/build.log"; tail -5 "$LOG/build.log"; exit 1
     fi
     # (0b) the Editor too: suites compile a fraction of the Editor's sources, and on 09-26 two batches each passed
     # every suite while together they broke the Editor build (AV1d changed PreviewViewport::Draw, AV1e called the
@@ -61,40 +64,50 @@ tree_state >"$LOG/tree.before"
 bins=()
 for t in "$BIN"/*; do
     [ -f "$t" ] && [ -x "$t" ] || continue
-    # A suite deleted on dev leaves its binary behind: AUTO1's handoff ran CookedFixtureWhitelist (deleted by AF8b2)
-    # and reported it red. A binary with no makefile is parked (never deleted), not run.
+    # A runner (or a pre-runner suite binary) that premake no longer makes is parked (never deleted), not run:
+    # AUTO1's handoff ran CookedFixtureWhitelist (deleted by AF8b2) and reported it red.
     if [ -f "$DEV_PROJECTS/Makefile" ] && [ ! -f "$DEV_PROJECTS/$(basename "$t").make" ]; then
         mkdir -p build/stale-bin; mv "$t" build/stale-bin/; echo "handoff_check: parked orphan binary $t"; continue
     fi
     bins+=("$t")
 done
-total=${#bins[@]}
-[ "$total" -gt 0 ] && printf '%s\n' "${bins[@]}" | xargs -P "${HANDOFF_JOBS:-4}" -I{} bash -c 'run_one "$1" "$2"' _ {} "$LOG"
-passed=0; red=(); stale=()
-# (f) never built: a suite whose makefile exists but whose binary does not is not "not run", it is untested code.
+passed=0; red=(); stale=(); units=()
+# (f) never built: a runner whose makefile exists but whose binary does not is not "not run", it is untested code.
 # The AF7 branch passed 146/146 in a tree that had built 146 of 332 suites; ModelingToolTarget no longer compiled.
 for mk in $(grep -l "TARGETDIR = ../Bin/Tests/Debug" "$DEV_PROJECTS"/*.make 2>/dev/null); do
     name=$(basename "$mk" .make)
     [ -x "$BIN/$name" ] || stale+=("$name<never built")
 done
-for t in "${bins[@]}"; do
-    name=$(basename "$t")
+# The units: every manifest entry whose runner is built. A missing runner is already "never built" above; an entry
+# naming an executable no makefile produces is red, not skipped.
+while read -r exe suite; do
+    [ -n "${suite:-}" ] || continue
+    if [ -x "$BIN/$exe" ]; then units+=("$BIN/$exe:$suite")
+    elif [ ! -f "$DEV_PROJECTS/$exe.make" ]; then red+=("$suite: the manifest names $exe, which no makefile builds"); fi
+done <"$MANIFEST"
+total=${#units[@]}
+[ "$total" -gt 0 ] && printf '%s\n' "${units[@]}" | xargs -P "${HANDOFF_JOBS:-4}" -I{} bash -c 'run_one "$1" "$2"' _ {} "$LOG"
+for u in "${units[@]:+${units[@]}}"; do
+    name=$(unit_suite "$u")
     rc=$(cat "$LOG/$name.rc" 2>/dev/null || echo 255)
-    if [ "$rc" != 0 ]; then run_one "$t" "$LOG"; rc=$(cat "$LOG/$name.rc"); fi
+    if [ "$rc" != 0 ]; then run_one "$u" "$LOG"; rc=$(cat "$LOG/$name.rc"); fi
     if [ "$rc" = 0 ]; then passed=$((passed + 1)); else
         tests=$(grep -a '^\[  FAILED  \] [A-Za-z_]' "$LOG/$name.log" | grep -av 'listed below' |
                 sed 's/^\[  FAILED  \] //; s/ (.*//; s/,.*//' | sort -u | head -3 | tr '\n' ' ')
-        [ "$rc" = 124 ] && tests="TIMEOUT 300s"
-        red+=("$name rc=$rc $tests")
+        [ "$rc" = 124 ] && tests="TIMEOUT ${HANDOFF_SUITE_TIMEOUT:-900}s"
+        red+=("$name ($(basename "$(unit_bin "$u")")) rc=$rc $tests")
     fi
-    # (e) stale: the binary must be newer than its own objects and every library it links (Debug LDDEPS).
+    # BuildVersion compares its baked commit count/hash with git's answer, so every commit after its runner's
+    # build turns it red; say "stale" rather than let an agent debug a correct test.
+    if [ "$name" = BuildVersion ] && [ "$(stat -f %m "$(unit_bin "$u")")" -lt "$(git log -1 --format=%ct HEAD)" ]; then
+        stale+=("$(basename "$(unit_bin "$u")")<HEAD commit (BuildVersion)")
+    fi
+done
+# (e) stale: each runner must be newer than its own objects and every library it links (Debug LDDEPS).
+for t in "${bins[@]:+${bins[@]}}"; do
+    name=$(basename "$t")
     newest=$(ls -t "build/Tests/Intermediates/Debug/Debug/$name"/*.o 2>/dev/null | head -1)
     if [ -n "$newest" ] && [ "$newest" -nt "$t" ]; then stale+=("$name<$(basename "$newest")"); continue; fi
-    # BuildVersion compares its baked commit count/hash with git's answer, so every commit after its
-    # build turns it red; say "stale" rather than let an agent debug a correct test.
-    if [ "$name" = BuildVersion ] && [ "$(stat -f %m "$t")" -lt "$(git log -1 --format=%ct HEAD)" ]; then
-        stale+=("$name<HEAD commit"); continue
-    fi
     [ -f "$DEV_PROJECTS/$name.make" ] || continue
     for lib in $(awk '/^ifeq \(\$\(config\),debug\)/{d=1} /^ifeq \(\$\(config\),release\)/{d=0}
                       d && /^LDDEPS \+=/{for(i=3;i<=NF;i++)print $i}' "$DEV_PROJECTS/$name.make"); do
@@ -104,10 +117,10 @@ for t in "${bins[@]}"; do
     done
 done
 # (h) the suites must leave the checkout as they found it; a new entry is traced to the suite that wrote it.
-trace_leaks "$LOG" "${bins[@]}" || fail=1
+trace_leaks "$LOG" "${units[@]:+${units[@]}}" || fail=1
 
 [ ${#red[@]} -gt 0 ] && fail=1
-[ "$total" -eq 0 ] && { red+=("no test binaries in $BIN — build the suites first"); fail=1; }
+[ "$total" -eq 0 ] && { red+=("no suites to run: no built runner in $BIN serves $MANIFEST — build the runners first"); fail=1; }
 
 # (b) repo-only includes
 if bash scripts/CI/RepoOnlyIncludes.sh --require-replacements >"$LOG/includes.log" 2>&1 \

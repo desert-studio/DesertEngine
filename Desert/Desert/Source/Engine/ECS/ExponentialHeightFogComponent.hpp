@@ -126,6 +126,7 @@ namespace Desert::ECS
 
     struct ExponentialHeightFogComponent
     {
+        COMPONENT( Key( "ExponentialHeightFog" ), Block( Data ), Run( SkyAndAtmosphere ) )
         ExponentialHeightFogData Data;
     };
 } // namespace Desert::ECS

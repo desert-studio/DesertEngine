@@ -75,8 +75,10 @@ local function DesertRunnerSettings(deps)
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
+        -- Luau by module path (<VM/include/lua.h>): Engine/Scripting/Internal headers the script suites include.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
-    -- Every engine third-party include (Jolt, Lua/sol2, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
+    -- Every engine third-party include (Jolt, Luau, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
     -- from the engine's own list so the two stay in sync. The iteration skips the Vulkan keys when no SDK is set.
     for _, p in DesertSortedPairs(deps.DesertSpecific.IncludeDir) do
         externalincludedirs { p }
@@ -92,7 +94,12 @@ local function DesertRunnerSettings(deps)
         links {
             "Common",
             "Jolt",
-            "Lua",
+            "LuauCodeGen",
+            "LuauCompiler",
+            "LuauAst",
+            "LuauBytecode",
+            "LuauVM",
+            "LuauCommon",
             "ReflectCpp",
             "Cocoa.framework",
             "IOKit.framework",
@@ -157,6 +164,9 @@ local kRunners = {
     end,
     Tools = function(deps)
         DesertRunnerSettings(deps)
+        -- PUC Lua: only the header tool's ModuleTable.cpp (ModuleBoundary, compiled below) uses it; scripts run
+        -- on Luau. Named on every platform: Desert.lib no longer links it, so MSVC gets it from no reference.
+        links { "Lua" }
         -- The tools are executables, so the sources their suites test are compiled here, once.
         files {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",
@@ -174,8 +184,13 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
             -- WorldCells holds the world cook's cell partition (the file has no main of its own).
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source/WorldCookMain.cpp",
-            -- HeaderToolChecks: the header tool's scanner.
+            -- HeaderToolChecks: the header tool's scanner and its COMPONENT(...) reader.
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/HeaderScan.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/AnnotationText.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/ComponentBlocks.cpp",
+            -- ModuleBoundary: the module table's reader (it executes BuildScripts/DesertModules.lua with PUC Lua,
+            -- which this runner links itself — the engine no longer does).
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/ModuleTable.cpp",
             -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
@@ -186,22 +201,40 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source",
+            -- ReflectedFunctions: the generated registration includes its fixture as <Fixture/...>.
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Tools/ReflectedFunctions",
+            -- LuauRuntime: same arrangement, its own fixture (Fixture/LuauFixture.hpp).
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Tools/LuauRuntime",
         }
+        -- ReflectedFunctions: the header tool generates the fixture's reflection (FUNCTION thunks included)
+        -- before the compile, exactly as Desert's prebuild generates the engine's. Its own force-link anchor:
+        -- the engine's ForceLinkGeneratedReflection is Desert.lib's, which this runner also links.
+        local reflectedFunctions = "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Tools/ReflectedFunctions"
+        dependson { "DesertHeaderTool" }
+        prebuildcommands {
+            DesertPlatform.BuiltToolPath("DesertHeaderTool")
+                .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+                .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Tools/ReflectedFunctions" "Fixture"'
+                .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Tools/ReflectedFunctions/Generated/FunctionFixture.gen.cpp"'
+                .. ' --reflect-anchor ForceLinkReflectedFunctionFixture',
+            -- LuauRuntime: the binder is exercised on a type the real tool reflected, never on a hand-built TypeInfo.
+            DesertPlatform.BuiltToolPath("DesertHeaderTool")
+                .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+                .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Tools/LuauRuntime" "Fixture"'
+                .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Tools/LuauRuntime/Generated/LuauFixture.gen.cpp"'
+                .. ' --reflect-anchor ForceLinkLuauRuntimeFixture',
+        }
+        files { reflectedFunctions .. "/Fixture/*.hpp", reflectedFunctions .. "/Generated/*.gen.cpp" }
+        local luauRuntime = "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Tools/LuauRuntime"
+        files { luauRuntime .. "/Fixture/*.hpp", luauRuntime .. "/Generated/*.gen.cpp" }
     end,
     Engine = function(deps)
         DesertRunnerSettings(deps)
         files {
             -- The launcher/engine project-format conformance suite; Engine/ProjectFormat adopts it.
             "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp",
-            -- UICanvasContext: the v40 -> v41 UI lift is the migrator's.
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
-            -- TimelineContract: the generation-3 clip lift and the interp shift are the migrator's.
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
-            -- LevelSequence: keying through the editor's sequence transaction and material tracks.
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
+            -- Nothing of Editor/ or Tools/ is compiled here (TEST-LAYERS; TestRunnerLayout holds it): a suite that
+            -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
         }
         includedirs {
             -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
@@ -210,7 +243,6 @@ local kRunners = {
             -- Header-only tool cores the image and lattice censuses measure with.
             "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/LatticePeak/Source",
-            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
         }
         externalincludedirs {
             -- FractureBake reads the vendored Voronoi cells (voro++) the engine's fracture bake is built on.
@@ -285,6 +317,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SkeletonBindEdit.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/TrackFilter.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",
         }

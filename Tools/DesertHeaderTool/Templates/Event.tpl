@@ -1,0 +1,3 @@
+                    .Event( ::Desert::Reflection::MakeEvent<T::{{ ev.name }}>( "{{ ev.name }}", "{{ t.registryName }}", std::array<::Desert::Reflection::ParamSpelling, {{ ev.paramCount }}>{ {% for p in ev.params %}::Desert::Reflection::ParamSpelling{ "{{ p.name }}", "{{ p.cppType }}" }, {% endfor %}}, ::Desert::Reflection::EventMetadata{ .Category = "{{ ev.category }}", .Tooltip = "{{ ev.tooltip }}" } ) )
+{#- One EVENT(...), one output line. The names and the attributes are the tool's; the kinds are deduced from the
+    alias T::name by MakeEvent (Engine/Reflection/FunctionThunk.hpp), which static_asserts the count. #}

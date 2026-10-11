@@ -93,6 +93,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "S
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data, "DestructibleData",
                                      "Destructible" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterBodyComponent, Data, "WaterBodyData", "Water Body" )
 // Fields (UE Field System actors): placed at the entity, fired once by ECS::FireDestructionField.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RadialImpulseFieldComponent, Data, "RadialImpulseFieldData",
                                      "Radial Impulse Field" )
@@ -166,6 +167,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIDropdownComponent, Data, "
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIOverlayComponent, Data, "UIOverlayData", "UI Overlay" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIOverlayTriggerComponent, Data, "UIOverlayTriggerData",
                                      "UI Overlay Trigger" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UINavigationComponent, Data, "UINavigationData",
+                                     "UI Navigation" )
 // Exponential Height Fog is the plain reflected one-liner: every field is a value, nothing needs the
 // scene, and the fog height deliberately is not a field (it is the entity's transform Y).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponent, Data,

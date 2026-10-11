@@ -14,6 +14,14 @@
             "id": 4001,
             "siblingIndex": 0,
             "Tag": "UI Canvas",
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/UIListProbe.lua",
+                        "Props": []
+                    }
+                ]
+            },
             "UICanvas": {
                 "ScaleMode": 2,
                 "RenderMode": 0,
@@ -31,14 +39,6 @@
                 "Theme": "",
                 "FontScale": 1.0,
                 "HighContrast": false
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/UIListProbe.lua",
-                        "Props": []
-                    }
-                ]
             }
         },
         {
@@ -61,6 +61,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -117,6 +118,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -151,6 +153,10 @@
             "parent": 4001,
             "siblingIndex": 2,
             "Tag": "Inventory Count",
+            "UIBinding": {
+                "Key": "probe.inventory.caption",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 0.0],
@@ -166,6 +172,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -193,10 +200,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "probe.inventory.caption",
-                "Target": 0
             }
         },
         {
@@ -219,6 +222,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -239,6 +243,10 @@
             "parent": 4100,
             "siblingIndex": 0,
             "Tag": "Inventory Entry",
+            "UIBinding": {
+                "Key": "tint",
+                "Target": 3
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 1.0],
@@ -254,6 +262,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -288,10 +297,6 @@
                 "Glow": false,
                 "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
                 "GlowSize": 12.0
-            },
-            "UIBinding": {
-                "Key": "tint",
-                "Target": 3
             }
         },
         {
@@ -299,6 +304,10 @@
             "parent": 4101,
             "siblingIndex": 0,
             "Tag": "Name",
+            "UIBinding": {
+                "Key": "name",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 1.0],
@@ -314,6 +323,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -341,10 +351,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "name",
-                "Target": 0
             }
         },
         {
@@ -352,6 +358,10 @@
             "parent": 4101,
             "siblingIndex": 1,
             "Tag": "Count",
+            "UIBinding": {
+                "Key": "count",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [1.0, 0.0],
                 "AnchorMax": [1.0, 1.0],
@@ -367,6 +377,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -394,10 +405,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "count",
-                "Target": 0
             }
         },
         {
@@ -420,6 +427,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -455,6 +463,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -496,6 +505,10 @@
             "parent": 4201,
             "siblingIndex": 0,
             "Tag": "From",
+            "UIBinding": {
+                "Key": "from",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [0.0, 1.0],
@@ -511,6 +524,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -538,10 +552,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "from",
-                "Target": 0
             }
         },
         {
@@ -549,6 +559,10 @@
             "parent": 4201,
             "siblingIndex": 1,
             "Tag": "Line",
+            "UIBinding": {
+                "Key": "line",
+                "Target": 0
+            },
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
                 "AnchorMax": [1.0, 1.0],
@@ -564,6 +578,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -591,10 +606,6 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
-            },
-            "UIBinding": {
-                "Key": "line",
-                "Target": 0
             }
         },
         {

@@ -39,6 +39,7 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
+#include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
@@ -56,6 +57,7 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <limits>
 
 namespace Desert::Core::Serialize
@@ -899,6 +901,20 @@ namespace Desert::Core::Serialize
                     a = m.CreateAsset<Assets::FractureAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
+            if ( type == "WaterWavesAsset" )
+            {
+                // A water body's wave set (WaterBodyData::WaterWaves). Announced, not read, as the fracture
+                // above: WaterWavesService reads the `.dwaves` when Play gathers the bodies, and the asset's
+                // constructor adopts the handle its header GUID names.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::WaterWavesAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
             if ( type == "PrefabAsset" )
             {
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
@@ -1233,6 +1249,10 @@ namespace Desert::Core::Serialize
     ComponentRegistry::ComponentRegistry()
     {
         RegisterBuiltins();
+        for ( const auto& serializer : m_Serializers )
+            m_InFileOrder.push_back( &serializer );
+        std::sort( m_InFileOrder.begin(), m_InFileOrder.end(),
+                   []( const ComponentSerializer* a, const ComponentSerializer* b ) { return a->Key < b->Key; } );
     }
 
     void ComponentRegistry::Register( ComponentSerializer serializer )
@@ -1843,7 +1863,7 @@ namespace Desert::Core::Serialize
             Register( std::move( s ) );
         }
 
-        // ---- Reflected data blocks: the rows of ReflectedComponentBlocks.hpp, run by run ----
+        // ---- Reflected data blocks: the generated rows (COMPONENT markers), run by run ----
         const auto registerRun = [this]( ReflectedBlockRun run )
         {
             ForEachReflectedComponentBlock(

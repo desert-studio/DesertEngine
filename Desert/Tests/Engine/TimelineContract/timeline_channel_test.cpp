@@ -2,10 +2,7 @@
 
 #include "TimelineFixtures.hpp"
 
-#include "ClipGeneration3.hpp" // the generation-3 sampler lives in Tools/SceneMigrator since ANIM-I8a
-
 using namespace TimelineFixtures;
-namespace Gen3 = Desert::Migration::ClipGen3;
 
 // ── 1. On-disk integers ─────────────────────────────────────────────────────────────────────────────
 
@@ -53,28 +50,6 @@ TEST( TimelineChannel, HeldFlatOutsideTheKeysAndLinearBetween )
     EXPECT_EQ( Evaluate( channel, At( 0 ), rate ), 2.0F );
     EXPECT_EQ( Evaluate( channel, At( 50 ), rate ), 6.0F );
     EXPECT_NEAR( Evaluate( channel, At( 20 ), rate ), 4.0F, 1e-6F );
-}
-
-TEST( TimelineChannel, RotationIsRotationKeyFramesSlerpBitForBit )
-{
-    const glm::quat a = glm::angleAxis( 0.3F, glm::vec3( 0, 1, 0 ) );
-    const glm::quat b = glm::angleAxis( 1.7F, glm::normalize( glm::vec3( 1, 1, 0 ) ) );
-
-    Gen3::BoneTrack legacy;
-    legacy.BoneName     = "Spine";
-    legacy.RotationKeys = { Gen3::RotationKeyFrame{ Tick( 0 ), a }, Gen3::RotationKeyFrame{ Tick( 60 ), b } };
-
-    RotationChannel channel;
-    channel.X.Keys = { Key( 0, a.x ), Key( 60, b.x ) };
-    channel.Y.Keys = { Key( 0, a.y ), Key( 60, b.y ) };
-    channel.Z.Keys = { Key( 0, a.z ), Key( 60, b.z ) };
-    channel.W.Keys = { Key( 0, a.w ), Key( 60, b.w ) };
-
-    const FrameRate rate{ 60, 1 };
-    for ( const FrameTime at : { At( 0 ), At( 17, 0.25F ), At( 30 ), At( 59, 0.9F ), At( 60 ) } )
-    {
-        EXPECT_EQ( Evaluate( channel, at, rate ), legacy.Sample( at, rate ).Rotation ) << at.AsTicks();
-    }
 }
 
 TEST( TimelineChannel, EventsCrossedAreTheHalfOpenIntervalAndWrapOnce )

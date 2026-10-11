@@ -59,7 +59,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 18> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 21> kEntityTables{ {
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( doomedEntity )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },
@@ -87,6 +87,18 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "UIL1: per-list collection serial inside a canvas's context; goes when the canvas does" },
+         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "TextEdit", Release::OwnerRetired,
+           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+           "per-input-field caret / selection / undo inside a canvas's context; goes when the canvas does" },
+         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "DropdownHighlight", Release::Sweep,
+           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+           "std::erase_if( DropdownHighlight, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } )",
+           "view-level keyboard highlight of an open dropdown; RetireDeadCanvases drops rows of dead entities "
+           "once per frame (a dropdown destroyed while open never reaches Dropdown.cpp's close erase)" },
+         { "Desert/Desert/Source/Engine/UI/UIFocus.hpp", "Restore", Release::Sweep,
+           "Desert/Desert/Source/Engine/UI/UIFocus.cpp",
+           "std::erase_if( memory.Restore, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } )",
+           "scope -> last focused control; the per-frame focus update drops scopes whose entity is gone" },
          { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp", "MaskOf", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
            "WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };",
@@ -108,9 +120,9 @@ namespace Desert::Tests::RuntimeHandles
            "one log line per refused element, forgotten when the element is demanded again" },
          // Keyed by `uint32_t` (the entity's integer value), so the text scan for entt::entity keys cannot see
          // these two; they are listed by hand and their declarations are still checked to exist.
-         { "Desert/Desert/Source/Engine/Scripting/Internal/ScriptRuntime.hpp", "Envs", Release::Listener,
+         { "Desert/Desert/Source/Engine/Scripting/Internal/ScriptRuntime.hpp", "Slots", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp", "on_destroy<ScriptComponent>().connect",
-           "Lua environments and timers, ScriptEngine::Release" },
+           "each entity's Luau script slots and their timers (SCR-LUAU-3), ScriptEngine::Impl::ReleaseEntity" },
          { "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.hpp", "m_Tiles", Release::Sweep,
            "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.cpp", "m_Tiles.erase( it )",
            "the tile's R16 heightmap; the per-frame pass drops tiles that are gone, lost the component or "
@@ -120,11 +132,10 @@ namespace Desert::Tests::RuntimeHandles
            "on_destroy<LandscapeTileComponent>().connect",
            "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", "m_Emitters",
-           Release::Exception, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-           "m_Emitters.clear()",
-           "GPU state per emitter is released only on scene replacement: the per-emitter material owns a "
-           "descriptor pool that VulkanMaterialBackend destroys IMMEDIATELY (not through the allocator's "
-           "deletion ring), so dropping one mid-session needs a device idle or a deferred material free. "
-           "Open task for WP5 (residency); a streamed-out emitter keeps its buffers until then." },
+           Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+           "RetireDestroyedEmitters( m_Emitters, reg )",
+           "the emitter's particle/step buffers and billboard material; PrepareFrame drops emitters whose entity "
+           "is gone or lost the component, released through the allocator's deletion ring (EntityDestroy."
+           "DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing)" },
     } };
 } // namespace Desert::Tests::RuntimeHandles

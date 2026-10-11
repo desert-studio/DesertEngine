@@ -178,6 +178,12 @@ namespace Desert::Graphic
         // scenes have genuinely different skies, and it fires because the sky fingerprint says so.
         void Init();
 
+        // THE SAME BUILD, ONE STAGE PER CALL, for an owner that must not pay it in one frame (the asset
+        // thumbnail renderer builds its view while the editor keeps drawing). Each call builds the next stage —
+        // the scene targets, then one engine render system — and returns true once every stage has run;
+        // Init() then builds nothing again and binds the scene. Init() without it builds every stage itself.
+        bool AdvanceRendererBuild();
+
         // @p camera is the VIEW's camera — the scene holds a list of views and hands in the one this
         // renderer is recording (Engine/Core/SceneViewList.hpp). Null is legal and renders a scene with
         // no view matrix, which is what a world whose camera has not been made yet looks like.
@@ -338,6 +344,11 @@ namespace Desert::Graphic
         //
         // False for a view with no cloud layer, which is every mesh preview and every asset thumbnail.
         bool IsCloudVolumeBaking() const;
+
+        // "The sky's light is not final yet": a procedural sky whose environment bake is still on the GPU, or
+        // that has none. The bake is submitted, never waited for (SkyboxRenderer::EnsureProceduralEnvironment),
+        // so a capture of this view waits on this instead of the main thread waiting on the GPU.
+        bool IsEnvironmentSettling() const;
 
         // How far that rebuild has got, 0..1. Meaningless unless IsCloudVolumeBaking(); see
         // System::VolumetricCloudRenderer::ModellingBakeProgress for why the wait is worth a number.
@@ -508,6 +519,14 @@ namespace Desert::Graphic
         // path that invalidates it.
         bool m_RendererResourcesBuilt = false;
 
+        // THE STAGED BUILD (AdvanceRendererBuild): the next stage to run, whether every stage has run, and what
+        // the stages cost — summed, and the worst one by name, which is what Init() logs.
+        std::size_t m_RendererBuildStage      = 0;
+        bool        m_RendererBuildDone       = false;
+        float       m_RendererBuildMs         = 0.0f;
+        float       m_RendererBuildWorstMs    = 0.0f;
+        const char* m_RendererBuildWorstStage = "";
+
         // THE RENDERER'S HALF OF Init(), and it runs exactly ONCE per SceneRenderer. Builds the scene
         // target and the deferred buffers, constructs every engine render system, initialises them (which
         // is where the ~35 graphics pipelines are compiled) and wires the post chain together.
@@ -520,6 +539,10 @@ namespace Desert::Graphic
         // Returns false when it has already run, so the caller can tell a first build from a rebind
         // without keeping a second copy of the flag.
         bool EnsureRendererResources();
+
+        // Builds stage @p stage of the above (the scene targets, then one engine render system per stage, in
+        // dependency order) and returns its name; nullptr once there is no such stage.
+        const char* BuildRendererStage( std::size_t stage );
 
         // THE SCENE'S HALF, and it runs on EVERY Init() including the first. Releases what belonged to the
         // scene that was here before and rebuilds the graph over what is left.

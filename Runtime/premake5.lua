@@ -90,7 +90,12 @@ project "Runtime"
         links {
             "Common",
             "Jolt",
-            "Lua",
+            "LuauCodeGen",
+            "LuauCompiler",
+            "LuauAst",
+            "LuauBytecode",
+            "LuauVM",
+            "LuauCommon",
             "ReflectCpp",
             "Cocoa.framework",
             "IOKit.framework",

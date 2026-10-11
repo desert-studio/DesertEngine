@@ -11,6 +11,8 @@
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -162,8 +164,9 @@ namespace Desert::Graphic
             if ( whole.ClampedTexels > 0 )
             {
                 LOG_WARN( "[EnvironmentBake] '{}': {} texel(s) exceed the BC6H ceiling {} (peak {}); the cached "
-                          "cube loses {:.2f} % of level {}'s energy to the clamp. The bake in memory is "
-                          "unclamped RGBA32F; the NEXT load reads the clamped file.",
+                          "cube loses {:.2f} % of level {}'s energy to the clamp. This run adopts the clamped "
+                          "file once "
+                          "it is written, exactly as the next load reads it.",
                           path.string(), whole.ClampedTexels, Core::Formats::kBC6HLargestValue, whole.Peak,
                           100.0 * worstLoss, worstLevel );
             }
@@ -230,6 +233,25 @@ namespace Desert::Graphic
                   path.string(), tableMs, censusMs, blocksMs, blockTableMs, containerMs, msSince( stageStart ) );
         return written;
     }
+    Common::ResultStr<Core::Formats::ImageCubeSpecification>
+    CacheAndReloadBakedEnvironmentCube( const EnvironmentCacheEntry& entry, const std::vector<uint8_t>& levels )
+    {
+        using Spec         = Core::Formats::ImageCubeSpecification;
+        const auto written = EncodeBakedEnvironmentCube( entry, levels );
+        if ( !written.IsSuccess() )
+            return Common::MakeError<Spec>( written.GetError() );
+        // The SAME read, with the SAME refusals, as the next run's cache hit (`Assets::StageEnvironment`):
+        // anything the file lost to the encode, this run loses too.
+        auto reloaded = Assets::ReadBakedEnvironmentCube( entry.Path, entry.Tag, entry.FaceSize, entry.Mips,
+                                                          entry.SourceSignature, entry.BakeSignature );
+        if ( !reloaded.IsSuccess() )
+        {
+            return Common::MakeFormattedError<Spec>( "it was written but does not read back: {}",
+                                                     reloaded.GetError() );
+        }
+        return reloaded;
+    }
+
     EnvironmentCacheWriter& EnvironmentCacheWriter::Get()
     {
         static EnvironmentCacheWriter writer;
@@ -269,12 +291,14 @@ namespace Desert::Graphic
                 // may run elsewhere. The entry is not erased until the future below is ready.
                 const ImageReadback* readback = write.Readback.get();
                 write.Encoded                 = Common::JobSystem::Get().Async(
-                     [readback, entry = write.Entry]() -> Common::BoolResultStr
+                     [readback, entry = write.Entry]() -> EncodedCube
                      {
                          auto bytes = readback->ReadBytes();
                          if ( !bytes.IsSuccess() )
-                             return Common::MakeError<bool>( bytes.GetError() );
-                         return EncodeBakedEnvironmentCube( entry, bytes.GetValue() );
+                             return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                                  Common::MakeError<Core::Formats::ImageCubeSpecification>( bytes.GetError() ) );
+                         return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                              CacheAndReloadBakedEnvironmentCube( entry, bytes.GetValue() ) );
                      } );
                 ++it;
                 continue;
@@ -284,7 +308,7 @@ namespace Desert::Graphic
                 ++it;
                 continue;
             }
-            Finish( write );
+            Finish( write, true );
             it = m_InFlight.erase( it );
         }
     }
@@ -300,26 +324,30 @@ namespace Desert::Graphic
             {
                 const ImageReadback* readback = write.Readback.get();
                 const auto&          entry    = write.Entry;
-                write.Encoded                 = std::async( std::launch::deferred,
-                                                            [readback, &entry]() -> Common::BoolResultStr
-                                                            {
-                                                while ( !readback->IsComplete() )
-                                                    std::this_thread::yield();
-                                                auto bytes = readback->ReadBytes();
-                                                if ( !bytes.IsSuccess() )
-                                                    return Common::MakeError<bool>( bytes.GetError() );
-                                                return EncodeBakedEnvironmentCube( entry, bytes.GetValue() );
-                                            } );
+                write.Encoded                 = std::async(
+                     std::launch::deferred,
+                     [readback, &entry]() -> EncodedCube
+                     {
+                         while ( !readback->IsComplete() )
+                             std::this_thread::yield();
+                         auto bytes = readback->ReadBytes();
+                         if ( !bytes.IsSuccess() )
+                             return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                                  Common::MakeError<Core::Formats::ImageCubeSpecification>( bytes.GetError() ) );
+                         return std::make_unique<Common::ResultStr<Core::Formats::ImageCubeSpecification>>(
+                              CacheAndReloadBakedEnvironmentCube( entry, bytes.GetValue() ) );
+                     } );
             }
             write.Encoded.wait();
-            Finish( write );
+            Finish( write, false );
         }
         m_InFlight.clear();
     }
 
-    void EnvironmentCacheWriter::Finish( Write& write )
+    void EnvironmentCacheWriter::Finish( Write& write, const bool adopt )
     {
-        const Common::BoolResultStr written = write.Encoded.get();
+        const EncodedCube           encoded = write.Encoded.get();
+        const auto&                 written = *encoded;
         const double                ms =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.StartedAt )
                   .count();
@@ -331,5 +359,28 @@ namespace Desert::Graphic
         }
         LOG_INFO( "[EnvironmentBake] '{}' cached to '{}' {:.1f} ms after the bake, off the main thread.",
                   write.Entry.SourceKey, write.Entry.Path.string(), ms );
+        if ( !adopt || !write.Entry.Live.IsValid() )
+            return;
+
+        // FROM HERE ON THIS RUN DRAWS THE FILE. The computed cube behind `Live` is replaced by the one read
+        // back out of the cache, so the first run and every later run sample the same texels.
+        auto cube = CreateBakedEnvironmentCube( written.GetValue(), write.Entry.Path );
+        if ( !cube.IsSuccess() )
+        {
+            LOG_ERROR( "[EnvironmentBake] '{}' was cached to '{}' but this run keeps its computed cube, so it "
+                       "draws differently from the next run: {}",
+                       write.Entry.SourceKey, write.Entry.Path.string(), cube.GetError() );
+            return;
+        }
+        auto* images = Runtime::ResourceRegistry::GetImageService();
+        if ( images == nullptr || !images->Replace( write.Entry.Live, cube.ExtractValue() ) )
+        {
+            // The environment was released before its write landed (a scene change): nothing draws it any more.
+            LOG_INFO( "[EnvironmentBake] '{}' is no longer in use; the cube cached to '{}' was not adopted.",
+                      write.Entry.SourceKey, write.Entry.Path.string() );
+            return;
+        }
+        LOG_INFO( "[EnvironmentBake] '{}' now draws the cube read back from '{}', as the next run will.",
+                  write.Entry.SourceKey, write.Entry.Path.string() );
     }
 } // namespace Desert::Graphic

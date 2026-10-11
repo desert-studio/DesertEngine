@@ -18,6 +18,8 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string_view>
@@ -358,4 +360,110 @@ TEST( ImportRecord, NoRecordInTheRepositoryCallsASkinnedSourceStatic )
         }
     }
     EXPECT_GT( walked, 0 ) << "the walk found no record: it is looking in the wrong place";
+}
+
+// THUMB-DEIMPORT: a split source's record names every node it wrote (Bistro's: 1296 nodes, 236 KB), and every
+// node mesh's thumbnail asks it for the kind, the identity and the orbit. The record states each node as a Name
+// and a Placement (IMP-NODES) and is read as such; it is parsed ONCE per session and again only when its file
+// changes - the splash used to re-parse it per node mesh (~0.25 s each, ~10 min on Bistro). A parse is held
+// only once its file has settled (Common::Utils::IsRacyWriteTime): the test ages each write past the racy window,
+// as a record written in an earlier session is.
+TEST( ImportRecord, ASplitRecordIsParsedOnceAndAgainOnlyWhenItsFileChanges )
+{
+    const Project  project( "held" );
+    const fs::path record      = Common::Content::ImportRecordPathFor( project.Source );
+    const auto     writeRecord = [&]( const std::string_view node )
+    {
+        std::ofstream( record, std::ios::binary | std::ios::trunc ) << std::format(
+             R"({{ "Header": {{ "Kind": "StaticMesh", "Guid": "8fb9c1384275f559d1f88679d75c862a",
+        "Versions": {{ "DIMP": 2 }}, "Dependencies": [] }}, "Source": "Rock.fbx",
+    "Bounds": {{ "Min": [-10.0, 0.0, -10.0], "Max": [10.0, 20.0, 10.0] }},
+    "Nodes": [ {{ "Name": "{}", "Placement": [-205.5, 708.25, -2093.0] }},
+               {{ "Name": "Doors_2", "Placement": [1.0, 2.0, 3.0] }} ] }})",
+             node );
+    };
+    // Settled: written well before any read begins, and each settled write stamped apart from the last.
+    int        settles = 0;
+    const auto settle  = [&]
+    {
+        ++settles;
+        fs::last_write_time( record, fs::file_time_type::clock::now() -
+                                          ( 2 + settles ) * Common::Utils::kRacyWriteWindow );
+    };
+    writeRecord( "StringLight_Wind_20" );
+    settle();
+
+    const uint64_t before = Ser::ImportRecordParseCount();
+    const auto     read   = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( read ) << read.GetError();
+    const std::optional<Ser::ImportRecordData>& readRecord = read.GetValue();
+    if ( !readRecord || !readRecord->Nodes )
+        GTEST_FAIL() << "the record or its Nodes were not read";
+    const std::vector<Ser::ImportRecordNode> stated = { { "StringLight_Wind_20", { -205.5f, 708.25f, -2093.0f } },
+                                                        { "Doors_2", { 1.0f, 2.0f, 3.0f } } };
+    EXPECT_EQ( *readRecord->Nodes, stated ) << "the record's Nodes are not read as Name and Placement";
+
+    // Every ask a node mesh's thumbnail makes, many times over: no parse beyond the first.
+    for ( int ask = 0; ask < 50; ++ask )
+    {
+        EXPECT_TRUE( Ser::ReadImportRecordKind( project.Source ) );
+        EXPECT_TRUE( Ser::ReadImportRecordGuid( project.Source ) );
+        EXPECT_TRUE( Ser::ReadImportRecordThumbnail( project.Source, "Rock_Doors_2.stmesh" ) );
+        EXPECT_TRUE( Ser::ReadImportRecordSettings( project.Source ) );
+        EXPECT_TRUE( Ser::ReadImportRecord( project.Source ) );
+    }
+    EXPECT_EQ( Ser::ImportRecordParseCount(), before + 1 ) << "the record was parsed again unchanged";
+
+    // Edited on disk (another editor, a tool): the next ask parses the new file, once.
+    writeRecord( "StringLight_Wind_19_renamed" );
+    settle();
+    const auto edited = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( edited ) << edited.GetError();
+    const std::optional<Ser::ImportRecordData>& editedRecord = edited.GetValue();
+    if ( !editedRecord || !editedRecord->Nodes || editedRecord->Nodes->empty() )
+        GTEST_FAIL() << "the edited record or its Nodes were not read";
+    EXPECT_EQ( editedRecord->Nodes->front().Name, "StringLight_Wind_19_renamed" )
+         << "the held parse outlived the file it was read from";
+    EXPECT_TRUE( Ser::ReadImportRecordGuid( project.Source ) );
+    EXPECT_EQ( Ser::ImportRecordParseCount(), before + 2 );
+
+    // Rewritten by a setter: the next ask reads what the setter wrote.
+    Assets::ThumbnailOrbit orbit;
+    orbit.Yaw += 30.0f;
+    ASSERT_TRUE( Ser::SetImportRecordThumbnail( project.Source, "Rock_Doors_2.stmesh", orbit ) );
+    const auto turned = Ser::ReadImportRecordThumbnail( project.Source, "Rock_Doors_2.stmesh" );
+    ASSERT_TRUE( turned ) << turned.GetError();
+    EXPECT_EQ( turned.GetValue(), orbit ) << "the setter's write was hidden by the held parse";
+    EXPECT_EQ( Ser::ImportRecordParseCount(), before + 3 );
+
+    // Removed: no record, and no parse held for it.
+    fs::remove( record );
+    const auto gone = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( gone );
+    EXPECT_FALSE( gone.GetValue().has_value() );
+}
+
+// The other half of the rule: a record read while its stamp is still racy (written inside the file system's
+// clock tick of the read) is NOT held - a same-size rewrite in that tick would keep (write time, size) and the
+// held parse would serve the old content. Every ask re-parses until the stamp settles; from then on it is held.
+TEST( ImportRecord, ARecordReadWhileItsWriteTimeIsRacyIsParsedAgainUntilItSettles )
+{
+    const Project  project( "racy" );
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    std::ofstream( record, std::ios::binary | std::ios::trunc )
+         << R"({ "Header": { "Kind": "StaticMesh", "Guid": "8fb9c1384275f559d1f88679d75c862a",
+        "Versions": { "DIMP": 2 }, "Dependencies": [] }, "Source": "Rock.fbx",
+    "Bounds": { "Min": [-10.0, 0.0, -10.0], "Max": [10.0, 20.0, 10.0] } })";
+
+    // Just written: the stamp is racy at every ask, so no parse is held.
+    const uint64_t before = Ser::ImportRecordParseCount();
+    for ( int ask = 0; ask < 3; ++ask )
+        ASSERT_TRUE( Ser::ReadImportRecordGuid( project.Source ) );
+    EXPECT_EQ( Ser::ImportRecordParseCount(), before + 3 ) << "a parse was held while its write time was racy";
+
+    // Settled: one parse, then held.
+    fs::last_write_time( record, fs::file_time_type::clock::now() - 3 * Common::Utils::kRacyWriteWindow );
+    for ( int ask = 0; ask < 3; ++ask )
+        ASSERT_TRUE( Ser::ReadImportRecordGuid( project.Source ) );
+    EXPECT_EQ( Ser::ImportRecordParseCount(), before + 4 ) << "a settled record was parsed again unchanged";
 }

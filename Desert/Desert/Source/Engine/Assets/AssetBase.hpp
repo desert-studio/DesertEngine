@@ -9,6 +9,9 @@
 #include "AssetMetadata.hpp"
 #include "SyncLoadLedger.hpp"
 
+#include <format>
+#include <memory>
+
 namespace Desert::Assets
 {
     class MeshAsset;
@@ -101,6 +104,33 @@ namespace Desert::Assets
             return true;
         }
 
+        // A RELOAD THAT DOES NOT STOP A FRAME, IN TWO HALVES (REIMPORT-ASYNC; UE: a reimport's asset is rebuilt
+        // by FAssetCompilingManager off the game thread and swapped in by FinishCompilation, the old one
+        // serving every reader until then). `Load()` on a loaded asset rebuilds it IN PLACE, which is the only
+        // reload its readers survive (they hold the object) and also why it cannot run on a worker: the
+        // Animator reading the clip would read it half-replaced. So the read goes into a DETACHED TWIN:
+        //
+        //   1. `MakeReloadTarget()` (main thread) - an empty asset of the same type and identity, registered
+        //      nowhere and read nowhere. It reads nothing in its constructor; the file is read by its
+        //      `Load()`, which the caller hands to `AsyncAssetLoader` (a worker, outside the in-frame ledger).
+        //   2. `AdoptReloaded( twin )` (main thread, in the loader's completion) - the twin's payload moves
+        //      into this asset at this asset's address, exactly as an in-place `Load()` would have written
+        //      it (the same revision bumps), so every reader sees the old value until this call and the new
+        //      one after it, never a mix.
+        //
+        // Only a type whose reload is asked for off the frame implements them; any other one REFUSES by name
+        // (null twin, error from the adoption) rather than pretending to have reloaded.
+        [[nodiscard]] virtual std::shared_ptr<AssetBase> MakeReloadTarget() const
+        {
+            return nullptr;
+        }
+
+        [[nodiscard]] virtual Common::BoolResultStr AdoptReloaded( AssetBase& /*twin*/ )
+        {
+            return Common::MakeFormattedError<bool>( "'{}' has no off-frame reload (AssetBase::AdoptReloaded)",
+                                                     m_Metadata.Filepath.string() );
+        }
+
         // LOADING AND RESOLVING ARE ONE STEP, and this is the only entry point that says so.
         //
         // A dependency named by a field INSIDE the file cannot be resolved before the file is parsed.
@@ -169,6 +199,19 @@ namespace Desert::Assets
             // function cannot repair one, and AssetPathIndex::Record has already named both keys and the
             // number in the log.
             static_cast<void>( Common::AssetPathIndex::Record( static_cast<uint64_t>( handle ), stableKey ) );
+        }
+
+        /// Installs a RANDOM handle that names NO file, and deliberately records no inverse for it.
+        ///
+        /// The second legitimate way to replace the path-derived identity, and the opposite of the one
+        /// above: a reload twin is a second object for a file whose live asset already owns that file's
+        /// handle. AsyncAssetLoader joins requests by handle, so the twin needs a number of its own, and
+        /// that number is a statement about this REQUEST, not about any file - binding it to the file's
+        /// key in AssetPathIndex would put a wrong answer in the index (and collide with the live one).
+        /// One spelling here, so the census over `m_Metadata.Handle =` keeps exactly two writers.
+        void MintUnindexedHandle()
+        {
+            m_Metadata.Handle = Common::UUID::Generate();
         }
 
         /// THE PER-TYPE HALF OF `Load()`. Reads the file and fills the type; says nothing about timing.

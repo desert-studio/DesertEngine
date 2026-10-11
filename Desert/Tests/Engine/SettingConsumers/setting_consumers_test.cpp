@@ -369,6 +369,7 @@ namespace
     constexpr const char* kUIDropdown      = "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp";
     constexpr const char* kUIImage         = "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp";
     constexpr const char* kUIInputField    = "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp";
+    constexpr const char* kUITextEditRules = "Desert/Desert/Source/Engine/UI/UITextEditState.cpp";
     constexpr const char* kUIPanel         = "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp";
     constexpr const char* kUIPath          = "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp";
     constexpr const char* kUIProgressBar   = "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp";
@@ -378,6 +379,7 @@ namespace
     constexpr const char* kUIToggle        = "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp";
     constexpr const char* kUIRichText      = "Desert/Desert/Source/Engine/UI/UIRichText.cpp";
     constexpr const char* kUIWalkCtx       = "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp";
+    constexpr const char* kUIFocus         = "Desert/Desert/Source/Engine/UI/UIFocus.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -694,11 +696,18 @@ namespace
          { "FlexGrow", kCanvasLayout },
          { "FitWidth", kCanvasLayout },
          { "FitHeight", kCanvasLayout },
+         { "FlexShrink", kCanvasLayout },
     };
 
     constexpr Row kLayoutGroupRows[] = {
-         { "Type", kCanvasLayout },         { "Padding", kCanvasLayout },  { "Spacing", kCanvasLayout },
-         { "StretchCross", kCanvasLayout }, { "CellSize", kCanvasLayout }, { "Columns", kCanvasLayout },
+         { "Type", kCanvasLayout },        { "Padding", kCanvasLayout },
+         { "Spacing", kCanvasLayout },     { "StretchCross", kCanvasLayout },
+         { "CellSize", kCanvasLayout },    { "Columns", kCanvasLayout },
+         { "WrapSize", kCanvasLayout },    { "WrapVertical", kCanvasLayout },
+         { "MinSlotSize", kCanvasLayout }, { "SizeMin", kCanvasLayout },
+         { "SizeMax", kCanvasLayout },     { "SizeOverride", kCanvasLayout },
+         { "Stretch", kCanvasLayout },     { "StretchDirection", kCanvasLayout },
+         { "UserScale", kCanvasLayout },
     };
 
     constexpr Row kPanelRows[] = {
@@ -840,6 +849,14 @@ namespace
          { "SlowMovingAsSleeping", kDestructibleSync },
          { "SlowMovingVelocityThreshold", kDestructibleSync },
     };
+    // A water body (WATER-W2): every field is read by ECS::WaterBodyGather into the Water::WaterBodyState the
+    // physics step's WaterSubsystem queries.
+    constexpr const char* kWaterBodyGather = "Desert/Desert/Source/Engine/ECS/System/WaterBodyGather.cpp";
+    constexpr Row         kWaterBodyRows[] = {
+         { "WaterWaves", kWaterBodyGather },
+         { "OceanExtents", kWaterBodyGather },
+         { "TargetWaveMaskDepth", kWaterBodyGather },
+    };
     // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
     // FieldCommand it hands DestructionWorld::ApplyField.
     constexpr const char* kFieldFire = "Desert/Desert/Source/Engine/ECS/System/DestructionFields.cpp";
@@ -910,6 +927,7 @@ namespace
     constexpr Row kSliderRows[] = {
          { "Value", kUISlider },      { "MinValue", kUISlider },  { "MaxValue", kUISlider },
          { "TrackColor", kUISlider }, { "FillColor", kUISlider }, { "HandleColor", kUISlider },
+         { "StepSize", kUISlider },
     };
 
     constexpr Row kScrollViewRows[] = {
@@ -932,9 +950,23 @@ namespace
     };
 
     constexpr Row kInputFieldRows[] = {
-         { "Text", kUIInputField },       { "Placeholder", kUIInputField },      { "FontSize", kUIInputField },
-         { "TextColor", kUIInputField },  { "PlaceholderColor", kUIInputField }, { "Background", kUIInputField },
-         { "FocusColor", kUIInputField }, { "CornerRadius", kUIInputField },
+         { "Text", kUIInputField },
+         { "Placeholder", kUIInputField },
+         { "FontSize", kUIInputField },
+         { "TextColor", kUIInputField },
+         { "PlaceholderColor", kUIInputField },
+         { "Background", kUIInputField },
+         { "FocusColor", kUIInputField },
+         { "CornerRadius", kUIInputField },
+         // The edit RULES are read where the field's data becomes UITextEditRules (UITextEditState.cpp);
+         // the widget only forwards them, so that file is the consumer whose absence would ignore them.
+         { "Password", kUITextEditRules },
+         { "MaxLength", kUITextEditRules },
+         { "CharFilter", kUITextEditRules },
+         { "MultiLine", kUITextEditRules },
+         { "NewLineKey", kUITextEditRules },
+         { "OnChangedMessage", kUIInputField },
+         { "OnCommittedMessage", kUIInputField },
     };
 
     constexpr Row kDropdownRows[] = {
@@ -1007,6 +1039,14 @@ namespace
          { "ToastSlots", kOverlay },
     };
 
+    // Every field read by UIFocus.cpp: the rules and targets by ResolveNavigation, InitialFocus by
+    // UpdateFocusScopes.
+    constexpr Row kNavigationRows[] = {
+         { "Up", kUIFocus },         { "UpTarget", kUIFocus },    { "Down", kUIFocus },
+         { "DownTarget", kUIFocus }, { "Left", kUIFocus },        { "LeftTarget", kUIFocus },
+         { "Right", kUIFocus },      { "RightTarget", kUIFocus }, { "InitialFocus", kUIFocus },
+    };
+
     constexpr Row kOverlayTriggerRows[] = {
          { "Overlay", kOverlay },
          { "On", kOverlay },
@@ -1064,6 +1104,7 @@ namespace
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
+         { "WaterBodyData", "WaterBodyComponent", nullptr, CENSUS_ROWS( kWaterBodyRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
@@ -1087,6 +1128,7 @@ namespace
          { "UIDropTargetData", "UIDropTargetComponent", nullptr, CENSUS_ROWS( kDropTargetRows ) },
          { "UIOverlayData", "UIOverlayComponent", nullptr, CENSUS_ROWS( kOverlayRows ) },
          { "UIOverlayTriggerData", "UIOverlayTriggerComponent", nullptr, CENSUS_ROWS( kOverlayTriggerRows ) },
+         { "UINavigationData", "UINavigationComponent", nullptr, CENSUS_ROWS( kNavigationRows ) },
     };
 
 #undef CENSUS_ROWS
@@ -1278,7 +1320,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // DestructibleLifetime.cpp's Sync into the DestructionWorld description).
     // -> 57 with DST-04b's four field components (RadialImpulseField, StrainField, KillField, AnchorField:
     // every field read by ECS::FireDestructionField in DestructionFields.cpp).
-    EXPECT_EQ( all.size(), 57u );
+    // -> 58 with WATER-W2's WaterBodyData (kWaterBodyRows: every field read by WaterBodyGather.cpp into the
+    // water body state the physics step queries).
+    // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
+    EXPECT_EQ( all.size(), 59u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

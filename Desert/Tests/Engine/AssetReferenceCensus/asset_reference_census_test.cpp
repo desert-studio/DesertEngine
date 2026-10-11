@@ -484,13 +484,23 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
 {
     const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path generated = root / "Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp";
-    ASSERT_TRUE( fs::exists( generated ) ) << generated.string() << " is missing";
+    // The header tool writes one Reflection_<Module>.gen.cpp per module; Reflection.gen.cpp only lists them.
+    const fs::path        generatedDir = root / "Desert/Desert/Source/Engine/Generated";
+    std::vector<fs::path> generated;
+    for ( const auto& entry : fs::directory_iterator( generatedDir ) )
+    {
+        const std::string name = entry.path().filename().string();
+        if ( name.starts_with( "Reflection_" ) && name.ends_with( ".gen.cpp" ) )
+            generated.push_back( entry.path() );
+    }
+    std::sort( generated.begin(), generated.end() );
+    ASSERT_FALSE( generated.empty() ) << "no Reflection_<Module>.gen.cpp in " << generatedDir.string();
 
     // name -> the set of FieldTypes the generated reflection declares it under.
     std::map<std::string, std::set<std::string>> typesByName;
+    for ( const fs::path& module : generated )
     {
-        const std::string text       = ReadAll( generated );
+        const std::string text       = ReadAll( module );
         const std::string namePrefix = ".Name = \"";
         const std::string typePrefix = "\", .Type = FieldType::";
         for ( size_t at = text.find( namePrefix ); at != std::string::npos; at = text.find( namePrefix, at + 1 ) )

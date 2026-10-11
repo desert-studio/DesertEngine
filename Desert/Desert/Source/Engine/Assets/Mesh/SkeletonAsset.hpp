@@ -15,11 +15,22 @@ namespace Desert::Assets
 {
     class SkeletonAsset : public AssetBase
     {
+        struct ReloadTwinTag; // see the private section
+
     public:
         SkeletonAsset( const Common::Filepath& filepath );
+        // THE RELOAD TWIN (MakeReloadTarget): this asset's identity, no header read - the twin's Load reads
+        // the file. Public for make_shared; its tag is private, so no one else can name it.
+        SkeletonAsset( const AssetMetadata& identity, ReloadTwinTag );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
+
+        // THE OFF-FRAME RELOAD (AssetBase::MakeReloadTarget / AdoptReloaded): the rig read on a worker into a
+        // twin, written here on the main thread AT THIS ADDRESS with the new signature and bind revision -
+        // what an in-place Load writes, so the meshes and Animators holding `const Skeleton*` stay valid.
+        [[nodiscard]] std::shared_ptr<AssetBase> MakeReloadTarget() const override;
+        [[nodiscard]] Common::BoolResultStr      AdoptReloaded( AssetBase& twin ) override;
 
         // WAS A HARDCODED `return true`, WHICH MADE THIS TYPE UNLOADABLE AND UNLOADED AT ONCE.
         //
@@ -106,6 +117,11 @@ namespace Desert::Assets
         }
 
     private:
+        // Names the twin's constructor; private, so only MakeReloadTarget can call it.
+        struct ReloadTwinTag
+        {
+        };
+
         std::unique_ptr<Animation::Skeleton> m_Skeleton;
 
         // The payload's identity, kept across `Unload`. See GetSignature.

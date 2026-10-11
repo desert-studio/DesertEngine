@@ -1,5 +1,5 @@
 // SCR-LUAU-1: a game script cannot reach the machine around it. Pinned against the REAL ScriptEngine (the
-// constructor every game VM goes through), not a hand-opened sol2 state:
+// constructor every game VM goes through), not a hand-opened VM:
 //   * os.execute is gone -- the call fails, and the command it carried did not run (the file it would have
 //     written is absent);
 //   * io, dofile, loadfile and load are absent, and so is the process/file half of os;
@@ -29,7 +29,8 @@ TEST( ScriptSandbox, OsExecuteFailsAndRunsNothing )
     const auto   result = engine.RunString( std::format( "os.execute('touch \"{}\"')", marker.generic_string() ) );
 
     ASSERT_FALSE( result.IsSuccess() ) << "os.execute is callable from a game script";
-    EXPECT_NE( result.GetError().find( "execute" ), std::string::npos ) << result.GetError();
+    // Luau reports the call of the absent field, not its name: "attempt to call a nil value".
+    EXPECT_NE( result.GetError().find( "nil value" ), std::string::npos ) << result.GetError();
     EXPECT_FALSE( fs::exists( marker ) ) << "the shell command ran: " << marker.generic_string();
 }
 

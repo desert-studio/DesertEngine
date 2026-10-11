@@ -9,6 +9,7 @@
 #include <Engine/UI/Args/UIEventArgs.hpp>
 #include <Engine/UI/Args/UIImageArgs.hpp>
 #include <Engine/UI/Args/UILayoutArgs.hpp>
+#include <Engine/UI/Args/UINavigationArgs.hpp>
 #include <Engine/UI/Args/UIOverlayArgs.hpp>
 #include <Engine/UI/Args/UIPanelArgs.hpp>
 #include <Engine/UI/Args/UIPathArgs.hpp>

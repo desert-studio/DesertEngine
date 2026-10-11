@@ -715,16 +715,13 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "Push / Pull give every face they create this material;\n"
                                    "Shift+B paints it onto the selected faces without changing the shape." );
         }
-        // UE titles this section "Output Type"; ours has no type choice yet (Accept makes one kind of
-        // mesh), so the section is named for what it does hold.
         if ( Utils::ImGuiUtilities::SectionHeader( "Collision" ) )
         {
             ImGui::Checkbox( "Generate Collision", &ms.GenerateCollision );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Accept also adds a BOX collider around the piece and a static body,\n"
-                                   "so you can walk into it right away.\n"
-                                   "It is the bounding box, not a triangle mesh: a concave blockout is\n"
-                                   "solid inside until the physics layer grows a mesh shape." );
+                ImGui::SetTooltip( "Accept also gives the piece a Mesh collider - its own triangles - and a\n"
+                                   "static body, so you can walk into it right away: through a doorway,\n"
+                                   "into a room. Static only: a triangle mesh has no mass." );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Grid" ) )
         {

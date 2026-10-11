@@ -50,6 +50,11 @@ namespace Desert::ECS
         /// Adds every destructible entity not simulated yet.
         void Sync( entt::registry& registry, const FractureLookup& lookup );
 
+        /// Replaces @p registry's DestructionEventQueue with the world's Break events since its last ClearEvents,
+        /// named by destructible entity (UE UGeometryCollectionComponent::DispatchBreakEvent). Run after the
+        /// physics step that broke them; the world's own Removed events stay its bookkeeping.
+        void PublishEvents( entt::registry& registry ) const;
+
     private:
         void OnDestructibleDestroyed( entt::registry& registry, entt::entity entity );
         void Refuse( entt::entity entity, const std::string& reason );

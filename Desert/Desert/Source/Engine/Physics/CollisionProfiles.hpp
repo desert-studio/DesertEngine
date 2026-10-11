@@ -55,6 +55,12 @@ namespace Desert::Physics
         std::optional<CollisionEnabled>      Enabled;
         std::string                          ObjectChannel;
         std::vector<CollisionResponseConfig> Responses;
+        /// A body of this profile reports its blocking contacts as Hit events (UE bNotifyRigidBodyCollision,
+        /// "Simulation Generates Hit Events"): to itself, whatever the other body's profile says.
+        bool GeneratesHitEvents = false;
+        /// A body of this profile reports Begin/EndOverlap (UE bGenerateOverlapEvents). An overlap is reported
+        /// only when BOTH bodies' profiles generate overlap events, as in UE.
+        bool GeneratesOverlapEvents = false;
     };
 
     /// The project's `Config/CollisionProfiles.json` (UE: [/Script/Engine.CollisionProfile] in DefaultEngine.ini).
@@ -110,6 +116,16 @@ namespace Desert::Physics
         /// A ray cast may find a body of this profile.
         [[nodiscard]] bool IsQueryable( CollisionProfileId id ) const;
 
+        /// CollisionProfileConfig::GeneratesHitEvents / GeneratesOverlapEvents of @p id.
+        [[nodiscard]] bool GeneratesHitEvents( CollisionProfileId id ) const
+        {
+            return m_Profiles[id].HitEvents;
+        }
+        [[nodiscard]] bool GeneratesOverlapEvents( CollisionProfileId id ) const
+        {
+            return m_Profiles[id].OverlapEvents;
+        }
+
         [[nodiscard]] std::size_t ProfileCount() const
         {
             return m_Profiles.size();
@@ -126,6 +142,8 @@ namespace Desert::Physics
             CollisionEnabled               Enabled = CollisionEnabled::NoCollision;
             uint8_t                        Channel = 0;
             std::vector<CollisionResponse> Responses; ///< one per channel
+            bool                           HitEvents     = false;
+            bool                           OverlapEvents = false;
         };
         std::vector<std::string> m_Channels;
         std::vector<Profile>     m_Profiles;

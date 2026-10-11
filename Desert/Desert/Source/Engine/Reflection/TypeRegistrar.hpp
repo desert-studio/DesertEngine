@@ -28,6 +28,18 @@ namespace Desert::Reflection
             return *this;
         }
 
+        TypeBuilder& Function( FunctionInfo function )
+        {
+            m_Info.Functions.push_back( std::move( function ) );
+            return *this;
+        }
+
+        TypeBuilder& Event( EventInfo event )
+        {
+            m_Info.Events.push_back( std::move( event ) );
+            return *this;
+        }
+
         // Records a provider for a process-wide default-constructed instance of T (its member initializers =
         // the "factory defaults"), so the editor can offer reset-to-default. Called by generated code.
         template <typename T>

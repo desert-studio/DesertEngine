@@ -46,7 +46,31 @@ namespace Desert
 
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
 
+        // THE GPU BUFFERS ARE THE RENDERER'S COPY OF THE CPU GEOMETRY, BUILT WHERE A RENDERER EXISTS. A mesh
+        // whose data was set or edited without a device (headless, server, tests, a game-thread write) only
+        // marks its GPU side stale; the renderer calls this when the mesh is submitted for drawing (the
+        // pattern of UE's render proxy / InitResources). One upload per change: the flag drops whether or
+        // not the upload succeeds, so a failure is reported once, not once per frame.
+        [[nodiscard]] Common::BoolResultWithCodes<MeshError> EnsureGpuResources()
+        {
+            if ( !m_GpuStale )
+                return Common::MakeSuccessWithCodes<bool, MeshError>( true );
+            m_GpuStale = false;
+            return Invalidate();
+        }
+        [[nodiscard]] bool IsGpuStale() const
+        {
+            return m_GpuStale;
+        }
+
     protected:
+        // The CPU data changed and the GPU buffers no longer hold it (or were never made).
+        void MarkGpuStale()
+        {
+            m_GpuStale = true;
+        }
+        bool m_GpuStale = false;
+
         // Protected data accessible by derived classes
         std::shared_ptr<Graphic::VertexBuffer>  m_VertexBuffer;
         std::shared_ptr<Graphic::VertexBuffer>  m_StreamBuffer;

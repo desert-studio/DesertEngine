@@ -150,7 +150,7 @@
         {
             "Key": "credits.libraries",
             "Forms": {
-                "other": "EnTT (MIT) · Dear ImGui (MIT) · GLFW (zlib) · GLM (MIT) · Lua (MIT) · sol2 (MIT) · Jolt Physics (MIT) · vk-bootstrap (MIT) · Vulkan Memory Allocator (MIT) · stb (MIT / public domain) · assimp (BSD-3)"
+                "other": "EnTT (MIT) · Dear ImGui (MIT) · GLFW (zlib) · GLM (MIT) · Luau (MIT) · Jolt Physics (MIT) · vk-bootstrap (MIT) · Vulkan Memory Allocator (MIT) · stb (MIT / public domain) · assimp (BSD-3)"
             }
         }
     ]

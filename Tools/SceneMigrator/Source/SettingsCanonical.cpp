@@ -1,6 +1,10 @@
 #include "SettingsCanonical.hpp"
 #include "SceneMigration.hpp"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 #include <Engine/Core/SceneSettings.hpp>
 // The list of blocks that are their reflection and nothing else - the same rows ComponentRegistry
 // registers its serializers from, so this pass cannot cover a block the saver writes by hand.
@@ -258,6 +262,37 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // True when the keys moved.
+        bool SortKeys( Common::Json::KeyedValues& blocks )
+        {
+            const auto byKey = []( const auto& a, const auto& b ) { return a.first < b.first; };
+            if ( std::is_sorted( blocks.begin(), blocks.end(), byKey ) )
+                return false;
+            std::vector<std::pair<std::string, Common::Json::Value>> sorted( blocks.begin(), blocks.end() );
+            std::stable_sort( sorted.begin(), sorted.end(), byKey );
+            blocks.clear();
+            for ( auto& [key, value] : sorted )
+                blocks.insert( std::move( key ), std::move( value ) );
+            return true;
+        }
+    } // namespace
+
+    int SortComponentKeys( std::vector<Assets::EntityData>& records )
+    {
+        int moved = 0;
+        for ( auto& record : records )
+        {
+            bool any = SortKeys( record.Components );
+            if ( record.PrefabOverrides.has_value() )
+                for ( auto& override : record.PrefabOverrides.value() )
+                    any = SortKeys( override.Components ) || any;
+            moved += any ? 1 : 0;
+        }
+        return moved;
+    }
+
     SceneCanonicalisationReport CanonicaliseScene( SceneSerialized& scene )
     {
         SceneCanonicalisationReport report;
@@ -306,6 +341,8 @@ namespace Desert::Migration
                 value = std::move( block ).value();
             }
         }
+
+        report.RecordsRekeyed = SortComponentKeys( canonical.Entities );
 
         scene = std::move( canonical );
         return report;

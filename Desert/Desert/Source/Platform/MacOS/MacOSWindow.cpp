@@ -423,4 +423,15 @@ namespace Desert::Platform::MacOS
     {
     }
 
+    std::string MacOSWindow::GetClipboardText() const
+    {
+        const char* text = ( m_GLFWWindow != nullptr ) ? glfwGetClipboardString( m_GLFWWindow ) : nullptr;
+        return ( text != nullptr ) ? std::string( text ) : std::string{};
+    }
+
+    void MacOSWindow::SetClipboardText( const std::string& text )
+    {
+        if ( m_GLFWWindow != nullptr )
+            glfwSetClipboardString( m_GLFWWindow, text.c_str() );
+    }
 } // namespace Desert::Platform::MacOS

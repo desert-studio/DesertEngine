@@ -55,7 +55,9 @@ namespace Desert::Graphic
         // the only gate: every descriptor the shader declares is written on every path, because an
         // unbound one makes the set invalid and this backend answers an invalid set by skipping the whole
         // dispatch — which here would lose the environment, not the clouds, with nothing in the log.
-        static std::shared_ptr<Image2D> BakeProceduralPanorama( uint32_t width, uint32_t height,
+        // RECORDS into @p batch and returns the panorama before the GPU has written it — the caller samples it
+        // only from commands recorded after this one in the same batch, or once the batch completes.
+        static std::shared_ptr<Image2D> BakeProceduralPanorama( GpuBatch& batch, uint32_t width, uint32_t height,
                                                                 ShaderResources::StorageBuffer* skyParams,
                                                                 Image2D*                        transmittanceLut,
                                                                 Image2D*                        multiScatterLut,

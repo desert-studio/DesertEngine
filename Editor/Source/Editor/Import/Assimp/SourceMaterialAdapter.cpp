@@ -138,6 +138,10 @@ namespace Desert::Editor
             put( "SpecularColor", std::nullopt, texture( aiTextureType_SPECULAR ) );
             if ( read.Alpha.AlphaCutoff > 0.0f )
                 put( "alphaCutoff", glm::vec4( read.Alpha.AlphaCutoff, 0, 0, 0 ) );
+            // No opacity map but a base colour whose alpha cuts out (Bistro's leaf cards): the albedo image is the
+            // opacity slot's source and the value half names its channel (3 = A), as glTF's alphaMask below.
+            if ( read.Alpha.Kind == SourceAlphaKind::Mask && read.Alpha.AlphaCutoff > 0.0f && baseColour )
+                put( "alphaMask", glm::vec4( 3.0f, 0, 0, 0 ), baseColour );
             return read;
         }
 

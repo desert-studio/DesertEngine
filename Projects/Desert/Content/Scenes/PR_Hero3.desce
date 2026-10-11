@@ -177,15 +177,6 @@
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "Skybox": {
-                "SkyboxHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "Intensity": 1.0,
-                "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
-            },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
@@ -234,6 +225,15 @@
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             },
             "VolumetricCloud": {
                 "Enabled": true,

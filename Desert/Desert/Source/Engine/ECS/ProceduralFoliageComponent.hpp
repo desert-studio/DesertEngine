@@ -69,6 +69,7 @@ namespace Desert::ECS
 
     struct ProceduralFoliageComponent
     {
+        COMPONENT( Key( "ProceduralFoliage" ), Block( Data ), Run( SkyAndAtmosphere ) )
         ProceduralFoliageData Data;
     };
 

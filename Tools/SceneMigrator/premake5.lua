@@ -71,6 +71,8 @@ project "SceneMigrator"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        -- MODULE-INFRA: the module list above calls each module's RegisterReflection_<Module>() (plan C11).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection_*.gen.cpp",
 
         -- THE PREFAB GATE AND THE ONE WRITER OF .deprefab TEXT, since И11. The tool converts prefabs
         -- too, and the bytes it writes must be the bytes the engine's saver produces and must pass the
@@ -79,6 +81,7 @@ project "SceneMigrator"
         -- asset manager.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp", -- v35 reads and writes one file per entity (WP16)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
 
         -- THE CLOUD NOISE VOLUME DECODER, since T7g: the DCNV 1/2 -> 3 step wraps the payload in the AF1
         -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure

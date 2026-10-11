@@ -208,7 +208,6 @@ for %%P in (
     "ThirdParty\JoltPhysics\Jolt\Jolt.h"
     "ThirdParty\lua\lapi.c"
     "ThirdParty\spdlog\include\spdlog\spdlog.h"
-    "ThirdParty\sol2\include\sol\sol.hpp"
     "ThirdParty\google-test\include\gtest\gtest.h"
     "ThirdParty\glm\glm\glm.hpp"
     "ThirdParty\entt\include\entt\entt.hpp"

@@ -620,6 +620,7 @@ namespace Desert::ECS
 
     struct VolumetricCloudComponent
     {
+        COMPONENT( Key( "VolumetricCloud" ), Block( Data ), Run( SkyAndAtmosphere ) )
         VolumetricCloudData Data;
     };
 } // namespace Desert::ECS

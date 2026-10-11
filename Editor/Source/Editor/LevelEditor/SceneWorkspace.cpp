@@ -20,6 +20,7 @@
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -78,6 +79,7 @@ namespace Desert::Editor
         // PhysicsECSSystem then executes the same frame.
         scene.AddSystem<ECS::ScriptSystem>( &scene, m_Assets.get() );
         scene.AddSystem<ECS::PhysicsECSSystem>( &scene );
+        scene.AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
         // Maps character movement state (speed/onGround from physics) -> locomotion clip; after physics.
         scene.AddSystem<ECS::LocomotionSystem>( &scene );
         scene.AddSystem<ECS::AudioECSSystem>( &scene );

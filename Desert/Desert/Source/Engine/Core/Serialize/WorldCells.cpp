@@ -13,6 +13,7 @@
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
+#include <format>
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -396,6 +397,14 @@ namespace Desert::Core::WorldCells
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Common::Utils::AssetRegistry> registries )
     {
+        const std::vector<Rules::EntityDescriptor> descriptors = Rules::DescribeEntities( scene.Entities );
+        return CookWorld( scene, descriptors, registries );
+    }
+
+    Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
+                                              std::span<const Rules::EntityDescriptor>      descriptors,
+                                              std::span<const Common::Utils::AssetRegistry> registries )
+    {
         using Result = CookedWorld;
         if ( !scene.WorldPartition.has_value() )
             return Common::MakeError<Result>( "'" + scene.SceneName +
@@ -416,8 +425,20 @@ namespace Desert::Core::WorldCells
                      ", which record " + std::to_string( where->second ) + " already has" );
         }
 
+        // The plan is the descriptors': they must be the records', one for one, or the cells would hold
+        // records placed by somebody else's descriptor.
+        if ( descriptors.size() != records.size() )
+            return Common::MakeError<Result>(
+                 std::format( "'{}' has {} records and {} descriptors; the descriptor index is not this world's",
+                              scene.SceneName, records.size(), descriptors.size() ) );
+        for ( std::size_t record = 0; record < records.size(); ++record )
+            if ( descriptors[record].Id != static_cast<std::uint64_t>( *records[record].id ) )
+                return Common::MakeError<Result>(
+                     std::format( "record {} of '{}' is entity {} but its descriptor is another; the descriptor "
+                                  "index is stale",
+                                  record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
         const Rules::WorldPartitionPlan plan =
-             Rules::PlanWorldPartition( records, *scene.WorldPartition, BoundsFrom( registries ) );
+             Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
         // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and
         // names every one of them once, after the reference walk and the HLOD build below have added theirs.
         Common::Json::Issues issues    = plan.Issues;

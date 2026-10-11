@@ -385,6 +385,8 @@ namespace Desert::Editor
             if ( auto ref = m_Scene->FindEntityByID( Common::UUID( done.UserData ) ); ref )
             {
                 ECS::Entity e = ref->get(); // Entity is a lightweight value handle -> copy to operate mutably
+                // The bind lands frames after the recorded create, outside any command (WP17).
+                m_Scene->MarkModified( Common::UUID( done.UserData ) );
                 if ( resolved.Skinned )
                 {
                     // Swap the pending StaticMeshComponent for a skinned one + an Animator, so the rig renders
@@ -1640,6 +1642,13 @@ namespace Desert::Editor
                          { ImGuiKey_W, KeyCode::W },
                          { ImGuiKey_DownArrow, KeyCode::Down },
                          { ImGuiKey_S, KeyCode::S },
+                         // The input field's shortcuts (Ctrl|Cmd + A/C/X/V/Z/Y), UITextEditState::Apply.
+                         { ImGuiKey_A, KeyCode::A },
+                         { ImGuiKey_C, KeyCode::C },
+                         { ImGuiKey_X, KeyCode::X },
+                         { ImGuiKey_V, KeyCode::V },
+                         { ImGuiKey_Z, KeyCode::Z },
+                         { ImGuiKey_Y, KeyCode::Y },
                     };
                     for ( const auto& [imguiKey, key] : kUIKeys )
                         if ( ImGui::IsKeyPressed( imguiKey, false ) )

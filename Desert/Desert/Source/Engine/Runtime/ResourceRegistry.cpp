@@ -131,6 +131,12 @@ namespace Desert::Runtime
         return &fractureService;
     }
 
+    WaterWavesService* ResourceRegistry::GetWaterWavesService()
+    {
+        static WaterWavesService waterWavesService;
+        return &waterWavesService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -145,6 +151,7 @@ namespace Desert::Runtime
         GetLandscapeLayerInfoService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
         GetFractureService()->BindAssetManager( assets );
+        GetWaterWavesService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -168,6 +175,7 @@ namespace Desert::Runtime
         GetLandscapeLayerInfoService()->Clear();
         GetFoliageTypeService()->Clear();
         GetFractureService()->Clear();
+        GetWaterWavesService()->Clear();
         GetImageService()->Clear();
     }
 

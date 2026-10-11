@@ -15,9 +15,34 @@ namespace Desert::UI
     // automatically (overriding their anchors) — the Unity/Godot "layout group" model.
     enum class UILayoutType
     {
-        Vertical,   // VBox: children top -> bottom
-        Horizontal, // HBox: children left -> right
-        Grid        // fixed cells, wrapping into rows
+        Vertical,    // VBox: children top -> bottom
+        Horizontal,  // HBox: children left -> right
+        Grid,        // fixed cells, wrapping into rows
+        Wrap,        // UE WrapBox: children at their preferred size in lines that wrap
+        Overlay,     // UE Overlay: every child over the same rect, later ones on top (a Z stack)
+        UniformGrid, // UE UniformGridPanel: equal cells, as large as the largest child, sharing the rect
+        SizeBox,     // UE SizeBox: the content's desired size clamped by Min/Max or replaced by Override
+        ScaleBox     // UE ScaleBox: the content keeps its desired size and is scaled to fit the rect
+    };
+
+    // ScaleBox stretch rule (UE EStretch). Appended-only: the scene stores the enumerator.
+    enum class UIScaleStretch
+    {
+        None,
+        Fill,
+        ScaleToFit,
+        ScaleToFitX,
+        ScaleToFitY,
+        ScaleToFill,
+        UserSpecified
+    };
+
+    // Which way a ScaleBox may scale (UE EStretchDirection).
+    enum class UIScaleDirection
+    {
+        Both,
+        DownOnly,
+        UpOnly
     };
 
     // Add to an element to auto-arrange its children. Children keep their UILayout for appearance + preferred
@@ -45,6 +70,38 @@ namespace Desert::UI
 
         PROPERTY( DisplayName( "Grid Columns (0 = auto)" ), Category( "UI Layout Group" ), Range( 0.0f, 64.0f ) )
         int Columns = 0;
+
+        // --- Wrap -----------------------------------------------------------------------------------
+        PROPERTY( DisplayName( "Wrap Size (0 = container)" ), Category( "UI Layout Group" ),
+                  Range( 0.0f, 4096.0f ) )
+        float WrapSize = 0.0f;
+
+        PROPERTY( DisplayName( "Wrap Vertically" ), Category( "UI Layout Group" ) )
+        bool WrapVertical = false;
+
+        // --- Uniform Grid ---------------------------------------------------------------------------
+        PROPERTY( DisplayName( "Min Slot Size" ), Category( "UI Layout Group" ) )
+        glm::vec2 MinSlotSize = glm::vec2( 0.0f, 0.0f );
+
+        // --- Size Box: per axis, NEGATIVE = not set (0 is a legal size) -------------------------------
+        PROPERTY( DisplayName( "Size Box Min (-1 = unset)" ), Category( "UI Layout Group" ) )
+        glm::vec2 SizeMin = glm::vec2( -1.0f, -1.0f );
+
+        PROPERTY( DisplayName( "Size Box Max (-1 = unset)" ), Category( "UI Layout Group" ) )
+        glm::vec2 SizeMax = glm::vec2( -1.0f, -1.0f );
+
+        PROPERTY( DisplayName( "Size Box Override (-1 = unset)" ), Category( "UI Layout Group" ) )
+        glm::vec2 SizeOverride = glm::vec2( -1.0f, -1.0f );
+
+        // --- Scale Box ------------------------------------------------------------------------------
+        PROPERTY( DisplayName( "Stretch" ), Category( "UI Layout Group" ) )
+        UIScaleStretch Stretch = UIScaleStretch::ScaleToFit;
+
+        PROPERTY( DisplayName( "Stretch Direction" ), Category( "UI Layout Group" ) )
+        UIScaleDirection StretchDirection = UIScaleDirection::Both;
+
+        PROPERTY( DisplayName( "User Scale" ), Category( "UI Layout Group" ), Range( 0.0f, 16.0f ) )
+        float UserScale = 1.0f;
     };
 
     // Aspect Ratio Fitter mode: which axis is derived from the other to hold the ratio (or off).
@@ -199,6 +256,12 @@ namespace Desert::UI
         // space by weight — >0 stretches this child to fill (or acts as a spacer). 0 = fixed preferred size.
         PROPERTY( DisplayName( "Flex Grow" ), Category( "Fitter" ), Range( 0.0f, 8.0f ) )
         float FlexGrow = 0.0f;
+
+        // Slate StretchContent shrink: when a VBox/HBox's children overflow it, this child gives the overflow
+        // back in proportion to FlexShrink * its preferred size, never below its Custom Minimum Size.
+        // 0 = keeps its preferred size (the children overflow, as before shrink existed).
+        PROPERTY( DisplayName( "Flex Shrink" ), Category( "Fitter" ), Range( 0.0f, 8.0f ) )
+        float FlexShrink = 0.0f;
 
         // Content Size Fitter (Phase B): a layout-group container sizes itself to its children (hug content),
         // per axis. Keeps the anchored top-left. No effect on non-group elements.
