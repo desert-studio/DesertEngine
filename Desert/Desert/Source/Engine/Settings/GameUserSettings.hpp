@@ -57,12 +57,13 @@ namespace Desert::Settings
         ScalabilityLevels Scalability;
         AudioVolumes      Audio;
         float             MouseSensitivity = 1.0f; // multiplier on the look input; > 0
-        std::string       Language;                 // BCP-47 tag a Localization::LocaleRow answers for ("en")
+        std::string       Language;                // BCP-47 tag a Localization::LocaleRow answers for ("en")
 
         bool operator==( const GameUserSettings& ) const = default;
     };
 
-    [[nodiscard]] std::filesystem::path ProjectGameUserSettingsFile( const std::filesystem::path& projectDirectory );
+    [[nodiscard]] std::filesystem::path
+    ProjectGameUserSettingsFile( const std::filesystem::path& projectDirectory );
     [[nodiscard]] std::filesystem::path UserGameUserSettingsFile( const std::filesystem::path& userDirectory );
 
     // Every value inside its range: a resolution where the mode reads one, quality levels 0..3, volumes 0..1, a
@@ -72,8 +73,9 @@ namespace Desert::Settings
     // The player's file when there is one; else the project's defaults; else a refusal naming both paths. A file
     // that is there but does not parse or validate is refused with its path — it does NOT fall through to the
     // project's, because that would silently undo what the player chose.
-    [[nodiscard]] Common::ResultStr<GameUserSettings> LoadGameUserSettings( const std::filesystem::path& projectDirectory,
-                                                                           const std::filesystem::path& userDirectory );
+    [[nodiscard]] Common::ResultStr<GameUserSettings>
+    LoadGameUserSettings( const std::filesystem::path& projectDirectory,
+                          const std::filesystem::path& userDirectory );
 
     // Writes the player's file (atomically, creating the directory). Refuses an invalid value without writing.
     [[nodiscard]] Common::BoolResultStr SaveGameUserSettings( const GameUserSettings&      settings,

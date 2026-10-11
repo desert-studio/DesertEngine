@@ -178,8 +178,7 @@ namespace Desert::Editor
         ImGui::EndChild();
         ImGui::SameLine();
         ImGui::BeginChild( "##canvas",
-                           ImVec2( width - side * 2.0f - ImGui::GetStyle().ItemSpacing.x * 2.0f, height ),
-                           true );
+                           ImVec2( width - side * 2.0f - ImGui::GetStyle().ItemSpacing.x * 2.0f, height ), true );
         DrawCanvas();
         ImGui::EndChild();
         ImGui::SameLine();
@@ -693,11 +692,11 @@ namespace Desert::Editor
             {
                 // The held literal lives in a DRAFT until the widget is let go: the model's value is re-read
                 // every frame, so without it a drag would restart from the stored value each frame.
-                const bool        drafted = m_LiteralDraft && m_LiteralDraftNode == node.Name &&
-                                     m_LiteralDraft->Pin == input.Pin;
-                RigGraphInputData edited  = drafted ? *m_LiteralDraft : input;
-                bool              done    = false;
-                bool              held    = false;
+                const bool drafted =
+                     m_LiteralDraft && m_LiteralDraftNode == node.Name && m_LiteralDraft->Pin == input.Pin;
+                RigGraphInputData edited = drafted ? *m_LiteralDraft : input;
+                bool              done   = false;
+                bool              held   = false;
                 if ( edited.Float )
                 {
                     ImGui::DragFloat( input.Pin.c_str(), &*edited.Float, 0.01f );

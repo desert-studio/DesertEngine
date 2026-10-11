@@ -131,7 +131,8 @@ namespace Desert::ECS
                 auto& sounding = registry.get<UIAnimComponent>( entity ).Data.Sounding;
                 for ( TL::SoundingVoice& voice : sounding )
                 {
-                    voice.Owner = static_cast<uint64_t>( static_cast<std::underlying_type_t<entt::entity>>( entity ) );
+                    voice.Owner =
+                         static_cast<uint64_t>( static_cast<std::underlying_type_t<entt::entity>>( entity ) );
                     m_SequenceFrame.push_back( std::move( voice ) );
                 }
                 sounding.clear(); // consumed: a frame the view does not refresh is silence, not a repeat
@@ -202,9 +203,9 @@ namespace Desert::ECS
         std::unordered_map<entt::entity, uint32_t>  m_Sources;
         bool                                        m_WasPlaying = false;
 
-        Animation::Timeline::AudioVoices                              m_SequenceVoices;
-        std::vector<Animation::Timeline::SoundingVoice>               m_SequenceFrame;    // reused per frame
-        std::vector<Animation::Timeline::AudioCommand>                m_SequenceCommands; // reused per frame
+        Animation::Timeline::AudioVoices                             m_SequenceVoices;
+        std::vector<Animation::Timeline::SoundingVoice>              m_SequenceFrame;    // reused per frame
+        std::vector<Animation::Timeline::AudioCommand>               m_SequenceCommands; // reused per frame
         std::map<std::tuple<uint64_t, uint32_t, uint32_t>, uint32_t> m_SequenceSources;  // voice → source id
     };
 } // namespace Desert::ECS

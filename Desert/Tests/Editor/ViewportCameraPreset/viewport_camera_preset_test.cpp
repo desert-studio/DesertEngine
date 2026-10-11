@@ -220,4 +220,3 @@ TEST( ViewportCameraPreset, EveryTriadTipIsHeldExactlyOnItsAxis )
     EXPECT_FALSE(
          Desert::Editor::ViewAxisTipBasisOf( glm::normalize( glm::vec3( 1.0f, 1.0f, 0.0f ) ) ).has_value() );
 }
-

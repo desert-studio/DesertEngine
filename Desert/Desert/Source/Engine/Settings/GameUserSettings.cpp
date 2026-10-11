@@ -45,7 +45,8 @@ namespace Desert::Settings
             if ( !parsed )
                 return Common::MakeError<GameUserSettings>( parsed.GetError() );
             if ( const auto valid = ValidateGameUserSettings( parsed.GetValue() ); !valid )
-                return Common::MakeError<GameUserSettings>( std::format( "{}: {}", file.string(), valid.GetError() ) );
+                return Common::MakeError<GameUserSettings>(
+                     std::format( "{}: {}", file.string(), valid.GetError() ) );
             return parsed;
         }
     } // namespace
@@ -68,18 +69,18 @@ namespace Desert::Settings
                                         display.ResolutionY ) );
 
         const ScalabilityLevels& q = settings.Scalability;
-        for ( const auto& checked : { CheckLevel( "ViewDistance", q.ViewDistance ), CheckLevel( "Shadows", q.Shadows ),
-                                      CheckLevel( "PostProcess", q.PostProcess ), CheckLevel( "Textures", q.Textures ),
-                                      CheckLevel( "Effects", q.Effects ), CheckLevel( "Foliage", q.Foliage ),
-                                      CheckVolume( "Master", settings.Audio.Master ),
-                                      CheckVolume( "Music", settings.Audio.Music ),
-                                      CheckVolume( "Effects", settings.Audio.Effects ),
-                                      CheckVolume( "Voice", settings.Audio.Voice ) } )
+        for ( const auto& checked :
+              { CheckLevel( "ViewDistance", q.ViewDistance ), CheckLevel( "Shadows", q.Shadows ),
+                CheckLevel( "PostProcess", q.PostProcess ), CheckLevel( "Textures", q.Textures ),
+                CheckLevel( "Effects", q.Effects ), CheckLevel( "Foliage", q.Foliage ),
+                CheckVolume( "Master", settings.Audio.Master ), CheckVolume( "Music", settings.Audio.Music ),
+                CheckVolume( "Effects", settings.Audio.Effects ), CheckVolume( "Voice", settings.Audio.Voice ) } )
             if ( !checked )
                 return checked;
 
         if ( !( settings.MouseSensitivity > 0.0f ) )
-            return Refuse( std::format( "MouseSensitivity is {}, it must be above 0", settings.MouseSensitivity ) );
+            return Refuse(
+                 std::format( "MouseSensitivity is {}, it must be above 0", settings.MouseSensitivity ) );
         if ( Localization::FindLocale( settings.Language ) == nullptr )
             return Refuse( std::format( "Language '{}' is not a language this build knows", settings.Language ) );
         return Common::MakeSuccess( true );
@@ -96,11 +97,12 @@ namespace Desert::Settings
         if ( std::filesystem::exists( project, ec ) )
             return ReadValid( project );
         return Common::MakeError<GameUserSettings>(
-             std::format( "no game user settings: neither the player's {} nor the project's {} exists", user.string(),
-                          project.string() ) );
+             std::format( "no game user settings: neither the player's {} nor the project's {} exists",
+                          user.string(), project.string() ) );
     }
 
-    Common::BoolResultStr SaveGameUserSettings( const GameUserSettings& settings, const std::filesystem::path& userDirectory )
+    Common::BoolResultStr SaveGameUserSettings( const GameUserSettings&      settings,
+                                                const std::filesystem::path& userDirectory )
     {
         const std::filesystem::path file = UserGameUserSettingsFile( userDirectory );
         if ( const auto valid = ValidateGameUserSettings( settings ); !valid )
@@ -108,7 +110,8 @@ namespace Desert::Settings
         std::error_code ec;
         std::filesystem::create_directories( userDirectory, ec );
         if ( ec )
-            return Refuse( std::format( "{} was not saved: cannot create its folder: {}", file.string(), ec.message() ) );
+            return Refuse(
+                 std::format( "{} was not saved: cannot create its folder: {}", file.string(), ec.message() ) );
         if ( const auto written = Common::Json::WriteFileAtomic( file, settings ); !written )
             return Refuse( std::format( "{} was not saved: {}", file.string(), written.GetError() ) );
         LOG_INFO( "[Settings] saved the game user settings -> {}", file.string() );
@@ -124,9 +127,8 @@ namespace Desert::Settings
         // The window: moved only when it is not already there — the packaged game was CREATED from these same
         // DisplaySettings, and re-entering a mode it is in would restore and re-zoom it for nothing.
         const DisplaySettings& display = settings.Display;
-        const bool             sizeDiffers =
-             display.UsesResolution() &&
-             ( window.GetWidth() != display.ResolutionX || window.GetHeight() != display.ResolutionY );
+        const bool sizeDiffers         = display.UsesResolution() && ( window.GetWidth() != display.ResolutionX ||
+                                                               window.GetHeight() != display.ResolutionY );
         if ( window.GetWindowMode() != display.Mode || sizeDiffers )
             if ( const auto moved = window.SetWindowMode( display.Mode, display.ResolutionX, display.ResolutionY );
                  !moved )

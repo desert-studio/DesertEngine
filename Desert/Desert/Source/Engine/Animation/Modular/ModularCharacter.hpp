@@ -62,8 +62,8 @@ namespace Desert::Animation
         bool     operator==( const ClothInstanceId& ) const = default;
     };
 
-    // Same fields and meaning as ECS SocketAttachmentComponent (a skeleton socket or a bone by name; offsets on top
-    // of it; euler radians).
+    // Same fields and meaning as ECS SocketAttachmentComponent (a skeleton socket or a bone by name; offsets on
+    // top of it; euler radians).
     struct SocketAttachmentDesc
     {
         Common::AssetHandle Mesh; // a static mesh: helmets, scopes, pouches

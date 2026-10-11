@@ -100,8 +100,8 @@ TEST( SkeletonTree, DecomposeReadsLocationRotationScale )
 
 TEST( SkeletonSockets, AnAttachmentNamingASocketFollowsItsBoneAndItsTransformAndABoneNameStillWorks )
 {
-    auto                        skeleton = MakeSkeleton();
-    Animation::SkeletonSocket   grip{ "hand_r_grip", "lowerarm_r", glm::vec3( 0.0F, 10.0F, 0.0F ) };
+    auto                      skeleton = MakeSkeleton();
+    Animation::SkeletonSocket grip{ "hand_r_grip", "lowerarm_r", glm::vec3( 0.0F, 10.0F, 0.0F ) };
     ASSERT_TRUE( skeleton.SetSockets( { grip } ) );
 
     const auto socket = ECS::Rules::ResolveAttachPoint( skeleton, "hand_r_grip" );
@@ -110,9 +110,9 @@ TEST( SkeletonSockets, AnAttachmentNamingASocketFollowsItsBoneAndItsTransformAnd
     EXPECT_FLOAT_EQ( socket->SocketLocal[3][1], 10.0F );
 
     // The attachment's own offset composes ON TOP of the socket: bone * socket * offset.
-    const glm::mat4 world = ECS::Rules::SocketLocalTransform( glm::mat4( 1.0F ), glm::mat4( 1.0F ) * socket->SocketLocal,
-                                                             glm::vec3( 1.0F, 0.0F, 0.0F ), glm::vec3( 0.0F ),
-                                                             glm::vec3( 1.0F ) );
+    const glm::mat4 world =
+         ECS::Rules::SocketLocalTransform( glm::mat4( 1.0F ), glm::mat4( 1.0F ) * socket->SocketLocal,
+                                           glm::vec3( 1.0F, 0.0F, 0.0F ), glm::vec3( 0.0F ), glm::vec3( 1.0F ) );
     EXPECT_FLOAT_EQ( world[3][0], 1.0F );
     EXPECT_FLOAT_EQ( world[3][1], 10.0F );
 

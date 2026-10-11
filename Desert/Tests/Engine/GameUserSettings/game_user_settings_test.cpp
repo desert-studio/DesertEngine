@@ -30,23 +30,50 @@ namespace
     class RecordingWindow final : public Window
     {
     public:
-        WindowMode Mode = WindowMode::Maximized;
+        WindowMode Mode  = WindowMode::Maximized;
         uint32_t   Width = 800, Height = 600;
-        int        ModeCalls = 0;
+        int        ModeCalls  = 0;
         int        VSyncCalls = 0;
-        bool       VSync = false;
+        bool       VSync      = false;
 
-        Common::ResultStr<bool> Init() override { return Common::MakeSuccess( true ); }
-        void ProcessEvents() override {}
-        const std::string& GetTitle() const override { return m_Title; }
-        void SetTitle( const std::string& title ) override { m_Title = title; }
-        void SetWindowSize( uint32_t, uint32_t ) override {}
-        void SetWindowPos( int, int ) override {}
-        void GetWindowPos( int& x, int& y ) const override { x = y = 0; }
-        void Maximize() override {}
-        void Restore() override {}
-        void Minimize() override {}
-        bool IsWindowMaximized() const override { return Mode == WindowMode::Maximized; }
+        Common::ResultStr<bool> Init() override
+        {
+            return Common::MakeSuccess( true );
+        }
+        void ProcessEvents() override
+        {
+        }
+        const std::string& GetTitle() const override
+        {
+            return m_Title;
+        }
+        void SetTitle( const std::string& title ) override
+        {
+            m_Title = title;
+        }
+        void SetWindowSize( uint32_t, uint32_t ) override
+        {
+        }
+        void SetWindowPos( int, int ) override
+        {
+        }
+        void GetWindowPos( int& x, int& y ) const override
+        {
+            x = y = 0;
+        }
+        void Maximize() override
+        {
+        }
+        void Restore() override
+        {
+        }
+        void Minimize() override
+        {
+        }
+        bool IsWindowMaximized() const override
+        {
+            return Mode == WindowMode::Maximized;
+        }
         Common::BoolResultStr SetWindowMode( WindowMode mode, uint32_t width, uint32_t height ) override
         {
             ++ModeCalls;
@@ -58,11 +85,22 @@ namespace
             }
             return Common::MakeSuccess( true );
         }
-        WindowMode GetWindowMode() const override { return Mode; }
-        bool IsDecorated() const override { return true; }
-        bool HasDrawableArea() const override { return true; }
-        void Show() override {}
-        void       SetDisplay( const Common::Scalability::DisplaySettings& display ) override
+        WindowMode GetWindowMode() const override
+        {
+            return Mode;
+        }
+        bool IsDecorated() const override
+        {
+            return true;
+        }
+        bool HasDrawableArea() const override
+        {
+            return true;
+        }
+        void Show() override
+        {
+        }
+        void SetDisplay( const Common::Scalability::DisplaySettings& display ) override
         {
             ++VSyncCalls;
             VSync = display.VSync;
@@ -74,15 +112,41 @@ namespace
         void SetClipboardText( const std::string& ) override
         {
         }
-        uint32_t GetWidth() const override { return Width; }
-        uint32_t GetHeight() const override { return Height; }
-        const void* GetNativeWindow() const override { return nullptr; }
-        Common::BoolResultStr PrepareNextFrame() const override { return Common::MakeSuccess( true ); }
-        Common::BoolResultStr PresentFinalImage() const override { return Common::MakeSuccess( true ); }
-        std::shared_ptr<Graphic::SwapChain> GetWindowSwapChain() override { return nullptr; }
-        void SetEventTree( Common::EventTree& ) override {}
-        Common::EventTree* GetEventTree() const override { return nullptr; }
-        Common::ResultStr<bool> SetupSwapChain() override { return Common::MakeSuccess( true ); }
+        uint32_t GetWidth() const override
+        {
+            return Width;
+        }
+        uint32_t GetHeight() const override
+        {
+            return Height;
+        }
+        const void* GetNativeWindow() const override
+        {
+            return nullptr;
+        }
+        Common::BoolResultStr PrepareNextFrame() const override
+        {
+            return Common::MakeSuccess( true );
+        }
+        Common::BoolResultStr PresentFinalImage() const override
+        {
+            return Common::MakeSuccess( true );
+        }
+        std::shared_ptr<Graphic::SwapChain> GetWindowSwapChain() override
+        {
+            return nullptr;
+        }
+        void SetEventTree( Common::EventTree& ) override
+        {
+        }
+        Common::EventTree* GetEventTree() const override
+        {
+            return nullptr;
+        }
+        Common::ResultStr<bool> SetupSwapChain() override
+        {
+            return Common::MakeSuccess( true );
+        }
 
     private:
         std::string m_Title;
@@ -91,9 +155,13 @@ namespace
     GameUserSettings Sample()
     {
         GameUserSettings s;
-        s.Display          = { .Mode = WindowMode::Windowed, .ResolutionX = 1280, .ResolutionY = 720, .VSync = true,
-                               .FrameRateLimit = 60 };
-        s.Scalability      = { .ViewDistance = 0, .Shadows = 1, .PostProcess = 2, .Textures = 3, .Effects = 1, .Foliage = 0 };
+        s.Display     = { .Mode           = WindowMode::Windowed,
+                          .ResolutionX    = 1280,
+                          .ResolutionY    = 720,
+                          .VSync          = true,
+                          .FrameRateLimit = 60 };
+        s.Scalability = {
+             .ViewDistance = 0, .Shadows = 1, .PostProcess = 2, .Textures = 3, .Effects = 1, .Foliage = 0 };
         s.Audio            = { .Master = 0.8f, .Music = 0.25f, .Effects = 0.5f, .Voice = 0.75f };
         s.MouseSensitivity = 1.5f;
         s.Language         = "ru";
@@ -106,14 +174,24 @@ namespace
         void SetUp() override
         {
             m_Root = fs::temp_directory_path() /
-                     ( "desert-gus-" + std::string( ::testing::UnitTest::GetInstance()->current_test_info()->name() ) );
+                     ( "desert-gus-" +
+                       std::string( ::testing::UnitTest::GetInstance()->current_test_info()->name() ) );
             fs::remove_all( m_Root );
             fs::create_directories( m_Root / "Project" );
         }
-        void TearDown() override { fs::remove_all( m_Root ); }
+        void TearDown() override
+        {
+            fs::remove_all( m_Root );
+        }
 
-        fs::path Project() const { return m_Root / "Project"; }
-        fs::path User() const { return m_Root / "User"; }
+        fs::path Project() const
+        {
+            return m_Root / "Project";
+        }
+        fs::path User() const
+        {
+            return m_Root / "User";
+        }
 
         fs::path m_Root;
     };
@@ -128,7 +206,7 @@ TEST_F( GameUserSettingsTest, SaveThenLoadIsTheSameSettings )
     EXPECT_EQ( loaded.GetValue(), saved );
 
     // and a second save of what was loaded writes the same bytes: nothing drifts across rounds
-    std::ifstream first( UserGameUserSettingsFile( User() ) );
+    std::ifstream     first( UserGameUserSettingsFile( User() ) );
     const std::string before( ( std::istreambuf_iterator<char>( first ) ), {} );
     ASSERT_TRUE( SaveGameUserSettings( loaded.GetValue(), User() ) );
     std::ifstream second( UserGameUserSettingsFile( User() ) );
@@ -189,10 +267,10 @@ TEST( GameUserSettingsProject, TheGamesOwnDefaultsLoadAndValidate )
 
 TEST( GameUserSettingsApply, EveryValueReachesItsConsumer )
 {
-    RecordingWindow    window;
-    Engine::FramePacer pacer;
+    RecordingWindow        window;
+    Engine::FramePacer     pacer;
     const GameUserSettings settings = Sample();
-    const auto applied = ApplyGameUserSettings( settings, window, pacer );
+    const auto             applied  = ApplyGameUserSettings( settings, window, pacer );
     ASSERT_TRUE( applied ) << applied.GetError();
 
     EXPECT_EQ( window.Mode, WindowMode::Windowed );

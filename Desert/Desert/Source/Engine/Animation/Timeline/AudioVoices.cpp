@@ -30,8 +30,8 @@ namespace Desert::Animation::Timeline
 
         AudioCommand CommandFor( const AudioCommandKind kind, const SoundingVoice& voice )
         {
-            return AudioCommand{ kind, voice.Owner, voice.Track, voice.Section, voice.Sound, voice.Seconds,
-                                 voice.Gain };
+            return AudioCommand{ kind,        voice.Owner,   voice.Track, voice.Section,
+                                 voice.Sound, voice.Seconds, voice.Gain };
         }
     } // namespace
 
@@ -40,8 +40,8 @@ namespace Desert::Animation::Timeline
         // Stops first, so an executor that reuses a voice's slot never sees a Start before its Stop.
         for ( const SoundingVoice& playing : m_Voices )
         {
-            const auto now = std::ranges::find_if( frame, [&]( const SoundingVoice& v )
-                                                   { return SameVoice( v, playing ); } );
+            const auto now =
+                 std::ranges::find_if( frame, [&]( const SoundingVoice& v ) { return SameVoice( v, playing ); } );
             if ( now == frame.end() || now->Sound != playing.Sound )
             {
                 out.push_back( CommandFor( AudioCommandKind::Stop, playing ) );
@@ -52,8 +52,8 @@ namespace Desert::Animation::Timeline
         next.reserve( frame.size() );
         for ( const SoundingVoice& voice : frame )
         {
-            const auto was = std::ranges::find_if( m_Voices, [&]( const SoundingVoice& v )
-                                                   { return SameVoice( v, voice ); } );
+            const auto was =
+                 std::ranges::find_if( m_Voices, [&]( const SoundingVoice& v ) { return SameVoice( v, voice ); } );
             if ( was == m_Voices.end() || was->Sound != voice.Sound )
             {
                 out.push_back( CommandFor( AudioCommandKind::Start, voice ) );

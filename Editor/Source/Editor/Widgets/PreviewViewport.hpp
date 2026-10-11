@@ -245,7 +245,6 @@ namespace Desert::Editor
         void SetSkinnedMesh( const Assets::AssetHandle& mesh, const std::vector<Assets::AssetHandle>& materials,
                              Assets::Asset<Assets::AnimationAsset> clip );
 
-
         void SetAnimationTime( double seconds );
 
         // The skinned target's animator (nullptr without SetSkinnedMesh), the camera's view-projection and the

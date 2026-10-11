@@ -1640,7 +1640,8 @@ namespace Desert::ECS
         Common::UUID Target = Common::UUID::Null();
         // UE's AttachSocketName: a SOCKET of the target's skeleton (Skeleton::FindSocket - its bone and its local
         // transform come from the rig) or, when the rig has no socket of that name, a bone (UE
-        // USkinnedMeshComponent::GetSocketTransform: socket first, then bone). E.g. "hand_r_grip", "mixamorig:Head".
+        // USkinnedMeshComponent::GetSocketTransform: socket first, then bone). E.g. "hand_r_grip",
+        // "mixamorig:Head".
         std::string SocketName;
 
         // This attachment's own alignment ON TOP of the socket (or of the bone when the name is a bone) - UE's

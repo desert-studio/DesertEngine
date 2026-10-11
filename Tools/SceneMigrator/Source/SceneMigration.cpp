@@ -566,8 +566,8 @@ namespace Desert::Migration
     SoundForAudioFile( const std::filesystem::path& audioFile )
     {
         using Found = std::pair<Common::Content::AssetGuid, std::filesystem::path>;
-        std::error_code ec;
-        const auto      dir = audioFile.parent_path();
+        std::error_code    ec;
+        const auto         dir = audioFile.parent_path();
         std::vector<Found> found;
         for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
         {
@@ -598,7 +598,7 @@ namespace Desert::Migration
         // A v41 path is relative to its project (the content root), which is an ancestor of the scene's
         // directory: the same rule LocateMeshFile applies to `meshPath`. The project is kept for the Path the
         // Sound reference states. A file found under no ancestor is named under `assetsRoot` and refused.
-        std::filesystem::path project = assetsRoot;
+        std::filesystem::path project  = assetsRoot;
         const auto            absolute = [&]( const std::string& path )
         {
             const std::filesystem::path named( path );
@@ -643,11 +643,12 @@ namespace Desert::Migration
                     {
                         const auto asset = SoundForAudioFile( absolute( text ) );
                         if ( !asset )
-                            report.Refused.push_back( std::format( "entity {}: Audio section: {}", who,
-                                                                   asset.GetError() ) );
+                            report.Refused.push_back(
+                                 std::format( "entity {}: Audio section: {}", who, asset.GetError() ) );
                         else
                         {
-                            block["Sound"] = rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
+                            block["Sound"] =
+                                 rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
                             ++report.Sections;
                         }
                     }
@@ -679,7 +680,8 @@ namespace Desert::Migration
                                return false;
                            }
                            rfl::Generic::Object ref;
-                           ref["Guid"] = rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
+                           ref["Guid"] =
+                                rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
                            ref["Path"] = rfl::Generic(
                                 asset.GetValue().second.lexically_relative( project ).generic_string() );
                            block["Sound"] = rfl::Generic( std::move( ref ) );
@@ -705,8 +707,8 @@ namespace Desert::Migration
                                const auto read = Animation::Timeline::ReadSequence( Common::BytesOf( text ) );
                                if ( !read )
                                {
-                                   report.Refused.push_back(
-                                        std::format( "entity {}: the TMLN reader refused: {}", who, read.GetError() ) );
+                                   report.Refused.push_back( std::format( "entity {}: the TMLN reader refused: {}",
+                                                                          who, read.GetError() ) );
                                    return false;
                                }
                                auto written = Animation::Timeline::WriteSequence( read.GetValue() );
@@ -720,8 +722,9 @@ namespace Desert::Migration
                                     std::string( Common::TextOf( written.GetValue() ) ) );
                                if ( !next )
                                {
-                                   report.Refused.push_back( std::format(
-                                        "entity {}: the TMLN writer's text does not read: {}", who, next.error().what() ) );
+                                   report.Refused.push_back(
+                                        std::format( "entity {}: the TMLN writer's text does not read: {}", who,
+                                                     next.error().what() ) );
                                    return false;
                                }
                                tree = next.value();

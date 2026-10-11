@@ -41,7 +41,8 @@ namespace Desert::Platform::Windows
 
         [[nodiscard]] bool HasDrawableArea() const override;
 
-        [[nodiscard]] Common::BoolResultStr SetWindowMode( WindowMode mode, uint32_t width, uint32_t height ) override;
+        [[nodiscard]] Common::BoolResultStr SetWindowMode( WindowMode mode, uint32_t width,
+                                                           uint32_t height ) override;
         [[nodiscard]] WindowMode            GetWindowMode() const override
         {
             return m_Data.Specification.Mode;
@@ -103,7 +104,7 @@ namespace Desert::Platform::Windows
         bool                                m_MaximizeOnShow = false;
         // The Decorated the application ASKED for. Specification.Decorated holds what the window HAS, which a
         // monitor-covering mode turns off; the windowed modes give the request back (SetWindowMode).
-        bool m_RequestedFrame = true;
+        bool                                m_RequestedFrame = true;
         std::shared_ptr<Graphic::SwapChain> m_SwapChain;
     };
 } // namespace Desert::Platform::Windows

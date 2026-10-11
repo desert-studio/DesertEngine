@@ -174,7 +174,7 @@ namespace Desert::Assets
 
         // The sockets and bone masks name bones too: they follow the rename (UE: a renamed bone keeps its
         // sockets), so the rebuilt rig accepts them exactly as the old one held them.
-        const std::string                was     = bones[bone].Name;
+        const std::string                was           = bones[bone].Name;
         std::vector<Animation::BoneInfo> renamed = bones;
         renamed[bone].Name                       = name;
         std::vector<Animation::SkeletonSocket> sockets = m_Skeleton->GetSockets();
@@ -191,7 +191,7 @@ namespace Desert::Assets
             return Common::MakeError<bool>( carried.GetError() );
         if ( auto carried = rebuilt.SetBoneMasks( std::move( masks ) ); !carried )
             return Common::MakeError<bool>( carried.GetError() );
-        *m_Skeleton = std::move( rebuilt );
+        *m_Skeleton                              = std::move( rebuilt );
         m_Signature                              = m_Skeleton->GetSignature();
         ++m_BindRevision;
         return BOOLSUCCESS;

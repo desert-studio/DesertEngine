@@ -14,8 +14,9 @@ namespace Desert::Engine
     {
         if ( m_Limit == 0 )
             return;
-        const auto period = std::chrono::duration_cast<Clock::duration>( std::chrono::duration<double>( 1.0 / m_Limit ) );
-        const auto now    = Clock::now();
+        const auto period =
+             std::chrono::duration_cast<Clock::duration>( std::chrono::duration<double>( 1.0 / m_Limit ) );
+        const auto now = Clock::now();
         if ( m_Next == Clock::time_point{} || now > m_Next + period )
             m_Next = now; // the first frame, or one that ran late: the schedule starts over here
         else if ( now < m_Next )

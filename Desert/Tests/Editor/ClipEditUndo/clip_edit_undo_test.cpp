@@ -284,7 +284,8 @@ TEST( UIAnimationUndo, AnAudioTrackAddedAndItsSectionEditedAreOneStepEachAndUndo
     SequenceEditTransaction transaction;
     {
         const ScopedSequenceEdit edit( transaction, OwnerOf( &animation ) );
-        ASSERT_TRUE( Timeline::AddAudioTrack( animation.Sequence, Common::Content::AssetGuid{ 0x5A0D, 0x0001 } ).IsSuccess() );
+        ASSERT_TRUE( Timeline::AddAudioTrack( animation.Sequence, Common::Content::AssetGuid{ 0x5A0D, 0x0001 } )
+                          .IsSuccess() );
     }
     ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "binding + track + section: one step";
     const Timeline::Sequence added = animation.Sequence;

@@ -385,14 +385,14 @@ namespace Desert::Animation::Timeline
             }
             section.Blend = static_cast<SectionBlendType>( data.Blend );
 
-            const int contents = static_cast<int>( data.Channel.has_value() ) +
-                                 static_cast<int>( data.Animation.has_value() ) +
-                                 static_cast<int>( data.CameraCut.has_value() ) +
-                                 static_cast<int>( data.Audio.has_value() );
+            const int contents =
+                 static_cast<int>( data.Channel.has_value() ) + static_cast<int>( data.Animation.has_value() ) +
+                 static_cast<int>( data.CameraCut.has_value() ) + static_cast<int>( data.Audio.has_value() );
             if ( contents != 1 )
             {
                 return Common::MakeFormattedError<Section>(
-                     "states {} of Channel / Animation / CameraCut / Audio; a section holds exactly one", contents );
+                     "states {} of Channel / Animation / CameraCut / Audio; a section holds exactly one",
+                     contents );
             }
             if ( data.Channel )
             {

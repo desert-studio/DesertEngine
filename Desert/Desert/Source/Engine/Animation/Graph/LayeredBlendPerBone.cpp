@@ -152,10 +152,10 @@ namespace Desert::Animation::Graph
             if ( const auto& maskName = node.Layers[layer].BoneMask )
             {
                 if ( !node.Layers[layer].Filters.empty() )
-                    return Common::MakeError<Table>(
-                         std::format( "Layered Blend Per Bone: layer {} states both {} branch filter(s) and the bone "
-                                      "mask '{}'; a layer's reach is one or the other",
-                                      layer, node.Layers[layer].Filters.size(), *maskName ) );
+                    return Common::MakeError<Table>( std::format(
+                         "Layered Blend Per Bone: layer {} states both {} branch filter(s) and the bone "
+                         "mask '{}'; a layer's reach is one or the other",
+                         layer, node.Layers[layer].Filters.size(), *maskName ) );
                 const BoneMask* mask = skeleton.FindBoneMask( *maskName );
                 if ( mask == nullptr )
                     return Common::MakeError<Table>(

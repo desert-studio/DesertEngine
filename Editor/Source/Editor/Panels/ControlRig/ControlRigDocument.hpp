@@ -90,7 +90,7 @@ namespace Desert::Editor
         std::string                              m_SkeletonError;
         std::vector<std::string>                 m_ShapeNames;
 
-        ax::NodeEditor::EditorContext*        m_Canvas = nullptr;
+        ax::NodeEditor::EditorContext* m_Canvas = nullptr;
         /// The model revision the canvas last took node positions from: undo/redo/event switch re-place.
         uint64_t m_PlacedRevision = UINT64_MAX;
         /// Canvas point the background menu was opened at — where its new node lands.

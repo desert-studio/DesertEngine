@@ -701,7 +701,7 @@ TEST( LayeredBlendPerBone, AMissingMaskAndALayerStatingBothAreRefusedByName )
     EXPECT_NE( refused.GetError().find( "'Arms'" ), std::string::npos ) << refused.GetError();
 
     G::LayeredBlendPerBoneNode both;
-    both.Layers         = { G::LayerSetup{ { G::BranchFilter{ "leg", 0 } }, std::string( "UpperBody" ) } };
+    both.Layers          = { G::LayerSetup{ { G::BranchFilter{ "leg", 0 } }, std::string( "UpperBody" ) } };
     const auto twoTruths = G::BuildPerBoneWeights( both, skeleton );
     ASSERT_FALSE( twoTruths );
     EXPECT_NE( twoTruths.GetError().find( "both" ), std::string::npos ) << twoTruths.GetError();

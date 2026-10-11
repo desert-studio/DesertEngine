@@ -1672,7 +1672,8 @@ namespace Desert::Editor
             U::ImGuiUtilities::EndPropertyRow();
 
             // --- Grip offset (the weapon almost never sits on the bone origin) -----------------------
-            U::ImGuiUtilities::BeginPropertyRow( "Offset Location", "On top of the socket (or bone), in centimetres" );
+            U::ImGuiUtilities::BeginPropertyRow( "Offset Location",
+                                                 "On top of the socket (or bone), in centimetres" );
             U::ImGuiUtilities::VectorField( "sockloc", &c.OffsetTranslation.x, 3, 0.5f, "%.1f" );
             U::ImGuiUtilities::EndPropertyRow();
 

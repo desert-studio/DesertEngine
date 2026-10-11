@@ -375,8 +375,8 @@ namespace Desert::Editor
                 break;
         }
         RigGraphNodeData node;
-        node.Name   = name;
-        node.Kind   = std::string( desc.Name );
+        node.Name     = name;
+        node.Kind     = std::string( desc.Name );
         node.Target   = target;
         node.Position = position;
         if ( desc.UsesSpace )

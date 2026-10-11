@@ -198,8 +198,8 @@ namespace Desert::Audio
         m_Impl->Sounds.emplace( m_Impl->NextId++, std::move( sound ) );
     }
 
-    uint32_t AudioEngine::CreateSource( const std::string& clipPath, SoundClass soundClass, bool loop, bool spatial,
-                                        float volume )
+    uint32_t AudioEngine::CreateSource( const std::string& clipPath, SoundClass soundClass, bool loop,
+                                        bool spatial, float volume )
     {
         if ( !EnsureInitialized() )
             return 0;

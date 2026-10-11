@@ -21,7 +21,8 @@ namespace Desert::Assets
         }
     }
 
-    Common::ResultStr<std::filesystem::path> SoundAsset::ResolveSourceFile( const Common::Content::AssetGuid& guid )
+    Common::ResultStr<std::filesystem::path>
+    SoundAsset::ResolveSourceFile( const Common::Content::AssetGuid& guid )
     {
         if ( guid.IsNull() )
             return Common::MakeError<std::filesystem::path>( "no sound: the null GUID names none" );
@@ -87,8 +88,8 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr SoundAsset::Save( const Common::Filepath& filepath, const Common::Content::AssetGuid& guid,
-                                            std::string_view source )
+    Common::BoolResultStr SoundAsset::Save( const Common::Filepath&           filepath,
+                                            const Common::Content::AssetGuid& guid, std::string_view source )
     {
         const auto text = Write( guid, source );
         if ( !text )

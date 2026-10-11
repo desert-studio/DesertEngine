@@ -812,12 +812,13 @@ namespace Desert::Editor
                 // holds the sound's GUID handle, and the audio file is the asset's to name.
                 if ( field.Meta.AssetType == "SoundAsset" )
                 {
-                    uint64_t*   handle   = static_cast<uint64_t*>( p );
-                    const auto& registry = Assets::ContentRegistry::Get();
-                    const auto* current  = *handle == 0 ? nullptr : registry.FindByHandle( *handle );
-                    const std::string display = *handle == 0       ? "None"
-                                                : current == nullptr ? "(missing)"
-                                                                     : std::filesystem::path( current->Key ).stem().string();
+                    uint64_t*         handle   = static_cast<uint64_t*>( p );
+                    const auto&       registry = Assets::ContentRegistry::Get();
+                    const auto*       current  = *handle == 0 ? nullptr : registry.FindByHandle( *handle );
+                    const std::string display  = *handle == 0 ? "None"
+                                                 : current == nullptr
+                                                      ? "(missing)"
+                                                      : std::filesystem::path( current->Key ).stem().string();
                     if ( ImGui::BeginCombo( "##sound", display.c_str() ) )
                     {
                         if ( ImGui::Selectable( "None", *handle == 0 ) && *handle != 0 )
@@ -825,8 +826,8 @@ namespace Desert::Editor
                             *handle = 0;
                             changed = true;
                         }
-                        for ( const auto* row : registry.OfKind(
-                                   Common::Content::KindName( Common::Content::ContentKind::Sound ) ) )
+                        for ( const auto* row :
+                              registry.OfKind( Common::Content::KindName( Common::Content::ContentKind::Sound ) ) )
                         {
                             if ( !row->Guid.has_value() )
                                 continue;

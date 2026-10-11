@@ -85,10 +85,10 @@ namespace Desert::UI
                               const TL::EvaluatedFrame& evaluated, std::vector<TL::SoundingVoice>& out )
         {
             out.clear();
-            const double from    = step.From.AsTicks();
-            const double to      = step.To.AsTicks();
-            const bool   forward = step.Direction == TL::PlayDirection::Forward && !step.Reversed &&
-                                 ( to > from || step.Wrapped );
+            const double from = step.From.AsTicks();
+            const double to   = step.To.AsTicks();
+            const bool   forward =
+                 step.Direction == TL::PlayDirection::Forward && !step.Reversed && ( to > from || step.Wrapped );
             if ( !forward )
             {
                 return;

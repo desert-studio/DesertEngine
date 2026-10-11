@@ -111,8 +111,8 @@ namespace Desert::Animation::Timeline
      * sound and a host whose master binding holds no Audio track (`Validate`'s rule, not a second one).
      * Bumps `Revision`. Returns the new track's index.
      */
-    [[nodiscard]] Common::ResultStr<size_t> AddAudioTrack( Sequence& sequence,
-                                                            const Common::Content::AssetGuid& sound );
+    [[nodiscard]] Common::ResultStr<size_t> AddAudioTrack( Sequence&                         sequence,
+                                                           const Common::Content::AssetGuid& sound );
 
     /**
      * @brief Every invariant stated in this folder, checked. The FIRST violation, named.

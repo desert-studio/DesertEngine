@@ -58,8 +58,8 @@ namespace
     {
         std::vector<SoundingVoice> voices;
         for ( const AudioSample& s : SoundsAt( sequence, tick ) )
-            voices.push_back( SoundingVoice{ 7, s.TrackIndex, s.SectionIndex, s.Sound, s.SoundSeconds, advanced,
-                                             s.Gain } );
+            voices.push_back(
+                 SoundingVoice{ 7, s.TrackIndex, s.SectionIndex, s.Sound, s.SoundSeconds, advanced, s.Gain } );
         return voices;
     }
 } // namespace
@@ -74,7 +74,7 @@ TEST( TimelineAudio, UIClipHoldsAudioOnItsMasterBindingOnly )
     onWidget.Tracks[0].Binding = Guid( 2 );
     EXPECT_FALSE( Validate( onWidget ).IsSuccess() ) << "a sound binds no widget";
 
-    Sequence silent = sequence;
+    Sequence silent                                                             = sequence;
     std::get<AudioSectionContent>( silent.Tracks[0].Sections[0].Content ).Sound = Common::Content::AssetGuid{};
     EXPECT_FALSE( Validate( silent ).IsSuccess() ) << "an Audio section names its sound";
 }
@@ -101,8 +101,8 @@ TEST( TimelineAudio, SectionMapsThePlayheadIntoTheSoundWithFades )
 
 TEST( TimelineAudio, VoicesFollowThePlayheadFrameByFrame )
 {
-    const Sequence sequence = UIClipWithSound();
-    AudioVoices                voices;
+    const Sequence            sequence = UIClipWithSound();
+    AudioVoices               voices;
     std::vector<AudioCommand> out;
 
     voices.Update( Frame( sequence, 50, 0.25 ), out ); // before the section: nothing
@@ -190,12 +190,12 @@ TEST( TimelineAudio, AddAudioTrackPutsASoundOnTheMasterBindingOverThePlaybackRan
     ASSERT_EQ( track.Sections.size(), 1u );
     EXPECT_EQ( track.Sections[0].Start.Value, 0 );
     EXPECT_EQ( track.Sections[0].End.Value, 900 );
-    EXPECT_EQ( std::get<AudioSectionContent>( track.Sections[0].Content ).Sound,
-               kStudioSound );
+    EXPECT_EQ( std::get<AudioSectionContent>( track.Sections[0].Content ).Sound, kStudioSound );
     EXPECT_TRUE( Validate( sequence ).IsSuccess() ) << Validate( sequence ).GetError();
 
     const Sequence before = sequence;
-    EXPECT_FALSE( AddAudioTrack( sequence, Common::Content::AssetGuid{} ).IsSuccess() ) << "an Audio section names its sound";
+    EXPECT_FALSE( AddAudioTrack( sequence, Common::Content::AssetGuid{} ).IsSuccess() )
+         << "an Audio section names its sound";
     EXPECT_EQ( sequence.Tracks.size(), before.Tracks.size() ) << "a refusal writes nothing";
 
     Sequence level;

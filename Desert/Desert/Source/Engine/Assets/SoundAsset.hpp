@@ -76,8 +76,8 @@ namespace Desert::Assets
         [[nodiscard]] static Common::ResultStr<std::filesystem::path> ResolveSourceFile( AssetHandle handle );
 
         /// Writes a `.desound` beside its source (creating the directory). Static: saving is what CREATES one.
-        static Common::BoolResultStr Save( const Common::Filepath& filepath, const Common::Content::AssetGuid& guid,
-                                           std::string_view source );
+        static Common::BoolResultStr Save( const Common::Filepath&           filepath,
+                                           const Common::Content::AssetGuid& guid, std::string_view source );
 
     private:
         Common::Content::AssetGuid m_Guid;

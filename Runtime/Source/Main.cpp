@@ -77,7 +77,8 @@ namespace Desert::Player
         {
             // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
             // pacer, the mix, the language, the quality groups — reaches its consumers here.
-            if ( const auto applied = Settings::ApplyGameUserSettings( s_UserSettings, *GetWindow(), GetFramePacer() );
+            if ( const auto applied =
+                      Settings::ApplyGameUserSettings( s_UserSettings, *GetWindow(), GetFramePacer() );
                  !applied )
                 LOG_ERROR( "[Settings] {}", applied.GetError() );
 #if DESERT_DEV_INSTRUMENTS
@@ -384,9 +385,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
 #if DESERT_DEV_INSTRUMENTS
     if ( Desert::Player::s_Movie.has_value() )
     {
-        appInfo.Display.Mode        = Desert::WindowMode::Windowed;
-        appInfo.Display.ResolutionX = 640u;
-        appInfo.Display.ResolutionY = 360u;
+        appInfo.Display.Mode                   = Desert::WindowMode::Windowed;
+        appInfo.Display.ResolutionX            = 640u;
+        appInfo.Display.ResolutionY            = 360u;
         Desert::Player::s_UserSettings.Display = appInfo.Display;
     }
 #endif

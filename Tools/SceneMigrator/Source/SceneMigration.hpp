@@ -516,8 +516,8 @@ namespace Desert::Migration
 
         bool                    CollisionProfilesRaised = false; // below kSceneVersionCollisionProfiles
         CollisionProfilesReport CollisionProfiles;
-        bool            SoundRefsRaised = false; // below kSceneVersionSoundAssets
-        SoundRefsReport SoundRefs;
+        bool                    SoundRefsRaised = false; // below kSceneVersionSoundAssets
+        SoundRefsReport         SoundRefs;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;

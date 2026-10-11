@@ -276,7 +276,8 @@ namespace Desert::Animation::Timeline
                     // An actor holds every value kind, Animation, and Event (UE: an Event track on an actor
                     // binding fires with that actor); only the Camera Cut is the sequence's alone.
                     // Audio: the LevelSequence host plays no sound yet — refused until it does.
-                    return binding == BindingKind::Entity && track != TrackKind::CameraCut && track != TrackKind::Audio;
+                    return binding == BindingKind::Entity && track != TrackKind::CameraCut &&
+                           track != TrackKind::Audio;
             }
             return false;
         }
@@ -409,7 +410,8 @@ namespace Desert::Animation::Timeline
                 }
                 if ( !std::isfinite( audio->Volume ) || audio->Volume < 0.0F )
                 {
-                    return Common::MakeFormattedError<bool>( "volume {} is not a non-negative gain", audio->Volume );
+                    return Common::MakeFormattedError<bool>( "volume {} is not a non-negative gain",
+                                                             audio->Volume );
                 }
                 if ( audio->StartOffset.Value < 0 || audio->FadeIn.Value < 0 || audio->FadeOut.Value < 0 )
                 {

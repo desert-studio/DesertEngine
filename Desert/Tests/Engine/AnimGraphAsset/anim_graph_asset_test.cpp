@@ -437,8 +437,8 @@ TEST( AnimGraphAsset, TwoBoneIKAndLookAtNodesRoundTrip )
 // a state machine - and survive Save/Load with their id, title, place and size on each of the three.
 TEST( AnimGraphAsset, CommentBoxesOfEveryCanvasSurviveSaveAndLoad )
 {
-    namespace PG       = Desert::Animation::Graph;
-    AnimGraph    graph = PG::MakeStateMachineGraph( "Commented" );
+    namespace PG         = Desert::Animation::Graph;
+    AnimGraph graph      = PG::MakeStateMachineGraph( "Commented" );
     graph.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
     PG::PoseNode input;
     input.Name   = "In";

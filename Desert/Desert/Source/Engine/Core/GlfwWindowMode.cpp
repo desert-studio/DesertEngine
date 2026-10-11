@@ -6,15 +6,16 @@
 
 namespace Desert
 {
-    Common::BoolResultStr ApplyGlfwWindowMode( GLFWwindow* window, WindowMode mode, uint32_t width, uint32_t height,
-                                               bool requestedFrame )
+    Common::BoolResultStr ApplyGlfwWindowMode( GLFWwindow* window, WindowMode mode, uint32_t width,
+                                               uint32_t height, bool requestedFrame )
     {
         if ( window == nullptr )
             return Common::MakeError<bool>( "the window mode was not changed: the window does not exist" );
         GLFWmonitor*       monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode* video   = monitor ? glfwGetVideoMode( monitor ) : nullptr;
         if ( monitor == nullptr || video == nullptr )
-            return Common::MakeError<bool>( "the window mode was not changed: no monitor is online (lid closed?)" );
+            return Common::MakeError<bool>(
+                 "the window mode was not changed: no monitor is online (lid closed?)" );
         if ( ( mode == WindowMode::Windowed || mode == WindowMode::Fullscreen ) && ( width == 0 || height == 0 ) )
             return Common::MakeError<bool>(
                  std::format( "the window mode was not changed: {}x{} is not a size", width, height ) );
@@ -56,7 +57,8 @@ namespace Desert
                 break;
             }
             case WindowMode::Maximized:
-                glfwSetWindowMonitor( window, nullptr, workX, workY, workW * 4 / 5, workH * 4 / 5, GLFW_DONT_CARE );
+                glfwSetWindowMonitor( window, nullptr, workX, workY, workW * 4 / 5, workH * 4 / 5,
+                                      GLFW_DONT_CARE );
                 glfwSetWindowAttrib( window, GLFW_DECORATED, frame ? GLFW_TRUE : GLFW_FALSE );
                 glfwMaximizeWindow( window );
                 break;

@@ -34,13 +34,13 @@ namespace Desert::Animation::Timeline
     /// is the sequence's owner (an entity id), so two clips' track 0 / section 0 are two voices.
     struct SoundingVoice
     {
-        uint64_t    Owner   = 0;
-        uint32_t    Track   = 0;
-        uint32_t    Section = 0;
-        Common::Content::AssetGuid Sound; ///< the `.desound` GUID
-        double      Seconds  = 0.0; ///< position in the sound at the frame's playhead
-        double      Advanced = 0.0; ///< seconds the playhead moved forward this frame
-        float       Gain     = 1.0F;
+        uint64_t                   Owner   = 0;
+        uint32_t                   Track   = 0;
+        uint32_t                   Section = 0;
+        Common::Content::AssetGuid Sound;          ///< the `.desound` GUID
+        double                     Seconds  = 0.0; ///< position in the sound at the frame's playhead
+        double                     Advanced = 0.0; ///< seconds the playhead moved forward this frame
+        float                      Gain     = 1.0F;
     };
 
     enum class AudioCommandKind : uint8_t
@@ -55,13 +55,13 @@ namespace Desert::Animation::Timeline
 
     struct AudioCommand
     {
-        AudioCommandKind Kind    = AudioCommandKind::Start;
-        uint64_t         Owner   = 0;
-        uint32_t         Track   = 0;
-        uint32_t         Section = 0;
-        Common::Content::AssetGuid Sound; ///< Start only
-        double           Seconds = 0.0;  ///< Start, Seek
-        float            Gain    = 1.0F; ///< Start, SetGain
+        AudioCommandKind           Kind    = AudioCommandKind::Start;
+        uint64_t                   Owner   = 0;
+        uint32_t                   Track   = 0;
+        uint32_t                   Section = 0;
+        Common::Content::AssetGuid Sound;          ///< Start only
+        double                     Seconds = 0.0;  ///< Start, Seek
+        float                      Gain    = 1.0F; ///< Start, SetGain
     };
 
     class AudioVoices

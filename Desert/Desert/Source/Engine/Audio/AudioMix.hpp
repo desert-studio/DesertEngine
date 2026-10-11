@@ -46,8 +46,8 @@ namespace Desert::Audio
     private:
         void Changed() const;
 
-        float                                  m_Master = 1.0f;
-        std::array<float, kSoundClassCount>    m_Classes{ 1.0f, 1.0f, 1.0f };
-        std::function<void()>                  m_Listener;
+        float                               m_Master = 1.0f;
+        std::array<float, kSoundClassCount> m_Classes{ 1.0f, 1.0f, 1.0f };
+        std::function<void()>               m_Listener;
     };
 } // namespace Desert::Audio

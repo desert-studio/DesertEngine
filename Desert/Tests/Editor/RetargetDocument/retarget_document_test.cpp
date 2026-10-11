@@ -59,9 +59,9 @@ namespace
 
 TEST( RetargetDocument, EditUndoAutoMapSaveReadsBackEqual )
 {
-    const Skeleton source = RigFrom( "Resources/Assets/Meshes/Skinned/ForeignArm.skeleton" );
-    const Skeleton target = RigFrom( "Resources/Assets/Meshes/Skinned/IKProbe.skeleton" );
-    CommandHistory history;
+    const Skeleton                source = RigFrom( "Resources/Assets/Meshes/Skinned/ForeignArm.skeleton" );
+    const Skeleton                target = RigFrom( "Resources/Assets/Meshes/Skinned/IKProbe.skeleton" );
+    CommandHistory                history;
     const File::RetargetAssetData shipped = Shipped();
     ASSERT_EQ( shipped.Chains.size(), 1U );
 

@@ -13,7 +13,8 @@ namespace Desert::Scripting
             if ( lua_isnoneornil( L, 2 ) )
                 Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects );
             else
-                Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects, static_cast<float>( luaL_checknumber( L, 2 ) ) );
+                Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects,
+                                                       static_cast<float>( luaL_checknumber( L, 2 ) ) );
             return 0;
         }
         int StopAll( lua_State* )

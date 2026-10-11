@@ -923,7 +923,8 @@ namespace Desert::Core::Serialize
                 // audio file is streamed when a voice starts.
                 const std::filesystem::path named( path );
                 const auto                  sound = Assets::SoundAsset::ReadFile(
-                     named.is_absolute() ? named : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
                 if ( !sound )
                 {
                     LOG_ERROR( "[Audio] {}", sound.GetError() );

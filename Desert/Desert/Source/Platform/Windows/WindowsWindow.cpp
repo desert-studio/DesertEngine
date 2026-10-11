@@ -125,8 +125,8 @@ namespace Desert::Platform::Windows
         // Without a monitor the window stays windowed, and GetWindowMode says so.
         if ( m_GLFWWindow && m_Data.Specification.Mode == WindowMode::Fullscreen )
         {
-            if ( const auto moved = ApplyGlfwWindowMode( m_GLFWWindow, WindowMode::Fullscreen, width, height,
-                                                         m_RequestedFrame );
+            if ( const auto moved =
+                      ApplyGlfwWindowMode( m_GLFWWindow, WindowMode::Fullscreen, width, height, m_RequestedFrame );
                  !moved )
             {
                 LOG_ERROR( "Exclusive fullscreen {}x{} refused, the window stays windowed: {}", width, height,
@@ -275,7 +275,8 @@ namespace Desert::Platform::Windows
 
     Common::BoolResultStr WindowsWindow::SetWindowMode( WindowMode mode, uint32_t width, uint32_t height )
     {
-        const Common::BoolResultStr moved = ApplyGlfwWindowMode( m_GLFWWindow, mode, width, height, m_RequestedFrame );
+        const Common::BoolResultStr moved =
+             ApplyGlfwWindowMode( m_GLFWWindow, mode, width, height, m_RequestedFrame );
         if ( !moved )
             return moved;
         m_Data.Specification.Mode      = mode;

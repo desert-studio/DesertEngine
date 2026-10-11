@@ -82,8 +82,8 @@ namespace
         if ( ImGui::BeginCombo( label, SoundDisplayName( guid ).c_str() ) )
         {
             const auto& registry = Desert::Assets::ContentRegistry::Get();
-            for ( const auto* row : registry.OfKind( Common::Content::KindName(
-                       Common::Content::ContentKind::Sound ) ) )
+            for ( const auto* row :
+                  registry.OfKind( Common::Content::KindName( Common::Content::ContentKind::Sound ) ) )
             {
                 if ( !row->Guid.has_value() )
                     continue;
@@ -99,7 +99,6 @@ namespace
         return changed;
     }
 } // namespace
-
 
 namespace Desert::Editor
 {

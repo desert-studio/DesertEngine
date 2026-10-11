@@ -471,7 +471,8 @@ namespace Desert::Graphic
                 RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer,
                                                               m_RenderGraphBuilder );
                 if ( const auto velocityViewInit =
-                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )->Initialize();
+                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )
+                               ->Initialize();
                      !velocityViewInit )
                     LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
                 return "SceneColorCopy";

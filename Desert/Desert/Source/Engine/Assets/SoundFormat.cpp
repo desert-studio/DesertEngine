@@ -33,11 +33,13 @@ namespace Desert::Assets
         if ( guid.GetValue().IsNull() )
             return Common::MakeError<Parsed>( "header GUID is null; the null GUID names no sound" );
         if ( data.Source.empty() )
-            return Common::MakeError<Parsed>( "Source is empty; a sound names the audio file it was imported from" );
+            return Common::MakeError<Parsed>(
+                 "Source is empty; a sound names the audio file it was imported from" );
         return Common::MakeSuccess( Parsed{ guid.GetValue(), data.Source } );
     }
 
-    Common::ResultStr<std::string> SoundAsset::Write( const Common::Content::AssetGuid& guid, std::string_view source )
+    Common::ResultStr<std::string> SoundAsset::Write( const Common::Content::AssetGuid& guid,
+                                                      std::string_view                  source )
     {
         if ( guid.IsNull() )
             return Common::MakeError<std::string>( "a .desound needs a GUID; the null GUID names no sound" );

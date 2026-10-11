@@ -120,9 +120,9 @@ namespace Desert::Editor
         AddNode( Animation::RigNodeKind kind, const std::string& target,
                  const Assets::Serialization::RigNodePositionData& position );
         /// Moves a node on the canvas — one undo record per drag (the view commits on release).
-        [[nodiscard]] Common::BoolResultStr          MoveNode( const std::string&                                node,
-                                                               const Assets::Serialization::RigNodePositionData& position );
-        [[nodiscard]] Common::BoolResultStr          RemoveNode( const std::string& node );
+        [[nodiscard]] Common::BoolResultStr MoveNode( const std::string&                                node,
+                                                      const Assets::Serialization::RigNodePositionData& position );
+        [[nodiscard]] Common::BoolResultStr RemoveNode( const std::string& node );
         [[nodiscard]] Common::BoolResultStr SetNodeTarget( const std::string& node, const std::string& target );
         [[nodiscard]] Common::BoolResultStr SetNodeSpace( const std::string&         node,
                                                           Animation::RigControlSpace space );

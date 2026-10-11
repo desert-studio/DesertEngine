@@ -64,11 +64,12 @@ namespace Desert::ECS
                 if ( !anim.Animator )
                     continue; // pose not built yet (e.g. not playing) — leave the weapon where it is
 
-                // THE NAME IS A SOCKET OF THE RIG FIRST, THEN A BONE (UE USkinnedMeshComponent::GetSocketTransform).
-                // A socket gives its bone and its local transform, so every attachment naming it follows the one
-                // grip authored on the skeleton. Resolved once per (name, rig, the rig's socket set) by
-                // Rules::ResolveAttachPoint, so "no name authored" (detached, filtered above) and "a name the rig has neither as a socket
-                // nor as a bone" (the attachment stops following, and says why) stay two things.
+                // THE NAME IS A SOCKET OF THE RIG FIRST, THEN A BONE (UE
+                // USkinnedMeshComponent::GetSocketTransform). A socket gives its bone and its local transform, so
+                // every attachment naming it follows the one grip authored on the skeleton. Resolved once per
+                // (name, rig, the rig's socket set) by Rules::ResolveAttachPoint, so "no name authored" (detached,
+                // filtered above) and "a name the rig has neither as a socket nor as a bone" (the attachment stops
+                // following, and says why) stay two things.
                 const Animation::Skeleton& skeleton = anim.Animator->GetSkeleton();
                 Resolved&                  resolved = m_Resolved[entity];
                 if ( resolved.Name != socket.SocketName || resolved.Signature != skeleton.GetSignature() ||
@@ -77,7 +78,7 @@ namespace Desert::ECS
                     resolved.Name              = socket.SocketName;
                     resolved.Signature         = skeleton.GetSignature();
                     resolved.AuthoringRevision = skeleton.GetAuthoringRevision();
-                    resolved.Point = Rules::ResolveAttachPoint( skeleton, socket.SocketName );
+                    resolved.Point             = Rules::ResolveAttachPoint( skeleton, socket.SocketName );
                     if ( !resolved.Point )
                     {
                         LOG_ERROR( "[Attachment] '{}' is neither a socket nor a bone of the target's rig "
@@ -105,7 +106,8 @@ namespace Desert::ECS
                 }
 
                 const glm::mat4 local = Rules::SocketLocalTransform(
-                     target.GetWorldTransform(), anim.Animator->GetBoneModelMatrix( boneIdx ) * resolved.Point->SocketLocal,
+                     target.GetWorldTransform(),
+                     anim.Animator->GetBoneModelMatrix( boneIdx ) * resolved.Point->SocketLocal,
                      socket.OffsetTranslation, socket.OffsetRotation, socket.OffsetScale, parentWorld );
 
                 const Rules::DecomposedTransform decomposed = Rules::DecomposeTransform( local );
@@ -145,9 +147,9 @@ namespace Desert::ECS
         // the target's rig no longer has.
         struct Resolved
         {
-            std::string        Name;
-            uint64_t           Signature         = 0;
-            uint64_t           AuthoringRevision = 0;
+            std::string                       Name;
+            uint64_t                          Signature         = 0;
+            uint64_t                          AuthoringRevision = 0;
             std::optional<Rules::AttachPoint> Point; ///< nullopt = neither a socket nor a bone of the rig
         };
         std::unordered_map<entt::entity, Resolved> m_Resolved;
