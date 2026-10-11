@@ -64,6 +64,10 @@ namespace Desert::Editor
         /// an icon and filter by it; its picture is the class icon until a producer renders the pieces.
         Fracture,
 
+        /// A physics asset (`.dephysasset`, UE UPhysicsAsset): its own type so the browser can colour it, give it
+        /// an icon and filter by it; its picture is the class icon until the physics asset editor (RAG1c).
+        PhysicsAsset,
+
         /// An import settings sidecar (`.deimport`) written beside a source file by the importer: it states
         /// HOW the source is brought in, so the browser names it instead of calling it Unknown.
         ImportSettings,
@@ -168,6 +172,7 @@ namespace Desert::Editor
          { "dfx", FileType::VFXSystem },
          { "dfrac", FileType::Fracture },
          { "dwaves", FileType::WaterWaves },
+         { "dephysasset", FileType::PhysicsAsset },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

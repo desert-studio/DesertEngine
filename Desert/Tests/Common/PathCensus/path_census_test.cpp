@@ -144,6 +144,7 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
          { &Path::FRACTURE_PATH, "Content/Fractures/" },
          { &Path::WATER_WAVES_PATH, "Content/Water/Waves/" },
          { &Path::INPUT_PATH, "Content/Input/" },
+         { &Path::PHYSICS_ASSET_PATH, "Content/PhysicsAssets/" },
          { &Path::COOKED_PATH, "Cooked/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,

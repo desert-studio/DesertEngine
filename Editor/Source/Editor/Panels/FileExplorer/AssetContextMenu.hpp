@@ -28,6 +28,9 @@ namespace Desert::Editor
             std::function<void( const std::string& )>    OnStatus;      // the red line (a failed file op)
             std::function<bool()>                        CanAddToScene; // a prefab's "Add to Scene"
             std::function<void( const std::string& )>    OnAddToScene;
+            // UE's Skeletal Mesh > Create > Physics Asset: false while the browser has no asset manager.
+            std::function<bool()>                                         CanCreatePhysicsAsset;
+            std::function<Common::BoolResultStr( const std::string& mesh )> OnCreatePhysicsAsset;
         };
 
         AssetContextMenu( ContentBrowserSelection& selection, ThumbnailEditMode& thumbnailEdit,

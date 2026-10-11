@@ -145,6 +145,10 @@ namespace
               "SCR-API-3: it delivers physics contacts and destruction breaks to the scripts subscribed to "
               "the entity they happened to; a hidden body is still simulated (PhysicsECSSystem's verdict), "
               "so its hits must still reach gameplay -- hiding it in the outliner must not mute its events." },
+         Row{ "RagdollLifetime.hpp", Verdict::MustNot,
+              "it puts a character's physics-asset bodies into the physics world and writes the simulated "
+              "pose back; the bodies are simulated like PhysicsECSSystem's, so a ragdoll hidden in the "
+              "outliner must neither leave the simulation nor stop colliding." },
          Row{ "DestructibleLifetime.hpp", Verdict::MustNot,
               "it adds a destructible's fracture to the destruction world on Play and releases it on "
               "destroy; the pieces are simulated like PhysicsECSSystem's bodies, so a destructible hidden "

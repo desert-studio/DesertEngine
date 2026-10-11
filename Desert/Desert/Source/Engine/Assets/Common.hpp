@@ -114,6 +114,10 @@ namespace Desert::Assets
         // AN INPUT MAPPING CONTEXT (`.deinputcontext`): UE's UInputMappingContext — keys mapped to actions with
         // their modifier and trigger stacks. See Engine/Assets/EnhancedInputAssets.hpp.
         InputMappingContext,
+        // A PHYSICS ASSET (`.dephysasset`): UE's UPhysicsAsset — one sphere / box / capsule body per bone and the
+        // swing-twist joints between them, naming its skeleton by GUID (Engine/Physics/PhysicsAssetFormat.hpp).
+        // See Engine/Assets/PhysicsAsset.hpp.
+        PhysicsAsset,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -216,6 +220,10 @@ namespace Desert::Assets
             // AN INPUT ACTION IS SCENE-SCOPED with the context that maps it: the subsystem copies the action's
             // data when the context is added, so an action no live context names has nothing left to drive.
             case AssetTypeID::InputAction:
+            // A PHYSICS ASSET IS SCENE-SCOPED for the retarget's reason: the ragdolled entity names it through an
+            // `AssetHandle` (UE's USkeletalMeshComponent::PhysicsAssetOverride), so it lives as long as that
+            // entity.
+            case AssetTypeID::PhysicsAsset:
             case AssetTypeID::Count:
                 return false;
         }
@@ -292,6 +300,8 @@ namespace Desert::Assets
                 return "InputAction";
             case AssetTypeID::InputMappingContext:
                 return "InputMappingContext";
+            case AssetTypeID::PhysicsAsset:
+                return "PhysicsAsset";
             case AssetTypeID::Count:
                 return "Count";
         }

@@ -43,6 +43,8 @@ namespace Desert::Editor
              FileTypeInfo{ FileType::VFXSystem, "VFX System", { 0.95f, 0.45f, 0.10f, 1.00f }, ICON_MDI_FIRE },
              FileTypeInfo{
                   FileType::Fracture, "Fracture", { 0.75f, 0.55f, 0.35f, 1.00f }, ICON_MDI_CUBE_UNFOLDED },
+             FileTypeInfo{
+                  FileType::PhysicsAsset, "Physics Asset", { 0.95f, 0.60f, 0.25f, 1.00f }, ICON_MDI_BONE },
              FileTypeInfo{ FileType::ImportSettings,
                            "Import Settings",
                            { 0.65f, 0.65f, 0.68f, 1.00f },

@@ -875,6 +875,12 @@ namespace
          { "OceanExtents", kWaterBodyGather },
          { "TargetWaveMaskDepth", kWaterBodyGather },
     };
+    // A ragdoll (RAG1b): the asset and the mode are read by ECS::RagdollLifetime (create / drive / write back).
+    constexpr const char* kRagdollSync   = "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp";
+    constexpr Row         kRagdollRows[] = {
+         { "PhysicsAsset", kRagdollSync },
+         { "Mode", kRagdollSync },
+    };
     // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
     // FieldCommand it hands DestructionWorld::ApplyField.
     constexpr const char* kFieldFire = "Desert/Desert/Source/Engine/ECS/System/DestructionFields.cpp";
@@ -1135,6 +1141,7 @@ namespace
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
          { "WaterBodyData", "WaterBodyComponent", nullptr, CENSUS_ROWS( kWaterBodyRows ) },
+         { "RagdollData", "RagdollComponent", nullptr, CENSUS_ROWS( kRagdollRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
@@ -1354,7 +1361,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 58 with WATER-W2's WaterBodyData (kWaterBodyRows: every field read by WaterBodyGather.cpp into the
     // water body state the physics step queries).
     // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
-    EXPECT_EQ( all.size(), 59u );
+    // -> 60 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
+    EXPECT_EQ( all.size(), 60u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

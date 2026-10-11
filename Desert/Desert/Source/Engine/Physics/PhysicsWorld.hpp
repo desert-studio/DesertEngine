@@ -13,6 +13,7 @@
 #include <optional>
 #include <limits>
 #include <span>
+#include <vector>
 
 namespace Desert::Physics
 {
@@ -211,6 +212,25 @@ namespace Desert::Physics
     inline constexpr float kFixedStepSeconds = 1.0f / 60.0f;
     /// The most steps one PhysicsWorld::Step takes (UE MaxSubsteps, 6): a longer frame loses the rest.
     inline constexpr uint32_t kMaxStepsPerFrame = 6;
+    struct RagdollDesc; // Engine/Physics/RagdollDesc.hpp
+
+    /// A ragdoll in the world (a JPH::Ragdoll: one body per part, a constraint per jointed part).
+    using RagdollHandle                     = uint32_t;
+    constexpr RagdollHandle kInvalidRagdoll = 0xFFFFFFFFu;
+
+    /// What moves a ragdoll's bodies (UE: PhysicsBlendWeight 0 with kinematic bodies / SetSimulatePhysics).
+    enum class RagdollMotion
+    {
+        Kinematic, ///< every part follows the target pose (MoveKinematic per fixed step); pushes dynamic bodies
+        Simulated, ///< every part is dynamic: gravity, contacts and the constraints move it
+    };
+
+    /// One part's body in the world: its origin (the bone, not the centre of mass) and rotation, cm.
+    struct RagdollPartTransform
+    {
+        glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+        glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+    };
 
     class PhysicsWorld
     {
@@ -399,6 +419,44 @@ namespace Desert::Physics
         bool SetCharacterCapsule( CharacterHandle handle, float radius, float halfHeight );
         /// Moves the capsule centre to @p position and stops it (its velocity zero); see TeleportBody.
         void TeleportCharacter( CharacterHandle handle, const glm::vec3& position );
+
+        // ---- Ragdolls (JPH::RagdollSettings / JPH::Ragdoll; UE: the physics asset's bodies and constraints
+        // instanced for one skeletal mesh component) ----
+
+        /**
+         * @brief Instances @p desc with its component space placed at @p position / @p rotation (the entity's
+         * world frame, scale one) and adds it to the world in @p motion.
+         *
+         * The parts are built in the bind pose — that is where the constraint frames are authored — and are
+         * stabilised (RagdollSettings::Stabilize) with parent-child collisions off. Callers then place it in
+         * the current pose with SetRagdollPose. Refused by name: no parts, a part whose parent does not
+         * precede it, a shape Jolt cannot build, the world's body limit.
+         */
+        Common::ResultStr<RagdollHandle> CreateRagdoll( const RagdollDesc& desc, const glm::vec3& position,
+                                                        const glm::quat& rotation, RagdollMotion motion );
+        void                             RemoveRagdoll( RagdollHandle handle );
+        [[nodiscard]] uint32_t           GetRagdollCount() const;
+
+        /// Switches every part to @p motion. Kinematic -> Simulated keeps each body's velocity, so a ragdoll
+        /// let go mid-swing carries the swing (UE SetSimulatePhysics(true) on an animated mesh).
+        void                        SetRagdollMotion( RagdollHandle handle, RagdollMotion motion );
+        [[nodiscard]] RagdollMotion GetRagdollMotion( RagdollHandle handle ) const;
+
+        /// Teleports every part to @p parts (one per RagdollDesc part, world) and clears their velocities and
+        /// the constraints' warm start.
+        void SetRagdollPose( RagdollHandle handle, std::span<const RagdollPartTransform> parts );
+
+        /// The pose a Kinematic ragdoll is driven to: every fixed step of the next Step moves each part there
+        /// (JPH::Ragdoll::DriveToPoseUsingKinematics over that step), so at the end of the step every part IS
+        /// at its target. Ignored by a Simulated ragdoll's motion; kept for when it turns kinematic again.
+        void SetRagdollTarget( RagdollHandle handle, std::span<const RagdollPartTransform> parts );
+
+        /// Every part's body in the world, in RagdollDesc part order. Empty for an unknown handle.
+        void GetRagdollPose( RagdollHandle handle, std::vector<RagdollPartTransform>& out ) const;
+
+        /// The body of part @p part, for the per-body calls above (impulses, velocities). kInvalidBody when
+        /// out of range.
+        [[nodiscard]] BodyHandle GetRagdollPartBody( RagdollHandle handle, uint32_t part ) const;
 
     private:
         struct Impl;

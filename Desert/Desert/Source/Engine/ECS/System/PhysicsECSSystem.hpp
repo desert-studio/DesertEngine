@@ -7,6 +7,7 @@
 #include <Engine/ECS/System/KinematicBodies.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/WaterBodyGather.hpp>
+#include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -23,6 +24,7 @@
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -81,6 +83,7 @@ namespace Desert::ECS
                 if ( m_World )
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
+                    m_Ragdolls.reset();
                     m_RefusedColliders.clear();
                     m_BodyEntities.clear();
                     if ( auto* queue = registry.try_ctx<PhysicsEventQueue>() )
@@ -121,6 +124,7 @@ namespace Desert::ECS
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
+                m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
                 // The wave clock starts with the Play, at zero (UE: the water subsystem's time of a new world).
                 m_Water = std::make_unique<Water::WaterSubsystem>();
             }
@@ -138,6 +142,7 @@ namespace Desert::ECS
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
             m_Destructibles->Attach( registry );
+            m_Ragdolls->Attach( registry );
             m_Destructibles->Sync( registry, []( const Assets::AssetHandle& fracture )
                                    { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
@@ -268,8 +273,21 @@ namespace Desert::ECS
             // A kinematic body follows its entity (UE: the component leads, the body travels to it over the
             // step's fixed steps); only a dynamic body's pose is written back below.
             DriveKinematicBodies( registry, *m_World );
+            // Ragdolls around the step (UE: the physics asset's bodies in the physics scene, BlendInPhysics
+            // after it). Animation ran BEFORE this system (RuntimeLayer / SceneWorkspace order), so the
+            // animator's pose is this frame's animated pose: kinematic ragdolls are driven to it by this step,
+            // and simulated ones are written back over it after the step, before skinning.
+            m_Ragdolls->DriveBeforeStep(
+                 registry,
+                 []( const Assets::AssetHandle& asset, const Common::Content::AssetGuid& meshSkeleton,
+                     std::string_view meshSkeletonName ) {
+                     return Runtime::ResourceRegistry::GetPhysicsAssetService()->Get( asset, meshSkeleton,
+                                                                                      meshSkeletonName );
+                 },
+                 &MeshSkeletonOf );
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
+            m_Ragdolls->WriteBackAfterStep( registry );
             PublishEvents( registry );
             // The steps' breaks are destruction's own news, published by its owner into its own queue.
             m_Destructibles->PublishEvents( registry );
@@ -376,6 +394,26 @@ namespace Desert::ECS
         }
 
     private:
+        // The skeleton the entity's skinned mesh names (UE USkeletalMesh::Skeleton) — what a physics asset
+        // must be authored on. Only asked once the entity's Animator exists, so the mesh is resident.
+        static Common::ResultStr<Common::Content::AssetGuid> MeshSkeletonOf( const entt::registry& registry,
+                                                                             entt::entity          entity )
+        {
+            using Guid = Common::Content::AssetGuid;
+            if ( !registry.has<SkinnedMeshComponent>( entity ) )
+                return Common::MakeError<Guid>( "it has no Skinned Mesh: a ragdoll's bodies follow a skinned "
+                                                "mesh's bones" );
+            const auto& mesh = registry.get<SkinnedMeshComponent>( entity );
+            if ( mesh.RuntimeMesh )
+                return Common::MakeError<Guid>( "its mesh is an in-editor rig (Convert to Skinned) with no "
+                                                "skeleton asset, and a physics asset names its skeleton by GUID" );
+            const auto* asset = dynamic_cast<const Assets::SkinnedMeshAsset*>(
+                 Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh.MeshHandle ) );
+            if ( asset == nullptr )
+                return Common::MakeError<Guid>( "its mesh is not a parsed skinned mesh" );
+            return Common::MakeSuccess( asset->GetSkeleton() );
+        }
+
         // This frame's steps' contact events, named by entity, into the registry's PhysicsEventQueue (see
         // PhysicsEvents.hpp). The body → entity map keeps an entity whose body went this frame until its
         // EndOverlap is named.
@@ -461,6 +499,8 @@ namespace Desert::ECS
         std::unique_ptr<Water::WaterSubsystem> m_Water;
         // Refuses a body whose wave set cannot be read, once per entity per Play.
         WaterBodyGather m_WaterGather;
+        // Same rule: the ragdolls' bodies live in m_World.
+        std::unique_ptr<RagdollLifetime> m_Ragdolls;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.

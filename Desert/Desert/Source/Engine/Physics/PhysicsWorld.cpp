@@ -25,9 +25,13 @@
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Ragdoll/Ragdoll.h>
+#include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <Engine/Physics/PhysicsWorld.hpp>
+#include <Engine/Physics/RagdollDesc.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -608,6 +612,16 @@ namespace Desert::Physics
         std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
         std::vector<CollisionProfileId>              CharacterProfiles; // parallel to Characters
 
+        // Ragdolls. Handle = index into this vector (slot nulled on remove, so other handles stay valid).
+        struct RagdollEntry
+        {
+            JPH::Ref<JPH::Ragdoll>            Ragdoll;
+            RagdollMotion                     Motion = RagdollMotion::Simulated;
+            std::vector<RagdollPartTransform> Target; // empty until SetRagdollTarget
+        };
+        std::vector<RagdollEntry> Ragdolls;
+        JPH::uint32               NextRagdollGroup = 0; // one collision group per ragdoll, unique in this world
+
         ImpulseListener              Impulses;
         std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
         std::vector<ContactEvent>    StepEvents;   // the last Step call's, handed out by GetContactEvents
@@ -702,6 +716,37 @@ namespace Desert::Physics
             for ( size_t i = 0; i < Characters.size(); ++i )
                 if ( Characters[i] )
                     PreviousCharacterPositions[i] = ToGlm( Characters[i]->GetPosition() );
+        // A ragdoll's bodies leave the system before ~Ragdoll destroys them; the vector itself is destroyed
+        // before System, which is declared before it.
+        ~Impl()
+        {
+            for ( RagdollEntry& entry : Ragdolls )
+                if ( entry.Ragdoll )
+                    entry.Ragdoll->RemoveFromPhysicsSystem();
+        }
+
+        RagdollEntry* FindRagdoll( RagdollHandle handle )
+        {
+            return handle < Ragdolls.size() && Ragdolls[handle].Ragdoll ? &Ragdolls[handle] : nullptr;
+        }
+
+        // Kinematic ragdolls reach their target at the end of the coming fixed step (UE: kinematic bodies follow
+        // the animation through their kinematic target; Jolt: Ragdoll::DriveToPoseUsingKinematics, which is this
+        // MoveKinematic per body).
+        void DriveKinematicRagdolls( float step )
+        {
+            for ( RagdollEntry& entry : Ragdolls )
+            {
+                if ( !entry.Ragdoll || entry.Motion != RagdollMotion::Kinematic || entry.Target.empty() )
+                    continue;
+                for ( size_t i = 0; i < entry.Target.size(); ++i )
+                {
+                    const RagdollPartTransform& t = entry.Target[i];
+                    Bodies->MoveKinematic( entry.Ragdoll->GetBodyID( static_cast<int>( i ) ),
+                                           JPH::RVec3( t.Position.x, t.Position.y, t.Position.z ),
+                                           ToJolt( t.Rotation ), step );
+                }
+            }
         }
     };
 
@@ -812,6 +857,7 @@ namespace Desert::Physics
                 world.Apply( force );
 
             world.Impulses.Contacts.clear();
+            world.DriveKinematicRagdolls( kFixedStepSeconds );
             world.System.Update( kFixedStepSeconds, 1, world.TempAllocator.get(), world.JobSystem.get() );
             world.Bank -= kStep;
             ++world.StepCount;
@@ -1533,5 +1579,205 @@ namespace Desert::Physics
             return;
         SetCharacterPosition( handle, position ); // also lands the interpolation position
         m_Impl->Characters[handle]->SetLinearVelocity( JPH::Vec3::sZero() );
+    }
+    // ---- Ragdolls ----
+
+    namespace
+    {
+        JPH::RefConst<JPH::Shape> RagdollPartShape( const RagdollPartDesc& part )
+        {
+            JPH::RefConst<JPH::Shape> inner;
+            switch ( part.Shape )
+            {
+                case PhysicsBodyShape::Sphere:
+                    inner = new JPH::SphereShape( part.Radius );
+                    break;
+                case PhysicsBodyShape::Capsule:
+                    inner = new JPH::CapsuleShape( part.HalfHeight, part.Radius );
+                    break;
+                case PhysicsBodyShape::Box:
+                {
+                    // Jolt's default convex radius must not exceed the smallest half extent.
+                    const float smallest =
+                         std::min( { part.HalfExtents.x, part.HalfExtents.y, part.HalfExtents.z } );
+                    inner = new JPH::BoxShape( ToJolt( part.HalfExtents ),
+                                               std::min( JPH::cDefaultConvexRadius, 0.5f * smallest ) );
+                    break;
+                }
+            }
+            return new JPH::RotatedTranslatedShape( ToJolt( part.ShapeOffset ), ToJolt( part.ShapeRotation ),
+                                                    inner );
+        }
+
+        JPH::EMotionType JoltMotion( RagdollMotion motion )
+        {
+            return motion == RagdollMotion::Kinematic ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;
+        }
+    } // namespace
+
+    Common::ResultStr<RagdollHandle> PhysicsWorld::CreateRagdoll( const RagdollDesc& desc,
+                                                                  const glm::vec3&   position,
+                                                                  const glm::quat& rotation, RagdollMotion motion )
+    {
+        if ( !m_Impl )
+            return Common::MakeError<RagdollHandle>( "the physics world is not initialised" );
+        if ( desc.Parts.empty() )
+            return Common::MakeError<RagdollHandle>( "the ragdoll has no parts" );
+
+        // The entity's frame is applied once, to the bodies and the constraint frames alike (component -> world).
+        const auto toWorldPoint = [&]( const glm::vec3& p )
+        {
+            const glm::vec3 w = position + rotation * p;
+            return JPH::RVec3( w.x, w.y, w.z );
+        };
+        const auto toWorldAxis = [&]( const glm::vec3& a ) { return ToJolt( glm::normalize( rotation * a ) ); };
+
+        // Every part is in the engine's Ragdoll profile (UE's Ragdoll preset); Build guarantees the register has it.
+        const auto             ragdollProfile = m_Impl->Profiles.Resolve( EngineProfiles::kRagdoll );
+        const JPH::ObjectLayer layer          = LayerOf( ragdollProfile.GetValue(), /*moving=*/true );
+
+        JPH::Ref<JPH::RagdollSettings> settings = new JPH::RagdollSettings();
+        settings->mSkeleton                     = new JPH::Skeleton();
+        settings->mParts.resize( desc.Parts.size() );
+        for ( size_t i = 0; i < desc.Parts.size(); ++i )
+        {
+            const RagdollPartDesc& part = desc.Parts[i];
+            if ( part.Parent >= static_cast<int32_t>( i ) )
+                return Common::MakeError<RagdollHandle>(
+                     std::format( "ragdoll part '{}' names part {} as its parent, which does not precede it",
+                                  part.Bone, part.Parent ) );
+            settings->mSkeleton->AddJoint( part.Bone, part.Parent );
+
+            JPH::RagdollSettings::Part& joltPart = settings->mParts[i];
+            joltPart.SetShape( RagdollPartShape( part ) );
+            joltPart.mPosition                     = toWorldPoint( part.Position );
+            joltPart.mRotation                     = ToJolt( glm::normalize( rotation * part.Rotation ) );
+            joltPart.mMotionType                   = JPH::EMotionType::Dynamic;
+            joltPart.mObjectLayer                  = layer;
+            joltPart.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
+            joltPart.mMassPropertiesOverride.mMass = part.MassKg;
+
+            if ( part.Parent >= 0 && part.HasConstraint )
+            {
+                const RagdollConstraintDesc&                c     = part.ToParent;
+                JPH::Ref<JPH::SwingTwistConstraintSettings> joint = new JPH::SwingTwistConstraintSettings();
+                joint->mSpace                                     = JPH::EConstraintSpace::WorldSpace;
+                joint->mPosition1                                 = toWorldPoint( c.Position1 );
+                joint->mTwistAxis1                                = toWorldAxis( c.TwistAxis1 );
+                joint->mPlaneAxis1                                = toWorldAxis( c.PlaneAxis1 );
+                joint->mPosition2                                 = toWorldPoint( c.Position2 );
+                joint->mTwistAxis2                                = toWorldAxis( c.TwistAxis2 );
+                joint->mPlaneAxis2                                = toWorldAxis( c.PlaneAxis2 );
+                joint->mNormalHalfConeAngle                       = c.NormalHalfConeAngle;
+                joint->mPlaneHalfConeAngle                        = c.PlaneHalfConeAngle;
+                joint->mTwistMinAngle                             = c.TwistMinAngle;
+                joint->mTwistMaxAngle                             = c.TwistMaxAngle;
+                joltPart.mToParent                                = joint;
+            }
+        }
+        if ( !settings->Stabilize() )
+            return Common::MakeError<RagdollHandle>( "Jolt could not stabilise the ragdoll's masses" );
+        settings->DisableParentChildCollisions();
+        settings->CalculateBodyIndexToConstraintIndex();
+        settings->CalculateConstraintIndexToBodyIdxPair();
+
+        JPH::Ref<JPH::Ragdoll> ragdoll =
+             settings->CreateRagdoll( m_Impl->NextRagdollGroup++, 0u, &m_Impl->System );
+        if ( ragdoll == nullptr )
+            return Common::MakeError<RagdollHandle>( std::format(
+                 "Jolt refused the ragdoll's {} bodies: {} bodies exist, the world's limit is reached",
+                 desc.Parts.size(), GetBodyCount() ) );
+        ragdoll->AddToPhysicsSystem( JPH::EActivation::Activate );
+
+        Impl::RagdollEntry entry;
+        entry.Ragdoll = ragdoll;
+        m_Impl->Ragdolls.push_back( std::move( entry ) );
+        const auto handle = static_cast<RagdollHandle>( m_Impl->Ragdolls.size() - 1 );
+        SetRagdollMotion( handle, motion );
+        return Common::MakeSuccess( handle );
+    }
+
+    void PhysicsWorld::RemoveRagdoll( RagdollHandle handle )
+    {
+        if ( !m_Impl )
+            return;
+        if ( Impl::RagdollEntry* entry = m_Impl->FindRagdoll( handle ) )
+        {
+            entry->Ragdoll->RemoveFromPhysicsSystem();
+            *entry = Impl::RagdollEntry{}; // the last Ref: ~Ragdoll destroys the bodies and constraints
+        }
+    }
+
+    uint32_t PhysicsWorld::GetRagdollCount() const
+    {
+        if ( !m_Impl )
+            return 0u;
+        return static_cast<uint32_t>( std::count_if( m_Impl->Ragdolls.begin(), m_Impl->Ragdolls.end(),
+                                                     []( const auto& r ) { return r.Ragdoll != nullptr; } ) );
+    }
+
+    void PhysicsWorld::SetRagdollMotion( RagdollHandle handle, RagdollMotion motion )
+    {
+        Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr )
+            return;
+        entry->Motion = motion;
+        for ( const JPH::BodyID& id : entry->Ragdoll->GetBodyIDs() )
+            m_Impl->Bodies->SetMotionType( id, JoltMotion( motion ), JPH::EActivation::Activate );
+    }
+
+    RagdollMotion PhysicsWorld::GetRagdollMotion( RagdollHandle handle ) const
+    {
+        const Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        return entry != nullptr ? entry->Motion : RagdollMotion::Simulated;
+    }
+
+    void PhysicsWorld::SetRagdollPose( RagdollHandle handle, std::span<const RagdollPartTransform> parts )
+    {
+        Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr || parts.size() != entry->Ragdoll->GetBodyCount() )
+            return;
+        for ( size_t i = 0; i < parts.size(); ++i )
+        {
+            const JPH::BodyID id = entry->Ragdoll->GetBodyID( static_cast<int>( i ) );
+            m_Impl->Bodies->SetPositionAndRotation(
+                 id, JPH::RVec3( parts[i].Position.x, parts[i].Position.y, parts[i].Position.z ),
+                 ToJolt( parts[i].Rotation ), JPH::EActivation::Activate );
+            m_Impl->Bodies->SetLinearAndAngularVelocity( id, JPH::Vec3::sZero(), JPH::Vec3::sZero() );
+        }
+        entry->Ragdoll->ResetWarmStart();
+    }
+
+    void PhysicsWorld::SetRagdollTarget( RagdollHandle handle, std::span<const RagdollPartTransform> parts )
+    {
+        Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr || parts.size() != entry->Ragdoll->GetBodyCount() )
+            return;
+        entry->Target.assign( parts.begin(), parts.end() );
+    }
+
+    void PhysicsWorld::GetRagdollPose( RagdollHandle handle, std::vector<RagdollPartTransform>& out ) const
+    {
+        out.clear();
+        const Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr )
+            return;
+        out.resize( entry->Ragdoll->GetBodyCount() );
+        for ( size_t i = 0; i < out.size(); ++i )
+        {
+            JPH::RVec3 p;
+            JPH::Quat  q;
+            m_Impl->Bodies->GetPositionAndRotation( entry->Ragdoll->GetBodyID( static_cast<int>( i ) ), p, q );
+            out[i].Position = ToGlm( p );
+            out[i].Rotation = ToGlm( q );
+        }
+    }
+
+    BodyHandle PhysicsWorld::GetRagdollPartBody( RagdollHandle handle, uint32_t part ) const
+    {
+        const Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr || part >= entry->Ragdoll->GetBodyCount() )
+            return kInvalidBody;
+        return entry->Ragdoll->GetBodyID( static_cast<int>( part ) ).GetIndexAndSequenceNumber();
     }
 } // namespace Desert::Physics

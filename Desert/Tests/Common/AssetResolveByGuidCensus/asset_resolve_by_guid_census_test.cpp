@@ -105,6 +105,10 @@ namespace
          PathOnlyRow{ ContentKind::InputMappingContext,
                       "header states a GUID but no component names a mapping context yet (GP1b: the player's "
                       "input component)" },
+         PathOnlyRow{
+              ContentKind::PhysicsAsset,
+              "RagdollData::PhysicsAsset refers by AssetHandle, stored AssetsRelative like the .dfrac above "
+              "(StoredAssetForm.cpp); no {Guid, Path} referrer yet" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -258,6 +262,7 @@ namespace
             case ContentKind::WorldIndex:
             case ContentKind::Skybox:
             case ContentKind::Fracture:
+            case ContentKind::PhysicsAsset:
                 return SyntheticEnvelope( kind, guid );
             case ContentKind::Shader:
             {

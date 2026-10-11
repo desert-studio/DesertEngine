@@ -87,7 +87,7 @@ namespace Desert::Physics
 
         for ( const std::string_view required :
               { EngineProfiles::kBlockAll, EngineProfiles::kBlockAllDynamic, EngineProfiles::kPhysicsActor,
-                EngineProfiles::kPawn, EngineProfiles::kDestructible } )
+                EngineProfiles::kPawn, EngineProfiles::kDestructible, EngineProfiles::kRagdoll } )
             if ( !out.Resolve( required ) )
                 return Common::MakeFormattedError<Result>(
                      "collision profiles: the engine profile '{}' is missing — the engine gives it to the bodies "

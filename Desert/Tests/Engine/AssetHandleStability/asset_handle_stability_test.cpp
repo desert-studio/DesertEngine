@@ -53,6 +53,7 @@
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -196,6 +197,8 @@ namespace
                &HandleOf<Desert::Assets::InputMappingContextAsset>,
                &MetadataTypeOf<Desert::Assets::InputMappingContextAsset>,
                &DeclaredTypeOf<Desert::Assets::InputMappingContextAsset> },
+             { AssetTypeID::PhysicsAsset, "PhysicsAsset", &HandleOf<Desert::Assets::PhysicsAsset>,
+               &MetadataTypeOf<Desert::Assets::PhysicsAsset>, &DeclaredTypeOf<Desert::Assets::PhysicsAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1338,6 +1341,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::WaterWaves,
          AssetTypeID::InputAction,
          AssetTypeID::InputMappingContext,
+         AssetTypeID::PhysicsAsset,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

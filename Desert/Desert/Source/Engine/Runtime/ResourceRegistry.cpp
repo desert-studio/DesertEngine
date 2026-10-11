@@ -125,6 +125,12 @@ namespace Desert::Runtime
         return &foliageTypeService;
     }
 
+    PhysicsAssetService* ResourceRegistry::GetPhysicsAssetService()
+    {
+        static PhysicsAssetService physicsAssetService;
+        return &physicsAssetService;
+    }
+
     FractureService* ResourceRegistry::GetFractureService()
     {
         static FractureService fractureService;
@@ -152,6 +158,7 @@ namespace Desert::Runtime
         GetFoliageTypeService()->BindAssetManager( assets );
         GetFractureService()->BindAssetManager( assets );
         GetWaterWavesService()->BindAssetManager( assets );
+        GetPhysicsAssetService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -176,6 +183,7 @@ namespace Desert::Runtime
         GetFoliageTypeService()->Clear();
         GetFractureService()->Clear();
         GetWaterWavesService()->Clear();
+        GetPhysicsAssetService()->Clear();
         GetImageService()->Clear();
     }
 

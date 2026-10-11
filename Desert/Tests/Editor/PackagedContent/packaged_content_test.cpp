@@ -1676,6 +1676,7 @@ namespace
              { "FRACTURE_PATH", &P::FRACTURE_PATH, RootVerdict::Packaged, "" },
              { "WATER_WAVES_PATH", &P::WATER_WAVES_PATH, RootVerdict::Packaged, "" },
              { "INPUT_PATH", &P::INPUT_PATH, RootVerdict::Packaged, "" },
+             { "PHYSICS_ASSET_PATH", &P::PHYSICS_ASSET_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
         };
         return roots;

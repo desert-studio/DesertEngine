@@ -42,6 +42,8 @@ namespace Desert::TestSupport
              { "PhysicsActor", CollisionEnabled::QueryAndPhysics, "PhysicsBody", {} },
              { "Pawn", CollisionEnabled::QueryAndPhysics, "Pawn", {} },
              { "Destructible", CollisionEnabled::QueryAndPhysics, "Destructible", {} },
+             // UE's Ragdoll preset: a physics body that lets the pawn capsules through.
+             { "Ragdoll", CollisionEnabled::QueryAndPhysics, "PhysicsBody", { { "Pawn", CollisionResponse::Ignore } } },
              { "NoCollision", CollisionEnabled::NoCollision, "WorldStatic", every( CollisionResponse::Ignore ) },
              { "QueryOnly", CollisionEnabled::QueryOnly, "WorldStatic", {} },
              { "PhysicsOnly", CollisionEnabled::PhysicsOnly, "WorldStatic", {} },
