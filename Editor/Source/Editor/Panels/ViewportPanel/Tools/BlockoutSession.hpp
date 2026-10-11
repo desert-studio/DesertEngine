@@ -157,9 +157,11 @@ namespace Desert::Editor::Tools
         materials.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
         for ( const int t : mesh.TriangleIndicesItr() )
         {
+            // DynamicMesh3 winds a front face clockwise (UE), FromBoxMesh counter-clockwise like the bake and the
+            // render side: corners 1 and 2 swap, as in ToRenderMesh (DynamicMeshRenderConversion.hpp, WINDING).
             const Geometry::Index3i tri = mesh.GetTriangle( t );
-            triangles.push_back( { slotOf[static_cast<size_t>( tri.A )], slotOf[static_cast<size_t>( tri.B )],
-                                   slotOf[static_cast<size_t>( tri.C )] } );
+            triangles.push_back( { slotOf[static_cast<size_t>( tri.A )], slotOf[static_cast<size_t>( tri.C )],
+                                   slotOf[static_cast<size_t>( tri.B )] } );
             materials.push_back( ids != nullptr ? ids->GetValue( t ) : 0 );
         }
         auto recovered = Geometry::VoxelBlockout::FromBoxMesh( positions, triangles, materials, minUnit );
