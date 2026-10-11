@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/RenderMeshData.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -243,7 +243,7 @@ namespace Desert::Geometry::VoxelBlockout
         // layers: flat cells greedy-merged (never across two materials), deformed cells one slanted quad per
         // visible face, frame-aligned UVs (the texture turns with the grid), then carried into the world by the
         // layer's own frame. One Submesh per material ID in use, ascending, with SubmeshMaterialIds naming it -
-        // the layout FromRenderMesh reads into per-triangle MaterialIDs.
+        // the layout DynamicMeshFromRenderMesh reads into per-triangle MaterialIDs.
         RenderMeshData Bake() const;
 
         // Push-in reaches committed pieces too (UE's Cube Grid cuts whatever mesh it targets, so nothing it
@@ -303,7 +303,7 @@ namespace Desert::Geometry::VoxelBlockout
     std::optional<uint64_t> ParseMeshKey( const std::string& text );
 
     // Identity of a mesh's shape for the staleness check: its triangle count and its DISTINCT vertex positions
-    // (to 1/100 cm, order-free), so the same surface keys the same whether it is the EditMesh the bake welded
+    // (to 1/100 cm, order-free), so the same surface keys the same whether it is the DynamicMesh3 the bake welded
     // or the .stmesh the Static Mesh output wrote and a tool lifts back (seams split vertices, never move them).
     uint64_t MeshKey( std::vector<glm::vec3> positions, int triangleCount );
 
