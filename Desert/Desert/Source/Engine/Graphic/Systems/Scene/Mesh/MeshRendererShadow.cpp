@@ -714,14 +714,13 @@ namespace Desert::Graphic::System
                 // one of the four — and the batch is a single draw whose cost is entirely
                 // its instance count.
                 const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
                 // The cull distance from the MAIN camera, as the geometry pass measures it:
                 // an instance faded out of the view casts no shadow either.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
                 CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
-                                     lodView.Origin, lodView, maxLevel, visible, levels );
+                                     lodView.Origin, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 if ( visible.empty() )
                     continue;
 

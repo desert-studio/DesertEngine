@@ -14,6 +14,7 @@ namespace Desert
         std::vector<Submesh> subs       = submeshes;
         std::vector<Index>   gpuIndices = Geometry::BuildLODIndexBuffer( vertices, indices, subs );
         m_Submeshes                     = std::move( subs );
+        ResolveLODScreenSizes();
 
         m_VertexBuffer =
              Graphic::VertexBuffer::Create( (void*)vertices.data(), vertices.size() * sizeof( Vertex ) );

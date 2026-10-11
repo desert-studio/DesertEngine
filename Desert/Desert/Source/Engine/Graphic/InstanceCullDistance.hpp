@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic
@@ -77,7 +78,7 @@ namespace Desert::Graphic
                                      const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
                                      const glm::vec3& cullViewPosition, const Geometry::LODView& lodView,
-                                     uint32_t maxLevel, std::vector<glm::mat4>& visible,
+                                     std::span<const float> lodScreenSizes, std::vector<glm::mat4>& visible,
                                      std::vector<uint32_t>& levels )
     {
         visible.clear();
@@ -96,8 +97,8 @@ namespace Desert::Graphic
                       WindExpandedBounds( Geometry::TransformBounds( instanceTransform, localBounds ), wind ) ) )
                 continue;
             visible.push_back( instanceTransform );
-            levels.push_back( std::min(
-                 Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, -1, 0 ), maxLevel ) );
+            levels.push_back(
+                 Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, lodScreenSizes, -1, 0 ) );
         }
     }
 } // namespace Desert::Graphic

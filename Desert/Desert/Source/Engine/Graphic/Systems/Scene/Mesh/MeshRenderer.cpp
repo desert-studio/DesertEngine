@@ -207,7 +207,7 @@ namespace Desert::Graphic::System
         // draws with (Details "Mesh" section); this only resolves the renderer's camera + LOD toggle.
         return Geometry::SelectLOD( transform, mesh->GetSubmeshes(),
                                     Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
-                                    forcedLOD, lodBias );
+                                    mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
     void MeshRenderer::SubmitGenericMesh( const GenericMeshRenderData& data )

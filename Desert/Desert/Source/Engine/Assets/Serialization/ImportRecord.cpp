@@ -1,6 +1,7 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>
@@ -146,6 +147,18 @@ namespace Desert::Assets::Serialization
                          "entry",
                          mesh );
             }
+        }
+        if ( data.LodScreenSize )
+        {
+            if ( data.LodScreenSize->empty() )
+                return Common::MakeFormattedError<ImportRecordData>(
+                     "import record states an empty LodScreenSize: computed sizes for every mesh are written as "
+                     "no "
+                     "key" );
+            for ( const auto& [mesh, sizes] : *data.LodScreenSize )
+                if ( const std::string defect = Geometry::LODScreenSizesDefect( sizes ); !defect.empty() )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record: the LodScreenSize of '{}' {}", mesh, defect );
         }
         return Common::MakeSuccess( std::move( data ) );
     }
@@ -524,5 +537,81 @@ namespace Desert::Assets::Serialization
         if ( !text )
             return Common::MakeError<bool>( text.GetError() );
         return WriteRecordFile( record, text.GetValue() );
+    }
+
+    Common::ResultStr<std::optional<std::vector<float>>>
+    ReadImportRecordLodScreenSizes( const std::filesystem::path& source, const std::string& meshFile )
+    {
+        using Result    = std::optional<std::vector<float>>;
+        const auto held = HeldRecordFor( Common::Content::ImportRecordPathFor( source ) );
+        if ( !held )
+            return Common::MakeFormattedError<Result>(
+                 "'{}' has no import record, so the LOD screen sizes of '{}' have no home", source.string(),
+                 meshFile );
+        if ( !held->Data )
+            return Common::MakeFormattedError<Result>( "{}", held->Error );
+        const auto& stated = held->Data->LodScreenSize;
+        if ( !stated )
+            return Common::MakeSuccess( Result{} );
+        const auto it = stated->find( meshFile );
+        return Common::MakeSuccess( it == stated->end() ? Result{} : Result{ it->second } );
+    }
+
+    Common::BoolResultStr SetImportRecordLodScreenSizes( const std::filesystem::path&             source,
+                                                         const std::string&                       meshFile,
+                                                         const std::optional<std::vector<float>>& sizes )
+    {
+        if ( sizes )
+            if ( const std::string defect = Geometry::LODScreenSizesDefect( *sizes ); !defect.empty() )
+                return Common::MakeFormattedError<bool>( "the LOD screen sizes for '{}': {}", meshFile, defect );
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        auto                        data   = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' does not exist, so the LOD screen sizes of '{}' have no home", record.string(), meshFile );
+        ImportRecordData                          out = *stored;
+        std::map<std::string, std::vector<float>> entries =
+             out.LodScreenSize.value_or( std::map<std::string, std::vector<float>>{} );
+        if ( sizes )
+            entries[meshFile] = *sizes;
+        else
+            entries.erase( meshFile );
+        std::optional<std::map<std::string, std::vector<float>>> next;
+        if ( !entries.empty() )
+            next = std::move( entries );
+        if ( out.LodScreenSize == next )
+            return BOOLSUCCESS;
+        out.LodScreenSize = std::move( next );
+        // The record keeps the kind it states (a screen-size edit is no re-import).
+        const auto kind = ReadImportRecordKind( source );
+        if ( !kind )
+            return Common::MakeError<bool>( kind.GetError() );
+        const auto text = WriteImportRecord( out, kind.GetValue() );
+        if ( !text )
+            return Common::MakeError<bool>( text.GetError() );
+        return WriteRecordFile( record, text.GetValue() );
+    }
+
+    std::optional<MeshLodScreenSizesHome> LodScreenSizesHomeOf( const std::filesystem::path& meshAsset )
+    {
+        const auto source = Common::Content::MeshSourceBeside( meshAsset );
+        if ( !source )
+            return std::nullopt;
+        std::error_code ec;
+        if ( !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( *source ), ec ) )
+            return std::nullopt;
+        return MeshLodScreenSizesHome{ *source, source->filename().string() };
+    }
+
+    Common::ResultStr<std::optional<std::vector<float>>>
+    ReadMeshLodScreenSizes( const std::filesystem::path& meshAsset )
+    {
+        const auto home = LodScreenSizesHomeOf( meshAsset );
+        if ( !home )
+            return Common::MakeSuccess( std::optional<std::vector<float>>{} );
+        return ReadImportRecordLodScreenSizes( home->Source, home->MeshFile );
     }
 } // namespace Desert::Assets::Serialization

@@ -8,14 +8,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <optional>
+#include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::Geometry
 {
-    // Coarsest level the automatic pick may return. The draw side clamps again to the submesh's real
-    // level count, so "3" only ever means "the coarsest one this mesh actually has".
-    inline constexpr int kMaxAutoLOD = 3;
-
     // THE LOD policy, in one place. MeshRenderer draws with it and the editor's Details panel reports
     // it, so the level a user reads next to a mesh cannot drift from the level actually drawn.
     // forcedLOD >= 0 wins outright; lodBias shifts the automatic pick (+coarser, -finer).
@@ -75,18 +74,73 @@ namespace Desert::Geometry
         return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );
     }
 
-    // THE SCREEN SIZE AT WHICH EACH AUTOMATIC LEVEL BEGINS (UE's per-LOD ScreenSize: the sphere's diameter
-    // as a fraction of the screen). Level N is drawn while the object is smaller than kLODScreenSizes[N].
-    inline constexpr float kLODScreenSizes[kMaxAutoLOD + 1] = { 1.0f, 0.20f, 0.08f, 0.03f };
+    // THE SCREEN SIZE AT WHICH A LEVEL BEGINS when the mesh's author left it to the engine (UE
+    // UStaticMesh::ComputeLODScreenSize, StaticMesh.cpp, the bAutoComputeLODScreenSize rule): a geometric
+    // progression below LOD 1's size, never above the previous level's. ScreenSize is UE's measure - the
+    // bounding sphere's diameter as a fraction of the screen - and level N is drawn while the object is smaller
+    // than ScreenSizes[N]. LOD 0's entry is never compared (nothing is finer); 1 states "the whole screen".
+    inline constexpr float kLOD0ScreenSize          = 1.0f;
+    inline constexpr float kAutoLOD1ScreenSize      = 0.2f;
+    inline constexpr float kAutoLODScreenSizeFactor = 0.4f;
+    inline constexpr float kAutoLODScreenSizeGap    = 0.001f; // UE Constants::Tolerance, in our scale
+
+    inline float ComputeLODScreenSize( const uint32_t level, const float previous )
+    {
+        if ( level == 0 )
+            return kLOD0ScreenSize;
+        const float progression =
+             kAutoLOD1ScreenSize * std::pow( kAutoLODScreenSizeFactor, static_cast<float>( level - 1 ) );
+        return std::clamp( progression, 0.0f, std::max( 0.0f, previous - kAutoLODScreenSizeGap ) );
+    }
+
+    // THE SCREEN SIZE OF EACH LEVEL A MESH DRAWS (UE FStaticMeshRenderData::ScreenSize, resolved after the
+    // cache by ResolveSectionInfo): the author's per-LOD values where the mesh's asset states them, the
+    // automatic rule for every level it does not (nullopt = UE bAutoComputeLODScreenSize; a list shorter than
+    // the chain = UE's "no source model for this LOD" branch). One entry per level the mesh actually has.
+    inline std::vector<float> ResolveLODScreenSizes( const uint32_t                           levels,
+                                                     const std::optional<std::vector<float>>& authored )
+    {
+        std::vector<float> out;
+        out.reserve( levels );
+        for ( uint32_t level = 0; level < levels; ++level )
+        {
+            if ( authored && level < authored->size() )
+                out.push_back( ( *authored )[level] );
+            else
+                out.push_back( ComputeLODScreenSize( level, level == 0 ? kLOD0ScreenSize : out.back() ) );
+        }
+        return out;
+    }
+
+    // An authored list is a list the selection can walk: one entry per level from LOD 0, each finite and
+    // positive, none larger than the level before it (a coarser level that begins at a LARGER size would never
+    // be drawn). Returns the defect, or empty.
+    inline std::string LODScreenSizesDefect( const std::span<const float> sizes )
+    {
+        if ( sizes.empty() )
+            return "states no level (LOD 0's size comes first)";
+        for ( std::size_t level = 0; level < sizes.size(); ++level )
+        {
+            if ( !std::isfinite( sizes[level] ) || sizes[level] <= 0.0f )
+                return "LOD " + std::to_string( level ) + "'s screen size is not a finite positive number";
+            if ( level > 0 && sizes[level] > sizes[level - 1] )
+                return "LOD " + std::to_string( level ) + "'s screen size is larger than LOD " +
+                       std::to_string( level - 1 ) + "'s, so it could never be drawn";
+        }
+        return {};
+    }
 
     // THE POLICY, taking bounds that were already computed. An Instanced Static Mesh asks this question
     // once per INSTANCE against one shared mesh; walking that mesh's submeshes 49 152 times to rebuild
     // the same box is the difference between per-instance LOD being affordable and not being.
     inline uint32_t SelectLODFromBounds( const glm::mat4& transform, const Common::Math::AABB& localBounds,
-                                         const LODView& view, int forcedLOD, int lodBias )
+                                         const LODView& view, const std::span<const float> screenSizes,
+                                         int forcedLOD, int lodBias )
     {
         if ( forcedLOD >= 0 )
             return static_cast<uint32_t>( forcedLOD );
+        if ( screenSizes.size() <= 1 )
+            return 0; // one level: nothing to choose
 
         if ( IsEmpty( localBounds ) )
             return 0; // empty mesh
@@ -101,11 +155,12 @@ namespace Desert::Geometry
              glm::vec3( transform * glm::vec4( 0.5f * ( localBounds.Min + localBounds.Max ), 1.0f ) );
 
         // UE ComputeStaticMeshLOD: the coarsest level whose screen size the object is still below.
+        const int   coarsest       = static_cast<int>( screenSizes.size() ) - 1;
         const float screenRadiusSq = BoundsScreenRadiusSquared( center, radius, view );
         int         base           = 0;
-        for ( int level = kMaxAutoLOD; level > 0; --level )
+        for ( int level = coarsest; level > 0; --level )
         {
-            const float half = 0.5f * kLODScreenSizes[level];
+            const float half = 0.5f * screenSizes[static_cast<std::size_t>( level )];
             if ( half * half > screenRadiusSq )
             {
                 base = level;
@@ -113,15 +168,16 @@ namespace Desert::Geometry
             }
         }
         // Per-mesh bias shifts the auto pick (+coarser / -finer).
-        return static_cast<uint32_t>( std::clamp( base + lodBias, 0, kMaxAutoLOD ) );
+        return static_cast<uint32_t>( std::clamp( base + lodBias, 0, coarsest ) );
     }
 
     // The submesh-taking spelling, for callers that hold a mesh rather than a box. One policy, one
     // definition of a mesh's extent (Geometry::LocalBounds) — the draw side, the editor's Details panel
     // and the culler cannot drift apart about either.
     inline uint32_t SelectLOD( const glm::mat4& transform, const std::vector<Submesh>& submeshes,
-                               const LODView& view, int forcedLOD, int lodBias )
+                               const LODView& view, const std::span<const float> screenSizes, int forcedLOD,
+                               int lodBias )
     {
-        return SelectLODFromBounds( transform, LocalBounds( submeshes ), view, forcedLOD, lodBias );
+        return SelectLODFromBounds( transform, LocalBounds( submeshes ), view, screenSizes, forcedLOD, lodBias );
     }
 } // namespace Desert::Geometry

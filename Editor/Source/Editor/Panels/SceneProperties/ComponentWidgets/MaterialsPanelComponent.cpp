@@ -25,6 +25,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -40,12 +41,86 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <system_error>
 #include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
+
+    namespace
+    {
+        // THE PER-LOD SCREEN SIZES OF THE MESH (UE Static Mesh editor, LOD Settings: "Auto Compute LOD
+        // Distances" + each LOD's "Screen Size"). Their home is the record of the source the mesh was imported
+        // from (ImportRecordData::LodScreenSize); the drawn mesh is updated as the value is dragged, the record
+        // written when the edit ends. A mesh no record speaks for shows its computed sizes, read-only.
+        void DrawLODScreenSizes( const Assets::AssetHandle& meshHandle, ::Desert::Mesh& mesh )
+        {
+            namespace Ser                  = Assets::Serialization;
+            const Assets::MeshAsset* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
+            const auto home = asset ? Ser::LodScreenSizesHomeOf( asset->GetMetadata().Filepath ) : std::nullopt;
+
+            const auto write = [&]( const std::optional<std::vector<float>>& sizes )
+            {
+                if ( !home )
+                    return;
+                if ( const auto written =
+                          Ser::SetImportRecordLodScreenSizes( home->Source, home->MeshFile, sizes );
+                     !written )
+                    LOG_ERROR( "[Details] LOD screen sizes of '{}': {}", home->MeshFile, written.GetError() );
+            };
+
+            Utils::ImGuiUtilities::ResetPropertyRows();
+            ImGui::BeginDisabled( !home.has_value() );
+
+            bool autoCompute = !mesh.GetAuthoredLODScreenSizes().has_value();
+            Utils::ImGuiUtilities::BeginPropertyRow(
+                 "Auto Compute Screen Size",
+                 home ? "Each level's screen size computed by the engine; untick to set them per level"
+                      : "This mesh was written by no import, so its screen sizes are computed and have no home" );
+            if ( ImGui::Checkbox( "##lodautoscreen", &autoCompute ) )
+            {
+                // Unticked: the computed sizes become the authored ones (UE copies the render data's sizes into
+                // the source models when bAutoComputeLODScreenSize is turned off).
+                std::optional<std::vector<float>> next;
+                if ( !autoCompute )
+                    next = mesh.GetLODScreenSizes();
+                mesh.SetAuthoredLODScreenSizes( next );
+                write( next );
+            }
+            Utils::ImGuiUtilities::EndPropertyRow();
+
+            const std::vector<float> sizes = mesh.GetLODScreenSizes();
+            ImGui::BeginDisabled( autoCompute );
+            for ( std::size_t level = 1; level < sizes.size(); ++level )
+            {
+                // Kept between its neighbours, so a coarser level never begins at a larger size than a finer one.
+                const float       upper = sizes[level - 1];
+                const float       lower = level + 1 < sizes.size() ? sizes[level + 1] : 0.0001f;
+                float             value = sizes[level];
+                const std::string label = std::format( "LOD {} Screen Size", level );
+                Utils::ImGuiUtilities::BeginPropertyRow(
+                     label.c_str(),
+                     "The bounding sphere's diameter, as a fraction of the screen, below which this "
+                     "level is drawn" );
+                ImGui::PushID( static_cast<int>( level ) );
+                if ( ImGui::DragFloat( "##lodscreensize", &value, 0.002f, lower, upper, "%.4f",
+                                       ImGuiSliderFlags_AlwaysClamp ) )
+                {
+                    std::vector<float> next = sizes;
+                    next[level]             = value;
+                    mesh.SetAuthoredLODScreenSizes( next );
+                }
+                if ( ImGui::IsItemDeactivatedAfterEdit() )
+                    write( mesh.GetAuthoredLODScreenSizes() );
+                ImGui::PopID();
+                Utils::ImGuiUtilities::EndPropertyRow();
+            }
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
+        }
+    } // namespace
 
     MaterialComponentWidget::MaterialComponentWidget( Assets::AssetManager* assetManager )
          : m_AssetManager( assetManager )
@@ -178,7 +253,7 @@ namespace Desert::Editor
                              Geometry::SelectLOD(
                                   entity.GetWorldTransform(), lodMesh->GetSubmeshes(),
                                   Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
-                                  materialComp.ForcedLOD, materialComp.LODBias ),
+                                  lodMesh->GetLODScreenSizes(), materialComp.ForcedLOD, materialComp.LODBias ),
                              levels - 1 );
                         haveActive = true;
                     }
@@ -198,13 +273,15 @@ namespace Desert::Editor
                     else
                         ImGui::BulletText( "LOD %zu \xE2\x80\x94 %u tris", l, tris );
                 }
+
+                DrawLODScreenSizes( host.MeshHandle, *lodMesh );
             }
 
             // Shared property rows: label column + full-width control, same stripe and hover as every
             // other row in Details.
             Utils::ImGuiUtilities::ResetPropertyRows();
 
-            const char* items[] = { "Auto (by distance)", "LOD 0", "LOD 1", "LOD 2", "LOD 3" };
+            const char* items[] = { "Auto (by screen size)", "LOD 0", "LOD 1", "LOD 2", "LOD 3" };
             int         cur     = materialComp.ForcedLOD < 0 ? 0 : materialComp.ForcedLOD + 1;
             Utils::ImGuiUtilities::BeginPropertyRow( "Force LOD" );
             if ( ImGui::Combo( "##forcelod", &cur, items, 5 ) )

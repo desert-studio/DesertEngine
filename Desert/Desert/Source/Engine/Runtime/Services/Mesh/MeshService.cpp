@@ -6,6 +6,7 @@
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 
@@ -103,6 +104,15 @@ namespace Desert::Runtime
                  "would draw nothing while looking like a built mesh, so it is NOT cached.",
                  path, meshAsset->GetSubmeshes().size(), mesh->GetSubmeshes().size() );
         }
+
+        // THE AUTHORED LOD SCREEN SIZES, resolved against the chain just built (UE ResolveSectionInfo after the
+        // DDC fetch): they are not a build input, so they are read from their home on every build.
+        const auto lodScreenSizes =
+             Assets::Serialization::ReadMeshLodScreenSizes( meshAsset->GetMetadata().Filepath );
+        if ( !lodScreenSizes )
+            return Common::MakeFormattedError( "MeshService: '{}': LOD screen sizes: {}", path,
+                                               lodScreenSizes.GetError() );
+        mesh->SetAuthoredLODScreenSizes( lodScreenSizes.GetValue() );
 
         m_Meshes[handle] = std::move( mesh );
         return BOOLSUCCESS;
