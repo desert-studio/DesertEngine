@@ -1,7 +1,8 @@
 #pragma once
 
-// RICH TEXT — the BBCode parse ([b] [i] [color=#hex] [size=] [link=] [icon=] [img=]), the line layout (wrap, auto-size, alignment,
-// overflow) and the SDF glyph emission of a UIText block. Split out of UICanvasRenderer2D.cpp (UI-R2D-SPLIT).
+// RICH TEXT — the BBCode parse ([b] [i] [color=#hex] [size=] [link=] [icon=] [img=]), the line layout (wrap,
+// auto-size, alignment, overflow) and the SDF glyph emission of a UIText block. Split out of
+// UICanvasRenderer2D.cpp (UI-R2D-SPLIT).
 
 #include <UI/UIWalkCtx.hpp>
 

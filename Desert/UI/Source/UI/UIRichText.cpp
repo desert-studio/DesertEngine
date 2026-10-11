@@ -130,7 +130,7 @@ namespace Desert::UI::Walk
 
         bool ParseHandleArg( const std::string& s, uint64_t& out )
         {
-            uint64_t v = 0;
+            uint64_t v           = 0;
             const auto [ptr, ec] = std::from_chars( s.data(), s.data() + s.size(), v );
             if ( ec != std::errc{} || ptr != s.data() + s.size() || v == 0 )
                 return false;
@@ -401,7 +401,7 @@ namespace Desert::UI::Walk
         // the image decorator's default (RichTextBlockImageDecorator.h:39 sizes the brush to the font's
         // height). Asked once per handle per block: the layout measures every item more than once.
         std::unordered_map<uint64_t, float> aspects;
-        auto pictureAspect = [&]( const StyledChar& c ) -> float
+        auto                                pictureAspect = [&]( const StyledChar& c ) -> float
         {
             const auto [it, fresh] = aspects.try_emplace( c.asset, 1.0f );
             if ( fresh )
@@ -464,7 +464,8 @@ namespace Desert::UI::Walk
             if ( c.link >= 0 )
             {
                 PlacedLink* run = linkRuns.empty() ? nullptr : &linkRuns.back();
-                if ( run && run->link == c.link && run->baseline == baselineY && std::abs( run->x1 - penX ) < 0.5f )
+                if ( run && run->link == c.link && run->baseline == baselineY &&
+                     std::abs( run->x1 - penX ) < 0.5f )
                 {
                     run->x1     = penX + advance;
                     run->top    = std::min( run->top, top );
@@ -564,9 +565,9 @@ namespace Desert::UI::Walk
             for ( size_t i = 0; i < linkRuns.size(); ++i )
             {
                 const PlacedLink& run = linkRuns[i];
-                const bool hovered = links && links->Pointer && PointIn( Rect{ run.x0, run.top, run.x1 - run.x0,
-                                                                                run.bottom - run.top },
-                                                                          *links->Pointer );
+                const bool        hovered =
+                     links && links->Pointer &&
+                     PointIn( Rect{ run.x0, run.top, run.x1 - run.x0, run.bottom - run.top }, *links->Pointer );
                 const float     thick = std::max( 1.0f, scale ) * ( hovered ? 2.0f : 1.0f );
                 const float     y     = run.baseline + std::max( 1.0f, scale );
                 const glm::vec4 col   = linkColors[i];
@@ -688,10 +689,11 @@ namespace Desert::UI::Walk
         {
             auto ellipsize = [&]( TextLine& ln )
             {
-                StyledChar dot = ln.chars.empty() ? StyledChar{ '.', glm::vec4( t.Color, 1.0f ) } : ln.chars.back();
-                dot.ch         = '.';
-                dot.kind       = InlineKind::Glyph;
-                dot.asset      = 0;
+                StyledChar dot =
+                     ln.chars.empty() ? StyledChar{ '.', glm::vec4( t.Color, 1.0f ) } : ln.chars.back();
+                dot.ch           = '.';
+                dot.kind         = InlineKind::Glyph;
+                dot.asset        = 0;
                 const float dots = 3.0f * adv( dot );
                 while ( !ln.chars.empty() && ( ln.width + dots ) * s > availW )
                 {
