@@ -128,14 +128,20 @@ namespace Desert::UI::Walk
             return true;
         }
 
+        // A picture tag's asset: the key a scene file spells it by ("engine:Icons/user.svg",
+        // "assets:Textures/coin.png" — the same AssetHandle::FromCookedPath the scene reader mints it with),
+        // or the bare handle number.
         bool ParseHandleArg( const std::string& s, uint64_t& out )
         {
-            uint64_t v           = 0;
-            const auto [ptr, ec] = std::from_chars( s.data(), s.data() + s.size(), v );
-            if ( ec != std::errc{} || ptr != s.data() + s.size() || v == 0 )
+            if ( s.empty() )
                 return false;
-            out = v;
-            return true;
+            uint64_t v = 0;
+            const auto [ptr, ec] = std::from_chars( s.data(), s.data() + s.size(), v );
+            if ( ec == std::errc{} && ptr == s.data() + s.size() )
+                out = v;
+            else
+                out = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( s ) );
+            return out != 0;
         }
 
         // "rrggbb" or "rrggbbaa" -> vec4. false (and out untouched) on any malformed input.

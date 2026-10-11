@@ -87,7 +87,8 @@ namespace Desert::UI
         UITextOverflow Overflow = UITextOverflow::Overflow; // what to do when the text still doesn't fit
 
         // Parse BBCode tags: [color=#rrggbb]..[/color], [b]..[/b], [i]..[/i], [size=N]..[/size] (design px),
-        // [link=msg]..[/link] (a click raises msg as a UI event), inline [icon=H] / [img=H] (H = asset handle).
+        // [link=msg]..[/link] (a click raises msg as a UI event), inline [icon=K] / [img=K] (K = asset key
+        // as a scene spells it, e.g. engine:Icons/user.svg, or the handle number).
         PROPERTY( DisplayName( "Rich Text" ), Category( "Layout" ) )
         bool RichText = false;
 
