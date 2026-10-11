@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 // WHAT THE CANVAS WALK READS FROM THE ENGINE'S RESOURCES, stated as the questions it asks and nothing more.
@@ -72,6 +73,12 @@ namespace Desert::UI
 
         // A sprite's texture asset as its runtime GPU texture. Empty when the handle names no loaded texture.
         [[nodiscard]] virtual TextureRef SpriteTexture( const Common::AssetHandle& sprite ) = 0;
+
+        // The texture an authored path names (a rich-text [img=assets:Textures/coin.detex]), as the handle
+        // SpriteTexture takes: the content registry's row for that path, the same identity a scene's texture
+        // slot resolves to (a texture is named by its header GUID; the path only locates it). 0 when no
+        // texture row answers for the path.
+        [[nodiscard]] virtual uint64_t ImageAtPath( const std::string& path ) = 0;
 
         // An animated (GIF) sprite's current frame, a pure function of wall-clock time. Empty for a handle
         // that is not an animated image, so an ordinary texture falls through to SpriteTexture.
