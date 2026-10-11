@@ -94,8 +94,6 @@ local function DesertRunnerSettings(deps)
         links {
             "Common",
             "Jolt",
-            -- PUC Lua: only the header tool's ModuleTable.cpp (ModuleBoundary) uses it; scripts run on Luau.
-            "Lua",
             "LuauCodeGen",
             "LuauCompiler",
             "LuauAst",
@@ -166,6 +164,9 @@ local kRunners = {
     end,
     Tools = function(deps)
         DesertRunnerSettings(deps)
+        -- PUC Lua: only the header tool's ModuleTable.cpp (ModuleBoundary, compiled below) uses it; scripts run
+        -- on Luau. Named on every platform: Desert.lib no longer links it, so MSVC gets it from no reference.
+        links { "Lua" }
         -- The tools are executables, so the sources their suites test are compiled here, once.
         files {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",

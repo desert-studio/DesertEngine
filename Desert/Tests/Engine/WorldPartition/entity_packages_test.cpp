@@ -118,7 +118,7 @@ TEST( EntityPackages, AnEditToOneEntityWritesOneFileAndSerializesOneRecord )
     world.Save();
     world.Composed = 0;
 
-    world.Packages.Touch( UUID( 20 ) );
+    world.Packages.Touch( Common::UUID( 20 ) );
     world.Tags[20]   = "B2";
     const auto delta = world.Save();
     EXPECT_FALSE( delta.Whole );
@@ -136,11 +136,11 @@ TEST( EntityPackages, UndoBackToTheSavedRevisionLeavesNothingToWrite )
     world.Save();
     world.Composed = 0;
 
-    const auto stamp = world.Packages.Touch( UUID( 20 ) );
+    const auto stamp = world.Packages.Touch( Common::UUID( 20 ) );
     world.Tags[20]   = "B2";
-    world.Packages.Restore( UUID( 20 ), stamp.Before ); // undo
+    world.Packages.Restore( Common::UUID( 20 ), stamp.Before ); // undo
     world.Tags[20] = "B";
-    EXPECT_FALSE( world.Packages.IsDirty( UUID( 20 ) ) );
+    EXPECT_FALSE( world.Packages.IsDirty( Common::UUID( 20 ) ) );
 
     const auto save = world.Save();
     EXPECT_FALSE( save.Whole );
@@ -153,14 +153,14 @@ TEST( EntityPackages, EditSaveUndoIsDirtyAgain )
 {
     ModelWorld world;
     world.Save();
-    const auto stamp = world.Packages.Touch( UUID( 20 ) );
+    const auto stamp = world.Packages.Touch( Common::UUID( 20 ) );
     world.Tags[20]   = "B2";
     world.Save();
-    EXPECT_FALSE( world.Packages.IsDirty( UUID( 20 ) ) );
+    EXPECT_FALSE( world.Packages.IsDirty( Common::UUID( 20 ) ) );
 
-    world.Packages.Restore( UUID( 20 ), stamp.Before ); // undo after the save: the file holds B2
+    world.Packages.Restore( Common::UUID( 20 ), stamp.Before ); // undo after the save: the file holds B2
     world.Tags[20] = "B";
-    EXPECT_TRUE( world.Packages.IsDirty( UUID( 20 ) ) );
+    EXPECT_TRUE( world.Packages.IsDirty( Common::UUID( 20 ) ) );
     world.Composed  = 0;
     const auto save = world.Save();
     EXPECT_EQ( world.Composed, 1u );
@@ -177,7 +177,7 @@ TEST( EntityPackages, ADeleteRemovesTheFileAndRewritesTheHeaderAndShiftedSibling
     EXPECT_FALSE( save.Whole );
     EXPECT_EQ( save.Files.Removed, 1u );
     EXPECT_EQ( world.Composed, 2u );
-    EXPECT_FALSE( std::filesystem::exists( EE::FileOf( world.Scene, UUID( 10 ) ) ) );
+    EXPECT_FALSE( std::filesystem::exists( EE::FileOf( world.Scene, Common::UUID( 10 ) ) ) );
     EXPECT_EQ( world.Joined().find( "\"A\"" ), std::string::npos );
 }
 
@@ -210,8 +210,8 @@ TEST( EntityPackages, AnUnrecordedEditMarkedModifiedIsWrittenAndSurvivesAnUndo )
     ModelWorld world;
     world.Save();
 
-    const auto stamp = world.Packages.Touch( UUID( 30 ) );
-    world.Packages.MarkModified( UUID( 30 ) );
+    const auto stamp = world.Packages.Touch( Common::UUID( 30 ) );
+    world.Packages.MarkModified( Common::UUID( 30 ) );
     world.Tags[30] = "C2";
     world.Packages.Restore( stamp.Id, stamp.Before ); // undo of the recorded edit
 
@@ -221,7 +221,7 @@ TEST( EntityPackages, AnUnrecordedEditMarkedModifiedIsWrittenAndSurvivesAnUndo )
     EXPECT_NE( world.Joined().find( "C2" ), std::string::npos );
 
     // The save took the baseline: the mark is spent.
-    EXPECT_FALSE( world.Packages.IsDirty( UUID( 30 ) ) );
+    EXPECT_FALSE( world.Packages.IsDirty( Common::UUID( 30 ) ) );
 }
 
 // The Debug safety net: an edit that marked nothing is a refusal naming the entity, and nothing is written.
@@ -230,7 +230,7 @@ TEST( EntityPackages, AnUnmarkedEditIsRefusedByTheCheckAgainstFiles )
     ModelWorld world;
     world.Save();
 
-    world.Packages.Touch( UUID( 10 ) ); // a recorded edit elsewhere keeps the save a delta
+    world.Packages.Touch( Common::UUID( 10 ) ); // a recorded edit elsewhere keeps the save a delta
     world.Tags[10] = "A2";
     world.Tags[20] = "Bypassed"; // changed without Touch or MarkModified
 
@@ -241,7 +241,7 @@ TEST( EntityPackages, AnUnmarkedEditIsRefusedByTheCheckAgainstFiles )
     EXPECT_EQ( world.Joined().find( "A2" ), std::string::npos ); // the refusal wrote nothing
 
     // Marked, the same edit passes the check and lands.
-    world.Packages.MarkModified( UUID( 20 ) );
+    world.Packages.MarkModified( Common::UUID( 20 ) );
     const auto delta = world.Save( CleanCheck::AgainstFiles );
     EXPECT_FALSE( delta.Whole );
     EXPECT_EQ( delta.Files.Written, 2u );
@@ -255,16 +255,17 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     ModelWorld world;
     world.Save();
     world.Packages.Baseline( world.Scene, world.Live() );
-    const auto thirtyRead = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) );
+    const auto thirtyRead =
+         Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, Common::UUID( 30 ) ) );
     ASSERT_TRUE( thirtyRead ) << thirtyRead.GetError();
     const std::string& thirtyBefore = thirtyRead.GetValue();
 
     world.Tags.erase( 30 ); // unloaded: the scene no longer holds it
-    const std::vector<UUID> notLoaded{ UUID( 30 ) };
+    const std::vector<Common::UUID> notLoaded{ Common::UUID( 30 ) };
     world.Packages.AdoptRegion( world.Live(), notLoaded );
-    EXPECT_FALSE( world.Packages.IsLoaded( UUID( 30 ) ) );
+    EXPECT_FALSE( world.Packages.IsLoaded( Common::UUID( 30 ) ) );
 
-    world.Packages.Touch( UUID( 10 ) );
+    world.Packages.Touch( Common::UUID( 10 ) );
     world.Tags[10]   = "A2";
     world.Composed   = 0;
     const auto saved = world.Save( CleanCheck::AgainstFiles );
@@ -272,8 +273,10 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     EXPECT_EQ( saved.Files.Removed, 0u );
     const auto listed = EE::ListedEntities( world.Scene );
     ASSERT_TRUE( listed ) << listed.GetError();
-    EXPECT_EQ( listed.GetValue(), ( std::vector<UUID>{ UUID( 10 ), UUID( 20 ), UUID( 30 ) } ) );
-    const auto thirtyAfter = Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, UUID( 30 ) ) );
+    EXPECT_EQ( listed.GetValue(),
+               ( std::vector<Common::UUID>{ Common::UUID( 10 ), Common::UUID( 20 ), Common::UUID( 30 ) } ) );
+    const auto thirtyAfter =
+         Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, Common::UUID( 30 ) ) );
     ASSERT_TRUE( thirtyAfter ) << thirtyAfter.GetError();
     EXPECT_EQ( thirtyAfter.GetValue(), thirtyBefore );
     EXPECT_NE( world.Joined().find( "\"A2\"" ), std::string::npos );
@@ -283,7 +286,7 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     const auto all = world.Save();
     EXPECT_FALSE( all.Whole );
     EXPECT_EQ( all.Files.Removed, 0u );
-    EXPECT_TRUE( std::filesystem::exists( EE::FileOf( world.Scene, UUID( 30 ) ) ) );
+    EXPECT_TRUE( std::filesystem::exists( EE::FileOf( world.Scene, Common::UUID( 30 ) ) ) );
 }
 
 TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartIsRefused )
@@ -292,7 +295,7 @@ TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartIsRefused )
     world.Save();
     world.Packages.Baseline( world.Scene, world.Live() );
     world.Tags.erase( 30 );
-    const std::vector<UUID> notLoaded{ UUID( 30 ) };
+    const std::vector<Common::UUID> notLoaded{ Common::UUID( 30 ) };
     world.Packages.AdoptRegion( world.Live(), notLoaded );
     world.Scene      = world.Root / "Elsewhere.desce";
     const auto saved = world.TrySave( CleanCheck::Trust );
