@@ -283,12 +283,16 @@ namespace Desert::Geometry
         const DynamicMeshAttributeSet*      attributes = mesh.Attributes();
         const DynamicMeshMaterialAttribute* materialIds =
              attributes != nullptr ? attributes->GetMaterialID() : nullptr;
+        // The format states a group per triangle and the reader always enables the group layer; a mesh with no
+        // group layer (one welded from a render mesh, e.g. a merged HLOD) is ONE group, 0 — not the -1 that
+        // GetTriangleGroup answers for "no layer", which the reader's CheckValidity refuses.
+        const bool grouped = mesh.HasTriangleGroups();
         for ( const int t : mesh.TriangleIndicesItr() )
         {
             const Index3i saved = Swizzle( mesh.GetTriangle( t ) );
             for ( int j = 0; j < 3; ++j )
                 out.Triangles.push_back( denseVertex[saved[j]] );
-            out.PolyGroups.push_back( mesh.GetTriangleGroup( t ) );
+            out.PolyGroups.push_back( grouped ? mesh.GetTriangleGroup( t ) : 0 );
             out.MaterialIds.push_back( materialIds != nullptr ? materialIds->GetValue( t ) : 0 );
         }
         if ( attributes == nullptr )
