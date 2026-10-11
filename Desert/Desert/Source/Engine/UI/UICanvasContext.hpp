@@ -112,6 +112,12 @@ namespace Desert::UI
         bool                     ScreenBack    = false; // a Back transition slides the other way
         std::string              ScreenReq;             // requested by a button, applied at the walk's end
         bool                     ScreenReqBack = false;
+        // The screen whose arrival keyboard focus has already answered (UIScreenData::FocusOnShow). A screen
+        // that becomes current again — Back, or a fresh ShowScreen — is a new arrival and is answered again.
+        std::string FocusAnsweredScreen;
+        // The button the pointer is inside and has therefore handed focus (Button.cpp). Null once the pointer
+        // leaves it, so entering it again takes focus again.
+        NodeId PointerFocusOwner = NodeId::Null;
 
         // The background sprite this cell last refused to draw, so an unresolvable handle is reported once
         // instead of once per frame. Cleared when the handle changes or resolves.

@@ -63,8 +63,14 @@ namespace Desert::UI::Walk
             spr = b.PressedSprite;
         else if ( hover && HandleSet( b.HoverSprite ) )
             spr = b.HoverSprite;
-        DrawBox( ctx.View.Resources(), dl, mn, mx, Tinted( ctx, glm::vec4( c, b.Disabled ? 0.6f : 1.0f ) ), spr,
-                 b.SpriteBorder, scale, 6.0f * scale );
+        // A button IS a panel that reacts (UIButtonArgs.hpp), and the walk draws the button INSTEAD of the panel
+        // on the same element — so the panel's Opacity is the box's alpha here, or it would be a field the
+        // Details panel offers and nothing reads. Opacity 0 is a text-only row (a menu list): no box at all.
+        const auto* panel = tree.Get<UIPanelData>( e );
+        const float alpha = ( panel != nullptr ? panel->Opacity : 1.0f ) * ( b.Disabled ? 0.6f : 1.0f );
+        if ( alpha > 0.0f )
+            DrawBox( ctx.View.Resources(), dl, mn, mx, Tinted( ctx, glm::vec4( c, alpha ) ), spr, b.SpriteBorder,
+                     scale, 6.0f * scale );
 
         // Selected accent: a rounded bar hugging the left edge (the "you are here" marker).
         if ( b.Selected && !b.Disabled )
@@ -80,10 +86,22 @@ namespace Desert::UI::Walk
         // while it was reachable keeps holding it after an ancestor turns Blocking. Gating the
         // question itself (rather than the Enter below) is what makes that stale focus inert in
         // every direction at once: no activation, no focus ring, no caret.
+        //
+        // THE POINTER ENTERING A BUTTON TAKES KEYBOARD FOCUS (CommonUI's hover-selects): a menu has ONE row the
+        // player is on, not one for the mouse and another for the arrows. Only on ENTRY — a pointer resting
+        // on a row must not pull focus back every frame after Down moved it on.
+        if ( interactive && focused != nullptr && hover && ctx.Canvas.PointerFocusOwner != e )
+        {
+            *focused                     = e;
+            ctx.Canvas.PointerFocusOwner = e;
+        }
+        else if ( !hover && ctx.Canvas.PointerFocusOwner == e )
+            ctx.Canvas.PointerFocusOwner = NodeId::Null;
         const bool isFocused = interactive && focused != nullptr && *focused == e;
-        // HIGHLIGHTED = the row the player is on, by pointer or by keyboard/gamepad focus. Recorded before the
-        // children draw, so their WhileHighlighted tweens (UITweenArgs.hpp) answer this frame, not the last.
-        if ( !b.Disabled && ( hover || isFocused ) )
+        // HIGHLIGHTED = the row the player is on. With a focus to follow that is the focused row (hover has
+        // just handed it focus above); a host without keyboard focus highlights by the pointer alone. Recorded
+        // before the children draw, so their WhileHighlighted tweens (UITweenArgs.hpp) answer this frame.
+        if ( !b.Disabled && ( focused != nullptr ? isFocused : hover ) )
             ctx.Canvas.HighlightedOn[e] = ctx.View.FrameIndex;
         if ( outClicked != nullptr && input != nullptr && !b.Disabled &&
              ( ( hover && input->MouseReleased && !ctx.View.Drag.Active ) ||

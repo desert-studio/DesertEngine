@@ -23,6 +23,13 @@ namespace Desert::UI
 
         PROPERTY( DisplayName( "Screen Name" ), Category( "UI Screen" ) )
         std::string Name; // referenced by a ShowScreen button; empty = never selectable
+
+        // UMG's DesiredFocusWidget, as the rule a menu page always wants: when this screen becomes current,
+        // keyboard/gamepad focus lands on its FIRST focusable control in draw order, so Enter and the arrows
+        // work before the mouse has touched anything. Off for pages that must not take focus (a HUD).
+        PROPERTY( DisplayName( "Focus On Show" ), Category( "UI Screen" ),
+                  Tooltip( "When this screen becomes current, focus its first focusable control." ) )
+        bool FocusOnShow = false;
     };
 
     // How screens hand over. Lives on the canvas; the current screen and the back-stack are RUNTIME state
