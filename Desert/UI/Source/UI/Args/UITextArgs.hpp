@@ -86,8 +86,10 @@ namespace Desert::UI
         PROPERTY( DisplayName( "Overflow" ), Category( "Layout" ) )
         UITextOverflow Overflow = UITextOverflow::Overflow; // what to do when the text still doesn't fit
 
+        // Parse BBCode tags: [color=#rrggbb]..[/color], [b]..[/b], [i]..[/i], [size=N]..[/size] (design px),
+        // [link=msg]..[/link] (a click raises msg as a UI event), inline [icon=H] / [img=H] (H = asset handle).
         PROPERTY( DisplayName( "Rich Text" ), Category( "Layout" ) )
-        bool RichText = false; // parse BBCode tags: [color=#rrggbb]..[/color], [b]..[/b]
+        bool RichText = false;
 
         // --- Animation (Phase F) --------------------------------------------------------------------------
         PROPERTY( DisplayName( "Marquee" ), Category( "Animation" ) )
