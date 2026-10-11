@@ -14,7 +14,7 @@
             "id": 5569072854537872169,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
+            "Translation": [-47.79999923706055, -6.980000019073486, -87.5999984741211],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
@@ -64,7 +64,7 @@
                 "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
-                "DriveSunFromTimeOfDay": true,
+                "DriveSunFromTimeOfDay": false,
                 "TimeOfDay": 18.899999618530273,
                 "DayLengthSeconds": 600.0,
                 "Latitude": 45.0,

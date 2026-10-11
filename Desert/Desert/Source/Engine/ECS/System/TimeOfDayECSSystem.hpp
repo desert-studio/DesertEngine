@@ -3,10 +3,14 @@
 #include "System.hpp"
 #include "SystemRules.hpp"
 
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 
 #include <glm/glm.hpp>
+
+#include <cmath>
 
 #include <vector>
 
@@ -69,11 +73,32 @@ namespace Desert::ECS
             const glm::vec3 travel =
                  Graphic::SunDirectionFromTimeOfDay( sky.Data.TimeOfDay, sky.Data.Latitude, sky.Data.NorthOffset );
 
-            const auto sun = FindAtmosphereSun( registry );
+            // The SAME light the sky, the deferred pass and the shadows read (ECS::PickAtmosphereSun), with
+            // the clock's candidacy: hidden and degenerate lights are still driven.
+            const auto sun = PickAtmosphereSun( registry, SunCandidacy::Driven ).Sun();
             if ( !sun )
                 return;
 
             auto& transform = registry.get<ECS::TransformComponent>( *sun );
+
+            // THE CLOCK OVERRIDES THE AUTHORED DIRECTION, and it says so once per sun with the numbers. A
+            // scene saved with a sun at +50 deg and the clock at 18.9 h renders a night sky at -9.5 deg, and
+            // nothing used to connect the two: the light's Translation in the file and the sky on screen
+            // simply disagreed (Mirage MainMenu, SUN-SOURCE).
+            if ( *sun != m_DriveLoggedFor )
+            {
+                m_DriveLoggedFor     = *sun;
+                const float authored = Rules::IsSunDirectionValid( transform.Translation )
+                                            ? glm::degrees( std::asin( glm::clamp(
+                                                   -glm::normalize( transform.Translation ).y, -1.0f, 1.0f ) ) )
+                                            : 0.0f;
+                LOG_INFO(
+                     "[TimeOfDay] Sky Atmosphere 'Drive Sun From Time Of Day' is on: the sun light's direction "
+                     "comes from the clock ({:.2f} h, latitude {:.1f} deg) at elevation {:.1f} deg, replacing "
+                     "the authored {:.1f} deg. Untick it to keep the light's own direction.",
+                     sky.Data.TimeOfDay, sky.Data.Latitude,
+                     glm::degrees( std::asin( glm::clamp( -travel.y, -1.0f, 1.0f ) ) ), authored );
+            }
 
             // The MAGNITUDE is preserved, not normalized away: some scenes author the sun's Translation as
             // a position-like vector and the editor's own direction widget keeps its length for exactly
@@ -90,36 +115,7 @@ namespace Desert::ECS
             return 0;
         }
 
-        // Same rule as the sky collector's, minus the logging: this system runs first and would otherwise
-        // duplicate every warning the collector already emits about the very same lights.
-        static std::optional<entt::entity> FindAtmosphereSun( entt::registry& registry )
-        {
-            std::vector<Rules::SunCandidate> candidates;
-            std::vector<entt::entity>        entities;
-
-            auto dirLights = registry.view<ECS::DirectionLightComponent, ECS::TransformComponent>();
-            for ( const auto entity : dirLights )
-            {
-                // The TransformComponent is in the view because a sun must HAVE one to be driven, not
-                // because this loop reads it: `DirectionValid` is unconditionally true a few lines below,
-                // and the comment there says why a degenerate Translation is not a reason to skip a
-                // candidate. Fetching it and dropping it is what `-Wunused-variable` pointed at.
-                const auto& light = dirLights.get<ECS::DirectionLightComponent>( entity );
-
-                entities.push_back( entity );
-                candidates.push_back( Rules::SunCandidate{
-                     .Id     = EntityId( registry, entity ),
-                     .Marked = light.Data.AtmosphereSunLight,
-                     .Index  = light.Data.AtmosphereSunLightIndex,
-                     // A light being DRIVEN starts from whatever it holds, so a degenerate Translation is
-                     // not a reason to skip it here — it is a reason to give it a unit-length one.
-                     .DirectionValid = true } );
-            }
-
-            const auto selection = Rules::SelectAtmosphereSun( candidates, /*wantedIndex=*/0 );
-            if ( !selection.Chosen )
-                return std::nullopt;
-            return entities[*selection.Chosen];
-        }
+        // The sun the clock last announced it drives; a different light (or a reloaded scene) says it again.
+        entt::entity m_DriveLoggedFor = entt::null;
     };
 } // namespace Desert::ECS

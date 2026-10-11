@@ -26,7 +26,6 @@ using Desert::ECS::LocomotionComponent;
 using Desert::ECS::Rules::AtmosphereSunDirection;
 using Desert::ECS::Rules::DecomposeTransform;
 using Desert::ECS::Rules::DirectionalLightTravel;
-using Desert::ECS::Rules::FallbackAtmosphereSunDirection;
 using Desert::ECS::Rules::IsSunDirectionValid;
 using Desert::ECS::Rules::LocomotionClipFor;
 using Desert::ECS::Rules::MeshShadowCaster;
@@ -308,10 +307,6 @@ TEST( AtmosphereSunRules, DirectionValidityUsesOneEpsilon )
     EXPECT_FALSE( IsSunDirectionValid( glm::vec3( 0.0f ) ) );
     EXPECT_FALSE( IsSunDirectionValid( glm::vec3( 1e-5f, 0.0f, 0.0f ) ) );
     EXPECT_TRUE( IsSunDirectionValid( glm::vec3( 0.0f, -1.0f, 0.0f ) ) );
-
-    // The documented no-light fallback points ABOVE the horizon, so an empty scene is lit, not black.
-    EXPECT_NEAR( glm::length( FallbackAtmosphereSunDirection() ), 1.0f, 1e-5f );
-    EXPECT_GT( FallbackAtmosphereSunDirection().y, 0.0f );
 }
 
 // Г18 — AND THE TEST ABOVE IS WHY THIS ONE HAD TO BE WRITTEN.

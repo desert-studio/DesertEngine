@@ -161,12 +161,6 @@ namespace Desert::ECS::Rules
         return -glm::normalize( lightTranslation );
     }
 
-    // Used when a scene has no usable directional light at all, so the sky is still lit rather than black.
-    inline glm::vec3 FallbackAtmosphereSunDirection()
-    {
-        return glm::normalize( glm::vec3( 0.3f, 0.9f, 0.3f ) );
-    }
-
     struct SunCandidate
     {
         // Entity UUID. A plain integer rather than Common::UUID so the rule stays link-free: the tests that
@@ -196,7 +190,8 @@ namespace Desert::ECS::Rules
     //     engine renders exactly one directional light, so index != 0 is not a thing that can work);
     //  5. nothing marked -> lowest-Id valid candidate, reported as a fallback, because the sky must not go
     //     missing just because nobody ticked a box;
-    //  6. nothing valid -> no selection; the caller uses FallbackAtmosphereSunDirection().
+    //  6. nothing valid -> no selection: the scene has NO sun, and every caller says so instead of lighting
+    //     the sky from a default direction nobody authored (ECS::PickAtmosphereSun, AtmosphereSunLight.hpp).
     inline AtmosphereSunSelection SelectAtmosphereSun( std::span<const SunCandidate> candidates, int wantedIndex )
     {
         AtmosphereSunSelection result;
