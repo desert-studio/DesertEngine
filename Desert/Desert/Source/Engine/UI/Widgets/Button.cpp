@@ -28,32 +28,34 @@ namespace Desert::UI::Walk
 {
     void DrawButtonWidget( ElementFrame& frame )
     {
-        auto& ctx         = frame.Ctx;
-        auto& tree         = frame.Tree;
-        auto& e           = frame.E;
-        auto& scale       = frame.Scale;
-        auto& dl          = frame.Dl;
-        auto& input       = frame.Input;
-        auto& outClicked  = frame.OutClicked;
-        auto& focused     = frame.Focused;
-        auto& st          = frame.St;
-        auto& interactive = frame.Interactive;
-        auto& mn          = frame.Mn;
-        auto& mx          = frame.Mx;
-        auto& hot         = frame.Hot;
+        auto&       ctx         = frame.Ctx;
+        auto&       tree        = frame.Tree;
+        auto&       e           = frame.E;
+        auto&       scale       = frame.Scale;
+        auto&       dl          = frame.Dl;
+        auto&       input       = frame.Input;
+        auto&       outClicked  = frame.OutClicked;
+        auto&       focused     = frame.Focused;
+        const auto& st          = frame.St;
+        const auto& interactive = frame.Interactive;
+        auto&       mn          = frame.Mn;
+        auto&       mx          = frame.Mx;
+        auto&       hot         = frame.Hot;
 
         const auto& b = *tree.Get<UIButtonData>( e );
         // Disabled swallows all pointer/keyboard interaction and rests on the dim colour.
-        const bool hover = !b.Disabled && input && hot;
+        const bool hover = !b.Disabled && input != nullptr && hot;
         const bool down  = hover && input->MouseDown;
         // Resting colour is Selected (persistent highlight) or Normal; hover cross-fades toward
         // HoverColor (eased), press snaps to PressedColor, Disabled overrides everything.
         const glm::vec3 rest = b.Selected ? st.Color( StyleSlot::ButtonSelected, b.SelectedColor )
                                           : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
         const float     ht   = HoverEase( ctx, e, hover && !down );
-        const glm::vec3 c    = b.Disabled ? st.Color( StyleSlot::ButtonDisabled, b.DisabledColor )
-                               : down     ? st.Color( StyleSlot::ButtonPressed, b.PressedColor )
-                                          : glm::mix( rest, st.Color( StyleSlot::ButtonHover, b.HoverColor ), ht );
+        glm::vec3       c    = glm::mix( rest, st.Color( StyleSlot::ButtonHover, b.HoverColor ), ht );
+        if ( down )
+            c = st.Color( StyleSlot::ButtonPressed, b.PressedColor );
+        if ( b.Disabled )
+            c = st.Color( StyleSlot::ButtonDisabled, b.DisabledColor );
 
         // Image can change with state (hover / press), falling back to the normal Sprite.
         Assets::AssetHandle spr = b.Sprite;
@@ -78,8 +80,8 @@ namespace Desert::UI::Walk
         // while it was reachable keeps holding it after an ancestor turns Blocking. Gating the
         // question itself (rather than the Enter below) is what makes that stale focus inert in
         // every direction at once: no activation, no focus ring, no caret.
-        const bool isFocused = interactive && focused && *focused == e;
-        if ( outClicked && input && !b.Disabled &&
+        const bool isFocused = interactive && focused != nullptr && *focused == e;
+        if ( outClicked != nullptr && input != nullptr && !b.Disabled &&
              ( ( hover && input->MouseReleased && !ctx.View.Drag.Active ) ||
                ( isFocused && input->Pressed( Common::KeyCode::Enter ) ) ) )
         {

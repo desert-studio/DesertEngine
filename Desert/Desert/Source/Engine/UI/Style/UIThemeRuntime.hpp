@@ -23,7 +23,7 @@ namespace Desert::UI
     struct UIThemeResolvedFont
     {
         Common::AssetHandle Asset;
-        float       Size = 20.0f;
+        float               Size = 20.0f;
     };
 
     /// "this style does not bind this slot" — the value every slot of a style starts at.

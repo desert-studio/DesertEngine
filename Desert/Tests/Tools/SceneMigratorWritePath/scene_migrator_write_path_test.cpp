@@ -286,7 +286,9 @@ TEST( SceneMigratorWritePath, ARecordsComponentKeysAreSortedOnceAndASecondPassMo
     EXPECT_EQ( Desert::Migration::SortComponentKeys( records ), 2 );
     EXPECT_EQ( keysOf( records[0].Components ), ( std::vector<std::string>{ "Camera", "Script" } ) );
     EXPECT_EQ( keysOf( records[1].Components ), ( std::vector<std::string>{ "Camera", "Script" } ) );
-    EXPECT_EQ( keysOf( records[1].PrefabOverrides->front().Components ),
-               ( std::vector<std::string>{ "Light", "Transform" } ) );
+    const auto& overrides = records[1].PrefabOverrides;
+    if ( !overrides || overrides->empty() )
+        GTEST_FAIL() << "the record's prefab overrides were dropped";
+    EXPECT_EQ( keysOf( overrides->front().Components ), ( std::vector<std::string>{ "Light", "Transform" } ) );
     EXPECT_EQ( Desert::Migration::SortComponentKeys( records ), 0 );
 }

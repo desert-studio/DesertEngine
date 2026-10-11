@@ -24,7 +24,10 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <array>
+#include <cmath>
 #include <random>
+#include <set>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -206,4 +209,61 @@ TEST( CubeGridReopen, ABlockThatDoesNotLoadIsAnIssueAndNoComponent )
     issues.clear();
     EXPECT_FALSE( ThroughTheScene( badKey, issues ).has_value() );
     ASSERT_EQ( issues.size(), 1u );
+}
+
+namespace
+{
+    // Every solid cell of every layer, by its world centre to 1/10 cm: equal sets are the same blocks.
+    std::set<std::array<long long, 3>> WorldCells( const VB::Volume& v )
+    {
+        std::set<std::array<long long, 3>> out;
+        for ( const VB::Layer& l : v.m_Frozen )
+            for ( const auto& [key, cell] : l.Cells )
+            {
+                const glm::vec3 c = l.Frame.ToWorldPoint( ( glm::vec3( VB::Unpack( key ) ) + 0.5f ) * l.Unit );
+                out.insert(
+                     { std::llround( c.x * 10.0 ), std::llround( c.y * 10.0 ), std::llround( c.z * 10.0 ) } );
+            }
+        return out;
+    }
+} // namespace
+
+TEST( CubeGridReopen, AMeshThatCarriesNoVoxelsReopensOnTheBlocksItIsMadeOf )
+{
+    // The blockout's scene block is gone (or the mesh was made of blocks elsewhere): only its mesh is left.
+    const VB::Volume             built = FloorWithBlock();
+    const Geometry::DynamicMesh3 mesh  = MeshOf( built );
+    const uint64_t               key   = Editor::Tools::MeshKeyOf( mesh );
+    const glm::mat4              world = glm::rotate( glm::translate( glm::mat4( 1.0f ), { 300.0f, 0.0f, 20.0f } ),
+                                                      glm::radians( 40.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ) );
+
+    auto recovered = Editor::Tools::RecoverBlockout( "Blockout", mesh, world, 1.0f );
+    ASSERT_TRUE( recovered.IsSuccess() ) << recovered.GetError();
+    const VB::SavedBlockout saved = VB::Save( built, key );
+    auto opened = Editor::Tools::ReopenBlockout( "Blockout", &saved, Common::MakeSuccess( key ), world );
+    ASSERT_TRUE( opened.IsSuccess() ) << opened.GetError();
+    EXPECT_EQ( WorldCells( recovered.GetValue().Volume ), WorldCells( opened.GetValue().Volume ) )
+         << "the blocks recovered from the mesh must be the blocks its voxels hold, in the world";
+    EXPECT_EQ( WorldCells( recovered.GetValue().Volume ).size(), 16u + 4u );
+    EXPECT_LT( glm::length( recovered.GetValue().EntityFrame.Origin - opened.GetValue().EntityFrame.Origin ),
+               1e-4f );
+
+    // Refused by name and reason: scaled, or a mesh not made of blocks (a Corner Mode slope).
+    EXPECT_NE(
+         Editor::Tools::RecoverBlockout( "B", mesh, glm::scale( glm::mat4( 1.0f ), glm::vec3( 2.0f ) ), 1.0f )
+              .GetError()
+              .find( "is scaled" ),
+         std::string::npos );
+    VB::Volume ramp;
+    ramp.m_Unit = 100.0f;
+    VB::WorkPlane floor;
+    ramp.PushPull( floor, VB::Rect{ 0, 0, 0, 0 }, +1, 1, 0 );
+    ASSERT_TRUE(
+         ramp.ApplyCornerHeights( floor, VB::Rect{ 0, 0, 0, 0 }, { 0, 0, VB::CornerDen, VB::CornerDen }, false )
+              .IsSuccess() );
+    auto sloped = Editor::Tools::RecoverBlockout( "Ramp", MeshOf( ramp ), glm::mat4( 1.0f ), 1.0f );
+    ASSERT_FALSE( sloped.IsSuccess() );
+    EXPECT_NE( sloped.GetError().find( "'Ramp' carries no CubeGrid voxels" ), std::string::npos )
+         << sloped.GetError();
+    EXPECT_NE( sloped.GetError().find( "not axis-aligned" ), std::string::npos ) << sloped.GetError();
 }

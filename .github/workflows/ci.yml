@@ -10,6 +10,17 @@ on:
     branches: [ dev, main, master ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      # CCACHE_DEBUG for comparing two runs' hash inputs: Windows Shipping and macOS ASan write
+      # ccache's per-object debug files and upload one Common and one Desert object's
+      # .ccache-input-text/.ccache-log as an artifact (`ccache-debug-<job>`). Run it twice on the
+      # same commit and diff the two artifacts: the line that differs is the input that makes an
+      # unchanged first-party translation unit miss (CI-SPEED analysis: every one of ours misses on
+      # every run, every vendored one hits). The workflow_dispatch run never saves a cache.
+      ccache_debug:
+        description: "ccache debug files (Windows Shipping + macOS ASan) as artifacts"
+        type: boolean
+        default: false
 
 # A PUSH gets its own run and keeps it. A PULL REQUEST keeps only its latest.
 #
@@ -394,12 +405,11 @@ jobs:
       # in a Debug build are a repeat of a (source, flags) pair already compiled in the same build,
       # 30.8 % of the attributable compile CPU. That half needs nothing restored and nothing saved.
       #
-      # This step buys the other half — the compiles a PREVIOUS run already did — and it is on this job
-      # alone because the storage is a shared, capped resource and this is the job that has been
-      # crossing its ceiling. GitHub keeps at most 10 GB of Actions cache per repository and evicts the
-      # least recently used entry to make room; every job that saves an entry takes a share of that and
-      # shortens how far back every other job's entry survives. `macOS Release` (35-44 min) and `macOS
-      # Shipping` (14-21 min) are not the jobs at risk, so they spend none of it.
+      # This step buys the other half — the compiles a PREVIOUS run already did. GitHub keeps at most
+      # 10 GB of Actions cache per repository and evicts the least recently used entry to make room;
+      # every job that saves an entry takes a share of that and shortens how far back every other job's
+      # entry survives. `macOS Release` / `macOS Shipping` persist one too since CI-SPEED (2026-10-10):
+      # Release without it ran into its 60-minute ceiling; see the note on their Restore ccache.
       #
       # THE KEY IS THE COMMIT AND THE FALLBACK IS THE PREFIX, which is the standard shape and worth
       # stating because the alternative is tempting and wrong: a fixed key would be written once and
@@ -421,8 +431,10 @@ jobs:
       # Vulkan SDK 0.43). When int/* saved too, int/b3's set evicted dev's, and the next int/* branch
       # (which can see dev's and its own only) built Windows cold — Release 92 min on int/b1p1. So int/*,
       # pull_request and workflow_dispatch only restore, and the ccache ceilings are cut so dev's whole
-      # set stays under 8.5 GB: sanitizers 2G, Windows Debug 2.5G, Release 2G, Shipping 0.6G, plus the
-      # Vulkan SDK and the Homebrew downloads. ccache's max_size bounds its COMPRESSED on-disk size, so
+      # set stays under 8.5 GB: sanitizers 2G, Windows Debug 2.5G, Release 2G, Shipping 0.6G, macOS
+      # Release 0.8G, macOS Shipping 0.4G, plus the Vulkan SDK and the Homebrew downloads (~8.9 GB with
+      # the two macOS entries — over 8.5: one of the Windows ceilings has to give once their dead
+      # first-party writes are gone, CI-SPEED). ccache's max_size bounds its COMPRESSED on-disk size, so
       # the saved archive is at most the ceiling. Raise one ceiling -> lower another, or dev evicts itself.
       #
       # THE CACHE DIRECTORY IS NAMED HERE RATHER THAN INHERITED. ccache's default location depends on
@@ -458,6 +470,18 @@ jobs:
       # printed success and no cache appeared. Run 37701712354 (int/b3, cold) built for 85 min and was
       # cancelled at the ceiling; the steps before the build took 5 min, Save of a 2G cache needs ~2, so
       # 78 leaves a dev push's cold build its cache and the next run its hits.
+      # workflow_dispatch input ccache_debug only — see its note at the top of the file. Level 2, NOT 1:
+      # ccache 4.14 writes .ccache-input-text only at debug_level >= 2 (ccache.cpp, do_cache_compilation
+      # and init_hash_debug; manual "Cache debugging"); level 1 is the .ccache-log alone, which names the
+      # manifest key but not what went into it (runs 38029077512/38035058047 came back with logs only).
+      # Level 2 adds the small binary .ccache-input-c/-d next to it (no -p: depend mode never runs the
+      # preprocessor), so ~2000 objects' worth still fits on this job's disk.
+      - name: ccache debug mode
+        if: inputs.ccache_debug
+        run: |
+          mkdir -p "$RUNNER_TEMP/ccache-debug"
+          { echo "CCACHE_DEBUG=1"; echo "CCACHE_DEBUGLEVEL=2"; echo "CCACHE_DEBUGDIR=$RUNNER_TEMP/ccache-debug"; } >> "$GITHUB_ENV"
+
       - name: Build Debug with sanitizers
         timeout-minutes: 78
         env:
@@ -486,6 +510,19 @@ jobs:
         with:
           path: ${{ runner.temp }}/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
+
+      - name: Pick ccache debug files
+        if: always() && inputs.ccache_debug
+        shell: bash
+        run: ./scripts/CI/CcacheDebugPick.sh "$RUNNER_TEMP/ccache-debug" "$RUNNER_TEMP/ccache-debug-pick"
+
+      - name: Upload ccache debug files
+        if: always() && inputs.ccache_debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccache-debug-${{ github.job }}
+          path: ${{ runner.temp }}/ccache-debug-pick/
+          retention-days: 7
 
       # The expected list is build/TestManifest.txt, the same list the unsharded runner runs from (BUILD1),
       # minus the suites Desert/Tests/premake5.lua names in `vulkan_device_suites`
@@ -644,14 +681,18 @@ jobs:
         run: python3 scripts/CI/TestShards.py verify --plan plan --reports reports
 
   # The Release and Shipping builds, the test run, the shader lint, the shipping symbol census and the
-  # packaging only run AFTER both gates pass — no point spending a macOS build on code that fails
-  # formatting or trips a sanitizer. (format = static; sanitizers = DYNAMIC: it must build instrumented
+  # packaging wait ONLY for the format gate, and run IN PARALLEL with the sanitizers. They used to wait
+  # for `sanitizers-verdict` too ("no point spending a macOS build on code that trips a sanitizer"), but
+  # that put the ASan build (65-73 min) plus its tests (up to 37 min) IN FRONT of this job's own ~40 min,
+  # making macOS the longest chain to a verdict (~2.5 h) while the runner-minutes it saved were only
+  # spent on red runs. The verdict of the run is the AND of every job anyway, so ordering bought nothing
+  # but wall time. (format = static, cheap, still gates; sanitizers = DYNAMIC: it must build instrumented
   # and RUN the suite to catch memory/UB at runtime, so it necessarily compiles + tests Debug — that is
   # the check, not a duplicate of this job. Debug is therefore already covered there, so this job builds
   # Release + Shipping and nothing in Debug.)
   macos:
-    name: macOS ${{ matrix.config }}
-    needs: [ format, sanitizers-verdict ]
+    name: macOS ${{ matrix.config }}${{ matrix.leg == 'tests' && ' tests' || '' }}
+    needs: [ format ]
     runs-on: macos-14 # Apple Silicon (arm64) — matches the supported platform
     timeout-minutes: 60
     strategy:
@@ -681,6 +722,36 @@ jobs:
         # This leg also puts the documented developer command — `scripts/MacOS/BuildMacOS.sh Shipping`,
         # which is what the packager's own error message tells people to run — under test.
         config: [Release, Shipping]
+        leg: [tests, package]
+        exclude:
+          - config: Shipping
+            leg: tests
+        # EACH LEG BUILDS WHAT ITS OWN STEPS READ, AND NOTHING ELSE (BuildMacOS.sh --project; the
+        # workspace Makefile adds every library a named project links). The whole workspace in one job
+        # is more than a 3-core runner compiles in the step's 50 minutes on a cold cache: CI 38049132064
+        # (Shipping: engine library done at 28 min, timed out inside the Editor) and 38053530655
+        # (Release: engine library done at 26 min, timed out with the test runners, the Editor and the
+        # Runtime still compiling side by side). Every first run of a branch after dev moves is cold.
+        #   Release tests   - the five test runners the test step executes (build/TestManifest.txt) and
+        #                     DShaderTool (Lint shaders).
+        #   Release package - the engine drop Package.sh assembles (Editor, Runtime, PakTool,
+        #                     DShaderTool, AssetClosure) and GamePackager for the packaged-game smoke run.
+        #   Shipping        - the player (Symbol census), the packager that ships it, DShaderTool.
+        # The bakers, WorldGen, SceneMigrator and the image tools are read by no step of this job; their
+        # Release build is the Windows Release leg's, and Windows Shipping builds the whole solution.
+        # The two Release legs compile the engine library each, in parallel, instead of one runner
+        # compiling everything after it in series. The ccache key carries the leg: each leg's dev run
+        # warms exactly the objects that leg's branch runs compile.
+        include:
+          - config: Release
+            leg: tests
+            projects: --project=EngineTests --project=EditorTests --project=ToolsTests --project=CommonTests --project=RuntimeTests --project=DShaderTool
+          - config: Release
+            leg: package
+            projects: --project=Editor --project=Runtime --project=PakTool --project=DShaderTool --project=AssetClosure --project=GamePackager
+          - config: Shipping
+            leg: package
+            projects: --project=Runtime --project=GamePackager --project=DShaderTool
 
     steps:
       # The job's own clock — see the note on the `sanitizers` job's copy of this step.
@@ -718,8 +789,37 @@ jobs:
           path: ~/Library/Caches/Homebrew
           key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
 
+      # THE SAME CACHE AS THE sanitizers JOB, PER CONFIGURATION (the flags differ, nothing hits across
+      # them): restored by every run from dev's newest entry, written by a push to dev ONLY — see the
+      # notes on the sanitizers job's Restore ccache. Without it Release compiled cold on every run and
+      # reached the job's 60-minute ceiling (CI-SPEED, 2026-10-10). Ceilings 0.5G per Release leg / 0.4G
+      # Shipping: the whole Release workspace filled 0.3 GB compressed (CI 38049132064), and each leg is
+      # a part of it. The key carries the leg, so the legs never overwrite each other's set.
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-${{ github.sha }}
+          restore-keys: |
+            ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-
+
+      # A STEP timeout under the job's 60, for the same reason as the sanitizers build: a step that runs
+      # out leaves the job alive, so Save ccache keeps every object a cold dev build finished.
       - name: Build ${{ matrix.config }}
-        run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }}
+        timeout-minutes: 50
+        env:
+          CCACHE_MAXSIZE: ${{ matrix.config == 'Release' && '0.5G' || '0.4G' }}
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+        run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }} ${{ matrix.projects }}
+
+      # After the build and before the tests, `always()`, `continue-on-error` — see the sanitizers job.
+      - name: Save ccache
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-${{ github.sha }}
 
       # Not in Shipping: the test projects are removed from that configuration in
       # Desert/Tests/premake5.lua, so build/Bin/Tests/Shipping is never created and there is nothing to
@@ -735,17 +835,41 @@ jobs:
       # with nothing split: the suites in build/TestNeedsVulkanDevice.txt are named in a ::notice unless
       # DESERT_MACOS_VULKAN_RUNNER is 'true', and RunTests.sh runs the planned list. The asan column is the
       # macOS one in the timing table; with one shard it only orders the list, heaviest first.
-      - name: Plan test suites
-        if: matrix.config != 'Shipping'
+      #
+      # WHETHER THIS RUNNER HAS A DEVICE IS ASKED OF THE RUNNER, NOT ONLY OF A VARIABLE. The engine boots
+      # headless once (EngineHost's boot test: instance, device, renderer) with MoltenVK logging at info,
+      # so the log names the Metal device MoltenVK found and the exact refusal — the runner's
+      # RunnerMain prints a driver's NSException name and reason instead of gtest's "Unknown C++
+      # exception". A boot that succeeds puts the Vulkan-device suites into the plan below; one that
+      # fails leaves them out with the plan's ::notice, and the probe's output above it says why.
+      # DESERT_MACOS_VULKAN_RUNNER=true still forces them in (a runner that must be held to them).
+      - name: Probe the Vulkan device
+        id: vulkan-probe
+        if: matrix.leg == 'tests'
+        continue-on-error: true
         env:
-          DESERT_MACOS_VULKAN_RUNNER: ${{ vars.DESERT_MACOS_VULKAN_RUNNER }}
+          MVK_CONFIG_LOG_LEVEL: "3"
+          DYLD_FALLBACK_LIBRARY_PATH: /opt/homebrew/lib
+        run: |
+          if build/Bin/Tests/${{ matrix.config }}/EngineTests --desert-suite=EngineHost \
+               --gtest_filter=EngineHost.TheEngineBootsWithoutAWindow; then
+            echo "device=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=No Vulkan device on this runner::the headless engine boot failed on $(sysctl -n machdep.cpu.brand_string); its output in this step names the cause"
+            exit 1
+          fi
+
+      - name: Plan test suites
+        if: matrix.leg == 'tests'
+        env:
+          DESERT_MACOS_VULKAN_RUNNER: ${{ (vars.DESERT_MACOS_VULKAN_RUNNER == 'true' || steps.vulkan-probe.outputs.device == 'true') && 'true' || 'false' }}
         run: >-
           python3 scripts/CI/TestShards.py plan --expected build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
           --column asan --shards 1 --out build/TestPlan
           --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_MACOS_VULKAN_RUNNER
 
       - name: Run tests
-        if: matrix.config != 'Shipping'
+        if: matrix.leg == 'tests'
         env:
           TEST_LIST: build/TestPlan/shard-1.txt
         run: ./scripts/MacOS/RunTests.sh "$PWD" ${{ matrix.config }}
@@ -805,7 +929,7 @@ jobs:
       # that has one (self-hosted Apple Silicon); a crash, a non-zero exit, a missing PNG or ten minutes
       # without exiting fails the job.
       - name: Smoke-run the packaged game (Vulkan runner only)
-        if: matrix.config == 'Release' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
+        if: matrix.config == 'Release' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
         run: |
           ./build/Bin/Release/GamePackager Projects/Desert/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Release"
           app="$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 1 -name '*.app' | head -n 1)"
@@ -817,12 +941,12 @@ jobs:
           [ -s "$shot" ] || { echo "the packaged game exited 0 but wrote no PNG at $shot"; exit 1; }
 
       - name: Smoke run skipped — no Vulkan on this runner
-        if: matrix.config == 'Release' && vars.DESERT_MACOS_VULKAN_RUNNER != 'true'
-        run: echo "::notice title=Packaged game NOT started::macos-14 is a VM with no proven Metal device for MoltenVK; set DESERT_MACOS_VULKAN_RUNNER=true on a Vulkan-capable Mac runner to smoke-run the packaged .app"
+        if: matrix.config == 'Release' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER != 'true'
+        run: echo "::notice title=Packaged game NOT started::macos-14 is a VM with no proven Metal device for MoltenVK (the Release tests leg's step Probe the Vulkan device says why); set DESERT_MACOS_VULKAN_RUNNER=true on a Vulkan-capable Mac runner to smoke-run the packaged .app"
 
       # Surface the test reports even when a step above failed.
       - name: Upload test reports
-        if: always()
+        if: always() && matrix.leg == 'tests'
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ matrix.config }}
@@ -850,11 +974,11 @@ jobs:
       # tree shipped twice. Three places asserted the same wrong thing (both scripts and this line);
       # if a fourth appears, it is the same defect, not a new one.
       - name: Package build
-        if: matrix.config == 'Release'
+        if: matrix.config == 'Release' && matrix.leg == 'package'
         run: ./scripts/MacOS/Package.sh Release
 
       - name: Upload packaged build
-        if: matrix.config == 'Release'
+        if: matrix.config == 'Release' && matrix.leg == 'package'
         uses: actions/upload-artifact@v4
         with:
           name: DesertEngine-macOS-Release
@@ -1093,6 +1217,19 @@ jobs:
       # configuration. Saved by a push to dev ONLY (see "THE CACHE IS WRITTEN BY dev ONLY" on the
       # sanitizers job): an int/* save evicted dev's set from the 10 GB, and every NEW int/* branch
       # then built cold. int/* restores dev's newest entry by the prefix below.
+      # workflow_dispatch input ccache_debug, Shipping only (the smallest leg; its first-party objects
+      # miss like the other two) — see the input's note at the top of the file.
+      - name: ccache debug mode
+        if: inputs.ccache_debug && matrix.config == 'Shipping'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\ccache-debug" | Out-Null
+          @(
+            "CCACHE_DEBUG=1"
+            "CCACHE_DEBUGLEVEL=2"
+            "CCACHE_DEBUGDIR=$env:RUNNER_TEMP\ccache-debug"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
@@ -1130,6 +1267,19 @@ jobs:
         with:
           path: ${{ runner.temp }}\ccache
           key: ccache-windows-${{ matrix.config }}-${{ github.sha }}
+
+      - name: Pick ccache debug files
+        if: always() && inputs.ccache_debug && matrix.config == 'Shipping'
+        shell: bash
+        run: ./scripts/CI/CcacheDebugPick.sh "$RUNNER_TEMP/ccache-debug" "$RUNNER_TEMP/ccache-debug-pick"
+
+      - name: Upload ccache debug files
+        if: always() && inputs.ccache_debug && matrix.config == 'Shipping'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccache-debug-${{ github.job }}
+          path: ${{ runner.temp }}/ccache-debug-pick/
+          retention-days: 7
 
       - name: ccache saw one source per compile
         shell: pwsh

@@ -985,7 +985,8 @@ namespace Desert::Tests::PointerCensus
           "FrameEmitter", "Gpu", Guard::OwnedByThisObject,
           "points into ParticleRenderer::m_Emitters, an unordered_map -- NODE-BASED, so the insert that "
           "PrepareFrame can perform while it is already pushing these pointers cannot move the pointee; "
-          "the only erase is OnSceneReplaced's clear(), which clears m_FrameEmitters first" },
+          "the erases are OnSceneReplaced's clear() and PrepareFrame's RetireDestroyedEmitters, both after "
+          "m_FrameEmitters is cleared" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp",
           "SkyboxRenderer", "m_ActiveCamera", Guard::ReboundBeforeEveryUse,
           "re-pointed by PrepareCamera from SceneRenderer::BeginScene at the top of every frame, before any pass that reads it; the camera itself is a persistent member of Scene that Scene::Clear does not touch" },
@@ -1839,6 +1840,9 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Core/SceneViewList.hpp",
           "View", "Renderer", Guard::HostOutlivesUs,
           "REPLACES Scene::m_SceneRenderer, which was the same pointer when a scene could have only one view (U9). The renderer is owned by whoever opened the view -- SceneWorkspace::m_SceneRenderer for the main viewport, SceneWorkspace::SceneViewport::Renderer for a second angle, the panel itself for a preview or a thumbnail -- and the ORDER that makes this safe is named in one place per owner: SceneWorkspace::CloseSceneViewport calls Scene::RemoveView BEFORE destroying the renderer, and a whole document is torn down scene-first. What would break it is destroying a renderer while its view is still in the list, which is also what would leak its slot" },
+        { "Desert/Desert/Source/Engine/Core/Serialize/EntityPackages.hpp",
+          "PackageSavePlan", "WholeReason", Guard::StaticStorage,
+          "a string literal: the member's initializer and every writer in EntityPackages::Plan (the `whole` lambda's callers and the delta path's \"\") pass literals, so the pointee lives in the binary's read-only data" },
         { "Desert/Desert/Source/Engine/Core/Serialize/SceneSerializer.hpp",
           "SceneSerializer", "m_Scene", Guard::CallScoped,
           "the serializer is a function-local at every call site, built around a scene the caller holds" },

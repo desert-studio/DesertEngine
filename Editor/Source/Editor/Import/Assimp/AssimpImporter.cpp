@@ -1166,8 +1166,9 @@ namespace Desert::Editor
 
         float                    statedCentimetresPerUnit = 0.0f;
         const bool               stated = ReadStatedUnitScale( *scene, statedCentimetresPerUnit );
-        const ImportUnits::Scale unit = ImportUnits::Resolve( path.extension().string(), stated, statedCentimetresPerUnit,
-                                                              Assets::MeshFileUnitCentimetres( settings.FileUnit ) );
+        const ImportUnits::Scale unit =
+             ImportUnits::Resolve( path.extension().string(), stated, statedCentimetresPerUnit,
+                                   Assets::MeshFileUnitCentimetres( settings.FileUnit ) );
 
         switch ( unit.From )
         {

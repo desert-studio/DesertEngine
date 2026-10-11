@@ -54,9 +54,9 @@ namespace Desert::Graphic::System
         // key, and GetOrCreate reuses the buffer outright whenever MaxParticles happens to match — live
         // particles at the old scene's world positions, and the old spawn phase, included.
         //
-        // Dropping them is done HERE rather than by re-keying on the UUID because the map also has to
-        // SHRINK, and this is the only path that has idled the device first: a persistent particle SSBO
-        // may still be being read by the last submitted frame, and this engine has no deferred-free queue.
+        // Mid-session, an emitter whose entity is destroyed is dropped by PrepareFrame
+        // (RetireDestroyedEmitters); its buffers and material go through the allocator's deletion ring, so
+        // the frame still reading them finishes first. This clears the rest at a scene swap.
         void OnSceneReplaced() override;
 
         // CPU snapshot of the scene's emitters (params, world position) and of this frame's steps from the

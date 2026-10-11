@@ -49,7 +49,7 @@ namespace Desert::Scripting
                 switch ( lua_type( L, -1 ) )
                 {
                     case LUA_TNUMBER:
-                        record.Set( name, static_cast<double>( lua_tonumber( L, -1 ) ) );
+                        record.Set( name, lua_tonumber( L, -1 ) );
                         break;
                     case LUA_TBOOLEAN:
                         record.Set( name, lua_toboolean( L, -1 ) != 0 );
@@ -110,7 +110,7 @@ namespace Desert::Scripting
             switch ( lua_type( L, 2 ) )
             {
                 case LUA_TNUMBER:
-                    Store().Set( key, static_cast<double>( lua_tonumber( L, 2 ) ) );
+                    Store().Set( key, lua_tonumber( L, 2 ) );
                     return 0;
                 case LUA_TBOOLEAN:
                     Store().Set( key, lua_toboolean( L, 2 ) != 0 );
@@ -203,8 +203,7 @@ namespace Desert::Scripting
             switch ( lua_type( L, 4 ) )
             {
                 case LUA_TNUMBER:
-                    return Outcome( L,
-                                    list.SetField( index, field, static_cast<double>( lua_tonumber( L, 4 ) ) ) );
+                    return Outcome( L, list.SetField( index, field, lua_tonumber( L, 4 ) ) );
                 case LUA_TBOOLEAN:
                     return Outcome( L, list.SetField( index, field, lua_toboolean( L, 4 ) != 0 ) );
                 case LUA_TSTRING:
@@ -224,7 +223,7 @@ namespace Desert::Scripting
         int ListCount( lua_State* L )
         {
             const UI::UICollection* c = Store().FindCollection( luaL_checkstring( L, 1 ) );
-            lua_pushinteger( L, c != nullptr ? static_cast<int>( c->Size() ) : 0 );
+            lua_pushinteger( L, c != nullptr ? c->Size() : 0 );
             return 1;
         }
 

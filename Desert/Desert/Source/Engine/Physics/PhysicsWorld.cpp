@@ -125,7 +125,7 @@ namespace Desert::Physics
                  : m_Profiles( profiles ), m_Self( self )
             {
             }
-            bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
+            [[nodiscard]] bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
             {
                 return m_Profiles.PhysicsResponse( m_Self, ProfileOf( inLayer ) ) == CollisionResponse::Block;
             }
@@ -142,7 +142,7 @@ namespace Desert::Physics
             explicit QueryableLayerFilter( const CollisionProfiles& profiles ) : m_Profiles( profiles )
             {
             }
-            bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
+            [[nodiscard]] bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
             {
                 return m_Profiles.IsQueryable( ProfileOf( inLayer ) );
             }
@@ -394,8 +394,8 @@ namespace Desert::Physics
             {
                 size_t operator()( const ShapePair& k ) const
                 {
-                    const uint64_t a = ( uint64_t( k.Body1 ) << 32u ) | k.Sub1;
-                    const uint64_t b = ( uint64_t( k.Body2 ) << 32u ) | k.Sub2;
+                    const uint64_t a = ( static_cast<uint64_t>( k.Body1 ) << 32u ) | k.Sub1;
+                    const uint64_t b = ( static_cast<uint64_t>( k.Body2 ) << 32u ) | k.Sub2;
                     return std::hash<uint64_t>{}( a ) ^ ( std::hash<uint64_t>{}( b ) * 0x9E3779B97F4A7C15ull );
                 }
             };
@@ -406,7 +406,7 @@ namespace Desert::Physics
             }
             static uint64_t BodyPairKey( BodyHandle a, BodyHandle b )
             {
-                return ( uint64_t( a ) << 32u ) | b;
+                return ( static_cast<uint64_t>( a ) << 32u ) | b;
             }
 
             // The overlapping shape pairs, each with its body pair; how many shape pairs each body pair has.
@@ -440,8 +440,8 @@ namespace Desert::Physics
                     event.Notify2 = true;
                     const JPH::SubShapeIDPair pair( body1.GetID(), manifold.mSubShapeID1, body2.GetID(),
                                                     manifold.mSubShapeID2 );
-                    const std::lock_guard lock( Mutex );
-                    const uint64_t        bodies = BodyPairKey( event.Body1, event.Body2 );
+                    const std::lock_guard     lock( Mutex );
+                    const uint64_t            bodies = BodyPairKey( event.Body1, event.Body2 );
                     if ( !SensorShapes.emplace( ShapePairKey( pair ), bodies ).second )
                         return;
                     if ( OverlapCounts[bodies]++ == 0u )
@@ -613,13 +613,13 @@ namespace Desert::Physics
             for ( const JPH::BodyID id : active )
             {
                 JPH::RVec3 position;
-                JPH::Quat  rotation;
+                JPH::Quat  rotation{};
                 Bodies->GetPositionAndRotation( id, position, rotation );
                 PreviousPoses[id.GetIndexAndSequenceNumber()] = { ToGlm( position ), ToGlm( rotation ) };
             }
             PreviousCharacterPositions.resize( Characters.size() );
             for ( size_t i = 0; i < Characters.size(); ++i )
-                if ( Characters[i] )
+                if ( Characters[i] != nullptr )
                     PreviousCharacterPositions[i] = ToGlm( Characters[i]->GetPosition() );
         }
     };
@@ -725,12 +725,9 @@ namespace Desert::Physics
                 // The solver's threads found the contacts in no fixed order: sorted, the events of a step are
                 // the same on every machine that took it.
                 std::vector<ContactEvent>& events = world.Impulses.Events;
-                std::stable_sort( events.begin(), events.end(),
-                                  []( const ContactEvent& a, const ContactEvent& b )
-                                  {
-                                      return std::tie( a.Body1, a.Body2, a.Kind ) <
-                                             std::tie( b.Body1, b.Body2, b.Kind );
-                                  } );
+                std::stable_sort(
+                     events.begin(), events.end(), []( const ContactEvent& a, const ContactEvent& b )
+                     { return std::tie( a.Body1, a.Body2, a.Kind ) < std::tie( b.Body1, b.Body2, b.Kind ); } );
                 world.StepEvents.insert( world.StepEvents.end(), events.begin(), events.end() );
                 events.clear();
             }

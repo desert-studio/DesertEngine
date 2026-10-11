@@ -15,7 +15,8 @@ namespace Desert::Scripting
         {
             if ( auto* cc = Character( L ) )
             {
-                cc->MoveInput    = { static_cast<float>( luaL_checknumber( L, 3 ) ), static_cast<float>( luaL_checknumber( L, 2 ) ) };
+                cc->MoveInput    = { static_cast<float>( luaL_checknumber( L, 3 ) ),
+                                     static_cast<float>( luaL_checknumber( L, 2 ) ) };
                 cc->DesiredSpeed = static_cast<float>( luaL_checknumber( L, 4 ) );
             }
             return 0;
@@ -32,7 +33,7 @@ namespace Desert::Scripting
         int IsOnGround( lua_State* L )
         {
             const auto* cc = Character( L );
-            lua_pushboolean( L, cc != nullptr && cc->OnGround );
+            lua_pushboolean( L, static_cast<int>( cc != nullptr && cc->OnGround ) );
             return 1;
         }
         // Swimming (buoyancy): toggled when the body crosses the water surface; `vertical` is the up/down intent.
@@ -51,7 +52,7 @@ namespace Desert::Scripting
         int IsSwimming( lua_State* L )
         {
             const auto* cc = Character( L );
-            lua_pushboolean( L, cc != nullptr && cc->Swimming );
+            lua_pushboolean( L, static_cast<int>( cc != nullptr && cc->Swimming ) );
             return 1;
         }
         // Yaw turns the whole entity (body + child camera follow through the hierarchy).
@@ -71,7 +72,7 @@ namespace Desert::Scripting
             const auto*         rel     = reg.try_get<ECS::RelationshipComponent>( ref.Entity );
             if ( rel == nullptr )
                 return 0;
-            for ( entt::entity child : rel->Children )
+            for ( entt::entity const child : rel->Children )
             {
                 if ( reg.has<ECS::CameraComponent>( child ) && reg.has<ECS::TransformComponent>( child ) )
                 {
@@ -87,10 +88,11 @@ namespace Desert::Scripting
     // Gameplay verbs of a character entity; each is a no-op without a CharacterControllerComponent.
     void RegisterCharacterBindings( lua_State* L )
     {
-        for ( const luaL_Reg& method : { luaL_Reg{ "move", &Move }, luaL_Reg{ "jump", &Jump },
-                                         luaL_Reg{ "isOnGround", &IsOnGround }, luaL_Reg{ "setSwimming", &SetSwimming },
-                                         luaL_Reg{ "swim", &Swim }, luaL_Reg{ "isSwimming", &IsSwimming },
-                                         luaL_Reg{ "addYaw", &AddYaw }, luaL_Reg{ "addCameraPitch", &AddCameraPitch } } )
+        for ( const luaL_Reg& method :
+              { luaL_Reg{ "move", &Move }, luaL_Reg{ "jump", &Jump }, luaL_Reg{ "isOnGround", &IsOnGround },
+                luaL_Reg{ "setSwimming", &SetSwimming }, luaL_Reg{ "swim", &Swim },
+                luaL_Reg{ "isSwimming", &IsSwimming }, luaL_Reg{ "addYaw", &AddYaw },
+                luaL_Reg{ "addCameraPitch", &AddCameraPitch } } )
             LuauBinder::SetEntityMethod( L, method.name, method.func );
     }
 } // namespace Desert::Scripting

@@ -191,7 +191,7 @@ namespace Desert::Editor
         const std::string current =
              m_ForcedLOD < 0 ? std::string( "LOD Auto" ) : std::format( "LOD {}", m_ForcedLOD );
         toolbar.AddCombo( ICON_MDI_LAYERS_TRIPLE_OUTLINE, current, "Which LOD the preview draws (viewing only)",
-                          std::move( choices ), static_cast<std::size_t>( m_ForcedLOD + 1 ) );
+                          std::move( choices ), static_cast<std::size_t>( m_ForcedLOD ) + 1 );
         toolbar.AddButton(
              ICON_MDI_CHART_BOX_OUTLINE, "Stats", "Show the mesh statistics over the viewport",
              [this]() { m_ShowStats = !m_ShowStats; }, [this]() { return m_ShowStats; } );
@@ -228,7 +228,7 @@ namespace Desert::Editor
             lines.push_back( std::format( "Approx Size:  {:.0f} x {:.0f} x {:.0f} cm", size.x, size.y, size.z ) );
         }
         else
-            lines.push_back( "Approx Size:  no sections" );
+            lines.emplace_back( "Approx Size:  no sections" );
 
         ImDrawList* draw = ImGui::GetWindowDrawList();
         const float step = ImGui::GetTextLineHeight() + 2.0f;

@@ -132,11 +132,10 @@ namespace Desert::Tests::RuntimeHandles
            "on_destroy<LandscapeTileComponent>().connect",
            "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", "m_Emitters",
-           Release::Exception, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-           "m_Emitters.clear()",
-           "GPU state per emitter is released only on scene replacement: the per-emitter material owns a "
-           "descriptor pool that VulkanMaterialBackend destroys IMMEDIATELY (not through the allocator's "
-           "deletion ring), so dropping one mid-session needs a device idle or a deferred material free. "
-           "Open task for WP5 (residency); a streamed-out emitter keeps its buffers until then." },
+           Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+           "RetireDestroyedEmitters( m_Emitters, reg )",
+           "the emitter's particle/step buffers and billboard material; PrepareFrame drops emitters whose entity "
+           "is gone or lost the component, released through the allocator's deletion ring (EntityDestroy."
+           "DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing)" },
     } };
 } // namespace Desert::Tests::RuntimeHandles

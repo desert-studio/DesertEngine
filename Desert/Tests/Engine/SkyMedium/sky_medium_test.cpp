@@ -24,6 +24,8 @@
 
 #include <gtest/gtest.h>
 
+#include <numbers>
+
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -507,7 +509,7 @@ TEST( SkySunLightFactor, IsZeroBelowTheHorizonInBothModels )
 
             // Below the disk's bottom-most reach: the artistic model fades over the disk's angular
             // radius, so the first sample sits just past it.
-            const float diskRadiusDeg = sky.SunAngularRadius * 180.0f / 3.14159265358979323846f;
+            const float diskRadiusDeg = sky.SunAngularRadius * 180.0f / std::numbers::pi_v<float>;
             for ( const float elevation : { -diskRadiusDeg - 0.01f, -5.0f, -34.0f, -90.0f } )
             {
                 const glm::vec3 f = Desert::Graphic::SunLightFactorAtGround(

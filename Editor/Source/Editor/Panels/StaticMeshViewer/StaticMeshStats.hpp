@@ -44,7 +44,9 @@ namespace Desert::Editor
         stats.Triangles = data.Indices.size();
         stats.Sections  = data.Submeshes.size();
         // UV 0 is part of every vertex; UV 1 is the optional stream (MeshBinary v4), present or empty as a whole.
-        stats.UVChannels = stats.Vertices == 0u ? 0u : ( data.UV1.empty() ? 1u : 2u );
+        stats.UVChannels = data.UV1.empty() ? 1u : 2u;
+        if ( stats.Vertices == 0u )
+            stats.UVChannels = 0u;
         stats.Bounds    = Assets::Serialization::MeshDataBounds( data );
 
         std::size_t chain = 0;

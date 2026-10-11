@@ -52,7 +52,7 @@ namespace Desert::Editor
     {
     }
 
-    void SessionRecovery::OfferAndArm( DockLayout& dock ) const
+    void SessionRecovery::OfferAndArm( DockLayout& dock )
     {
         // If the previous session left its lock behind (unclean exit) and an autosave exists, arm a prompt
         // to reopen it. Then (re)arm the lock for THIS session; a clean shutdown (Disarm) removes it.

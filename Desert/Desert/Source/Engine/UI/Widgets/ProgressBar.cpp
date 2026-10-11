@@ -28,16 +28,16 @@ namespace Desert::UI::Walk
 {
     void DrawProgressBarWidget( ElementFrame& frame )
     {
-        auto& ctx     = frame.Ctx;
-        auto& tree     = frame.Tree;
-        auto& e       = frame.E;
-        auto& scale   = frame.Scale;
-        auto& dl      = frame.Dl;
-        auto& st      = frame.St;
-        auto& rect    = frame.ElementRect;
-        auto& binding = frame.Binding;
-        auto& mn      = frame.Mn;
-        auto& mx      = frame.Mx;
+        auto&       ctx     = frame.Ctx;
+        auto&       tree    = frame.Tree;
+        auto&       e       = frame.E;
+        auto&       scale   = frame.Scale;
+        auto&       dl      = frame.Dl;
+        const auto& st      = frame.St;
+        auto&       rect    = frame.ElementRect;
+        const auto& binding = frame.Binding;
+        auto&       mn      = frame.Mn;
+        auto&       mx      = frame.Mx;
 
         UIProgressBarData pb = *tree.Get<UIProgressBarData>( e );
         if ( binding.Value )

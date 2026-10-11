@@ -121,8 +121,8 @@ namespace Desert::UI
                     Field = Previous;
                 }
             };
-            auto&             field = reg.get<ECS::UILayoutComponent>( element ).Data.Visibility;
-            VisibilityRestore restore{ field, field };
+            auto&                   field = reg.get<ECS::UILayoutComponent>( element ).Data.Visibility;
+            const VisibilityRestore restore{ field, field };
             field = UIVisibility::Hidden;
 
             if ( !RunWalk( without ) )

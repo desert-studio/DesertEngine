@@ -67,7 +67,7 @@ namespace Desert::Runtime
     private:
         struct Entry
         {
-            UI::UIThemeRuntime Runtime;
+            UI::UIThemeRuntime     Runtime;
             uint32_t               Revision = 0;
         };
 

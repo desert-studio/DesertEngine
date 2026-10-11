@@ -483,7 +483,7 @@ TEST( ShotRecordGate, ContentUnsettlingMidCapturePausesWithoutRestarting )
 TEST( ShotRecordGate, CompilingAssetsHoldTheStartButNotTheMiddle )
 {
     ShotRecordGate gate;
-    auto           compiling   = ReadyAt( 1280, 720 );
+    auto           compiling  = ReadyAt( 1280, 720 );
     compiling.AssetsCompiling = true;
     for ( int i = 0; i < 10; ++i )
         EXPECT_FALSE( gate.Admit( compiling ) ) << "frame " << i << " recorded while an asset was compiling";
@@ -543,11 +543,11 @@ namespace
 
         // The editor camera's own view matrix (EditorCamera::UpdateCameraView). Not glm::lookAt( eye, eye +
         // forward ): at 10^7 cm that sum rounds the direction away (ViewMatrixFrom says how far).
-        const glm::vec3 up = std::abs( view.Forward.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
-        const glm::vec3 right   = glm::normalize( glm::cross( view.Forward, up ) );
+        const glm::vec3 up    = std::abs( view.Forward.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
+        const glm::vec3 right = glm::normalize( glm::cross( view.Forward, up ) );
         const glm::mat4 viewMat = Desert::Core::ViewMatrixFrom(
              view.Position, Desert::Core::ViewBasis{ view.Forward, glm::cross( right, view.Forward ) } );
-        const glm::mat4 proj    = Desert::Core::MakePerspective(
+        const glm::mat4 proj = Desert::Core::MakePerspective(
              Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovX ), aspect ), aspect, view.Near,
              view.Far );
         for ( int corner = 0; corner < 8; ++corner )

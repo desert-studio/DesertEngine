@@ -287,7 +287,7 @@ namespace Desert::Graphic::Render2D
         m_Demanded.clear();
     }
 
-    const void* UIRenderTextureCache::ResolveRenderTexture( ::Desert::UI::NodeId                                element,
+    const void* UIRenderTextureCache::ResolveRenderTexture( ::Desert::UI::NodeId                        element,
                                                             const ::Desert::UI::UIRenderTextureRequest& request )
     {
         // RECORDING THE DEMAND IS THE FIRST THING AND IT HAPPENS EVEN WHEN THE ANSWER IS NULL. A refused

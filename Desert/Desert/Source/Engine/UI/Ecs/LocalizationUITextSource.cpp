@@ -9,7 +9,7 @@ namespace Desert::UI
     {
         Localization::FormatArguments args;
         args.Count          = count;
-        auto resolved       = Localization::Localization::Get().Resolve( authored, args );
+        auto       resolved = Localization::Localization::Get().Resolve( authored, args );
         const bool literal  = resolved.Outcome == Localization::Localization::Outcome::Literal;
         return UIResolvedText{ .Text = std::move( resolved.Text ), .Literal = literal };
     }

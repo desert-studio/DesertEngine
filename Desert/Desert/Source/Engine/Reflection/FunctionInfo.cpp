@@ -60,7 +60,7 @@ namespace Desert::Reflection
             return Common::MakeError<bool>(
                  std::format( "{}::{} returns a value: rets has no room", Owner, Name ) );
 
-        if ( Common::BoolResultStr called = Thunk( self, args, rets ); !called.IsSuccess() )
+        if ( Common::BoolResultStr const called = Thunk( self, args, rets ); !called.IsSuccess() )
             return Common::MakeError<bool>( std::format( "{}::{}: {}", Owner, Name, called.GetError() ) );
         return Common::MakeSuccess( true );
     }

@@ -18,8 +18,8 @@ namespace
 {
     struct FakeClipboard final : IUIClipboard
     {
-        std::string Text;
-        std::string GetText() const override
+        std::string               Text;
+        [[nodiscard]] std::string GetText() const override
         {
             return Text;
         }
@@ -106,8 +106,8 @@ TEST( UITextEdit, WordJumpsAndWordDeletes )
 
 TEST( UITextEdit, ShiftExtendsAndArrowCollapsesSelection )
 {
-    UITextEditState st;
-    std::string     text = "abcdef";
+    UITextEditState   st;
+    std::string const text = "abcdef";
     st.SetCaret( text, 1, false );
     st.Move( text, UITextMove::Right, true );
     st.Move( text, UITextMove::Right, true );
@@ -136,7 +136,7 @@ TEST( UITextEdit, RulesRefuseWhatTheySay )
     n.Insert( text, "-1a2.3.4-", num );
     EXPECT_EQ( text, "-12.34" );
 
-    UITextEditRules single; // single-line: a typed break is dropped, a pasted one becomes a space
+    UITextEditRules const single; // single-line: a typed break is dropped, a pasted one becomes a space
     text.clear();
     UITextEditState s;
     s.Insert( text, "a\nb\x01", single );
@@ -172,11 +172,11 @@ TEST( UITextEdit, PasswordRefusesCopyAndCutAndDrawsBullets )
 
 TEST( UITextEdit, KeysMapToOperations )
 {
-    UITextEditState   st;
-    std::string       text;
-    FakeClipboard     cb;
-    UITextEditRules   r;
-    UITextEditOutcome o = st.Apply( text, r, "hello", {}, &cb );
+    UITextEditState       st;
+    std::string           text;
+    FakeClipboard         cb;
+    UITextEditRules const r;
+    UITextEditOutcome     o = st.Apply( text, r, "hello", {}, &cb );
     EXPECT_TRUE( o.Changed );
     EXPECT_FALSE( o.Committed );
 

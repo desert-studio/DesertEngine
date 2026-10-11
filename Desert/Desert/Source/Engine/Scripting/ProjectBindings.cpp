@@ -9,7 +9,8 @@ namespace Desert::Scripting
     {
         int ProjectName( lua_State* L )
         {
-            lua_pushstring( L, Project::ProjectContext::HasProject() ? Project::ProjectContext::Current().Name.c_str() : "" );
+            lua_pushstring(
+                 L, Project::ProjectContext::HasProject() ? Project::ProjectContext::Current().Name.c_str() : "" );
             return 1;
         }
         int Company( lua_State* L )

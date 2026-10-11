@@ -15,6 +15,9 @@ namespace Desert
              : m_Vertices( vertices ), m_Indices( indices ), m_GenerateLODs( generateLODs )
         {
             m_Submeshes = submeshes;
+            // Constructing touches no device: the GPU buffers are made by Invalidate, which the renderer
+            // reaches through EnsureGpuResources on the first submit (or a caller with a renderer, directly).
+            MarkGpuStale();
         }
 
         MeshType GetType() const override

@@ -42,7 +42,8 @@ namespace Desert::Scripting
     {
         lua_pushcfunction( L, &Info, "log" );
         lua_setglobal( L, "log" );
-        constexpr luaL_Reg kLog[] = { { "info", &Info }, { "warn", &Warn }, { "error", &Error }, { nullptr, nullptr } };
+        constexpr luaL_Reg kLog[] = {
+             { "info", &Info }, { "warn", &Warn }, { "error", &Error }, { nullptr, nullptr } };
         luaL_register( L, "Log", kLog );
         lua_pop( L, 1 );
     }

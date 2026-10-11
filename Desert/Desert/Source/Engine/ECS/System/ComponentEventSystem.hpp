@@ -31,7 +31,8 @@ namespace Desert::ECS
     class ComponentEventSystem final : public System
     {
     public:
-        void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&, const Common::Timestep& ) override
+        void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
+                     const Common::Timestep& ) override
         {
             DeliverComponentEvents( registry, m_Cursor );
         }

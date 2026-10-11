@@ -22,8 +22,8 @@ namespace Desert::Text
 
     struct BakedFont
     {
-        uint32_t                            AtlasWidth  = 0;
-        uint32_t                            AtlasHeight = 0;
+        uint32_t AtlasWidth  = 0;
+        uint32_t AtlasHeight = 0;
         // AtlasWidth*AtlasHeight*4. RGB is the multi-channel distance field; ALPHA IS 255 EVERYWHERE.
         // The engine has no R8/RGB8 sampled format, so the fourth channel exists whatever we do; making
         // it opaque means a plain alpha-blended debug view of the atlas shows the field's edge colouring,

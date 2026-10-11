@@ -156,7 +156,7 @@ namespace
         std::vector<Function> functions;
         std::vector<Event>    events;
         std::string        headerInclude; // include path relative to source root
-        std::string        module;        // BuildScripts/DesertModules.lua module of the header
+        std::string           module;        // BuildScripts/DesertModules.lua module of the header
     };
 
     // --------------------------------------------------------------------- helpers
@@ -499,8 +499,8 @@ namespace
         bool        reflected = false;
         std::vector<Field> fields =
              {}; // the two `scopes.push_back( { name, depth, isStruct } )` below stop here on purpose
-        std::vector<Function> functions = {};
-        std::vector<Event>    events    = {};
+        std::vector<Function>         functions = {};
+        std::vector<Event>            events    = {};
         size_t                        open      = 0;  // the position just after the struct's '{'
         std::optional<ComponentBlock> component = {}; // its COMPONENT(...) marker, if any
     };
@@ -517,12 +517,14 @@ namespace
                 continue;
             if ( tok == "ScriptCallable" )
                 m.scriptCallable = true;
-            else if ( tok.rfind( "Category", 0 ) == 0 )
+            else if ( tok.starts_with( "Category" ) )
                 m.category = ExtractStringLiteral( tok );
-            else if ( tok.rfind( "Tooltip", 0 ) == 0 )
+            else if ( tok.starts_with( "Tooltip" ) )
                 m.tooltip = ExtractStringLiteral( tok );
             else
-                error = "FUNCTION: unknown attribute '" + tok + "' (ScriptCallable, Category(\"...\"), Tooltip(\"...\"))";
+                error = std::format(
+                     R"(FUNCTION: unknown attribute '{}' (ScriptCallable, Category("..."), Tooltip("...")))",
+                     tok );
         }
         return m;
     }
@@ -530,8 +532,8 @@ namespace
     // The trailing identifier of `text` ("const std::string& name" -> "name"), or empty.
     std::string TrailingIdent( const std::string& text )
     {
-        size_t e = text.size();
-        size_t b = e;
+        size_t const e = text.size();
+        size_t       b = e;
         while ( b > 0 && IsIdentChar( text[b - 1] ) )
             --b;
         return text.substr( b, e - b );
@@ -563,7 +565,8 @@ namespace
             const std::string ptype = Trimmed( param.substr( 0, param.size() - pname.size() ) );
             if ( pname.empty() || ptype.empty() )
             {
-                error = what + ": parameter '" + param + "' has no name (a caller sees every parameter by its name)";
+                error = std::format( "{}: parameter '{}' has no name (a caller sees every parameter by its name)",
+                                     what, param );
                 return close;
             }
             params.emplace_back( pname, ptype );
@@ -580,12 +583,12 @@ namespace
             const std::string tok = Trimmed( tokRaw );
             if ( tok.empty() )
                 continue;
-            if ( tok.rfind( "Category", 0 ) == 0 )
+            if ( tok.starts_with( "Category" ) )
                 m.category = ExtractStringLiteral( tok );
-            else if ( tok.rfind( "Tooltip", 0 ) == 0 )
+            else if ( tok.starts_with( "Tooltip" ) )
                 m.tooltip = ExtractStringLiteral( tok );
             else
-                error = "EVENT: unknown attribute '" + tok + "' (Category(\"...\"), Tooltip(\"...\"))";
+                error = std::format( R"(EVENT: unknown attribute '{}' (Category("..."), Tooltip("...")))", tok );
         }
         return m;
     }
@@ -603,18 +606,20 @@ namespace
         }
         const std::string head = Trimmed( raw.substr( start, open - start ) ); // "using OnHit = void"
         const size_t      eq   = head.find( '=' );
-        if ( head.rfind( "using ", 0 ) != 0 || eq == std::string::npos || Trimmed( head.substr( eq + 1 ) ) != "void" )
+        if ( !head.starts_with( "using " ) || eq == std::string::npos ||
+             Trimmed( head.substr( eq + 1 ) ) != "void" )
         {
-            error = "EVENT: expected 'using <Name> = void( <params> );' after the annotation (an event returns nothing)";
+            error = "EVENT: expected 'using <Name> = void( <params> );' after the annotation (an event returns "
+                    "nothing)";
             return semi + 1;
         }
         ev.name = Trimmed( head.substr( 6, eq - 6 ) );
         if ( ev.name.empty() || TrailingIdent( ev.name ) != ev.name )
         {
-            error = "EVENT: '" + ev.name + "' is not a name";
+            error = std::format( "EVENT: '{}' is not a name", ev.name );
             return semi + 1;
         }
-        const size_t close = ParseParams( raw, open, "EVENT " + ev.name, ev.params, error );
+        const size_t close = ParseParams( raw, open, std::format( "EVENT {}", ev.name ), ev.params, error );
         return std::max( close, semi ) + 1;
     }
 
@@ -631,11 +636,11 @@ namespace
         std::string head = raw.substr( start, open - start );
         if ( const size_t attr = head.rfind( "]]" ); attr != std::string::npos )
             head = head.substr( attr + 2 );
-        head    = Trimmed( head );
-        fn.name = TrailingIdent( head );
+        head            = Trimmed( head );
+        fn.name         = TrailingIdent( head );
         std::string ret = Trimmed( head.substr( 0, head.size() - fn.name.size() ) );
         for ( const char* specifier : { "static ", "virtual ", "inline ", "constexpr ", "explicit " } )
-            while ( ret.rfind( specifier, 0 ) == 0 )
+            while ( ret.starts_with( specifier ) )
                 ret = Trimmed( ret.substr( std::string_view( specifier ).size() ) );
         fn.returnType = ret;
         if ( fn.name.empty() || fn.returnType.empty() )
@@ -644,7 +649,7 @@ namespace
             return raw.size();
         }
 
-        const size_t close = ParseParams( raw, open, "FUNCTION " + fn.name, fn.params, error );
+        const size_t close = ParseParams( raw, open, std::format( "FUNCTION {}", fn.name ), fn.params, error );
         if ( !error.empty() )
             return raw.size();
 
@@ -697,10 +702,10 @@ namespace
         bool         hasPendingFunction = false;
         EventMeta    pendingEvent;
         bool         hasPendingEvent = false;
-        const auto   fail = [&]( size_t at, const std::string& message )
+        const auto   fail            = [&]( size_t at, const std::string& message )
         {
             const auto line = std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( at ), '\n' ) + 1;
-            errors.push_back( file.generic_string() + ":" + std::to_string( line ) + ": " + message );
+            errors.push_back( std::format( "{}:{}: {}", file.generic_string(), line, message ) );
         };
 
         for ( size_t i = 0; i < raw.size(); )
@@ -791,8 +796,8 @@ namespace
                     std::string args;
                     if ( i < raw.size() && raw[i] == '(' )
                     {
-                        int    p  = 0;
-                        size_t s0 = i;
+                        int          p  = 0;
+                        size_t const s0 = i;
                         do
                         {
                             if ( raw[i] == '(' )
@@ -859,7 +864,7 @@ namespace
                     if ( std::any_of( events.begin(), events.end(),
                                       [&]( const Event& other ) { return other.name == ev.name; } ) )
                     {
-                        fail( start, "EVENT " + ev.name + " is declared twice in this type" );
+                        fail( start, std::format( "EVENT {} is declared twice in this type", ev.name ) );
                         continue;
                     }
                     events.push_back( std::move( ev ) );
@@ -888,7 +893,7 @@ namespace
                     }
                     if ( scopes.back().component.has_value() )
                     {
-                        fail( start, "COMPONENT twice in " + scopes.back().name );
+                        fail( start, std::format( "COMPONENT twice in {}", scopes.back().name ) );
                         continue;
                     }
                     std::string    error;
@@ -900,7 +905,7 @@ namespace
                     }
                     const auto line =
                          std::count( raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>( start ), '\n' ) + 1;
-                    c.where                 = file.generic_string() + ":" + std::to_string( line );
+                    c.where                 = std::format( "{}:{}", file.generic_string(), line );
                     c.headerInclude         = headerInclude;
                     scopes.back().component = std::move( c );
                     continue;
@@ -909,8 +914,8 @@ namespace
                 {
                     Function    fn;
                     std::string error;
-                    fn.meta = pendingFunction;
-                    i       = ParseFunctionDecl( raw, start, fn, error );
+                    fn.meta            = pendingFunction;
+                    i                  = ParseFunctionDecl( raw, start, fn, error );
                     hasPendingFunction = false;
                     if ( !error.empty() )
                     {
@@ -921,8 +926,10 @@ namespace
                     if ( std::any_of( functions.begin(), functions.end(),
                                       [&]( const Function& other ) { return other.name == fn.name; } ) )
                     {
-                        fail( start, "FUNCTION " + fn.name +
-                                          " is declared twice in this type (no overloads: a caller calls by name)" );
+                        fail( start,
+                              std::format( "FUNCTION {} is declared twice in this type (no overloads: a caller "
+                                           "calls by name)",
+                                           fn.name ) );
                         continue;
                     }
                     functions.push_back( std::move( fn ) );
@@ -1013,7 +1020,9 @@ namespace
                     if ( sc.isStruct && sc.component.has_value() )
                     {
                         ComponentBlock c = std::move( *sc.component );
-                        c.fqn = JoinScopes( scopes ).empty() ? sc.name : JoinScopes( scopes ) + "::" + sc.name;
+                        c.fqn            = JoinScopes( scopes ).empty()
+                                                ? sc.name
+                                                : std::format( "{}::{}", JoinScopes( scopes ), sc.name );
                         if ( !c.member.empty() )
                         {
                             // The member's declared type, from the struct's own body: "<type> <Member> ;|=|{".
@@ -1021,12 +1030,13 @@ namespace
                             if ( auto type = Desert::HeaderTool::DeclaredMemberType( body, c.member ) )
                                 c.memberType = std::move( *type );
                             else
-                                errors.push_back( c.where + ": COMPONENT " + c.key + ": no member '" + c.member +
-                                                  "' declared in " + sc.name );
+                                errors.push_back( std::format( "{}: COMPONENT {}: no member '{}' declared in {}",
+                                                               c.where, c.key, c.member, sc.name ) );
                         }
                         components.push_back( std::move( c ) );
                     }
-                    if ( sc.isStruct && sc.reflected && ( !sc.fields.empty() || !sc.functions.empty() || !sc.events.empty() ) )
+                    if ( sc.isStruct && sc.reflected &&
+                         ( !sc.fields.empty() || !sc.functions.empty() || !sc.events.empty() ) )
                     {
                         ReflectedType t;
                         t.registryName  = sc.name;
@@ -1110,7 +1120,8 @@ namespace
     {
         Common::Json::Value::Array params;
         for ( const auto& [name, cppType] : fn.params )
-            params.emplace_back( Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
+            params.emplace_back(
+                 Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
         return Common::Json::ObjectBuilder()
              .Set( "name", fn.name )
              .Set( "returnType", fn.returnType )
@@ -1126,7 +1137,8 @@ namespace
     {
         Common::Json::Value::Array params;
         for ( const auto& [name, cppType] : ev.params )
-            params.emplace_back( Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
+            params.emplace_back(
+                 Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
         return Common::Json::ObjectBuilder()
              .Set( "name", ev.name )
              .Set( "paramCount", static_cast<long long>( ev.params.size() ) )
@@ -1363,7 +1375,7 @@ namespace
         // Each type to its module, by the header's place in the repository (plan C11). Without a module table
         // (a test fixture) the scanned set is one module named by the output's stem.
         std::map<std::string, std::vector<ReflectedType>> byModule;
-        std::vector<std::string> moduleNames;
+        std::vector<std::string>                          moduleNames;
         if ( modules == nullptr )
         {
             const std::string fileName = request.Output.filename().string();
@@ -1418,15 +1430,17 @@ namespace
         for ( const auto& entry : fs::directory_iterator( outputDir ) )
         {
             const std::string name = entry.path().filename().string();
-            if ( name.starts_with( kModuleFilePrefix ) && name.ends_with( kModuleFileSuffix ) && !written.contains( name ) )
+            if ( name.starts_with( kModuleFilePrefix ) && name.ends_with( kModuleFileSuffix ) &&
+                 !written.contains( name ) )
             {
                 fs::remove( entry.path() );
-                std::cout << std::format( "[DesertHeaderTool] removed {} (its module is not in the module table)\n",
-                                          entry.path().string() );
+                std::cout << std::format(
+                     "[DesertHeaderTool] removed {} (its module is not in the module table)\n",
+                     entry.path().string() );
             }
         }
-        std::cout << std::format( "[DesertHeaderTool] {} reflected types in {} modules, {} headers scanned\n", types.size(),
-                                  written.size(), headers.size() );
+        std::cout << std::format( "[DesertHeaderTool] {} reflected types in {} modules, {} headers scanned\n",
+                                  types.size(), written.size(), headers.size() );
         if ( request.Components.empty() )
             return 0;
 
@@ -1544,7 +1558,8 @@ static int RunTool( int argc, char** argv )
         std::cerr << "[DesertHeaderTool] " << modules.GetError() << "\n";
         return 1;
     }
-    return Reflect( *templateDir, *reflect, &modules.GetValue(), fs::absolute( *moduleTable ).parent_path().parent_path() );
+    return Reflect( *templateDir, *reflect, &modules.GetValue(),
+                    fs::absolute( *moduleTable ).parent_path().parent_path() );
 }
 
 // The entry point, one line. Anything this tool throws is named on stderr with the tool's own name

@@ -17,6 +17,15 @@
 #include <shellapi.h>
 #endif
 
+#if defined( DESERT_PLATFORM_MACOS )
+#include <crt_externs.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#endif
+#include <format>
+#include <string>
+#include <vector>
+
 namespace Desert::Editor::ContentBrowserUtils
 {
     bool MoveOrRename( const std::string& src, const std::filesystem::path& dst, const char* label,
@@ -49,6 +58,28 @@ namespace Desert::Editor::ContentBrowserUtils
         return moved;
     }
 
+#if defined( DESERT_PLATFORM_MACOS )
+    // `open` run directly rather than through a shell: no quoting to get wrong for a path that holds a
+    // quote, and no std::system (which is not thread-safe). Waits, as the shell call did; `open` returns at once.
+    namespace
+    {
+        void SpawnOpen( std::vector<std::string> args )
+        {
+            std::vector<char*> argv;
+            argv.reserve( args.size() + 1 );
+            for ( std::string& a : args )
+                argv.push_back( a.data() );
+            argv.push_back( nullptr );
+            pid_t pid = 0;
+            if ( posix_spawnp( &pid, argv[0], nullptr, nullptr, argv.data(), *_NSGetEnviron() ) == 0 )
+            {
+                int status = 0;
+                waitpid( pid, &status, 0 );
+            }
+        }
+    } // namespace
+#endif
+
     void ShellOpenDefault( const std::string& path )
     {
 #if defined( DESERT_PLATFORM_WINDOWS )
@@ -58,8 +89,7 @@ namespace Desert::Editor::ContentBrowserUtils
 #elif defined( DESERT_PLATFORM_MACOS )
         std::error_code   ec;
         const std::string abs = std::filesystem::absolute( path, ec ).string();
-        const std::string cmd = "open \"" + abs + "\"";
-        system( cmd.c_str() );
+        SpawnOpen( { "open", abs } );
 #else
         (void)path;
 #endif
@@ -70,13 +100,12 @@ namespace Desert::Editor::ContentBrowserUtils
 #if defined( DESERT_PLATFORM_WINDOWS )
         std::error_code    ec;
         const auto         abs    = std::filesystem::absolute( path, ec ).make_preferred().wstring();
-        const std::wstring params = L"/select,\"" + abs + L"\"";
+        const std::wstring params = std::format( L"/select,\"{}\"", abs );
         ShellExecuteW( nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL );
 #elif defined( DESERT_PLATFORM_MACOS )
         std::error_code   ec;
         const std::string abs = std::filesystem::absolute( path, ec ).string();
-        const std::string cmd = "open -R \"" + abs + "\"";
-        system( cmd.c_str() );
+        SpawnOpen( { "open", "-R", abs } );
 #else
         (void)path;
 #endif

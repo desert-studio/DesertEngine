@@ -89,7 +89,7 @@ namespace Desert::Physics
     using CollisionProfileId                         = uint16_t;
     inline constexpr CollisionProfileId kNoProfile   = 0xFFFFu;
     inline constexpr std::size_t        kMaxChannels = 32u;     ///< UE's ECC_MAX
-    inline constexpr std::size_t        kMaxProfiles  = 0x7FFEu; ///< two Jolt object layers per profile, 16-bit
+    inline constexpr std::size_t        kMaxProfiles = 0x7FFEu; ///< two Jolt object layers per profile, 16-bit
 
     /**
      * @brief The validated register: channels, and each profile's response to every channel resolved.

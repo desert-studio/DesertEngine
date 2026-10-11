@@ -107,7 +107,8 @@ namespace Desert::UI
         class Iterator
         {
         public:
-            Iterator( const IUITree* tree, NodeId parent, std::size_t i ) : m_Tree( tree ), m_Parent( parent ), m_I( i )
+            Iterator( const IUITree* tree, NodeId parent, std::size_t i )
+                 : m_Tree( tree ), m_Parent( parent ), m_I( i )
             {
             }
             NodeId operator*() const

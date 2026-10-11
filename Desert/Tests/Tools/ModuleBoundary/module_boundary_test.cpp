@@ -164,7 +164,7 @@ TEST( ModuleBoundary, EveryFileHasAModuleAndEveryRowPlacesOne )
     const std::set<std::string> files = EngineFiles();
     ASSERT_GT( files.size(), 1000u ) << "the walk found no engine: " << RepoRoot();
     std::vector<int>  placed( Table().Placement().size(), 0 );
-    const std::string legacyPrefix = Table().LegacyRoot() + "/";
+    const std::string legacyPrefix = std::format( "{}/", Table().LegacyRoot() );
     for ( const std::string& file : files )
     {
         EXPECT_FALSE( Table().ModuleOf( file ).empty() ) << file << " belongs to no module";
@@ -240,10 +240,11 @@ TEST( ModuleBoundary, CrossingsReport )
     }
 
     // Named crossings the plan cuts; a pin goes in the commit whose cut deletes its line.
+    // C1: EngineContext is GDynamicRHI — ONE pin, split only by the column limit, so it lives outside the array.
+    constexpr const char* kMemoryReadoutPin  = "Desert/Desert/Source/Engine/Graphic/MemoryReadoutSource.cpp -> "
+                                               "Desert/Desert/Source/Engine/Core/EngineContext.hpp";
     constexpr const char* kPinnedCrossings[] = {
-         // C1: EngineContext is GDynamicRHI
-         "Desert/Desert/Source/Engine/Graphic/MemoryReadoutSource.cpp -> "
-         "Desert/Desert/Source/Engine/Core/EngineContext.hpp",
+         kMemoryReadoutPin,
          // C4: ISceneRenderer = FSceneInterface
          "Desert/Desert/Source/Engine/Desert.hpp -> Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",
          // C8 via C3c: Skeleton reaches the GPU mesh

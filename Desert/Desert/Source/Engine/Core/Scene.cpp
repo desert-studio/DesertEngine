@@ -1109,12 +1109,33 @@ namespace Desert::Core
             entity.GetComponent<ECS::VisibilityComponent>().Visible = visible;
         else
             entity.AddComponent<ECS::VisibilityComponent>().Visible = visible;
+        if ( entity.HasComponent<ECS::UUIDComponent>() )
+            MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
 
         if ( entity.HasComponent<ECS::RelationshipComponent>() )
         {
             auto& rel = entity.GetComponent<ECS::RelationshipComponent>();
             for ( auto childHandle : rel.Children )
                 SetVisibleRecursive( ECS::Entity( childHandle, m_Registry ), visible );
+        }
+    }
+
+    void Scene::MarkModifiedSubtree( ECS::Entity root ) const
+    {
+        if ( !root )
+            return;
+        // Walked with an explicit stack over the const registry: a deep hierarchy cannot overflow the call stack.
+        std::vector<entt::entity> pending{ root.GetHandle() };
+        while ( !pending.empty() )
+        {
+            const entt::entity entity = pending.back();
+            pending.pop_back();
+            if ( const auto* uuid = m_Registry.try_get<ECS::UUIDComponent>( entity ) )
+                MarkModified( uuid->UUID );
+            if ( const auto* rel = m_Registry.try_get<ECS::RelationshipComponent>( entity ) )
+                for ( const auto child : rel->Children )
+                    if ( m_Registry.valid( child ) )
+                        pending.push_back( child );
         }
     }
 

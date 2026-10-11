@@ -296,11 +296,12 @@ namespace Desert::Reflection
             using Args = typename S::Args;
 
             // Range: an Int Value that does not fit an int32 parameter is refused, not wrapped.
-            using FitCheck = bool ( * )( const Value& );
+            using FitCheck                                       = bool ( * )( const Value& );
             constexpr std::array<FitCheck, sizeof...( I )> kFits = { &ArgFits<std::tuple_element_t<I, Args>>... };
             for ( std::size_t i = 0; i < kFits.size(); ++i )
                 if ( !kFits[i]( args[i] ) )
-                    return Common::MakeError<bool>( std::format( "argument {} is outside its parameter's range", i ) );
+                    return Common::MakeError<bool>(
+                         std::format( "argument {} is outside its parameter's range", i ) );
 
             const auto invoke = [&]() -> decltype( auto )
             {
@@ -340,7 +341,8 @@ namespace Desert::Reflection
     namespace Detail
     {
         template <typename Args, std::size_t N, std::size_t... I>
-        std::vector<ParamInfo> Params( [[maybe_unused]] const std::array<ParamSpelling, N>& spelling, std::index_sequence<I...> )
+        std::vector<ParamInfo> Params( [[maybe_unused]] const std::array<ParamSpelling, N>& spelling,
+                                       std::index_sequence<I...> )
         {
             static_assert( ( kIsPassableParam<std::tuple_element_t<I, Args>> && ... ),
                            "FUNCTION(...): a non-const reference parameter is an out parameter, which "
@@ -379,7 +381,8 @@ namespace Desert::Reflection
     template <typename F>
     struct EventSignature
     {
-        static_assert( sizeof( F ) == 0, "EVENT(...): the alias must name a function type, `using OnX = void( ... );`" );
+        static_assert( sizeof( F ) == 0,
+                       "EVENT(...): the alias must name a function type, `using OnX = void( ... );`" );
     };
     template <typename... A>
     struct EventSignature<void( A... )>
@@ -410,11 +413,13 @@ namespace Desert::Reflection
     std::array<Value, sizeof...( A )> EventPayload( A&&... args )
     {
         using Args = typename EventSignature<F>::Args;
-        static_assert( std::tuple_size_v<Args> == sizeof...( A ), "EventPayload: another argument count than the event's" );
+        static_assert( std::tuple_size_v<Args> == sizeof...( A ),
+                       "EventPayload: another argument count than the event's" );
         return [&]<std::size_t... I>( std::index_sequence<I...> )
         {
-            return std::array<Value, sizeof...( A )>{ ValueTraits<ParamValueType<std::tuple_element_t<I, Args>>>::To(
-                 static_cast<ParamValueType<std::tuple_element_t<I, Args>>>( std::forward<A>( args ) ) )... };
+            return std::array<Value, sizeof...( A )>{
+                 ValueTraits<ParamValueType<std::tuple_element_t<I, Args>>>::To(
+                      static_cast<ParamValueType<std::tuple_element_t<I, Args>>>( std::forward<A>( args ) ) )... };
         }( std::index_sequence_for<A...>{} );
     }
 } // namespace Desert::Reflection

@@ -102,6 +102,13 @@ namespace Desert::Assets
     [[nodiscard]] uint64_t EnvironmentBakeSignature( BakedEnvironmentCube which, uint32_t faceSize,
                                                      uint32_t mips );
 
+    /// The debug tag each cached cube's GPU image carries. One list, read by the cache load
+    /// (`StageEnvironment`) and by the bake that adopts its own written file (`EnvironmentCacheWriter`), so a
+    /// cube that came off the disk is tagged the same whichever of the two runs created it.
+    inline constexpr std::string_view kEnvRadianceTag   = "EnvRadiance";
+    inline constexpr std::string_view kEnvIrradianceTag = "EnvDiffuseIrradiance";
+    inline constexpr std::string_view kEnvPrefilterTag  = "EnvPrefiltered";
+
     /// Where this (source, cube) lands. Deterministic and content-addressed: the same three
     /// inputs name the same file on every machine, which is what lets a cooked environment be committed.
     [[nodiscard]] std::filesystem::path EnvironmentBakePath( uint64_t sourceSignature, uint64_t bakeSignature );

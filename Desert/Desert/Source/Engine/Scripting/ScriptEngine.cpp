@@ -49,38 +49,37 @@ namespace Desert::Scripting
         m_Impl->Scene  = scene;
         m_Impl->Assets = assetManager;
 
-        Impl* host       = m_Impl.get();
-        m_Impl->Runtime = std::make_unique<LuauRuntime>(
-             LuauLimits{},
-             [host]( lua_State* L )
-             {
-                 lua_pushlightuserdata( L, host );
-                 lua_setfield( L, LUA_REGISTRYINDEX, kHost );
-                 lua_newtable( L );
-                 host->WorldVars = lua_ref( L, -1 );
-                 lua_pop( L, 1 );
+        Impl* host      = m_Impl.get();
+        m_Impl->Runtime = std::make_unique<LuauRuntime>( LuauLimits{},
+                                                         [host]( lua_State* L )
+                                                         {
+                                                             lua_pushlightuserdata( L, host );
+                                                             lua_setfield( L, LUA_REGISTRYINDEX, kHost );
+                                                             lua_newtable( L );
+                                                             host->WorldVars = lua_ref( L, -1 );
+                                                             lua_pop( L, 1 );
 
-                 RegisterLogBindings( L );
-                 RegisterEntityCoreBindings( L );
-                 RegisterCharacterBindings( L );
-                 RegisterMaterialBindings( L );
-                 RegisterInputBindings( L );
-                 RegisterTimerBindings( L );
-                 RegisterWorldBindings( L );
-                 RegisterAudioBindings( L );
-                 RegisterProjectBindings( L );
-                 RegisterLevelBindings( L );
-                 RegisterAnimationBindings( L );
-                 RegisterUIBindings( L );
-                 RegisterLocalizationBindings( L );
-             } );
+                                                             RegisterLogBindings( L );
+                                                             RegisterEntityCoreBindings( L );
+                                                             RegisterCharacterBindings( L );
+                                                             RegisterMaterialBindings( L );
+                                                             RegisterInputBindings( L );
+                                                             RegisterTimerBindings( L );
+                                                             RegisterWorldBindings( L );
+                                                             RegisterAudioBindings( L );
+                                                             RegisterProjectBindings( L );
+                                                             RegisterLevelBindings( L );
+                                                             RegisterAnimationBindings( L );
+                                                             RegisterUIBindings( L );
+                                                             RegisterLocalizationBindings( L );
+                                                         } );
     }
 
     ScriptEngine::~ScriptEngine() = default;
 
     Common::BoolResultStr ScriptEngine::RunString( const std::string& code )
     {
-        std::string output;
+        std::string           output;
         Common::BoolResultStr ran = m_Impl->Runtime->Eval( code, output );
         m_Impl->Settle();
         return ran;
@@ -94,10 +93,9 @@ namespace Desert::Scripting
         return ran;
     }
 
-    Common::BoolResultStr ScriptEngine::LoadEntityScript( uint32_t entity, uint32_t slot,
-                                                          const std::string& path )
+    Common::BoolResultStr ScriptEngine::LoadEntityScript( uint32_t entity, uint32_t slot, const std::string& path )
     {
-        Common::ResultStr<std::string> source = ReadScript( path );
+        Common::ResultStr<std::string> const source = ReadScript( path );
         if ( !source.IsSuccess() )
             return Common::MakeError<bool>( source.GetError() );
 
@@ -107,13 +105,12 @@ namespace Desert::Scripting
         impl.DropTimers( [key]( const Impl::PendingTimer& t ) { return t.Owner == key; } );
         impl.LastUpdateError.erase( key ); // fresh sandbox -> fresh error state
 
-        entt::registry*    registry = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
-        const entt::entity handle   = static_cast<entt::entity>( entity );
-        impl.CurrentOwner           = key; // Timer.after at the top level belongs to this slot
-        Common::ResultStr<LuauSlot> loaded =
-             impl.Runtime->Load( path, source.GetValue(),
-                                 { EntityBinding( "self", [registry, handle]()
-                                                  { return LuauEntityRef{ registry, handle }; } ) } );
+        entt::registry* registry                 = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
+        const auto      handle                   = static_cast<entt::entity>( entity );
+        impl.CurrentOwner                        = key; // Timer.after at the top level belongs to this slot
+        Common::ResultStr<LuauSlot> const loaded = impl.Runtime->Load(
+             path, source.GetValue(),
+             { EntityBinding( "self", [registry, handle]() { return LuauEntityRef{ registry, handle }; } ) } );
         impl.Settle();
         if ( !loaded.IsSuccess() )
             return Common::MakeError<bool>( loaded.GetError() );
@@ -133,7 +130,7 @@ namespace Desert::Scripting
         const LuauSlot target = SlotOf( entity, slot );
         if ( target == 0 || !Runtime->Defines( target, function ) )
             return BOOLSUCCESS;
-        CurrentOwner                    = SlotKey( entity, slot ); // Timer.after ownership
+        CurrentOwner                 = SlotKey( entity, slot ); // Timer.after ownership
         Common::BoolResultStr called = Runtime->Call( target, function, args );
         Settle();
         return called;
@@ -144,7 +141,7 @@ namespace Desert::Scripting
         // entity:destroy() inside a script: its slots are released here, once no script code runs.
         std::vector<uint32_t> released;
         released.swap( PendingRelease );
-        for ( uint32_t entity : released )
+        for ( uint32_t const entity : released )
             ReleaseEntity( entity );
     }
 
@@ -152,17 +149,18 @@ namespace Desert::Scripting
     {
         if ( auto it = Slots.find( entity ); it != Slots.end() )
         {
-            for ( LuauSlot slot : it->second )
+            for ( LuauSlot const slot : it->second )
                 if ( slot != 0 )
                     Runtime->Release( slot );
             Slots.erase( it );
         }
-        DropTimers( [entity]( const PendingTimer& t ) { return static_cast<uint32_t>( t.Owner >> 32 ) == entity; } );
+        DropTimers( [entity]( const PendingTimer& t )
+                    { return static_cast<uint32_t>( t.Owner >> 32 ) == entity; } );
     }
 
     void ScriptEngine::CallStart( uint32_t entity, uint32_t slot )
     {
-        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, "OnStart", {} ); !r.IsSuccess() )
+        if ( Common::BoolResultStr const r = m_Impl->CallSlot( entity, slot, "OnStart", {} ); !r.IsSuccess() )
             LOG_ERROR( "[Lua] OnStart error: {}", r.GetError() );
     }
 
@@ -170,7 +168,8 @@ namespace Desert::Scripting
                                             const std::string& name )
     {
         const Reflection::Value arg = Reflection::Value::String( name );
-        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, callback, { &arg, 1 } ); !r.IsSuccess() )
+        if ( Common::BoolResultStr const r = m_Impl->CallSlot( entity, slot, callback, { &arg, 1 } );
+             !r.IsSuccess() )
             LOG_ERROR( "[Lua] {} error: {}", callback, r.GetError() );
     }
 
@@ -183,16 +182,16 @@ namespace Desert::Scripting
             for ( uint32_t slot = 0; slot < static_cast<uint32_t>( slots.size() ); ++slot )
                 targets.emplace_back( entity, slot );
         for ( const auto& [entity, slot] : targets )
-            if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, "OnUIMessage", { &arg, 1 } );
+            if ( Common::BoolResultStr const r = m_Impl->CallSlot( entity, slot, "OnUIMessage", { &arg, 1 } );
                  !r.IsSuccess() )
                 LOG_ERROR( "[Lua] OnUIMessage error: {}", r.GetError() );
     }
 
     void ScriptEngine::CallUpdate( uint32_t entity, uint32_t slot, float dt )
     {
-        const Reflection::Value arg = Reflection::Value::Float( dt );
-        const uint64_t          key = Impl::SlotKey( entity, slot );
-        Common::BoolResultStr   r   = m_Impl->CallSlot( entity, slot, "OnUpdate", { &arg, 1 } );
+        const Reflection::Value     arg = Reflection::Value::Float( dt );
+        const uint64_t              key = Impl::SlotKey( entity, slot );
+        Common::BoolResultStr const r   = m_Impl->CallSlot( entity, slot, "OnUpdate", { &arg, 1 } );
         if ( r.IsSuccess() )
         {
             m_Impl->LastUpdateError.erase( key );
@@ -216,13 +215,16 @@ namespace Desert::Scripting
             switch ( p.Type )
             {
                 case PropertyType::Number:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::Double( p.Number ) );
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
+                                                    Reflection::Value::Double( p.Number ) );
                     break;
                 case PropertyType::Bool:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::Bool( p.Bool ) );
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
+                                                    Reflection::Value::Bool( p.Bool ) );
                     break;
                 case PropertyType::String:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name, Reflection::Value::String( p.Str ) );
+                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
+                                                    Reflection::Value::String( p.Str ) );
                     break;
             }
         }
@@ -243,9 +245,12 @@ namespace Desert::Scripting
                     m_Impl->Runtime->Release( it->second[i] );
             it->second.resize( count );
         }
-        m_Impl->DropTimers( [entity, count]( const Impl::PendingTimer& t )
-                            { return static_cast<uint32_t>( t.Owner >> 32 ) == entity &&
-                                     static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) >= count; } );
+        m_Impl->DropTimers(
+             [entity, count]( const Impl::PendingTimer& t )
+             {
+                 return static_cast<uint32_t>( t.Owner >> 32 ) == entity &&
+                        static_cast<uint32_t>( t.Owner & 0xFFFFFFFFu ) >= count;
+             } );
     }
 
     void ScriptEngine::TickTimers( float dt )
@@ -270,7 +275,7 @@ namespace Desert::Scripting
             if ( slot != 0 )
             {
                 impl.CurrentOwner = t.Owner; // a re-arm inherits the same (entity, slot)
-                if ( Common::BoolResultStr r = impl.Runtime->CallRef( slot, t.Fn ); !r.IsSuccess() )
+                if ( Common::BoolResultStr const r = impl.Runtime->CallRef( slot, t.Fn ); !r.IsSuccess() )
                     LOG_ERROR( "[Lua] Timer.after error: {}", r.GetError() );
             }
             impl.Runtime->Unref( t.Fn );
@@ -281,13 +286,13 @@ namespace Desert::Scripting
     std::vector<ScriptProperty> ReadScriptProperties( const std::string& path )
     {
         std::vector<ScriptProperty> out;
-        Common::ResultStr<std::string> source = ReadScript( path );
+        Common::ResultStr<std::string> const source = ReadScript( path );
         if ( !source.IsSuccess() )
             return out;
 
         // A throwaway runtime with no engine modules: the top level runs, `Properties` is read back.
-        LuauRuntime                 runtime;
-        Common::ResultStr<LuauSlot> slot = runtime.Load( path, source.GetValue(), {} );
+        LuauRuntime                       runtime;
+        Common::ResultStr<LuauSlot> const slot = runtime.Load( path, source.GetValue(), {} );
         if ( !slot.IsSuccess() )
             return out;
 
@@ -300,12 +305,12 @@ namespace Desert::Scripting
                 p.Type = PropertyType::Bool;
                 p.Bool = *b;
             }
-            else if ( const double* d = entry.Value.Get<double>() )
+            else if ( const auto* d = entry.Value.Get<double>() )
             {
                 p.Type   = PropertyType::Number;
                 p.Number = *d;
             }
-            else if ( const std::string* str = entry.Value.Get<std::string>() )
+            else if ( const auto* str = entry.Value.Get<std::string>() )
             {
                 p.Type = PropertyType::String;
                 p.Str  = *str;

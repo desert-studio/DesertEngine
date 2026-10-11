@@ -204,8 +204,8 @@ namespace Desert::Editor::Core
         // UE's Crosswise Diagonal (X in Corner Mode): split a non-planar sloped quad along the other diagonal.
         bool CornerCrosswise = false;
 
-        // Accept also gives the committed piece a BOX collider + a static body, so a blockout is
-        // walkable immediately. Box, not triangle mesh: the physics layer has no trimesh shape yet.
+        // Accept also gives the committed piece a Mesh collider (its own triangles) + a static body, so a
+        // blockout is walkable immediately, rooms and doorways included (Tools/BlockoutCollision.hpp).
         bool GenerateCollision = true;
 
         bool ReqAccept         = false; // one-shot: commit the blockout, start a fresh one

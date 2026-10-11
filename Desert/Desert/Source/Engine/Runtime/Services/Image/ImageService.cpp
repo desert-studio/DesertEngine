@@ -58,6 +58,15 @@ namespace Desert::Runtime
             m_Generations[handle.Value.Index] = 0U;
     }
 
+    bool ImageService::Replace( const ImageHandle& handle, std::shared_ptr<Graphic::Image>&& image )
+    {
+        // Share answers null for exactly the empty, out-of-range and stale handles, so it is the one check.
+        if ( !image || !handle.IsValid() || !Share( handle ) )
+            return false;
+        m_Images[handle.Value.Index] = std::move( image );
+        return true;
+    }
+
     void ImageService::Clear()
     {
         // The vector is INDEXED by handle, so the handle pool has to be reset with it or the next

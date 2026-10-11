@@ -28,14 +28,14 @@ namespace Desert::UI::Walk
 {
     void DrawTextWidget( ElementFrame& frame )
     {
-        auto& ctx     = frame.Ctx;
-        auto& tree     = frame.Tree;
-        auto& e       = frame.E;
-        auto& scale   = frame.Scale;
-        auto& dl      = frame.Dl;
-        auto& st      = frame.St;
-        auto& rect    = frame.ElementRect;
-        auto& binding = frame.Binding;
+        auto&       ctx     = frame.Ctx;
+        auto&       tree    = frame.Tree;
+        auto&       e       = frame.E;
+        auto&       scale   = frame.Scale;
+        auto&       dl      = frame.Dl;
+        const auto& st      = frame.St;
+        auto&       rect    = frame.ElementRect;
+        const auto& binding = frame.Binding;
 
         // A bound label draws the store's string, and a keyed one draws its translation, both
         // without the component ever being touched — the authored text is never written back.
@@ -48,22 +48,22 @@ namespace Desert::UI::Walk
         // made Ю13's theming of text silently do nothing. The two halves compose rather than
         // compete: theme first (it decides colour, size and font), then resolve the string
         // (ResolveLabel already subsumes `binding.Text` — see its own comment).
-        UITextData text      = Themed( st, *tree.Get<UITextData>( e ) );
-        text.Text            = ResolveLabel( ctx.View.Resources().Text(), text.Text, binding );
+        UITextData text = Themed( st, *tree.Get<UITextData>( e ) );
+        text.Text       = ResolveLabel( ctx.View.Resources().Text(), text.Text, binding );
         DrawText2D( ctx.View.Resources(), dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
     }
 
     void DrawIconWidget( ElementFrame& frame )
     {
-        auto& ctx  = frame.Ctx;
-        auto& tree  = frame.Tree;
-        auto& e    = frame.E;
-        auto& dl   = frame.Dl;
-        auto& st   = frame.St;
-        auto& rect = frame.ElementRect;
+        auto&       ctx  = frame.Ctx;
+        auto&       tree = frame.Tree;
+        auto&       e    = frame.E;
+        auto&       dl   = frame.Dl;
+        const auto& st   = frame.St;
+        auto&       rect = frame.ElementRect;
 
-        UIIconData icon      = *tree.Get<UIIconData>( e );
-        icon.Color           = st.Color( StyleSlot::IconColor, icon.Color );
+        UIIconData icon = *tree.Get<UIIconData>( e );
+        icon.Color      = st.Color( StyleSlot::IconColor, icon.Color );
         DrawIcon( ctx.View.Resources(), dl, icon, rect, ctx.View.Tint );
     }
 } // namespace Desert::UI::Walk

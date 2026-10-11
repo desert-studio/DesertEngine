@@ -3,6 +3,8 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 
+#include <format>
+
 using Desert::Core::Preprocess::DShaderParser;
 using namespace Desert::Core::Formats;
 
@@ -224,9 +226,11 @@ TEST( DShaderParser, IntentIsCarriedOnATextureAndAnUnknownWordOrAScalarIsRefused
 {
     const auto shader = []( const std::string& props )
     {
-        return "Shader \"Slots\"\n{\n    Properties\n    {\n" + props +
-               "\n    }\n    Vertex   { void main() { gl_Position = vec4(0.0); } }\n"
-               "    Fragment { layout( location = 0 ) out vec4 o; void main() { o = vec4(1.0); } }\n}\n";
+        return std::format(
+             "Shader \"Slots\"\n{{\n    Properties\n    {{\n{}\n    }}\n"
+             "    Vertex   {{ void main() {{ gl_Position = vec4(0.0); }} }}\n"
+             "    Fragment {{ layout( location = 0 ) out vec4 o; void main() {{ o = vec4(1.0); }} }}\n}}\n",
+             props );
     };
     auto res = DShaderParser::Parse( shader( R"(        Texture2D u_Normal ("Normal", Intent(NormalMap)) = "normal"
         Texture2D u_Albedo ("Albedo", Intent(Colour))

@@ -53,22 +53,22 @@ namespace Desert::ECS
             {
                 switch ( fact.Kind )
                 {
-                case PhysicsEventKind::Hit:
-                    if ( events.IsBound( fact.Self, *hit ) )
-                        calls += Fire( events, fact.Self, *hit,
-                                       Reflection::EventPayload<RigidBodyData::OnHit>( fact.Other, fact.Point,
-                                                                                       fact.Normal, fact.Impulse ) );
-                    break;
-                case PhysicsEventKind::BeginOverlap:
-                    if ( events.IsBound( fact.Self, *begin ) )
-                        calls += Fire( events, fact.Self, *begin,
-                                       Reflection::EventPayload<RigidBodyData::OnBeginOverlap>( fact.Other ) );
-                    break;
-                case PhysicsEventKind::EndOverlap:
-                    if ( events.IsBound( fact.Self, *end ) )
-                        calls += Fire( events, fact.Self, *end,
-                                       Reflection::EventPayload<RigidBodyData::OnEndOverlap>( fact.Other ) );
-                    break;
+                    case PhysicsEventKind::Hit:
+                        if ( events.IsBound( fact.Self, *hit ) )
+                            calls += Fire( events, fact.Self, *hit,
+                                           Reflection::EventPayload<RigidBodyData::OnHit>(
+                                                fact.Other, fact.Point, fact.Normal, fact.Impulse ) );
+                        break;
+                    case PhysicsEventKind::BeginOverlap:
+                        if ( events.IsBound( fact.Self, *begin ) )
+                            calls += Fire( events, fact.Self, *begin,
+                                           Reflection::EventPayload<RigidBodyData::OnBeginOverlap>( fact.Other ) );
+                        break;
+                    case PhysicsEventKind::EndOverlap:
+                        if ( events.IsBound( fact.Self, *end ) )
+                            calls += Fire( events, fact.Self, *end,
+                                           Reflection::EventPayload<RigidBodyData::OnEndOverlap>( fact.Other ) );
+                        break;
                 }
             }
             return calls;
@@ -91,8 +91,8 @@ namespace Desert::ECS
 
     std::size_t DeliverComponentEvents( entt::registry& registry, ComponentEventCursor& cursor )
     {
-        const auto* contacts = registry.try_ctx<PhysicsEventQueue>();
-        const auto* breaks   = registry.try_ctx<DestructionEventQueue>();
+        const auto* contacts    = registry.try_ctx<PhysicsEventQueue>();
+        const auto* breaks      = registry.try_ctx<DestructionEventQueue>();
         const bool  newContacts = contacts != nullptr && contacts->Publication != cursor.Physics;
         const bool  newBreaks   = breaks != nullptr && breaks->Publication != cursor.Destruction;
         // Advanced whether or not anybody listens: a batch published while nobody listened is not news to a
