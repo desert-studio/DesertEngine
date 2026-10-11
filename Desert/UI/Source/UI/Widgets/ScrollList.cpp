@@ -50,14 +50,31 @@ namespace Desert::UI::Walk
             const UIListItemKey key  = shape.KeyAt( frame.Tree, frame.E, i );
             const glm::vec2     mn   = { row.X, row.Y };
             const glm::vec2     mx   = { row.X + row.W, row.Y + row.H };
-            const bool          cell = frame.Focused != nullptr && *frame.Focused == frame.E;
             if ( state.Selection.Has( key ) )
                 frame.Dl.AddRectFilled( mn, mx, Tinted( frame.Ctx, glm::vec4( lv.SelectionColor, 1.0f ) ) );
             else if ( i == hoverRow && lv.SelectionMode != UISelectionMode::None )
                 frame.Dl.AddRectFilled( mn, mx, Tinted( frame.Ctx, glm::vec4( lv.HoverColor, 1.0f ) ) );
+        }
+
+        // ...and outlined OVER it, so an entry template that paints its whole row opaque (an inventory slot)
+        // still shows that it is selected; the keyboard cursor of a focused list gets a brighter edge. The
+        // tree's expander sits in the gutter the template is not drawn in.
+        void DrawListRowFront( ElementFrame& frame, const UIListShape& shape, const UIListViewState& state, int i,
+                               const Rect& row )
+        {
+            const auto& lv = *frame.Tree.Get<UIListViewData>( frame.E );
+            if ( lv.SelectionMode == UISelectionMode::None && shape.Tree == nullptr )
+                return;
+            const UIListItemKey key    = shape.KeyAt( frame.Tree, frame.E, i );
+            const glm::vec2     mn     = { row.X, row.Y };
+            const glm::vec2     mx     = { row.X + row.W, row.Y + row.H };
+            const bool          cell   = frame.Focused != nullptr && *frame.Focused == frame.E;
+            const float         border = std::max( 1.0f, 2.0f * frame.Scale );
             if ( cell && key == state.Selection.Cursor )
-                frame.Dl.AddRect( mn, mx, glm::vec4( lv.SelectionColor * 1.4f, 1.0f ),
-                                  std::max( 1.0f, frame.Scale ) );
+                frame.Dl.AddRect( mn, mx, glm::vec4( glm::min( lv.SelectionColor * 1.8f, glm::vec3( 1.0f ) ), 1.0f ),
+                                  border );
+            else if ( state.Selection.Has( key ) )
+                frame.Dl.AddRect( mn, mx, Tinted( frame.Ctx, glm::vec4( lv.SelectionColor, 1.0f ) ), border );
             if ( shape.Tree == nullptr )
                 return;
             // The expander: a triangle in the gutter, right when collapsed and down when expanded.
@@ -458,6 +475,7 @@ namespace Desert::UI::Walk
                                                        shape.Tree->Indent * scale );
                         DrawElement( ctx, tree, entry, rect, scale, dl, input, outClicked, focused, popups,
                                      focusables, childClip, childScope, &rowRect );
+                        DrawListRowFront( frame, shape, *listState, i, ListRowRect( rect, window, i ) );
                     }
                     ctx.Canvas.RowRecord = outer;
                 }
@@ -473,6 +491,7 @@ namespace Desert::UI::Walk
                 DrawListRowBackdrop( frame, shape, *listState, i, rowRect, hoverRow );
                 DrawElement( ctx, tree, c, rect, scale, dl, input, outClicked, focused, popups, focusables,
                              childClip, childScope, &rowRect );
+                DrawListRowFront( frame, shape, *listState, i, rowRect );
             }
         }
         else if ( tree.Has<UILayoutGroupData>( e ) )
