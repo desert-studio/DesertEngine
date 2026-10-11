@@ -181,6 +181,9 @@ namespace Desert::Core
             roots.Mark( button.HoverSprite, "a UI button draws it on hover" );
             roots.Mark( button.PressedSprite, "a UI button draws it while pressed" );
         }
+
+        for ( const auto entity : registry.view<ECS::AudioSourceComponent>() )
+            roots.Mark( registry.get<ECS::AudioSourceComponent>( entity ).Data.Sound, "an audio source plays it" );
     }
 
     Assets::AssetRootSet CollectAssetRootsFromLiveScenes()

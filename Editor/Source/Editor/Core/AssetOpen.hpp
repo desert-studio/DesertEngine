@@ -52,6 +52,8 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Skeleton:  // Persona's Skeleton mode (ANV1f)
             case Assets::AssetTypeID::LevelSequence: // the Sequencer's Level timeline (ANIM-LSEQ)
             case Assets::AssetTypeID::AnimGraph:     // the Anim Graph window over the `.danimgraph` (ANIM-FIX8)
+            case Assets::AssetTypeID::ControlRig:    // the Control Rig editor (ControlRigDocument)
+            case Assets::AssetTypeID::Retarget:      // the IK Retargeter editor (RetargetDocument)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
@@ -59,9 +61,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Prefab:
             case Assets::AssetTypeID::UITheme:
             case Assets::AssetTypeID::StringTable:
-            case Assets::AssetTypeID::ControlRig:
             case Assets::AssetTypeID::ShaderGraph:
-            case Assets::AssetTypeID::Retarget:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
             case Assets::AssetTypeID::VFXSystem:          // the VFX System editor is VFX-12

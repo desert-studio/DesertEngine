@@ -149,6 +149,8 @@ namespace Desert::Editor
          { "m4a", FileType::Audio },
          { "wav", FileType::Audio },
          { "ogg", FileType::Audio },
+         // The imported sound ASSET (`.desound`, UE USoundWave): typed as the audio it plays.
+         { "desound", FileType::Audio },
          { "demat", FileType::Material },
          { "lmat", FileType::Material },
          { "dgraph", FileType::ShaderGraph },
