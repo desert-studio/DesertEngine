@@ -31,6 +31,53 @@ namespace Desert::UI
 {
     namespace Walk
     {
+        namespace
+        {
+        // The nearest element at or above @p e that @p handles, walking the parent links (bounded, so a
+        // corrupted parent cycle cannot hang the frame). The bubbling half of Slate's routing: the element
+        // under the pointer is the leaf, and the event goes up until something handles it.
+        template <typename Handles>
+        NodeId NearestAtOrAbove( IUITree& tree, NodeId e, Handles handles )
+        {
+            std::size_t guard = 0;
+            for ( NodeId t = e; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound(); )
+            {
+                if ( handles( t ) )
+                    return t;
+                t = tree.Parent( t );
+            }
+            return NodeId::Null;
+        }
+
+        // The control a click / hover / drag on @p hot belongs to. A Blocking leaf stops the pointer where
+        // it is (UIHitTest::Blocking), so nothing above it hears it.
+        NodeId PointerTargetOf( IUITree& tree, NodeId hot )
+        {
+            if ( hot == NodeId::Null || !tree.Valid( hot ) )
+                return NodeId::Null;
+            if ( tree.Has<UILayoutData>( hot ) && tree.Get<UILayoutData>( hot )->HitTest == UIHitTest::Blocking )
+                return NodeId::Null;
+            return NearestAtOrAbove( tree, hot,
+                                     [&tree]( NodeId t )
+                                     {
+                                         return tree.Has<UIButtonData>( t ) || tree.Has<UIToggleData>( t ) ||
+                                                tree.Has<UISliderData>( t ) || tree.Has<UIInputFieldData>( t ) ||
+                                                tree.Has<UIDropdownData>( t );
+                                     } );
+        }
+
+        // The scrolling container a wheel notch over @p hot scrolls.
+        NodeId WheelTargetOf( IUITree& tree, NodeId hot )
+        {
+            if ( hot == NodeId::Null || !tree.Valid( hot ) )
+                return NodeId::Null;
+            if ( tree.Has<UILayoutData>( hot ) && tree.Get<UILayoutData>( hot )->HitTest == UIHitTest::Blocking )
+                return NodeId::Null;
+            return NearestAtOrAbove( tree, hot, [&tree]( NodeId t )
+                                     { return tree.Has<UIScrollViewData>( t ) || tree.Has<UIListViewData>( t ); } );
+        }
+        } // namespace
+
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
         // group — it overrides the element's own anchors for position + size.
         //
@@ -324,7 +371,9 @@ namespace Desert::UI
                 const bool hot = interactive && e == ctx.View.Hot;
                 frame.Mn       = mn;
                 frame.Mx       = mx;
-                frame.Hot      = hot;
+                // A control reacts to the pointer its children took (UIViewContext::PointerTarget), not
+                // only to the pointer it took itself.
+                frame.Hot = interactive && e == ctx.View.PointerTarget;
 
                 // A drop target outlines itself while a drag it would accept is in flight.
                 if ( ctx.View.Drag.Active && tree.Has<UIDropTargetData>( e ) )
@@ -436,6 +485,10 @@ namespace Desert::UI
         // A scene swap leaves the elected entity dangling — drop it rather than matching a recycled id.
         if ( view.Hot != NodeId::Null && !tree.Valid( view.Hot ) )
             view.Hot = NodeId::Null;
+        if ( view.PointerTarget != NodeId::Null && !tree.Valid( view.PointerTarget ) )
+            view.PointerTarget = NodeId::Null;
+        if ( view.WheelTarget != NodeId::Null && !tree.Valid( view.WheelTarget ) )
+            view.WheelTarget = NodeId::Null;
 
         // The election is over the whole frame: every canvas of this view writes into it in draw order and
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
@@ -973,7 +1026,9 @@ namespace Desert::UI
         // the topmost writer in draw order wins, across canvases. Doing this per walk gave the answer to
         // whichever canvas happened to be drawn last. HotNext is cleared by the next BeginUIFrame rather
         // than here, so it stays readable between the two.
-        view.Hot = view.HotNext;
+        view.Hot           = view.HotNext;
+        view.PointerTarget = Walk::PointerTargetOf( tree, view.Hot );
+        view.WheelTarget   = Walk::WheelTargetOf( tree, view.Hot );
 
         // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
         // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.

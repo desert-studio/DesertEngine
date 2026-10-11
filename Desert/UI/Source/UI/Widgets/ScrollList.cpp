@@ -55,7 +55,7 @@ namespace Desert::UI::Walk
         float      scrollMaxPx   = 0.0f;
         bool       showScrollbar = false;
         glm::vec3  scrollbarColor( 0.0f );
-        const bool wheelOver = input != nullptr && interactive && e == ctx.View.Hot;
+        const bool wheelOver = input != nullptr && interactive && e == ctx.View.WheelTarget;
         if ( tree.Has<UIScrollViewData>( e ) )
         {
             auto& sv = *tree.GetState<UIScrollViewData>( e );

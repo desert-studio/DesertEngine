@@ -354,6 +354,14 @@ namespace Desert::UI
         NodeId      Hot     = NodeId::Null; // resolved last frame: what the controls react to now
         NodeId      HotNext = NodeId::Null; // being elected during this frame's walks
         Rect        HotNextRect{};
+        // WHERE THE HOT ELEMENT'S INPUT BUBBLES TO (Slate routes a mouse event from the widget under the
+        // cursor up its path until one handles it). A button's label and icon sit on top of the button, so
+        // the election lands on THEM — and a control that compared against the leaf never saw its own hover
+        // or its click: every labelled button was dead in Preview and in the game. Resolved once per frame,
+        // at the hand-over in EndUIFrame, from `Hot`: the nearest control at or above it, and the nearest
+        // scrolling container at or above it (a wheel over a list's row scrolls the list).
+        NodeId      PointerTarget = NodeId::Null;
+        NodeId      WheelTarget   = NodeId::Null;
         bool        PrevDown = false; // for the press edge (UIInput only carries held + release)
         UIDragState Drag;
 
@@ -526,6 +534,8 @@ namespace Desert::UI
             Hot         = NodeId::Null;
             HotNext     = NodeId::Null;
             HotNextRect = Rect{};
+            PointerTarget = NodeId::Null;
+            WheelTarget   = NodeId::Null;
             PrevDown    = false;
             Drag        = UIDragState{};
             Focusables.clear();
