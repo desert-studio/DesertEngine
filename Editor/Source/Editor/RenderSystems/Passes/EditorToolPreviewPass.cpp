@@ -46,14 +46,16 @@ namespace Desert::Editor::Render
                                          std::vector<Graphic::MaterialDebugLine::LineVertex>& out )
         {
             if ( mesh.EdgeSurfaces.size() * 2 != mesh.Edges.size() )
-                return Common::MakeError( std::format( "EditorToolPreviewPass: {} edge vertices but {} edge surfaces "
-                                                       "(one surface per two vertices)",
-                                                       mesh.Edges.size(), mesh.EdgeSurfaces.size() ) );
+                return Common::MakeError(
+                     std::format( "EditorToolPreviewPass: {} edge vertices but {} edge surfaces "
+                                  "(one surface per two vertices)",
+                                  mesh.Edges.size(), mesh.EdgeSurfaces.size() ) );
             out                = mesh.Edges;
             const float height = static_cast<float>( view.Split.Render.Height );
             const float focal  = view.Projection[1][1];
             if ( height <= 0.0f || focal == 0.0f )
-                return Common::MakeError( "EditorToolPreviewPass: the view has no render height or no focal length" );
+                return Common::MakeError(
+                     "EditorToolPreviewPass: the view has no render height or no focal length" );
             // The world size of one render pixel at a point is its clip w times this (perspective: w is the view
             // depth; orthographic: w is 1, and the size is the same everywhere).
             const float     pixelPerW    = 2.0f / ( std::abs( focal ) * height );

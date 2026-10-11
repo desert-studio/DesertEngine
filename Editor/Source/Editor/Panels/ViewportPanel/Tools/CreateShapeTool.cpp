@@ -278,8 +278,8 @@ namespace Desert::Editor::Tools
             const glm::vec3 nb    = surface( edge.TriB );
             mesh.Edges.push_back( Vertex{ glm::vec4( pa, 1.0f ), edgeColour } );
             mesh.Edges.push_back( Vertex{ glm::vec4( pb, 1.0f ), edgeColour } );
-            mesh.EdgeSurfaces.push_back( std::abs( glm::dot( na, toEye ) ) <= std::abs( glm::dot( nb, toEye ) ) ? na
-                                                                                                                  : nb );
+            mesh.EdgeSurfaces.push_back(
+                 std::abs( glm::dot( na, toEye ) ) <= std::abs( glm::dot( nb, toEye ) ) ? na : nb );
         }
         Render::ToolPreview::Show( scene, std::move( mesh ) );
     }
