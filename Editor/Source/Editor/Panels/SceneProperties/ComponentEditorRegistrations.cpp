@@ -1423,6 +1423,16 @@ namespace Desert::Editor
                                                      "Skip every instance in the shadow (depth) passes" );
                 ::ImGui::Checkbox( "##ism_castshadows", &c.CastShadows );
                 U::ImGuiUtilities::EndPropertyRow();
+
+                U::ImGuiUtilities::BeginPropertyRow(
+                     "Max Draw Distance",
+                     "cm from the camera beyond which an instance is not drawn (0 = no limit); scaled by the "
+                     "camera's field of view, so a zoomed-in camera draws farther. A foliage type's Cull "
+                     "Distance is clipped to it" );
+                ::ImGui::DragFloat( "##ism_maxdraw", &c.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
+                                    c.MaxDrawDistance > 0.0f ? "%.0f cm" : "No limit" );
+                c.MaxDrawDistance = std::max( c.MaxDrawDistance, 0.0f );
+                U::ImGuiUtilities::EndPropertyRow();
             }
 
             // ── THE INSTANCE LIST ─────────────────────────────────────────────────────────────────

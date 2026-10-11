@@ -241,6 +241,16 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
+                 "Max Draw Distance",
+                 "cm from the camera to the mesh's bounds centre beyond which it is not drawn and casts no "
+                 "shadow (0 = no limit); scaled by the camera's field of view, so a zoomed-in camera draws "
+                 "farther" );
+            ImGui::DragFloat( "##maxdrawdistance", &materialComp.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
+                              materialComp.MaxDrawDistance > 0.0f ? "%.0f cm" : "No limit" );
+            materialComp.MaxDrawDistance = std::max( materialComp.MaxDrawDistance, 0.0f );
+            Utils::ImGuiUtilities::EndPropertyRow();
+
+            Utils::ImGuiUtilities::BeginPropertyRow(
                  "Translucency Sort Priority",
                  "Translucent materials only: a lower value draws first (behind a higher one) regardless of "
                  "distance; equal values sort back to front from the camera" );
