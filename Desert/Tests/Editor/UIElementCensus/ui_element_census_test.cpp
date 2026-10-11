@@ -62,9 +62,12 @@ namespace
          "Desert/UI/Source/UI/Widgets/Slider.cpp",
          "Desert/UI/Source/UI/Widgets/Text.cpp",
          "Desert/UI/Source/UI/Widgets/Toggle.cpp",
+         // UI-LIST+: a list's shape (tile grid, tree rows) is resolved once for both walks -- layout and
+         // draw -- in UIListSelection.cpp (ResolveListShape), which is where UITileView is read.
+         "Desert/UI/Source/UI/UIListSelection.cpp",
     };
     constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIWalkCtx.cpp + Widgets/ + "
-                                      "UIOverlay.cpp + UIAnimationPlayback.cpp)";
+                                      "UIOverlay.cpp + UIAnimationPlayback.cpp + UIListSelection.cpp)";
 
     // The registry adapter behind the walk's IUITree: `Row<ECS::UIxxxComponent, Kind>` per ArgKind. The walk
     // asks the tree for UI argument data (`tree.Has<UIPanelData>`), and this table is what names the
