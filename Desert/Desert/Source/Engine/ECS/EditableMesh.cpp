@@ -21,11 +21,9 @@ namespace Desert::ECS
             return Common::MakeError<bool>( "SetEditableMesh: " + render.GetError() );
         Geometry::RenderMeshData const data = render.ExtractValue();
 
+        // CPU data only: the component lives on the game side, which may have no renderer (headless, server,
+        // tests). The renderer uploads it on first submit (Mesh::EnsureGpuResources, SceneRenderer).
         auto runtime = std::make_shared<DynamicMesh>( data.Vertices, data.Indices, data.Submeshes );
-        if ( auto uploaded = runtime->Invalidate(); !uploaded.IsSuccess() )
-            return Common::MakeFormattedError<bool>(
-                 "SetEditableMesh: {} render vertices could not be uploaded: {}", data.Vertices.size(),
-                 uploaded.GetError() );
 
         // Every material id the mesh uses gets a slot (CoverMaterialIds): here and not per tool, because every
         // writer of an editable mesh ends in this function. The runtime instances follow the slots; dropping
