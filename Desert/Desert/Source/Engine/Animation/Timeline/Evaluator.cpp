@@ -210,6 +210,7 @@ namespace Desert::Animation::Timeline
                 case TrackKind::Animation:
                 case TrackKind::CameraCut:
                 case TrackKind::Subsequence:
+                case TrackKind::Audio:
                     return false;
             }
             return false;
@@ -425,6 +426,23 @@ namespace Desert::Animation::Timeline
         return FrameTime::FromTicks( static_cast<double>( content.StartOffset.Value ) + into * ratio );
     }
 
+    float AudioGainAt( const Section& section, const AudioSectionContent& audio, const FrameTime at,
+                       const FrameRate tickRate )
+    {
+        const double t    = at.AsTicks();
+        double       fade = 1.0;
+        if ( audio.FadeIn.Value > 0 )
+        {
+            fade = std::min( fade, ( t - section.Start.Value ) / audio.FadeIn.Value );
+        }
+        if ( audio.FadeOut.Value > 0 )
+        {
+            fade = std::min( fade, ( section.End.Value - t ) / audio.FadeOut.Value );
+        }
+        return audio.Volume * static_cast<float>( std::clamp( fade, 0.0, 1.0 ) ) *
+               WeightAt( section, at, tickRate );
+    }
+
     Evaluator::Evaluator( const Sequence& sequence ) : m_Sequence( &sequence )
     {
     }
@@ -435,6 +453,7 @@ namespace Desert::Animation::Timeline
         out.Events.clear();
         out.Animations.clear();
         out.Subsequences.clear();
+        out.Sounds.clear();
         out.ActiveCamera.reset();
 
         const Sequence& sequence = *m_Sequence;
@@ -482,6 +501,21 @@ namespace Desert::Animation::Timeline
                                   ti, anim->Clip, FrameTime::FromTicks( anim->StartOffset.Value + into ),
                                   section.Blend, WeightAt( section, at, rate ), anim->Loop } );
                          } );
+                    break;
+                case TrackKind::Audio:
+                    // Every covering section sounds — overlapping rows MIX, they do not fold (UE).
+                    for ( uint32_t si = 0; si < track.Sections.size(); ++si )
+                    {
+                        const Section& section = track.Sections[si];
+                        const auto*    audio   = std::get_if<AudioSectionContent>( &section.Content );
+                        if ( audio == nullptr || !section.Covers( at.Frame ) )
+                        {
+                            continue;
+                        }
+                        const double into = at.AsTicks() - section.Start.Value + audio->StartOffset.Value;
+                        out.Sounds.push_back( AudioSample{ ti, si, audio->Sound, into / rate.AsDouble(),
+                                                           AudioGainAt( section, *audio, at, rate ) } );
+                    }
                     break;
                 default:
                 {

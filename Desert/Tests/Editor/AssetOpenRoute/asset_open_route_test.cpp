@@ -211,6 +211,21 @@ TEST_F( AssetOpenRoute, ASkeletonOpensInPersonasSkeletonModeAndAClipInItsAnimati
     EXPECT_EQ( PersonaModeFor( clip ), PersonaMode::Animation );
 }
 
+// THE ANIM GRAPH IS AN ASSET EDITOR (ANIM-FIX8), as UE's Animation Blueprint Editor: a `.danimgraph` opens as
+// its own asset subject — no entity, no scene — so a double-click in the browser reaches the window, and two
+// characters on one graph reach ONE window. It used to be a component subject and the type was refused.
+TEST_F( AssetOpenRoute, AnAnimGraphOpensAsItsAssetSubject )
+{
+    EXPECT_EQ( AssetOpenRefusal( Assets::AssetTypeID::AnimGraph ), nullptr );
+    const auto registry = Registering( { Assets::AssetTypeID::AnimGraph } );
+    const auto graph    = MetadataAt( 0x5C6, Assets::AssetTypeID::AnimGraph, "AnimGraphs/ABP_Walk.danimgraph" );
+    const auto subject  = AssetSubjectFor( &graph, graph.Handle, registry );
+    ASSERT_TRUE( subject.IsSuccess() ) << subject.GetError();
+    EXPECT_EQ( subject.GetValue(),
+               AssetSubject( graph.Handle, static_cast<uint32_t>( Assets::AssetTypeID::AnimGraph ) ) );
+    EXPECT_EQ( PersonaModeFor( graph ), std::nullopt );
+}
+
 namespace
 {
     std::string ReadRepoFile( const char* relative )

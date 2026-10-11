@@ -38,6 +38,14 @@ namespace Desert::Editor
             camera.SnapToDirection( aim.OrbitForward );
     }
 
+    void ApplyViewAxisTip( ::Desert::Core::EditorCamera& camera, const glm::vec3& tipWorldDir )
+    {
+        // No `SnapToDirection` branch, on purpose: every tip is a world axis, so a tip with no basis is a
+        // caller's defect, and aiming it through the orbit would hide it behind a picture one degree off.
+        if ( const auto basis = ViewAxisTipBasisOf( tipWorldDir ) )
+            camera.SnapToAxisView( *basis );
+    }
+
     std::optional<ViewportCameraPreset> PresetOfCamera( const ::Desert::Core::EditorCamera& camera,
                                                         float toleranceDegrees )
     {

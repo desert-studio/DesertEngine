@@ -54,6 +54,7 @@
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -199,6 +200,8 @@ namespace
                &DeclaredTypeOf<Desert::Assets::InputMappingContextAsset> },
              { AssetTypeID::PhysicsAsset, "PhysicsAsset", &HandleOf<Desert::Assets::PhysicsAsset>,
                &MetadataTypeOf<Desert::Assets::PhysicsAsset>, &DeclaredTypeOf<Desert::Assets::PhysicsAsset> },
+             { AssetTypeID::Sound, "SoundAsset", &HandleOf<Desert::Assets::SoundAsset>,
+               &MetadataTypeOf<Desert::Assets::SoundAsset>, &DeclaredTypeOf<Desert::Assets::SoundAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1342,6 +1345,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::InputAction,
          AssetTypeID::InputMappingContext,
          AssetTypeID::PhysicsAsset,
+         AssetTypeID::Sound,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

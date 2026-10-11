@@ -87,12 +87,15 @@ project "SceneMigrator"
         -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure
         -- bytes in, bytes out; no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/SoundFormat.cpp", -- v42 reads `.desound` (SOUND-ASSET)
         -- THE SCULPTED CLOUD VOLUME DECODER, likewise for the DCMV 2 -> 3 step (DecodeCloudModellingVolume).
         -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         -- THE MESH ASSET READER, since MIG1: a `.stmesh`/`.skmesh` stamped 'MSAS' (AF4d) is judged by the
         -- engine's own DecodeMeshSourceAsset rather than refused as "not DESTMESH"; pure bytes, no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
+        -- TEX-SRGB: the TXAS 1 -> 2 step is the engine's own UpgradeTextureSourceAsset; pure bytes, no GPU.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
         -- THE .anim STEP ANIM v4/5 -> v6 (ANIM-I8a, SKEL-TREE): the engine's one clip writer and the Timeline it
         -- writes, plus the evaluator VerifyLift proves the lift with. Generation 3 itself is this tool's (Source/).
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",

@@ -208,7 +208,15 @@ namespace Desert::Migration
     //       file already states is kept. Scene-only: a prefab has no settings block and gains only the stamp.
     inline constexpr int kSceneVersionGameModeSettings = 45;
 
-    static_assert( kSceneVersionGameModeSettings == kSceneVersion,
+    //  46 - A SOUND IS AN ASSET (SOUND-ASSET, UE's USoundWave). AudioSource.Clip, an audio FILE path, becomes
+    //       AudioSource.Sound {Guid, Path}: the `.desound` beside that file whose Source names it. Every
+    //       sequence an UIAnim block hosts has each Audio section's Sound path replaced by that GUID, and is
+    //       rewritten by the TMLN writer (which lists the sound in the sequence header's Dependencies). An
+    //       audio file with no `.desound` beside it refuses the file by name — create the asset first.
+    //       (MigrateSoundRefsV45ToV46.) Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSoundAssets = 46;
+
+    static_assert( kSceneVersionSoundAssets == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -336,6 +344,23 @@ namespace Desert::Migration
     // States CollisionProfile on every RigidBody / CharacterController block under the rule
     // kSceneVersionCollisionProfiles states. PURE.
     CollisionProfilesReport MigrateCollisionProfilesV41ToV42( std::vector<Assets::EntityData>& entities );
+    // What MigrateSoundRefsV45ToV46 did to one file.
+    struct SoundRefsReport
+    {
+        std::size_t              Sources  = 0; // AudioSource blocks whose Clip became a Sound reference
+        std::size_t              Sections = 0; // sequence Audio sections whose Sound path became a GUID
+        std::vector<std::string> Refused;      // one line per reference with no `.desound`; nothing written
+    };
+
+    // The `.desound` whose Source names the audio file @p audioFile (absolute): searched beside it, the way
+    // UE keeps the imported source beside its asset. Refuses none and more than one, by name.
+    Common::ResultStr<std::pair<Common::Content::AssetGuid, std::filesystem::path>>
+    SoundForAudioFile( const std::filesystem::path& audioFile );
+
+    // Raises AudioSource.Clip and every hosted sequence's Audio Sound path to GUID references under the rule
+    // kSceneVersionSoundAssets states. Paths are relative to @p assetsRoot (or absolute). Reads `.desound`s.
+    SoundRefsReport MigrateSoundRefsV45ToV46( std::vector<Assets::EntityData>& entities,
+                                              const std::filesystem::path&     assetsRoot );
 
     // What MigrateTimeOfDayComponentV43ToV44 did to one file.
     struct TimeOfDayComponentReport
@@ -406,10 +431,11 @@ namespace Desert::Migration
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
 
-    // The SKEL 3 text of a SKEL 1 or 2 `.skeleton`: header GUID, signature, bones, PreviewMesh and
-    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3).
-    // A file that does not state SKEL 1 or 2 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text );
+    // The SKEL 4 text of a SKEL 1, 2 or 3 `.skeleton`: header GUID, signature, bones, PreviewMesh and
+    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3);
+    // Sockets and BoneMasks stated empty (SKEL 4, ANIM-FIX5a: no earlier generation had either). A file that does
+    // not state SKEL 1, 2 or 3 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateSkeletonToV4( const std::string& text );
 
     // The ANGR 3 text of an ANGR 2 `.danimgraph`: everything kept, the Output Pose node of the graph and of every
     // implemented layer graph placed where the v2 editor drew it (Animation::Graph::DefaultOutputPosePosition:
@@ -428,13 +454,20 @@ namespace Desert::Migration
     Common::ResultStr<TargetSkeletonRig> ReadTargetSkeletonRig( const std::filesystem::path& path,
                                                                 const std::string&           text );
 
-    // ANGR 3 -> 4, CRIG 2 -> 3, RTGT 3 -> 4 (ANIM-SKELREF): the file gains TargetSkeleton {Guid, Path} - the one
+    // ANGR 3 -> 4, CRIG 2 -> 3 (then -> 4 by MigrateControlRigToV4), RTGT 3 -> 4 (ANIM-SKELREF): the file gains
+    // TargetSkeleton {Guid, Path} - the one
     // rig of @p rigs the file's own statements fit: every bone name it states of its target (keys "Bone",
     // "BoneName",
     // "*Bone", a Kind "Bone" space's "Target"; never under a "Source*" key) is a bone of the rig, and every clip
     // it plays ("Clip", matched by name in @p clipRigs: clip Name -> its Skeleton GUID) is authored on it. No
     // evidence, or not exactly one fitting rig, is an error naming the candidates. The result is re-read and
     // re-written by the engine's own reader/writer of the kind. @p tag is "ANGR", "CRIG" or "RTGT". PURE.
+    // CRIG 3 -> 4 (ANIM-FIX11): the old `Graph` becomes `Graphs[{Event "Forwards"}]`, each of its nodes gets the
+    // `Position` the rig canvas used to invent for node i — (40 + 260 * (i % 4), 40 + 180 * (i / 4)) — and every
+    // control without `Limits` gets an empty one. Re-read and re-written by the engine's own .derig reader and
+    // writer. PURE.
+    Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text );
+
     Common::ResultStr<std::string>
     StateTargetSkeleton( const std::string& text, const std::string& tag,
                          const std::vector<TargetSkeletonRig>&               rigs,
@@ -550,6 +583,8 @@ namespace Desert::Migration
         TimeOfDayComponentReport TimeOfDayComponent;
         bool                     GameModeSettingsRaised = false; // below kSceneVersionGameModeSettings
         int                      GameModeKeysAdded      = 0;
+        bool                    SoundRefsRaised = false; // below kSceneVersionSoundAssets
+        SoundRefsReport         SoundRefs;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -561,8 +596,7 @@ namespace Desert::Migration
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
-                   WindSourceRaised || TimeOfDayComponentRaised ||
-                   GameModeSettingsRaised;
+                   WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised;
         }
     };
 

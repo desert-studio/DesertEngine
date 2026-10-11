@@ -22,6 +22,9 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
+#include <functional>
 #include "UILift.hpp"
 #include "ClipInterpShift.hpp"
 #include <Engine/Geometry/EditMeshConversion.hpp>
@@ -703,6 +706,188 @@ namespace Desert::Migration
         return report;
     }
 
+    Common::ResultStr<std::pair<Common::Content::AssetGuid, std::filesystem::path>>
+    SoundForAudioFile( const std::filesystem::path& audioFile )
+    {
+        using Found = std::pair<Common::Content::AssetGuid, std::filesystem::path>;
+        std::error_code    ec;
+        const auto         dir = audioFile.parent_path();
+        std::vector<Found> found;
+        for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
+        {
+            if ( entry.path().extension() != Assets::kSoundExtension )
+                continue;
+            std::ifstream      in( entry.path(), std::ios::binary );
+            std::ostringstream text;
+            text << in.rdbuf();
+            const auto parsed = Assets::SoundAsset::Parse( text.str() );
+            if ( !parsed )
+                return Common::MakeFormattedError<Found>( "'{}': {}", entry.path().string(), parsed.GetError() );
+            if ( ( dir / parsed.GetValue().Source ).lexically_normal() == audioFile.lexically_normal() )
+                found.emplace_back( parsed.GetValue().Guid, entry.path() );
+        }
+        if ( ec )
+            return Common::MakeFormattedError<Found>( "'{}' cannot be listed: {}", dir.string(), ec.message() );
+        if ( found.size() != 1 )
+            return Common::MakeFormattedError<Found>(
+                 "{} `.desound` beside '{}' name it as their Source (exactly one must): create the Sound asset",
+                 found.size(), audioFile.string() );
+        return Common::MakeSuccess( found.front() );
+    }
+
+    SoundRefsReport MigrateSoundRefsV45ToV46( std::vector<Assets::EntityData>& entities,
+                                              const std::filesystem::path&     assetsRoot )
+    {
+        SoundRefsReport report;
+        // A v41 path is relative to its project (the content root), which is an ancestor of the scene's
+        // directory: the same rule LocateMeshFile applies to `meshPath`. The project is kept for the Path the
+        // Sound reference states. A file found under no ancestor is named under `assetsRoot` and refused.
+        std::filesystem::path project  = assetsRoot;
+        const auto            absolute = [&]( const std::string& path )
+        {
+            const std::filesystem::path named( path );
+            if ( named.is_absolute() )
+                return named;
+            if ( const auto located = LocateMeshFile( path, assetsRoot ) )
+            {
+                project = located.GetValue().Project;
+                return located.GetValue().File;
+            }
+            project = assetsRoot;
+            return ( assetsRoot / named ).lexically_normal();
+        };
+        // Every Audio section of a sequence is an object {"Audio": {"Sound": ...}} somewhere under it.
+        const std::function<void( rfl::Generic&, const std::string& )> walk =
+             [&]( rfl::Generic& node, const std::string& who )
+        {
+            if ( auto array = node.to_array(); array.has_value() )
+            {
+                auto items = std::move( array.value() );
+                for ( auto& item : items )
+                    walk( item, who );
+                node = rfl::Generic( std::move( items ) );
+                return;
+            }
+            auto object = node.to_object();
+            if ( !object.has_value() )
+                return;
+            rfl::Generic::Object fields = std::move( object.value() );
+            for ( auto& [name, value] : fields )
+            {
+                if ( name == "Audio" )
+                {
+                    auto audio = value.to_object();
+                    if ( !audio.has_value() )
+                        continue;
+                    rfl::Generic::Object block = std::move( audio.value() );
+                    const auto           sound = block.get( "Sound" );
+                    const std::string    text =
+                         sound.has_value() ? sound.value().to_string().value_or( std::string() ) : std::string();
+                    if ( !text.empty() && !Common::Content::AssetGuidFromText( text ) )
+                    {
+                        const auto asset = SoundForAudioFile( absolute( text ) );
+                        if ( !asset )
+                            report.Refused.push_back(
+                                 std::format( "entity {}: Audio section: {}", who, asset.GetError() ) );
+                        else
+                        {
+                            block["Sound"] =
+                                 rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
+                            ++report.Sections;
+                        }
+                    }
+                    value = rfl::Generic( std::move( block ) );
+                    continue;
+                }
+                walk( value, who );
+            }
+            node = rfl::Generic( std::move( fields ) );
+        };
+        const auto raise = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "AudioSource",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto clip = block.get( "Clip" );
+                           if ( !clip.has_value() )
+                               return false;
+                           const std::string path = clip.value().to_string().value_or( "" );
+                           DropKey( block, "Clip" );
+                           ++report.Sources;
+                           if ( path.empty() )
+                               return true; // no clip stated: the slot is unset
+                           const auto asset = SoundForAudioFile( absolute( path ) );
+                           if ( !asset )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "entity {}: AudioSource.Clip: {}", who, asset.GetError() ) );
+                               return false;
+                           }
+                           rfl::Generic::Object ref;
+                           ref["Guid"] =
+                                rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
+                           ref["Path"] = rfl::Generic(
+                                asset.GetValue().second.lexically_relative( project ).generic_string() );
+                           block["Sound"] = rfl::Generic( std::move( ref ) );
+                           return true;
+                       } );
+            EditBlock( components, "UIAnim",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto sequence = block.get( "Sequence" );
+                           if ( !sequence )
+                               return false;
+                           const std::size_t before = report.Sections;
+                           rfl::Generic      tree   = sequence.value();
+                           walk( tree, who );
+                           if ( report.Sections == before )
+                               return false;
+                           // A current-generation sequence is rewritten by the one writer, which lists the sound
+                           // in its header's Dependencies; a TMLN v1 one gets that from the v1 -> v2 shift after.
+                           const std::string text = rfl::json::write( tree );
+                           if ( const auto stated = StatedTimelineVersion( text );
+                                stated && stated.GetValue() == Animation::Timeline::kTimelineFormatVersion )
+                           {
+                               const auto read = Animation::Timeline::ReadSequence( Common::BytesOf( text ) );
+                               if ( !read )
+                               {
+                                   report.Refused.push_back( std::format( "entity {}: the TMLN reader refused: {}",
+                                                                          who, read.GetError() ) );
+                                   return false;
+                               }
+                               auto written = Animation::Timeline::WriteSequence( read.GetValue() );
+                               if ( !written )
+                               {
+                                   report.Refused.push_back( std::format( "entity {}: the TMLN writer refused: {}",
+                                                                          who, written.GetError() ) );
+                                   return false;
+                               }
+                               const auto next = rfl::json::read<rfl::Generic>(
+                                    std::string( Common::TextOf( written.GetValue() ) ) );
+                               if ( !next )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "entity {}: the TMLN writer's text does not read: {}", who,
+                                                     next.error().what() ) );
+                                   return false;
+                               }
+                               tree = next.value();
+                           }
+                           block["Sequence"] = std::move( tree );
+                           return true;
+                       } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            raise( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    raise( override_.Components, who );
+        }
+        return report;
+    }
+
     UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities )
     {
         UIAnimationTimelinesReport report;
@@ -1144,7 +1329,8 @@ namespace Desert::Migration
             std::string Source;
             uint64_t    SourceHash = 0;
         };
-        // SKEL 1 and 2 as they were written: SKEL 1 lacks PreviewMesh / CompatibleSkeletons, both carry Import.
+        // SKEL 1-4 as they were written: SKEL 1 lacks PreviewMesh / CompatibleSkeletons, 1 and 2 carry Import,
+        // only 4 states Sockets / BoneMasks.
         struct SkeletonAssetDataV1V2
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -1153,9 +1339,11 @@ namespace Desert::Migration
             std::optional<SkeletonImportInfoV2>                       Import;
             std::optional<Assets::AssetGuidRef>                       PreviewMesh;
             std::optional<std::vector<Assets::AssetGuidRef>>          CompatibleSkeletons;
+            std::optional<std::vector<Animation::SkeletonSocket>>     Sockets;
+            std::optional<std::vector<Animation::BoneMask>>           BoneMasks;
         };
 
-        // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
+        // The rig as ANY generation this tool raises states it (SKEL 1, 2, 3 or the current one), with the
         // version it states; an unreadable body or a missing header is an error naming why.
         // The header is handed out on its own, as a value: the reader is what proves it is there.
         struct AnySkeleton
@@ -1181,15 +1369,15 @@ namespace Desert::Migration
     } // namespace SkeletonLegacy
     using SkeletonLegacy::ReadAnySkeleton;
 
-    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text )
+    Common::ResultStr<std::string> MigrateSkeletonToV4( const std::string& text )
     {
         const auto any = ReadAnySkeleton( text );
         if ( !any )
             return Common::MakeError<std::string>( any.GetError() );
         const auto& [old, header, version] = any.GetValue();
-        if ( version != 1u && version != 2u )
+        if ( version < 1u || version > 3u )
             return Common::MakeFormattedError<std::string>(
-                 "the header states SKEL {}, and this step raises SKEL 1 and 2 only", version );
+                 "the header states SKEL {}, and this step raises SKEL 1, 2 and 3 only", version );
 
         Assets::Serialization::SkeletonAssetData   data;
         Common::Content::TextAssetHeaderSerialized stamped = header;
@@ -1199,7 +1387,10 @@ namespace Desert::Migration
         data.Bones                                         = old.Bones;
         data.PreviewMesh                                   = old.PreviewMesh;
         data.CompatibleSkeletons = old.CompatibleSkeletons.value_or( std::vector<Assets::AssetGuidRef>{} );
-        std::string written      = Common::Json::Write( data );
+        // SKEL 4: no generation before it had sockets or bone masks - both lists are stated, empty.
+        data.Sockets.clear();
+        data.BoneMasks.clear();
+        std::string written = Common::Json::Write( data );
         // What the step writes, the engine's reader must read.
         if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
             return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL {}: {}",
@@ -1210,14 +1401,56 @@ namespace Desert::Migration
     namespace AnimGraphLegacy
     {
         namespace G = Animation::Graph;
-        // ANGR 2: the current layout without the Output Pose node's position.
+        // ANGR 2: the current layout without the Output Pose node's position and without comment boxes (the
+        // canvases' `Comments`, which the files gained in place and an ANGR 2 file never states).
+        struct StateMachineV2
+        {
+            std::string           Entry;
+            std::vector<G::State> States;
+        };
+        struct PoseNodeV2
+        {
+            std::string                               Name;
+            int                                       Kind = 0;
+            std::vector<std::string>                  PoseInputs;
+            std::vector<G::ParameterPin>              ParameterInputs;
+            std::optional<StateMachineV2>             Machine;
+            std::optional<G::LayeredBlendPerBoneNode> LayeredBlend;
+            std::optional<G::SequencePlayerNode>      Sequence;
+            std::optional<G::LinkedAnimLayerNode>     LinkedLayer;
+            float                                     X = 0.0f;
+            float                                     Y = 0.0f;
+        };
         struct AnimLayerGraphV2
         {
-            std::string              Interface;
-            std::string              Layer;
-            std::vector<G::PoseNode> Nodes;
-            std::string              OutputPose;
+            std::string             Interface;
+            std::string             Layer;
+            std::vector<PoseNodeV2> Nodes;
+            std::string             OutputPose;
         };
+
+        std::vector<G::PoseNode> RaisePoseNodes( const std::vector<PoseNodeV2>& old )
+        {
+            std::vector<G::PoseNode> raised;
+            raised.reserve( old.size() );
+            for ( const PoseNodeV2& was : old )
+            {
+                G::PoseNode node;
+                node.Name            = was.Name;
+                node.Kind            = was.Kind;
+                node.PoseInputs      = was.PoseInputs;
+                node.ParameterInputs = was.ParameterInputs;
+                if ( was.Machine )
+                    node.Machine = G::StateMachine{ was.Machine->Entry, was.Machine->States, {} };
+                node.LayeredBlend = was.LayeredBlend;
+                node.Sequence     = was.Sequence;
+                node.LinkedLayer  = was.LinkedLayer;
+                node.X            = was.X;
+                node.Y            = was.Y;
+                raised.push_back( std::move( node ) );
+            }
+            return raised;
+        }
         struct AnimGraphLayersV2
         {
             std::vector<G::AnimLayerInterface> Interfaces;
@@ -1228,7 +1461,7 @@ namespace Desert::Migration
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
             std::string                                               Name;
             std::vector<G::Parameter>                                 Parameters;
-            std::vector<G::PoseNode>                                  Nodes;
+            std::vector<PoseNodeV2>                                   Nodes;
             std::string                                               OutputPose;
             std::optional<AnimGraphLayersV2>                          Layers;
         };
@@ -1255,10 +1488,10 @@ namespace Desert::Migration
         graph.Header->Versions["ANGR"] = 3u;
         graph.Name                     = old.Name;
         graph.Parameters               = old.Parameters;
-        graph.Nodes                    = old.Nodes;
+        graph.Nodes                    = AnimGraphLegacy::RaisePoseNodes( old.Nodes );
         graph.OutputPose               = old.OutputPose;
         std::tie( graph.OutputPoseX, graph.OutputPoseY ) =
-             G::DefaultOutputPosePosition( old.Nodes, old.OutputPose );
+             G::DefaultOutputPosePosition( graph.Nodes, old.OutputPose );
         if ( old.Layers )
         {
             G::AnimGraphLayers layers;
@@ -1268,10 +1501,10 @@ namespace Desert::Migration
                 G::AnimLayerGraph layer;
                 layer.Interface  = was.Interface;
                 layer.Layer      = was.Layer;
-                layer.Nodes      = was.Nodes;
+                layer.Nodes      = AnimGraphLegacy::RaisePoseNodes( was.Nodes );
                 layer.OutputPose = was.OutputPose;
                 std::tie( layer.OutputPoseX, layer.OutputPoseY ) =
-                     G::DefaultOutputPosePosition( was.Nodes, was.OutputPose );
+                     G::DefaultOutputPosePosition( layer.Nodes, was.OutputPose );
                 layers.Implemented.push_back( std::move( layer ) );
             }
             graph.Layers = std::move( layers );
@@ -1392,16 +1625,87 @@ namespace Desert::Migration
                             : Common::MakeError<std::string>( read.GetError() );
             }
             if ( tag == "CRIG" )
-            {
-                const auto read = S::ParseControlRig( text );
-                return read ? Common::MakeSuccess( S::WriteControlRig( read.GetValue() ) )
-                            : Common::MakeError<std::string>( read.GetError() );
-            }
+                return MigrateControlRigToV4( text ); // CRIG 3 is not this build's; the chain ends at its reader
             const auto read = S::ParseRetarget( text );
             return read ? Common::MakeSuccess( S::WriteRetarget( read.GetValue() ) )
                         : Common::MakeError<std::string>( read.GetError() );
         }
     } // namespace TargetSkeletonStep
+
+    Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text )
+    {
+        auto read = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "CRIG 3 body does not read: {}", read.error().what() );
+        rfl::Generic::Object document = std::move( read.value() );
+        auto                 header   = document.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        auto versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        if ( !versions.has_value() ||
+             versions.value().get( "CRIG" ).value_or( rfl::Generic() ).to_int().value_or( -1 ) != 3 )
+            return Common::MakeFormattedError<std::string>(
+                 "the header does not state CRIG 3, and this step raises CRIG 3 only" );
+
+        if ( auto controls = document.get( "Controls" ).value_or( rfl::Generic() ).to_array() )
+        {
+            rfl::Generic::Array raised;
+            for ( const rfl::Generic& item : controls.value() )
+            {
+                auto control = item.to_object();
+                if ( !control.has_value() )
+                    return Common::MakeFormattedError<std::string>( "a Controls entry is not an object" );
+                if ( !control.value().get( "Limits" ).has_value() )
+                    control.value()["Limits"] = rfl::Generic( rfl::Generic::Array{} );
+                raised.push_back( rfl::Generic( std::move( control.value() ) ) );
+            }
+            document["Controls"] = rfl::Generic( std::move( raised ) );
+        }
+
+        rfl::Generic::Array graphs;
+        if ( const auto graph = document.get( "Graph" ); graph.has_value() )
+        {
+            const auto old = graph.value().to_object();
+            if ( !old.has_value() )
+                return Common::MakeFormattedError<std::string>( "Graph is not an object" );
+            const auto nodes = old.value().get( "Nodes" ).value_or( rfl::Generic() ).to_array();
+            if ( !nodes.has_value() )
+                return Common::MakeFormattedError<std::string>( "Graph states no Nodes array" );
+            rfl::Generic::Array placed;
+            for ( size_t i = 0; i < nodes.value().size(); ++i )
+            {
+                auto node = nodes.value()[i].to_object();
+                if ( !node.has_value() )
+                    return Common::MakeFormattedError<std::string>( "graph node {} is not an object", i );
+                rfl::Generic::Object position;
+                position["X"]            = rfl::Generic( 40.0 + 260.0 * double( i % 4 ) );
+                position["Y"]            = rfl::Generic( 40.0 + 180.0 * double( i / 4 ) );
+                node.value()["Position"] = rfl::Generic( std::move( position ) );
+                placed.push_back( rfl::Generic( std::move( node.value() ) ) );
+            }
+            rfl::Generic::Object forwards;
+            forwards["Event"] = rfl::Generic( std::string( "Forwards" ) );
+            forwards["Nodes"] = rfl::Generic( std::move( placed ) );
+            graphs.push_back( rfl::Generic( std::move( forwards ) ) );
+            rfl::Generic::Object without;
+            for ( const auto& [key, field] : document )
+                if ( key != "Graph" )
+                    without[key] = field;
+            document = std::move( without );
+        }
+        document["Graphs"] = rfl::Generic( std::move( graphs ) );
+
+        versions.value()["CRIG"]   = rfl::Generic( static_cast<int>( Assets::kControlRigSchemaVersion ) );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        document["Header"]         = rfl::Generic( std::move( header.value() ) );
+
+        namespace S     = Assets::Serialization;
+        const auto back = S::ParseControlRig( rfl::json::write( document ) );
+        if ( !back )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as CRIG {}: {}",
+                                                            Assets::kControlRigSchemaVersion, back.GetError() );
+        return Common::MakeSuccess( S::WriteControlRig( back.GetValue() ) );
+    }
 
     Common::ResultStr<std::string>
     StateTargetSkeleton( const std::string& text, const std::string& tag,
@@ -1410,7 +1714,7 @@ namespace Desert::Migration
     {
         const uint32_t from = tag == "ANGR" ? 3u : tag == "CRIG" ? 2u : 3u;
         const uint32_t to   = tag == "ANGR"   ? Assets::kAnimGraphSchemaVersion
-                              : tag == "CRIG" ? Assets::kControlRigSchemaVersion
+                              : tag == "CRIG" ? 3u
                                               : Assets::kRetargetSchemaVersion;
         auto           read = rfl::json::read<rfl::Generic::Object>( text );
         if ( !read )
@@ -2115,6 +2419,19 @@ namespace Desert::Migration
                 if ( !report.TimeOfDayComponent.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.TimeOfDayComponent.Refused );
+                    return;
+                }
+            }
+
+            // A sound is a `.desound` asset named by GUID (SOUND-ASSET): before the v1 -> v2 shift, whose reader
+            // refuses an Audio section naming a file.
+            if ( statedSceneVersion < kSceneVersionSoundAssets )
+            {
+                report.SoundRefsRaised = true;
+                report.SoundRefs       = MigrateSoundRefsV45ToV46( entities, assetsRoot );
+                if ( !report.SoundRefs.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SoundRefs.Refused );
                     return;
                 }
             }

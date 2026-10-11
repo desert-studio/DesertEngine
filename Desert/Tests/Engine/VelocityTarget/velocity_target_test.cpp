@@ -970,7 +970,8 @@ TEST( VelocityTarget, SceneTargetGBufferAndVelocityShareTheViewExtent )
     const auto velocity = scene.find( "CreateViewVelocity(" );
     ASSERT_NE( velocity, std::string::npos );
     const std::string call = scene.substr( velocity, 160 );
-    // TAA1-B step 6: the velocity belongs to the RENDER extent set (with the scene target and G-buffer it is written beside).
+    // TAA1-B step 6: the velocity belongs to the RENDER extent set (with the scene target and G-buffer it is
+    // written beside).
     EXPECT_NE( call.find( "frame.Split.Render.Width, frame.Split.Render.Height" ), std::string::npos )
          << "the velocity is not created at the frame's render extent: " << call;
     const auto refusal =
@@ -1094,13 +1095,13 @@ namespace VelocityTargetTest
         ViewInputs in;
         in.View       = glm::lookAt( eye, eye + glm::vec3( 0.0f, 0.0f, -1.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ) );
         in.Projection = Desert::Core::MakePerspective( glm::radians( 60.0f ), 16.0f / 9.0f, 10.0f, 5'000'000.0f );
-        in.CameraPosition           = eye;
-        in.NearPlane                = 10.0f;
-        in.FarPlane                 = 5'000'000.0f;
-        in.CameraIdentity           = 7;
-        in.SceneIdentity            = 1;
-        in.Output                   = ViewExtent{ 1920, 1080 };
-        in.RenderScalePercent       = 100; // no temporal method here: below 100 % would need TAAU (SelectTemporalMethod)
+        in.CameraPosition     = eye;
+        in.NearPlane          = 10.0f;
+        in.FarPlane           = 5'000'000.0f;
+        in.CameraIdentity     = 7;
+        in.SceneIdentity      = 1;
+        in.Output             = ViewExtent{ 1920, 1080 };
+        in.RenderScalePercent = 100; // no temporal method here: below 100 % would need TAAU (SelectTemporalMethod)
         in.AntiAliasing.Method      = ::Common::Scalability::AntiAliasingMethod::None;
         in.AntiAliasing.PostProcess = ::Common::Scalability::AntiAliasingMethod::None;
         in.TimeSeconds              = time;

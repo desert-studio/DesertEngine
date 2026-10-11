@@ -770,6 +770,7 @@ namespace Desert::Core
         r.prepare<ECS::StreamingSourceComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
+        r.prepare<ECS::UIAnimComponent>(); // AudioECSSystem reads the UI clips' Audio voices
         r.prepare<ECS::SocketAttachmentComponent>();
     }
 

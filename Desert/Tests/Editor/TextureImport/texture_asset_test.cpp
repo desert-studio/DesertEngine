@@ -7,6 +7,7 @@
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
 #include <gtest/gtest.h>
@@ -37,7 +38,95 @@ namespace
     {
         return Desert::TestSupport::RepositoryRoot();
     }
+
+    constexpr Common::Content::AssetGuid kOldGuid{ 0x1234abcd5678ef01ull, 0x0fedcba987654321ull };
+
+    void PutLE( std::vector<std::byte>& out, uint64_t v, int width )
+    {
+        for ( int i = 0; i < width; ++i )
+            out.push_back( static_cast<std::byte>( ( v >> ( 8 * i ) ) & 0xffu ) );
+    }
+
+    void PutLEString( std::vector<std::byte>& out, const std::string& s )
+    {
+        PutLE( out, s.size(), 4 );
+        for ( const char c : s )
+            out.push_back( static_cast<std::byte>( c ) );
+    }
+
+    // A `.detex` exactly as TXAS version 1 wrote it: the envelope stamped TXAS 1 and an IMPT of version 1 --
+    // SourceFile, SourceHash, Intent by name, and no colour space. Spelled out byte by byte here rather than
+    // produced by the current encoder, which can only write version 2.
+    std::vector<std::byte> VersionOneAsset( const std::string& intentName, const std::vector<std::byte>& source )
+    {
+        namespace CC = Common::Content;
+        std::vector<std::byte> impt;
+        PutLE( impt, 1, 4 );
+        PutLEString( impt, "assets:Textures/T_Old.png" );
+        PutLE( impt, Common::Utils::PakContentHash( source.data(), source.size() ), 8 );
+        PutLEString( impt, intentName );
+
+        CC::AssetEnvelope envelope;
+        envelope.Asset.Kind       = CC::ContentKind::Texture;
+        envelope.Asset.Guid       = kOldGuid;
+        envelope.Asset.Subsystems = { { kTextureAssetSubsystemTag, 1 } };
+        CC::EnvelopeMeta meta;
+        meta.Name = "T_Old";
+        envelope.Sections.push_back(
+             { CC::EnvelopeSection::Meta, CC::EnvelopeCodec::Stored, CC::EncodeEnvelopeMeta( meta ) } );
+        envelope.Sections.push_back( { CC::EnvelopeSection::ImportInfo, CC::EnvelopeCodec::Stored, impt } );
+        envelope.Sections.push_back( { CC::EnvelopeSection::Source, CC::EnvelopeCodec::Stored, source } );
+        auto written = CC::WriteAssetEnvelope( envelope );
+        EXPECT_TRUE( written.IsSuccess() ) << written.GetError();
+        return written.IsSuccess() ? written.ExtractValue() : std::vector<std::byte>{};
+    }
 } // namespace
+
+// TEX-SRGB: a TXAS 1 asset is REFUSED by the reader (never read leniently) and raised by SceneMigrator's step,
+// which keeps identity, name, provenance, intent and source, and states the colour space DefaultTextureColorSpace
+// gives: Colour/Unspecified sRGB, NormalMap/Mask/Data Linear, a float source (HDR/EXR) Linear whatever its intent.
+TEST( TextureAsset, AVersionOneAssetIsRefusedAndRaisedWithTheDefaultColourSpace )
+{
+    struct Case
+    {
+        const char*            Intent;
+        std::vector<std::byte> Source;
+        Fmt::TextureColorSpace Expected;
+    };
+    const std::string exrMagic( "v/1\x01 fake", 9 );
+    const Case        cases[] = {
+         { "Colour", Bytes( "\x89PNG fake" ), Fmt::TextureColorSpace::SRGB },
+         { "Unspecified", Bytes( "\x89PNG fake" ), Fmt::TextureColorSpace::SRGB },
+         { "NormalMap", Bytes( "\x89PNG fake" ), Fmt::TextureColorSpace::Linear },
+         { "Mask", Bytes( "\x89PNG fake" ), Fmt::TextureColorSpace::Linear },
+         { "Data", Bytes( "\x89PNG fake" ), Fmt::TextureColorSpace::Linear },
+         { "Colour", Bytes( "#?RADIANCE fake" ), Fmt::TextureColorSpace::Linear },
+         { "Colour", Bytes( exrMagic ), Fmt::TextureColorSpace::Linear },
+    };
+    for ( const Case& c : cases )
+    {
+        const std::vector<std::byte> old = VersionOneAsset( c.Intent, c.Source );
+        ASSERT_FALSE( old.empty() );
+        EXPECT_FALSE( DecodeTextureSourceAsset( old ).IsSuccess() ) << c.Intent << ": a TXAS 1 asset was read";
+
+        const auto raised = UpgradeTextureSourceAsset( old );
+        ASSERT_TRUE( raised.IsSuccess() ) << c.Intent << ": " << raised.GetError();
+        ASSERT_TRUE( raised.GetValue().has_value() ) << c.Intent << ": a TXAS 1 asset was called current";
+        const auto decoded = DecodeTextureSourceAsset( *raised.GetValue() );
+        ASSERT_TRUE( decoded.IsSuccess() ) << c.Intent << ": " << decoded.GetError();
+        const TextureSourceAsset& asset = decoded.GetValue();
+        EXPECT_EQ( asset.Import.Settings.ColorSpace, c.Expected ) << c.Intent;
+        EXPECT_EQ( Fmt::TextureIntentName( asset.Import.Settings.Intent ), std::string_view( c.Intent ) );
+        EXPECT_EQ( asset.Guid, kOldGuid );
+        EXPECT_EQ( asset.Name, "T_Old" );
+        EXPECT_EQ( asset.Import.SourceFile, "assets:Textures/T_Old.png" );
+        EXPECT_EQ( asset.Source, c.Source );
+
+        const auto again = UpgradeTextureSourceAsset( *raised.GetValue() );
+        ASSERT_TRUE( again.IsSuccess() ) << again.GetError();
+        EXPECT_FALSE( again.GetValue().has_value() ) << c.Intent << ": a current asset was raised again";
+    }
+}
 
 TEST( TextureAsset, KeyMovesWithEverySettingAndTheDeriverVersion )
 {

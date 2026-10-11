@@ -51,6 +51,7 @@
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include "MigratorMain.hpp"
@@ -61,6 +62,7 @@
 #include "ClipInterpShift.hpp"
 #include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
+#include "MaterialAOParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
@@ -191,7 +193,8 @@ namespace
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
                   std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
                   std::vector<std::filesystem::path>& shaders, std::vector<std::filesystem::path>& tiles,
-                  std::vector<std::filesystem::path>& sequences, std::ostream& out )
+                  std::vector<std::filesystem::path>& sequences, std::vector<std::filesystem::path>& textures,
+                  std::ostream& out )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -235,6 +238,8 @@ namespace
                     shaders.push_back( entry.path() );
                 else if ( IsLandscapeTile( entry.path() ) )
                     tiles.push_back( entry.path() );
+                else if ( entry.path().extension() == Desert::Assets::kTextureAssetExtension )
+                    textures.push_back( entry.path() );
             }
             return;
         }
@@ -263,6 +268,8 @@ namespace
             shaders.push_back( root );
         else if ( IsLandscapeTile( root ) )
             tiles.push_back( root );
+        else if ( root.extension() == Desert::Assets::kTextureAssetExtension )
+            textures.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -587,17 +594,19 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> shaders;
         std::vector<std::filesystem::path> tiles;
         std::vector<std::filesystem::path> sequences;
+        std::vector<std::filesystem::path> textures;
         for ( const auto& root : roots )
             Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders,
-                     tiles, sequences, out );
+                     tiles, sequences, textures, out );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && sequences.empty() &&
              texts.empty() && meshes.empty() && layouts.empty() && noises.empty() && models.empty() &&
-             shaders.empty() && tiles.empty() )
+             shaders.empty() && tiles.empty() && textures.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, landscape tile, "
+                << ", cooked mesh, texture asset, cloud layout, cloud noise volume, sculpted cloud volume, "
+                   "landscape tile, "
                    "shader "
                    "or other text "
                    "asset "
@@ -610,6 +619,8 @@ namespace Desert::Migration
         int meshesRaised = 0;
         int failed  = 0;
         int relaid  = 0;
+        // Materials whose retired OcclusionStrength was renamed AOStrength (MaterialAOParam.hpp).
+        int materialsRenamed = 0;
 
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
         // second run changes nothing. A mesh under <project>/Cooked/Meshes translates its material numbers
@@ -1093,6 +1104,29 @@ namespace Desert::Migration
                 ++relaid;
                 continue;
             }
+            // ONE AO PARAMETER (MaterialAOParam.hpp): the retired OcclusionStrength is renamed AOStrength.
+            const auto oneAO = Desert::Migration::MaterialWithOneAOParam( path.string(), source );
+            if ( !oneAO )
+            {
+                err << "FAIL   " << oneAO.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( oneAO.GetValue() )
+            {
+                ++materialsRenamed;
+                if ( check )
+                    out << "WOULD  " << path.string() << " — OcclusionStrength -> AOStrength\n";
+                else if ( !WriteText( path, *oneAO.GetValue(), err ) )
+                {
+                    err << "FAIL   " << path.string() << " — the rename could not be written; the original file "
+                        << "is untouched\n";
+                    ++failed;
+                }
+                else
+                    out << "renamed " << path.string() << " — OcclusionStrength -> AOStrength\n";
+                continue;
+            }
             if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                  layout != Layout::Canonical )
             {
@@ -1354,7 +1388,26 @@ namespace Desert::Migration
                         continue;
                     }
                     out << ( check ? "would raise " : "raised " ) << path.string() << " " << tag << " " << from
-                        << " -> " << from + 1 << " (TargetSkeleton)\n";
+                        << " -> " << ( tag == "CRIG" ? 4u : from + 1 ) << " (TargetSkeleton)\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
+            if ( path.extension() == ".derig" )
+            {
+                // CRIG 3 -> 4 (ANIM-FIX11): Graphs per solve event, node Positions, control Limits.
+                const auto stated = ReadStatedVersion( path, text, "CRIG" );
+                if ( stated && stated.GetValue() == 3u )
+                {
+                    const auto raised = Desert::Migration::MigrateControlRigToV4( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — CRIG 3 -> 4: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " CRIG 3 -> 4\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                         ++failed;
                     continue;
@@ -1362,12 +1415,12 @@ namespace Desert::Migration
             }
             if ( path.extension() == ".skeleton" )
             {
-                // SKEL 1/2 -> 3: SKEL 2 (SKEL-TREE) gave the rig PreviewMesh / CompatibleSkeletons, SKEL 3 dropped
-                // the dead Import provenance.
+                // SKEL 1/2/3 -> 4: SKEL 2 (SKEL-TREE) gave the rig PreviewMesh / CompatibleSkeletons, SKEL 3
+                // dropped the dead Import provenance, SKEL 4 (ANIM-FIX5a) states its Sockets and BoneMasks.
                 const auto stated = ReadStatedVersion( path, text, "SKEL" );
-                if ( stated && ( stated.GetValue() == 1u || stated.GetValue() == 2u ) )
+                if ( stated && stated.GetValue() >= 1u && stated.GetValue() <= 3u )
                 {
-                    const auto raised = Desert::Migration::MigrateSkeletonToV3( text );
+                    const auto raised = Desert::Migration::MigrateSkeletonToV4( text );
                     if ( !raised )
                     {
                         err << "FAIL   " << path.string() << " — SKEL " << stated.GetValue() << " -> "
@@ -1509,15 +1562,47 @@ namespace Desert::Migration
             }
         }
 
+        // THE TEXTURE ASSETS (TEX-SRGB): TXAS 1 -> 2 states the texture's colour space in IMPT. The step is the
+        // engine's own UpgradeTextureSourceAsset (one statement of the format): nullopt = already current, a file
+        // it cannot read FAILS by name and is left untouched.
+        int texturesRaised = 0;
+        for ( const auto& path : textures )
+        {
+            const std::string bytes = ReadAll( path );
+            const auto raised = Desert::Assets::UpgradeTextureSourceAsset( std::as_bytes( std::span( bytes ) ) );
+            if ( !raised )
+            {
+                err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !raised.GetValue() )
+                continue;
+            ++texturesRaised;
+            out << ( check ? "would raise " : "raised " ) << path.string() << " TXAS 1 -> "
+                << Desert::Assets::kTextureAssetSubsystemVersion << "\n";
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
+        }
+
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
-            << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
-            << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
-            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
-            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << animGraphsRaised
-            << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
-            << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
-            << " landscape tile(s), " << recordsStated
+            << " material(s), " << materialsRenamed
+            << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " ) << prefabs.size()
+            << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " ) << texts.size()
+            << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
+            << foliageRaised << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " )
+            << animGraphsRaised << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " )
+            << meshesRaised << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
+            << " landscape tile(s), " << texturesRaised
+            << ( check ? " texture(s) would be raised, " : " texture(s) raised, " ) << recordsStated
             << ( check ? " import record(s) would state their source hash, "
                        : " import record(s) stated their source hash, " )
             << failed << " failed\n";
@@ -1525,8 +1610,9 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                            animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 ) )
+        return ( check &&
+                 ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 || animGraphsRaised > 0 ||
+                   meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

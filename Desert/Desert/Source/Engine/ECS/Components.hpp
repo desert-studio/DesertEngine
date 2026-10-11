@@ -24,6 +24,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Timeline/AudioVoices.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
@@ -1164,6 +1165,11 @@ namespace Desert::ECS
         // scene. Created lazily from Sequence.TickRate/Start/End by the one view that drives scene animation
         // (UI/Ecs/UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
         std::optional<Animation::Timeline::Player> Playback;
+
+        // The clip's Audio sections sounding at the playhead, as the driving view's LAST frame evaluated them
+        // (UIAnimationPlayback.hpp; empty while paused, stopped or scrubbed backwards). RUNTIME only, never
+        // serialized: AudioECSSystem consumes and clears it every frame and turns it into voices.
+        std::vector<Animation::Timeline::SoundingVoice> Sounding;
     };
     struct UIAnimComponent
     {
@@ -1391,8 +1397,10 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Clip" ), Category( "Audio" ), Summary )
-        std::string Clip; // audio file (wav/mp3/flac), absolute or Assets-relative
+        // The SOUND asset (`.desound`, UE's USoundWave) by its GUID's handle: the audio file is the asset's to
+        // name (SoundAsset::ResolveSourceFile), so moving the pair moves no reference. Unset = silent.
+        PROPERTY( DisplayName( "Sound" ), Category( "Audio" ), Summary, Asset<SoundAsset> )
+        Assets::AssetHandle Sound;
 
         PROPERTY( DisplayName( "Volume" ), Category( "Audio" ), Range( 0.0f, 2.0f ) )
         float Volume = 1.0f;
@@ -1754,9 +1762,14 @@ namespace Desert::ECS
         // The skinned-mesh entity whose bone we follow. Null = detached, and it starts detached: a socket
         // that has not been pointed at anything must not claim to follow a target that does not exist.
         Common::UUID Target = Common::UUID::Null();
-        std::string  BoneName; // bone/socket name on the target's skeleton (e.g. "mixamorig:RightHand")
+        // UE's AttachSocketName: a SOCKET of the target's skeleton (Skeleton::FindSocket - its bone and its local
+        // transform come from the rig) or, when the rig has no socket of that name, a bone (UE
+        // USkinnedMeshComponent::GetSocketTransform: socket first, then bone). E.g. "hand_r_grip",
+        // "mixamorig:Head".
+        std::string SocketName;
 
-        // Grip alignment relative to the bone (the weapon almost never sits exactly on the bone origin).
+        // This attachment's own alignment ON TOP of the socket (or of the bone when the name is a bone) - UE's
+        // relative transform of an attached component. The grip shared by every weapon belongs on the socket.
         glm::vec3 OffsetTranslation = { 0.0f, 0.0f, 0.0f };
         glm::vec3 OffsetRotation    = { 0.0f, 0.0f, 0.0f }; // euler radians
         glm::vec3 OffsetScale       = { 1.0f, 1.0f, 1.0f };

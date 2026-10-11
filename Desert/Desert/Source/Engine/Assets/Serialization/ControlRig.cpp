@@ -325,8 +325,8 @@ namespace Desert::Assets::Serialization
             if ( graph.Nodes.empty() )
             {
                 return Common::MakeFormattedError<bool>(
-                     "the rig declares a graph with no nodes; a rig without a forwards solve is spelled by "
-                     "leaving the Graph field out, not by writing an empty one" );
+                     "the rig declares a graph with no nodes; a rig without this solve is spelled by "
+                     "leaving the event out of Graphs, not by writing an empty one" );
             }
 
             // EVERY NAME IS COLLECTED BEFORE ANY LINK IS RESOLVED, and that is a diagnostic decision rather
@@ -595,6 +595,27 @@ namespace Desert::Assets::Serialization
                      "Sequencer track bind on",
                      i );
             }
+            std::unordered_set<std::string> limited;
+            for ( const ControlLimitData& limit : control.Limits )
+            {
+                if ( !Animation::ControlLimitChannelFromText( limit.Channel ).has_value() )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "control '{}' limits channel '{}', which is none of TX TY TZ RX RY RZ SX SY SZ",
+                         control.Name, limit.Channel );
+                }
+                if ( !std::isfinite( limit.Min ) || !std::isfinite( limit.Max ) || limit.Min > limit.Max )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "control '{}' limits {} to [{}, {}]; a range is finite with Min <= Max", control.Name,
+                         limit.Channel, limit.Min, limit.Max );
+                }
+                if ( !limited.emplace( limit.Channel ).second )
+                {
+                    return Common::MakeFormattedError<bool>( "control '{}' limits {} twice", control.Name,
+                                                             limit.Channel );
+                }
+            }
             if ( !byName.emplace( control.Name, i ).second )
             {
                 return Common::MakeFormattedError<bool>(
@@ -753,11 +774,24 @@ namespace Desert::Assets::Serialization
             }
         }
 
-        if ( data.Graph.has_value() )
+        std::unordered_set<std::string> events;
+        for ( const RigGraphData& graph : data.Graphs )
         {
-            if ( auto ok = ValidateRigGraphData( *data.Graph, byName ); !ok )
+            if ( !Animation::RigEventFromText( graph.Event ).has_value() )
             {
-                return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, ok.GetError() );
+                return Common::MakeFormattedError<bool>(
+                     "rig '{}' has a graph for event '{}', which is none of Construction, Forwards, Backwards",
+                     data.Name, graph.Event );
+            }
+            if ( !events.emplace( graph.Event ).second )
+            {
+                return Common::MakeFormattedError<bool>( "rig '{}' has two {} graphs; one event runs one program",
+                                                         data.Name, graph.Event );
+            }
+            if ( auto ok = ValidateRigGraphData( graph, byName ); !ok )
+            {
+                return Common::MakeFormattedError<bool>( "rig '{}' {} graph: {}", data.Name, graph.Event,
+                                                         ok.GetError() );
             }
         }
 
@@ -872,6 +906,12 @@ namespace Desert::Assets::Serialization
             element.Color          = file.Color.value_or( Animation::ControlSideColor( file.Name ) );
             element.Offset         = ToBoneTransform( file.Offset );
             element.Pose           = ToBoneTransform( file.Pose );
+            element.Limits.reserve( file.Limits.size() );
+            for ( const ControlLimitData& limit : file.Limits )
+            {
+                element.Limits.push_back( Animation::ControlLimit{
+                     *Animation::ControlLimitChannelFromText( limit.Channel ), limit.Min, limit.Max } );
+            }
             element.Parents.reserve( file.Parents.size() );
 
             for ( const ControlSpaceData& space : file.Parents )
@@ -944,106 +984,109 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, ok.GetError() );
         }
 
-        if ( !data.Graph.has_value() )
+        // NO GRAPH IS A WHOLE RIG: `ControlRigStage` without a Forwards one runs the identity solve T5.4
+        // shipped. Each event's graph is built against the same hierarchy; Validate has established the
+        // spellings and that no event appears twice.
+        for ( const RigGraphData& fileGraph : data.Graphs )
         {
-            // NO GRAPH IS A WHOLE RIG. `ControlRigStage` without one runs the identity solve T5.4 shipped,
-            // which is what a generation-1 `.derig` has always meant, and the byte-for-byte proof of that
-            // is what lets `kControlRigVersion` stay at 1.
-            return Common::MakeSuccess( true );
-        }
+            const Animation::RigEvent event = *Animation::RigEventFromText( fileGraph.Event );
 
-        // ---- file form -> the walk ------------------------------------------------------------------
-        //
-        // The order of `Nodes` becomes the order of execution, and `Validate` has already established that
-        // every link points at an earlier one, so the index of a link's target is simply its position here.
-        std::unordered_map<std::string, uint32_t> nodeIndex;
-        nodeIndex.reserve( data.Graph->Nodes.size() );
+            // ---- file form -> the walk ------------------------------------------------------------------
+            //
+            // The order of `Nodes` becomes the order of execution, and `Validate` has already established that
+            // every link points at an earlier one, so the index of a link's target is simply its position here.
+            std::unordered_map<std::string, uint32_t> nodeIndex;
+            nodeIndex.reserve( fileGraph.Nodes.size() );
 
-        std::vector<Animation::RigNode> nodes;
-        nodes.reserve( data.Graph->Nodes.size() );
+            std::vector<Animation::RigNode> nodes;
+            nodes.reserve( fileGraph.Nodes.size() );
 
-        for ( const RigGraphNodeData& file : data.Graph->Nodes )
-        {
-            Animation::RigNode node;
-            node.Name = file.Name;
-            // Validate has established the spelling, the target, the space, the pins and the types.
-            node.Kind = *Animation::RigNodeKindFromText( file.Kind );
-
-            const Animation::RigNodeDescriptor& desc = Animation::DescribeRigNode( node.Kind );
-
-            if ( desc.Target == Animation::RigNodeTargetKind::Control )
+            for ( const RigGraphNodeData& file : fileGraph.Nodes )
             {
-                node.Target = controlIndex.at( file.Target );
+                Animation::RigNode node;
+                node.Name = file.Name;
+                // Validate has established the spelling, the target, the space, the pins and the types.
+                node.Kind = *Animation::RigNodeKindFromText( file.Kind );
+
+                const Animation::RigNodeDescriptor& desc = Animation::DescribeRigNode( node.Kind );
+
+                if ( desc.Target == Animation::RigNodeTargetKind::Control )
+                {
+                    node.Target = controlIndex.at( file.Target );
+                }
+                else if ( desc.Target == Animation::RigNodeTargetKind::Bone )
+                {
+                    const auto bone = skeleton.FindBoneIndex( file.Target );
+                    if ( !bone.has_value() )
+                    {
+                        // REFUSED, NOT RESOLVED TO IDENTITY, for the reason every other bone name here is.
+                        return Common::MakeFormattedError<bool>(
+                             "rig '{}': graph node '{}' reads bone '{}', which this skeleton (signature {}) does "
+                             "not have",
+                             data.Name, file.Name, file.Target, skeleton.GetSignature() );
+                    }
+                    node.Target = *bone;
+                }
+
+                if ( desc.UsesSpace )
+                {
+                    node.Space = *Animation::RigControlSpaceFromText( file.Space );
+                }
+
+                // BY THE DESCRIPTOR'S PIN ORDER, NOT THE FILE'S. The walk indexes `Inputs` positionally, and a
+                // rigger who lists Alpha before A has written a legal file that means what it says.
+                node.Inputs.assign( desc.Inputs.size(), Animation::RigNodeInput{} );
+
+                for ( const RigGraphInputData& input : file.Inputs )
+                {
+                    const size_t            pin = *FindPin( desc.Inputs, input.Pin );
+                    Animation::RigNodeInput wired;
+
+                    if ( input.Link.has_value() )
+                    {
+                        const auto&                         link     = *input.Link;
+                        const uint32_t                      producer = nodeIndex.at( link.Node );
+                        const Animation::RigNodeDescriptor& from =
+                             Animation::DescribeRigNode( nodes[producer].Kind );
+                        wired.Node = producer;
+                        wired.Pin  = static_cast<uint8_t>( *FindPin( from.Outputs, link.Pin ) );
+                    }
+                    else if ( input.Float.has_value() )
+                    {
+                        wired.Literal = Animation::RigValue{ *input.Float };
+                    }
+                    else if ( input.Vec3.has_value() )
+                    {
+                        wired.Literal = Animation::RigValue{ *input.Vec3 };
+                    }
+                    else if ( input.Quat.has_value() )
+                    {
+                        wired.Literal = Animation::RigValue{ *input.Quat };
+                    }
+                    else
+                    {
+                        wired.Literal = Animation::RigValue{ ToBoneTransform( *input.Transform ) };
+                    }
+
+                    node.Inputs[pin] = wired;
+                }
+
+                nodeIndex.emplace( file.Name, static_cast<uint32_t>( nodes.size() ) );
+                nodes.push_back( std::move( node ) );
             }
-            else if ( desc.Target == Animation::RigNodeTargetKind::Bone )
+
+            Animation::RigGraph graph;
+            if ( auto built = graph.SetNodes( out.GetHierarchy(), skeleton.GetBones().size(), std::move( nodes ) );
+                 !built )
             {
-                const auto bone = skeleton.FindBoneIndex( file.Target );
-                if ( !bone.has_value() )
-                {
-                    // REFUSED, NOT RESOLVED TO IDENTITY, for the reason every other bone name here is.
-                    return Common::MakeFormattedError<bool>(
-                         "rig '{}': graph node '{}' reads bone '{}', which this skeleton (signature {}) does "
-                         "not have",
-                         data.Name, file.Name, file.Target, skeleton.GetSignature() );
-                }
-                node.Target = *bone;
+                return Common::MakeFormattedError<bool>( "rig '{}' {} graph: {}", data.Name, fileGraph.Event,
+                                                         built.GetError() );
             }
-
-            if ( desc.UsesSpace )
+            if ( auto installed = out.SetGraph( std::move( graph ), event ); !installed )
             {
-                node.Space = *Animation::RigControlSpaceFromText( file.Space );
+                return Common::MakeFormattedError<bool>( "rig '{}' {} graph: {}", data.Name, fileGraph.Event,
+                                                         installed.GetError() );
             }
-
-            // BY THE DESCRIPTOR'S PIN ORDER, NOT THE FILE'S. The walk indexes `Inputs` positionally, and a
-            // rigger who lists Alpha before A has written a legal file that means what it says.
-            node.Inputs.assign( desc.Inputs.size(), Animation::RigNodeInput{} );
-
-            for ( const RigGraphInputData& input : file.Inputs )
-            {
-                const size_t            pin = *FindPin( desc.Inputs, input.Pin );
-                Animation::RigNodeInput wired;
-
-                if ( input.Link.has_value() )
-                {
-                    const auto&                         link     = *input.Link;
-                    const uint32_t                      producer = nodeIndex.at( link.Node );
-                    const Animation::RigNodeDescriptor& from = Animation::DescribeRigNode( nodes[producer].Kind );
-                    wired.Node                               = producer;
-                    wired.Pin = static_cast<uint8_t>( *FindPin( from.Outputs, link.Pin ) );
-                }
-                else if ( input.Float.has_value() )
-                {
-                    wired.Literal = Animation::RigValue{ *input.Float };
-                }
-                else if ( input.Vec3.has_value() )
-                {
-                    wired.Literal = Animation::RigValue{ *input.Vec3 };
-                }
-                else if ( input.Quat.has_value() )
-                {
-                    wired.Literal = Animation::RigValue{ *input.Quat };
-                }
-                else
-                {
-                    wired.Literal = Animation::RigValue{ ToBoneTransform( *input.Transform ) };
-                }
-
-                node.Inputs[pin] = wired;
-            }
-
-            nodeIndex.emplace( file.Name, static_cast<uint32_t>( nodes.size() ) );
-            nodes.push_back( std::move( node ) );
-        }
-
-        Animation::RigGraph graph;
-        if ( auto built = graph.SetNodes( out.GetHierarchy(), skeleton.GetBones().size(), std::move( nodes ) );
-             !built )
-        {
-            return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, built.GetError() );
-        }
-        if ( auto installed = out.SetGraph( std::move( graph ) ); !installed )
-        {
-            return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, installed.GetError() );
         }
 
         return Common::MakeSuccess( true );
@@ -1095,6 +1138,12 @@ namespace Desert::Assets::Serialization
             if ( control.Color != Animation::ControlSideColor( control.Name ) )
             {
                 file.Color = control.Color;
+            }
+            file.Limits.reserve( control.Limits.size() );
+            for ( const Animation::ControlLimit& limit : control.Limits )
+            {
+                file.Limits.push_back( ControlLimitData{ std::string( Animation::ToString( limit.Channel ) ),
+                                                         limit.Min, limit.Max } );
             }
             file.Parents.reserve( control.Parents.size() );
 
@@ -1151,12 +1200,18 @@ namespace Desert::Assets::Serialization
             data.Drives.push_back( std::move( file ) );
         }
 
-        if ( rig.HasGraph() )
+        for ( size_t e = 0; e < Animation::kRigEventCount; ++e )
         {
+            const auto event = static_cast<Animation::RigEvent>( e );
+            if ( !rig.HasGraph( event ) )
+            {
+                continue;
+            }
             RigGraphData graph;
-            graph.Nodes.reserve( rig.GetGraph().GetNodes().size() );
+            graph.Event = std::string( Animation::ToString( event ) );
+            graph.Nodes.reserve( rig.GetGraph( event ).GetNodes().size() );
 
-            const std::vector<Animation::RigNode>& nodes = rig.GetGraph().GetNodes();
+            const std::vector<Animation::RigNode>& nodes = rig.GetGraph( event ).GetNodes();
             for ( const Animation::RigNode& node : nodes )
             {
                 const Animation::RigNodeDescriptor& desc = Animation::DescribeRigNode( node.Kind );
@@ -1237,7 +1292,7 @@ namespace Desert::Assets::Serialization
                 graph.Nodes.push_back( std::move( file ) );
             }
 
-            data.Graph = std::move( graph );
+            data.Graphs.push_back( std::move( graph ) );
         }
 
         if ( auto valid = ValidateControlRigData( data ); !valid )

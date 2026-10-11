@@ -168,6 +168,14 @@ namespace Desert::Editor
         return SameGuid( aSequence, bSequence ) && aOffset == bOffset && aScale == bScale;
     }
 
+    bool SameStoredValue( const Timeline::AudioSectionContent& a, const Timeline::AudioSectionContent& b )
+    {
+        const auto& [aSound, aOffset, aVolume, aFadeIn, aFadeOut] = a;
+        const auto& [bSound, bOffset, bVolume, bFadeIn, bFadeOut] = b;
+        return aSound == bSound && aOffset == bOffset && aVolume == bVolume && aFadeIn == bFadeIn &&
+               aFadeOut == bFadeOut;
+    }
+
     bool SameStoredValue( const Timeline::Section& a, const Timeline::Section& b )
     {
         const auto& [aStart, aEnd, aBlend, aWeight, aRow, aName, aContent] = a;

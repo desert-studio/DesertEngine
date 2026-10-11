@@ -3,10 +3,12 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
+#include <Engine/Animation/SkeletonSockets.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -188,6 +190,40 @@ namespace Desert::Animation
         [[nodiscard]] Common::BoolResultStr ValidateBoneIndexSpace( const std::vector<uint32_t>& boneIDs,
                                                                     const std::string& sourceName ) const;
 
+        /**
+         * @brief The rig's SOCKETS and BONE MASKS (SKEL 4; UE USkeleton::Sockets and BlendProfiles).
+         *
+         * Authored data that rides on the rig rather than structure, so unlike the bones they are settable for
+         * the rig's lifetime - but only whole and only valid: a set is refused, by name, when an entry names a
+         * bone this rig lacks, two entries share a name, a name is empty or a mask weight leaves [0, 1]. A
+         * refused set leaves the previous one in place. Neither moves GetSignature (a clip and a mesh match on
+         * the bones alone); GetAuthoringRevision moves instead, so a reader that cached a resolve knows.
+         */
+        [[nodiscard]] Common::BoolResultStr SetSockets( std::vector<SkeletonSocket> sockets );
+        [[nodiscard]] Common::BoolResultStr SetBoneMasks( std::vector<BoneMask> masks );
+
+        [[nodiscard]] const std::vector<SkeletonSocket>& GetSockets() const
+        {
+            return m_Sockets;
+        }
+
+        [[nodiscard]] const std::vector<BoneMask>& GetBoneMasks() const
+        {
+            return m_BoneMasks;
+        }
+
+        /// The socket of that name, or nullptr. A socket name may equal a bone name; the socket is what
+        /// answers (UE USkinnedMeshComponent::GetSocketTransform: socket first, then bone).
+        [[nodiscard]] const SkeletonSocket* FindSocket( std::string_view name ) const;
+        [[nodiscard]] const BoneMask*       FindBoneMask( std::string_view name ) const;
+
+        /// Unique across every Skeleton of the process and moved by every accepted SetSockets / SetBoneMasks,
+        /// so a cache keyed on it cannot be fooled by a rig re-read at the same address (SkeletonAsset reload).
+        [[nodiscard]] uint64_t GetAuthoringRevision() const
+        {
+            return m_AuthoringRevision;
+        }
+
         static uint64_t ComputeSignature( const std::vector<BoneInfo>& bones );
         /// ComputeSignature folded with every bone's LocalBindTransform and OffsetMatrix (GetContentSignature).
         static uint64_t ComputeContentSignature( const std::vector<BoneInfo>& bones );
@@ -206,7 +242,23 @@ namespace Desert::Animation
         std::vector<uint32_t>                     m_ResolveOrder; ///< parent-before-child
         std::vector<uint32_t>                     m_ResolveRank;  ///< bone -> its position in m_ResolveOrder
         std::string                               m_StructureError;
+
+        std::vector<SkeletonSocket> m_Sockets;
+        std::vector<BoneMask>       m_BoneMasks;
+        uint64_t                    m_AuthoringRevision = 0;
     };
+
+    /**
+     * @brief A bone mask as one weight per bone of @p skeleton (UE UBlendProfile::FillBoneScalesArray, BlendMask).
+     *
+     * Walked parent before child: a bone with an entry takes its Weight; a bone without one takes what its
+     * parent hands down, which is the parent's Weight when the parent's entry IncludeDescendants and otherwise
+     * whatever the parent itself inherited; a root with no entry is 0. Refuses, by the mask's name, an entry
+     * naming a bone the rig lacks (the masks SetBoneMasks accepted cannot, but a mask can be resolved against
+     * another rig) and two entries for one bone.
+     */
+    [[nodiscard]] Common::ResultStr<std::vector<float>> ResolveBoneMaskWeights( const BoneMask& mask,
+                                                                                const Skeleton& skeleton );
 
     /**
      * @brief A bone referred to BY NAME, with its index remembered.

@@ -83,6 +83,7 @@ namespace Common::Content
         InputAction,
         InputMappingContext,
         PhysicsAsset,
+        Sound,
         COUNT,
     };
 
@@ -179,6 +180,9 @@ namespace Common::Content
              /* InputMappingContext  */ { "InputMappingContext", ".deinputcontext", &P::INPUT_PATH },
              // UE's UPhysicsAsset: a DPHA payload in the asset envelope (Physics/PhysicsAssetFormat.hpp).
              /* PhysicsAsset         */ { "PhysicsAsset", ".dephysasset", &P::PHYSICS_ASSET_PATH },
+             // UE's USoundWave: a text asset naming its imported audio source beside it (SoundAsset.hpp). Under
+             // the assets root, as a texture is: a sound sits beside whatever uses it.
+             /* Sound                */ { "Sound", ".desound", &P::ASSETS_PATH },
         } };
     }
 

@@ -137,7 +137,9 @@ namespace Desert::Media
         config.vtable                = &g_StreamVTable;
         if ( ma_data_source_init( &config, &m_Impl->Base ) != MA_SUCCESS )
             return "ma_data_source_init failed";
-        if ( ma_sound_init_from_data_source( engine, &m_Impl->Base, MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr,
+        // A movie's soundtrack plays in the Music class, so the player's music volume scales it.
+        if ( ma_sound_init_from_data_source( engine, &m_Impl->Base, MA_SOUND_FLAG_NO_SPATIALIZATION,
+                                             Audio::AudioEngine::Get().GetClassGroup( Audio::SoundClass::Music ),
                                              &m_Impl->Sound ) != MA_SUCCESS )
         {
             ma_data_source_uninit( &m_Impl->Base );

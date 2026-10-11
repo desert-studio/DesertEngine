@@ -53,6 +53,8 @@ using Desert::Animation::ComponentPose;
 using Desert::Animation::ControlBoneDrive;
 using Desert::Animation::ControlElement;
 using Desert::Animation::ControlHierarchy;
+using Desert::Animation::ControlLimit;
+using Desert::Animation::ControlLimitChannel;
 using Desert::Animation::ControlRigStage;
 using Desert::Animation::ControlSpace;
 using Desert::Animation::ControlSpaceKind;
@@ -63,6 +65,7 @@ using Desert::Animation::LocalPose;
 using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::RigControlSpace;
 using Desert::Animation::RigControlSpaceFromText;
+using Desert::Animation::RigEvent;
 using Desert::Animation::RigGraph;
 using Desert::Animation::RigNode;
 using Desert::Animation::RigNodeDescriptor;
@@ -1139,7 +1142,7 @@ namespace
         graph.Nodes.push_back( read );
         graph.Nodes.push_back( product );
         graph.Nodes.push_back( write );
-        data.Graph = graph;
+        data.Graphs.push_back( graph ); // Event defaults to "Forwards"
 
         return data;
     }
@@ -1183,12 +1186,12 @@ TEST( RigGraphTest, InputsMayBeListedInAnyOrderAndTheWalkStillReadsThemByPin )
     // analyser's dataflow does not model, so an access after one still reads as unchecked; the plain `if`
     // is what makes it provably checked, and it is also what stops the line below dereferencing nothing if
     // `RigWithGraph` is ever changed.
-    ASSERT_TRUE( shuffled.Graph.has_value() );
-    if ( !shuffled.Graph.has_value() )
+    ASSERT_TRUE( !shuffled.Graphs.empty() );
+    if ( shuffled.Graphs.empty() )
     {
         return;
     }
-    std::swap( shuffled.Graph->Nodes[1].Inputs[0], shuffled.Graph->Nodes[1].Inputs[1] );
+    std::swap( shuffled.Graphs.front().Nodes[1].Inputs[0], shuffled.Graphs.front().Nodes[1].Inputs[1] );
 
     ASSERT_TRUE( Serialization::ValidateControlRigData( shuffled ).IsSuccess() );
 
@@ -1213,19 +1216,18 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
 {
     const Skeleton                skeleton = MakeArmRig();
     Serialization::ControlRigData plain    = RigWithGraph();
-    plain.Graph.reset();
+    plain.Graphs.clear();
 
     ASSERT_TRUE( Serialization::ValidateControlRigData( plain ).IsSuccess() );
 
     const std::string text = Serialization::WriteControlRig( plain );
-    // THE FIELD IS ABSENT FROM THE BYTES, not present-and-empty. That equivalence is the whole argument for
-    // `kControlRigVersion` staying at 1: a generation-1 file has no Graph, and no Graph means what it has
-    // always meant.
-    EXPECT_EQ( text.find( "\"Graph\"" ), std::string::npos ) << text;
+    // NO EVENT IS SPELLED: the rig without a solve writes `Graphs` empty (CRIG 4), never a present-but-empty
+    // graph, which Validate refuses.
+    EXPECT_EQ( text.find( "\"Nodes\"" ), std::string::npos ) << text;
 
     const auto parsed = Serialization::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    EXPECT_FALSE( parsed.GetValue().Graph.has_value() );
+    EXPECT_TRUE( parsed.GetValue().Graphs.empty() );
     // The header states the current generation, read back through the reader rather than searched for in the
     // bytes.
     ASSERT_TRUE( parsed.GetValue().Header.has_value() ) << text;
@@ -1240,7 +1242,7 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
 
     const auto back = Serialization::BuildDataFromControlRig( plain.Name, plain.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
-    EXPECT_FALSE( back.GetValue().Graph.has_value() ) << "a rig without a graph grew one on the way out";
+    EXPECT_TRUE( back.GetValue().Graphs.empty() ) << "a rig without a graph grew one on the way out";
 }
 
 TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
@@ -1254,77 +1256,83 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
     };
 
     // An empty graph: present-but-nothing is not a second spelling of absent.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes.clear(); } ).find( "no nodes" ),
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes.clear(); } )
+                    .find( "no nodes" ),
                std::string::npos );
 
     // No sink — the same sentence `RefuseDiscardedWork` produces for the walk, because it IS that function.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes.pop_back(); } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes.pop_back(); } )
                     .find( "writes nothing" ),
                std::string::npos );
 
     // An unknown kind.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[0].Kind = "GetSocket"; } )
-                    .find( "does not know" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[0].Kind = "GetSocket"; } )
+              .find( "does not know" ),
+         std::string::npos );
 
     // A pin the kind does not have.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Inputs[0].Pin = "C"; } )
-                    .find( "does not have" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Inputs[0].Pin = "C"; } )
+              .find( "does not have" ),
+         std::string::npos );
 
     // Two payloads on one pin: a precedence rule would make the loser invisible.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Inputs[1].Float = 1.0f; } )
-                    .find( "payloads" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Inputs[1].Float = 1.0f; } )
+              .find( "payloads" ),
+         std::string::npos );
 
     // No payload at all.
-    EXPECT_NE(
-         refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Inputs[1].Transform.reset(); } )
-              .find( "neither a link nor a value" ),
-         std::string::npos );
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
+                           { d.Graphs.front().Nodes[1].Inputs[1].Transform.reset(); } )
+                    .find( "neither a link nor a value" ),
+               std::string::npos );
 
     // A link to a node that comes later — the rule that makes a cycle unwritable.
     {
         const std::string forward = refusedFor( []( Serialization::ControlRigData& d )
-                                                { d.Graph->Nodes[1].Inputs[0].Link->Node = "place"; } );
+                                                { d.Graphs.front().Nodes[1].Inputs[0].Link->Node = "place"; } );
         EXPECT_NE( forward.find( "comes later" ), std::string::npos ) << "[" << forward << "]";
     }
 
     // A link to an output pin the producing kind does not have.
     EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[1].Inputs[0].Link->Pin = "Rotation"; } )
+                           { d.Graphs.front().Nodes[1].Inputs[0].Link->Pin = "Rotation"; } )
                     .find( "does not have" ),
                std::string::npos );
 
     // A Space on a kind that has none, and a missing one on a kind that needs it.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Space = "Local"; } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Space = "Local"; } )
                     .find( "no control space" ),
                std::string::npos );
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[2].Space = "World"; } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[2].Space = "World"; } )
                     .find( "neither Local nor Global" ),
                std::string::npos );
 
     // A control this rig does not define.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[2].Target = "Nose_CTRL"; } )
-                    .find( "does not define" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[2].Target = "Nose_CTRL"; } )
+              .find( "does not define" ),
+         std::string::npos );
 
     // Two nodes with one name.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Name = "elbowBone"; } )
-                    .find( "two graph nodes" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Name = "elbowBone"; } )
+              .find( "two graph nodes" ),
+         std::string::npos );
 }
 
 TEST( RigGraphTest, ABoneNameTheSkeletonDoesNotHaveIsRefusedAtBuildAndNamesTheSignature )
 {
     const Skeleton                skeleton = MakeArmRig();
     Serialization::ControlRigData data     = RigWithGraph();
-    ASSERT_TRUE( data.Graph.has_value() );
-    if ( !data.Graph.has_value() )
+    ASSERT_TRUE( !data.Graphs.empty() );
+    if ( data.Graphs.empty() )
     {
         return;
     }
-    data.Graph->Nodes[0].Target = "Tentacle";
+    data.Graphs.front().Nodes[0].Target = "Tentacle";
 
     // The FILE cannot know; only a skeleton can, and that is where the refusal lives.
     ASSERT_TRUE( Serialization::ValidateControlRigData( data ).IsSuccess() );
@@ -1361,7 +1369,7 @@ TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph
         const auto rig = Serialization::LoadControlRigFile( entry.path() );
         ASSERT_TRUE( rig.IsSuccess() ) << entry.path().filename().string() << ": " << rig.GetError();
         ++read;
-        if ( rig.GetValue().Graph.has_value() )
+        if ( !rig.GetValue().Graphs.empty() )
         {
             ++graphed;
         }
@@ -1372,4 +1380,73 @@ TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph
     // first real file is written by somebody with no example to copy — and the reachability of T5.5 from
     // content is the whole reason the `.derig` half of it was in scope at all.
     EXPECT_GE( graphed, 1U ) << "no shipped rig carries a graph, so nothing on disk runs T5.5";
+}
+
+// ── CRIG 4: solve events and limits ──────────────────────────────────────────────────────────────────
+
+TEST( RigGraphTest, ConstructionRunsOnceAndBeforeTheFirstForwardsSolve )
+{
+    const Skeleton      skeleton = MakeArmRig();
+    uint32_t            a        = ControlHierarchy::INVALID;
+    uint32_t            b        = ControlHierarchy::INVALID;
+    auto                stage    = TwoControlRig( skeleton, &a, &b );
+    const BoneTransform original = stage->GetHierarchy().Get( a ).Pose;
+    const BoneTransform moved    = Placed( { -70.0F, 33.0F, 8.0F }, -45.0F, { 1.0F, 1.0F, 0.0F } );
+    // A drives a bone too: the Forwards graph writes only A, and a forwards solve whose writes reach no
+    // driven bone is refused at SetGraph (it could not change the pose).
+    const auto drives =
+         stage->SetDrives( skeleton, { ControlBoneDrive{ a, kShoulder }, ControlBoneDrive{ b, kHand } } );
+    ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
+
+    // Construction copies A into B; Forwards moves A. Before-the-first-Forwards => B holds A's ORIGINAL;
+    // once => a second frame does not copy the moved A over it.
+    std::vector<RigNode> construction;
+    construction.push_back( MakeNode( "readA", RigNodeKind::GetControl, {}, a, RigControlSpace::Local ) );
+    construction.push_back(
+         MakeNode( "writeB", RigNodeKind::SetControl, { From( 0 ) }, b, RigControlSpace::Local ) );
+    RigGraph setup;
+    ASSERT_TRUE( setup.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), std::move( construction ) )
+                      .IsSuccess() );
+    ASSERT_TRUE( stage->SetGraph( std::move( setup ), RigEvent::Construction ).IsSuccess() );
+
+    std::vector<RigNode> forwards;
+    forwards.push_back(
+         MakeNode( "moveA", RigNodeKind::SetControl, { Lit( moved ) }, a, RigControlSpace::Local ) );
+    RigGraph solve;
+    ASSERT_TRUE(
+         solve.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), std::move( forwards ) ).IsSuccess() );
+    ASSERT_TRUE( stage->SetGraph( std::move( solve ), RigEvent::Forwards ).IsSuccess() );
+
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        const Ran ran = RunOverBindPose( *stage, skeleton );
+        ASSERT_TRUE( ran.Result.IsSuccess() ) << ran.Result.GetError();
+        const BoneTransform& bPose = stage->GetHierarchy().Get( b ).Pose;
+        EXPECT_FLOAT_EQ( bPose.Translation.x, original.Translation.x )
+             << "frame " << frame << ": Construction ran after Forwards or ran again";
+        EXPECT_FLOAT_EQ( stage->GetHierarchy().Get( a ).Pose.Translation.x, moved.Translation.x );
+    }
+}
+
+TEST( RigGraphTest, ALimitClampsWhatTheGraphWritesBecauseTheSetterApplysIt )
+{
+    const Skeleton     skeleton = MakeArmRig();
+    auto               stage    = std::make_unique<ControlRigStage>();
+    const ControlSpace world{ ControlSpaceKind::Component, 0, 1.0F };
+    ControlElement     limited = MakeControl( "L_CTRL", world, BoneTransform{}, BoneTransform{} );
+    limited.Limits.push_back( ControlLimit{ ControlLimitChannel::TranslationX, -1.0F, 1.0F } );
+    const uint32_t l = MustAdd( stage->GetHierarchy(), limited );
+    // Drives first: a forwards graph is installed only against them (SetGraph refuses otherwise).
+    const auto drives = stage->SetDrives( skeleton, { ControlBoneDrive{ l, kHand } } );
+    ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
+
+    std::vector<RigNode> nodes;
+    nodes.push_back( MakeNode( "push", RigNodeKind::SetControl,
+                               { Lit( Placed( { 5.0F, 7.0F, 0.0F }, 0.0F, { 0.0F, 0.0F, 1.0F } ) ) }, l,
+                               RigControlSpace::Local ) );
+    RunGraph( *stage, skeleton, nodes );
+
+    const BoneTransform& pose = stage->GetHierarchy().Get( l ).Pose;
+    EXPECT_FLOAT_EQ( pose.Translation.x, 1.0F ) << "TX [-1, 1] did not clamp 5";
+    EXPECT_FLOAT_EQ( pose.Translation.y, 7.0F ) << "an unlimited channel was touched";
 }

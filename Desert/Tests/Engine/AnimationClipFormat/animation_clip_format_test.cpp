@@ -185,9 +185,10 @@ TEST( AnimationClipFormat, AClipStatingNoSkeletonBuildsWithANullReference )
 
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
-    EXPECT_EQ(
-         FieldNames<Ser::SkeletonAssetData>(),
-         ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "PreviewMesh", "Signature" } ) );
+    // SKEL 4 added the sockets and the bone masks.
+    EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
+               ( std::vector<std::string>{ "BoneMasks", "Bones", "CompatibleSkeletons", "Header", "PreviewMesh",
+                                           "Signature", "Sockets" } ) );
     // BoneInfo is written to .skeleton verbatim; it carried a redundant BoneIndex once.
     EXPECT_EQ( FieldNames<Anim::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );

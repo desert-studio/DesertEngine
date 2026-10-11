@@ -847,16 +847,37 @@ TEST( TextureBinaryFormat, ACompressedLevelThatDoesNotDecodeIsAFailedReadAndNotA
 
 TEST( TextureBinaryFormat, AFlagThisVersionCannotHonourIsRefused )
 {
-    // `Flags` is written as zero by every version so far and it is a guard rather than dead space: a
-    // file that sets one was made by a build that knows something this one does not -- an sRGB marking
-    // it would have to honour -- and decoding it anyway would draw the texture in the wrong colour
-    // space, silently.
+    // `Flags` is a guard rather than dead space. Bit 0 is the sRGB marking this version defines and
+    // honours (see ASrgbMarkingIsHonouredNotRefused); the NEXT bit was set by a build that knows
+    // something this one does not, and decoding it anyway would draw the texture from a meaning this
+    // build cannot apply, silently.
     std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
-    const uint32_t srgb    = 1u;
-    std::memcpy( encoded.data() + 36, &srgb, sizeof( srgb ) ); // Flags
+    const uint32_t unknown = 1u << 1;
+    std::memcpy( encoded.data() + 36, &unknown, sizeof( unknown ) ); // Flags
     const auto read = DecodeTextureBinary( encoded, "flagged.tex" );
     EXPECT_FALSE( read.IsSuccess() );
     EXPECT_NE( read.GetError().find( "content flags" ), std::string::npos ) << read.GetError();
+}
+
+TEST( TextureBinaryFormat, ASrgbMarkingIsHonouredNotRefused )
+{
+    // Bit 0 is no longer a guard: it is the colour space, and it must survive the round trip on both
+    // the full decode and the header-only read the streamer uses.
+    TextureAssetData data     = Cook( 8, 8, SyntheticRGBA8( 8, 8 ) );
+    data.ColorSpace           = Desert::Core::Formats::TextureColorSpace::SRGB;
+    const std::string encoded = EncodeTextureBinary( data );
+
+    uint32_t flags = 0;
+    std::memcpy( &flags, encoded.data() + 36, sizeof( flags ) );
+    EXPECT_EQ( flags, kTextureFlagSRGB );
+
+    const auto read = DecodeTextureBinary( encoded, "srgb.tex" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue().ColorSpace, Desert::Core::Formats::TextureColorSpace::SRGB );
+
+    const auto header = DecodeTextureHeader( encoded, "srgb.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    EXPECT_EQ( header.GetValue().ColorSpace, Desert::Core::Formats::TextureColorSpace::SRGB );
 }
 
 TEST( TextureBinaryFormat, AnEncoderSignatureIsCarriedRatherThanRefused )

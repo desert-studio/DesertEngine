@@ -1,0 +1,9 @@
+{
+    "Header": {
+        "Kind": "Sound",
+        "Guid": "4b929a7a753845f0bfc66441fce02ab6",
+        "Versions": {},
+        "Dependencies": []
+    },
+    "Source": "DesertStudio.wav"
+}

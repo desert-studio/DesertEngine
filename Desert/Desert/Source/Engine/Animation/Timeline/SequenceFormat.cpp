@@ -86,7 +86,16 @@ namespace Desert::Animation::Timeline::Format
         double      TimeScale   = 1.0;
     };
 
-    /// Exactly one of the four content members is present — the SectionContent alternative.
+    struct AudioData
+    {
+        std::string Sound;
+        int32_t     StartOffset = 0;
+        float       Volume      = 1.0F;
+        int32_t     FadeIn      = 0;
+        int32_t     FadeOut     = 0;
+    };
+
+    /// Exactly one of the five content members is present — the SectionContent alternative.
     struct SectionData
     {
         int32_t                      Start = 0;
@@ -98,6 +107,7 @@ namespace Desert::Animation::Timeline::Format
         std::optional<ChannelData>   Channel;
         std::optional<AnimationData> Animation;
         std::optional<CameraCutData>   CameraCut;
+        std::optional<AudioData>       Audio;
         std::optional<SubsequenceData> Subsequence;
     };
 
@@ -262,6 +272,12 @@ namespace Desert::Animation::Timeline
                      SubsequenceData{ AssetGuidToText( sub->Sequence ), sub->StartOffset.Value, sub->TimeScale };
                 clips.push_back( out.Subsequence->Sequence );
             }
+            else if ( const auto* audio = std::get_if<AudioSectionContent>( &section.Content ) )
+            {
+                out.Audio = AudioData{ AssetGuidToText( audio->Sound ), audio->StartOffset.Value, audio->Volume,
+                                       audio->FadeIn.Value, audio->FadeOut.Value };
+                clips.push_back( out.Audio->Sound ); // a sound is a dependency as a clip is
+            }
             else
             {
                 out.CameraCut =
@@ -410,11 +426,13 @@ namespace Desert::Animation::Timeline
 
             const int contents =
                  static_cast<int>( data.Channel.has_value() ) + static_cast<int>( data.Animation.has_value() ) +
-                 static_cast<int>( data.CameraCut.has_value() ) + static_cast<int>( data.Subsequence.has_value() );
+                 static_cast<int>( data.CameraCut.has_value() ) + static_cast<int>( data.Audio.has_value() ) +
+                 static_cast<int>( data.Subsequence.has_value() );
             if ( contents != 1 )
             {
                 return Common::MakeFormattedError<Section>(
-                     "states {} of Channel / Animation / CameraCut / Subsequence; a section holds exactly one",
+                     "states {} of Channel / Animation / CameraCut / Audio / Subsequence; a section holds exactly "
+                     "one",
                      contents );
             }
             if ( data.Channel )
@@ -447,6 +465,17 @@ namespace Desert::Animation::Timeline
                 section.Content =
                      SubsequenceSectionContent{ played.GetValue(), FrameNumber{ data.Subsequence->StartOffset },
                                                 data.Subsequence->TimeScale };
+            }
+            else if ( data.Audio )
+            {
+                auto sound = AssetGuidFromText( data.Audio->Sound );
+                if ( !sound )
+                {
+                    return Common::MakeFormattedError<Section>( "Audio sound: {}", sound.GetError() );
+                }
+                section.Content = AudioSectionContent{ sound.GetValue(), FrameNumber{ data.Audio->StartOffset },
+                                                       data.Audio->Volume, FrameNumber{ data.Audio->FadeIn },
+                                                       FrameNumber{ data.Audio->FadeOut } };
             }
             else if ( data.CameraCut ) // the count above leaves this the only one present
             {

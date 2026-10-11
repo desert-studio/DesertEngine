@@ -176,8 +176,8 @@ namespace
         Common::ResultStr<Animation::SocketAttachmentId>
         AttachToSocket( const Animation::SocketAttachmentDesc& desc ) override
         {
-            if ( std::find( m_LeaderBones.begin(), m_LeaderBones.end(), desc.BoneName ) == m_LeaderBones.end() )
-                return Common::MakeError<Animation::SocketAttachmentId>( "no bone '" + desc.BoneName + "'" );
+            if ( std::find( m_LeaderBones.begin(), m_LeaderBones.end(), desc.SocketName ) == m_LeaderBones.end() )
+                return Common::MakeError<Animation::SocketAttachmentId>( "no bone '" + desc.SocketName + "'" );
             const Animation::SocketAttachmentId id{ ++m_NextId };
             Sockets[id.Value] = desc;
             return Common::MakeSuccess( id );
@@ -345,10 +345,10 @@ TEST( ClothHairEquipmentApi, TheHelmetGoesOnTheHeadSocketAndMakesNoCloth )
     Animation::SocketAttachmentDesc helmet{ Common::AssetHandle( k_Helmet ), "head", { 0, 12, 0 } };
     const auto                      attached = f.Character.AttachToSocket( helmet );
     ASSERT_TRUE( attached.IsSuccess() );
-    EXPECT_EQ( f.Character.Sockets.at( attached.GetValue().Value ).BoneName, "head" );
+    EXPECT_EQ( f.Character.Sockets.at( attached.GetValue().Value ).SocketName, "head" );
     EXPECT_EQ( f.Count.Created, 0 );
 
-    helmet.BoneName = "hat_bone";
+    helmet.SocketName = "hat_bone";
     EXPECT_FALSE( f.Character.AttachToSocket( helmet ).IsSuccess() );
     EXPECT_TRUE( f.Character.DetachFromSocket( attached.GetValue() ).IsSuccess() );
 }

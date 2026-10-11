@@ -2,6 +2,7 @@
 
 #include "../IPanel.hpp"
 #include "LevelMaterialProperties.hpp"
+#include "OutlinerColumn.hpp"
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
@@ -29,6 +30,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Desert::Core
 {
@@ -298,6 +300,15 @@ namespace Desert::Editor
         /// The Event track row of @p binding (UE: the Event Track): "+ Key" at the playhead, each key a marker
         /// with its name; click selects, a drag retimes it on the display grid (one undo step on release), the
         /// selected key's name is edited in the row (one undo step per committed edit), Delete removes it.
+        /// A row's name in the Outliner's names column at (@p x, the cursor's line): fitted with "…" to the
+        /// column's right edge (`m_LevelNameWidth` from @p contentX0), the full name in its tooltip when cut.
+        void DrawLevelRowLabel( std::string_view label, float contentX0, float x );
+        /// The cursor to the controls column on the line of the item just drawn (UE: a row's buttons sit
+        /// after the names column, wherever its splitter is).
+        void SameLineAtLevelControls( float contentX0 ) const;
+        /// The splitter at the names column's right edge over [@p yTop, @p yBottom]: a drag sets
+        /// `m_LevelNameWidth`; the cursor is left where it was.
+        void DrawLevelNameSplitter( float contentX0, float yTop, float yBottom, float panelWidth );
         void DrawLevelEventRow( Animation::Timeline::Sequence&          sequence,
                                 const Animation::Timeline::BindingGuid& binding, const char* label,
                                 float contentX0, float laneX0, float laneW );
@@ -379,6 +390,8 @@ namespace Desert::Editor
         std::optional<std::pair<int, int32_t>> m_LevelRangeDrag;
         int  m_LevelRangeFields[2] = {}; ///< the toolbar's range fields (display frames)
         bool m_LevelRangeEditing   = false;
+        /// The Outliner's names column width (UE: the Sequencer's splitter between the tree and the lanes).
+        float                                      m_LevelNameWidth = Sequencer::OutlinerColumn::kDefaultNameWidth;
         std::optional<Animation::Timeline::Player> m_LevelPlayer;
         Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
         Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };
@@ -526,6 +539,9 @@ namespace Desert::Editor
         [[nodiscard]] ECS::UIAnimData* ResolveUIClip();
         // "Key this lane at the playhead", shared by the lane's + button and by the palette action.
         void AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane );
+        // UE's Audio section Details (UMovieSceneAudioSection): sound, range, start offset, volume, fades —
+        // each change one undo step of the clip's transaction.
+        void DrawUIAudioSectionDetails( ECS::UIAnimData& clip, size_t trackIndex, size_t sectionIndex );
 
         // The two edges of a HELD widget in the UI timeline (a Duration drag, a key's value field), in one
         // place. See the definition for why it closes on IsItemDeactivated and not on the AfterEdit form.
@@ -644,6 +660,10 @@ namespace Desert::Editor
         // UI-clip editing state (which lane/key is selected in UI mode).
         int m_UITrack = -1;
         int m_UIKey   = -1;
+        /// The selected section of an Audio lane (m_UITrack is its track); -1 when a key, or nothing, is.
+        int m_UIAudioSection = -1;
+        /// "+ Track > Audio"'s sound: an Assets-relative path, as AudioSectionContent::Sound names it.
+        Common::Content::AssetGuid m_UIAudioSound; // the `.desound` the next "+ Track > Audio" plays
 
         // ── SECTION AUTHORING STATE ───────────────────────────────────────────────────────────────
         //

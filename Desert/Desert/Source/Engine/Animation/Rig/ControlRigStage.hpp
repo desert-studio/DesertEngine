@@ -56,6 +56,8 @@
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
 #include <Engine/Animation/Rig/RigGraph.hpp>
 
+#include <array>
+
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
@@ -139,19 +141,19 @@ namespace Desert::Animation
          * the precomputed one-step adjacency; the closure is one forward sweep because a control's parents
          * are always added before it.
          */
-        [[nodiscard]] Common::BoolResultStr SetGraph( RigGraph graph );
+        [[nodiscard]] Common::BoolResultStr SetGraph( RigGraph graph, RigEvent event = RigEvent::Forwards );
 
-        [[nodiscard]] const RigGraph& GetGraph() const
+        [[nodiscard]] const RigGraph& GetGraph( RigEvent event = RigEvent::Forwards ) const
         {
-            return m_Graph;
+            return m_Graphs[static_cast<size_t>( event )];
         }
 
         /// Whether a forwards solve is installed. NO GRAPH IS A LEGAL RIG and means what T5.4 shipped: a
         /// control reaches its bone through identity. It is also the suite's positive control — the same
         /// pipeline with no graph must produce the same BYTES it produced before this file learned the word.
-        [[nodiscard]] bool HasGraph() const
+        [[nodiscard]] bool HasGraph( RigEvent event = RigEvent::Forwards ) const
         {
-            return !m_Graph.Empty();
+            return !GetGraph( event ).Empty();
         }
 
         /**
@@ -164,6 +166,11 @@ namespace Desert::Animation
          */
         [[nodiscard]] Common::BoolResultStr Evaluate( const Skeleton& skeleton, LocalPose& pose,
                                                       ComponentPose& component );
+
+        /// Bones -> controls: resolves the hierarchy against @p component and runs the Backwards graph, whose
+        /// SetControl nodes leave the controls posed to match the bones (limits applied by the setter). The
+        /// pose is not written. Refused when no Backwards graph is installed — a bake with nothing to run.
+        [[nodiscard]] Common::BoolResultStr SolveBackwards( const Skeleton& skeleton, ComponentPose& component );
 
         /// The last refusal, or empty. Kept for the reason `BoneControl::GetLastError` is: a per-frame
         /// failure that exists only in a log line is a failure an editor cannot show.
@@ -184,7 +191,10 @@ namespace Desert::Animation
 
         ControlHierarchy              m_Hierarchy;
         std::vector<ControlBoneDrive> m_Drives;
-        RigGraph                      m_Graph;
+        /// Indexed by `RigEvent`.
+        std::array<RigGraph, kRigEventCount> m_Graphs;
+        /// Whether the Construction graph has run since it was installed.
+        bool m_Constructed = false;
 
         /// Reused between frames so an evaluation allocates nothing after the first, as `BoneControl` does.
         std::vector<BoneOverride>  m_Overrides;

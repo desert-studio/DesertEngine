@@ -20,10 +20,12 @@
 #include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
 #include "Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp"
+#include "Editor/Panels/Retarget/RetargetDocument.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
+#include "Editor/Panels/ControlRig/ControlRigDocument.hpp"
 #include "Editor/Panels/UI/UIEditorPanel.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
@@ -31,6 +33,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
@@ -130,6 +133,21 @@ namespace Desert::Editor
                              assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
                   } } );
 
+        // THE CONTROL RIG EDITOR (07_panels_design §11.2): elements, the Forwards-solve canvas, the inspector.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::ControlRig ) ),
+             Registration{
+                  "Control Rig", ICON_MDI_HUMAN_HANDSUP,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::ControlRigDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                           assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
         // THE SKYBOX VIEWER. Claims a renderer slot (a PreviewViewport), so it lives under the slot census below.
         documents.SubjectEditors().Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Skybox ) ),
@@ -206,6 +224,21 @@ namespace Desert::Editor
                       return std::make_unique<Editor::AnimationEditorDocument>(
                            Assets::AssetHandle( subject.Owner ), Core::PersonaMode::Skeleton, assetManager.get(),
                            &documents.SubjectEditors() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE RETARGET EDITOR (UE's IK Retargeter editor): the source and target rigs side by side, the chains.
+        // Two previews, so a renderer-slot claimant like the mesh viewer.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Retarget ) ),
+             Registration{
+                  "Retarget", ICON_MDI_SWAP_HORIZONTAL,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
+                      return std::make_unique<Editor::RetargetDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                         assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -322,9 +355,9 @@ namespace Desert::Editor
                              assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
                   } } );
 
-        // ── THE THREE DOCUMENTS WHOSE SUBJECT IS NOT A FILE ───────────────────────────────────────────
+        // ── THE DOCUMENTS WHOSE SUBJECT IS NOT A FILE ─────────────────────────────────────────────────
         //
-        // This is what U7 bought. All three were singleton panels that drew "whatever entity is selected"
+        // This is what U7 bought. They were singleton panels that drew "whatever entity is selected"
         // (or, for the UI editor, whichever canvas the registry listed first), and all three are now opened
         // FROM the component that holds their data, by a button in Details — which is the thing the owner
         // asked for and the thing the old asset-keyed seam could not express.
@@ -332,25 +365,11 @@ namespace Desert::Editor
         // THE FACTORY TAKES THE SCENE THAT IS ACTIVE AT THE MOMENT OF THE OPEN, and that is deliberate:
         // the subject is an entity UUID, and a UUID belongs to ONE registry. Captured by reference to the
         // member so a document opened from the second scene view binds to the second scene — and then
-        // never follows the fanout again (AnimGraphPanel::SetScene is a documented no-op).
+        // never follows the fanout again.
         //
         // The DISPLAY name is the entity's, resolved once here rather than by the document: the document
         // must not need a scene to know what it is called, and a name is a label while the subject is the
         // identity — renaming the entity does not open a second window.
-        documents.SubjectEditors().Register(
-             Editor::AnimGraphPanel::SubjectType(),
-             Registration{ Editor::AnimGraphPanel::kComponentTypeName, ICON_MDI_STATE_MACHINE,
-                           [&documents, &workspace, &assetManager,
-                            &animationLibrary]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
-                           {
-                               return std::make_unique<Editor::AnimGraphPanel>(
-                                    subject, documents.SubjectEntityName( subject, "Anim Graph" ),
-                                    workspace.ActiveScene(), animationLibrary.get(), assetManager.get() );
-                           },
-                           [&workspace]( const SubjectId& subject ) {
-                               return ActiveEntityHasComponent<ECS::AnimationComponent>( workspace,
-                                                                                         subject.Owner );
-                           } } );
         documents.SubjectEditors().Register(
              Editor::ParticleEditorPanel::SubjectType(),
              Registration{
@@ -445,6 +464,29 @@ namespace Desert::Editor
                              assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
                   } } );
 
+        // THE ANIM GRAPH (ANIM-FIX8) — UE: double-clicking an Animation Blueprint opens its editor over the
+        // ASSET, with no character in the level. The Details button of an Animation component sends the
+        // same asset subject for the graph its slot names.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::AnimGraph ) ),
+             Registration{
+                  "AnimGraph", ICON_MDI_STATE_MACHINE,
+                  [&assetManager,
+                   &animationLibrary]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      const auto* meta =
+                           assetManager
+                                ? assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) )
+                                : nullptr;
+                      return std::make_unique<Editor::AnimGraphPanel>(
+                           subject, meta != nullptr ? meta->Filepath.stem().string() : std::string( "Anim Graph" ),
+                           animationLibrary.get(), assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
         // ── AND HOW A PATH BECOMES ONE OF THEM ────────────────────────────────────────────────────────
         //
         // The asset browser's double-click used to carry a chain of `else if` over the file types, one arm
@@ -506,6 +548,9 @@ namespace Desert::Editor
                                                               documents.SubjectEditors() );
              } );
         documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::kAnimGraphExtension ) }, [&assetManager, &documents]( const std::string& path )
+             { return RequestAnimGraphDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
              { std::string( Common::Constants::Extensions::STATIC_MESH ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestStaticMeshDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
@@ -519,6 +564,14 @@ namespace Desert::Editor
                std::string( Common::Content::KindSpec( Common::Content::ContentKind::Skeleton ).Extension ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestAnimationEditorDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Common::Content::KindSpec( Common::Content::ContentKind::Retarget ).Extension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestRetargetDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kControlRigExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestControlRigDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [&assetManager]( const std::string& path )

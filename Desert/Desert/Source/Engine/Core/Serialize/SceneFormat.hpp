@@ -70,7 +70,10 @@ namespace Desert::Core
     // MigrateTimeOfDayComponentV43ToV44).
     // v45 (GP3): SceneSettings states PlayerController and RespawnDelay (Tools/SceneMigrator,
     // MigrateGameModeSettingsV44ToV45).
-    inline constexpr int kSceneVersion = 45;
+    // v46 (SOUND-ASSET): a sound is a `.desound` asset named by GUID — AudioSource.Clip (a file path) is
+    // AudioSource.Sound {Guid, Path}, and a sequence's Audio section names the sound's GUID (Tools/SceneMigrator,
+    // MigrateSoundRefsV45ToV46).
+    inline constexpr int kSceneVersion = 46;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
