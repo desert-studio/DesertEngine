@@ -151,8 +151,8 @@ namespace Desert::UI::Walk
         // A control inside a row (a button, a toggle) takes its own click, as a UE button in an entry does —
         // also when the pointer landed on its label or icon: the click bubbles to that control
         // (UIViewContext::PointerTarget), never to the row under it.
-        const NodeId    ctl       = ctx.View.PointerTarget;
-        const bool      onControl = ( hot != e && tree.Valid( hot ) && IsFocusable( tree, hot ) ) ||
+        const NodeId ctl       = ctx.View.PointerTarget;
+        const bool   onControl = ( hot != e && tree.Valid( hot ) && IsFocusable( tree, hot ) ) ||
                                ( ctl != e && ctl != NodeId::Null && HotWithin( tree, ctl, e ) );
         if ( HotWithin( tree, hot, e ) && !overBar && PointIn( rect, p ) && ctx.View.ThumbDrag.Owner != e )
             for ( int i = window.First; i <= window.Last; ++i )
