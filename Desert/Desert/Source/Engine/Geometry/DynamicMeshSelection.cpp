@@ -123,7 +123,7 @@ namespace Desert::Geometry
     // the visual-angle PointSnapQuery replaced by the viewport-pixel tolerance of PickView, back faces hit and
     // occlude (the mechanic's bHitBackFaces default), an occluded edge skipped rather than failing the pick
     // (PickNearestEdge says why), and the occlusion ray bounded at the eye with the relative
-    // slack of Visible() instead of UE's absolute 100 * ZeroTolerance, which is below float resolution at
+    // slack (1e-4 * distance + 1e-2 cm) instead of UE's absolute 100 * ZeroTolerance, which is below float resolution at
     // centimetre scale.
     namespace
     {

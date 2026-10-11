@@ -93,29 +93,18 @@ namespace Desert::Editor
                                                                asset.Name, lod );
 
             BuiltModel built;
-            if ( const auto* materials = mesh.Attributes()->GetMaterialID() )
-                for ( const int t : mesh.TriangleIndicesItr() )
-                    built.MaterialIds.push_back( materials->GetValue( t ) );
-            else
-                built.MaterialIds.push_back( 0 );
+            built.MaterialIds = Geometry::DistinctMaterialIds( mesh );
             // UE builds tangents when the source has none (FStaticMeshBuilder: ComputeTangents on a
             // MeshDescription without them).
-            if ( !mesh.Attributes()->HasTangentSpace() )
-            {
-                mesh.Attributes()->EnableTangents();
-                if ( auto r = Geometry::RecomputeTangentSpace( mesh, "Mesh Deriver" ); !r.IsSuccess() )
-                    return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: tangents: {}", asset.Name, lod,
-                                                                   r.GetError() );
-            }
+            if ( auto r = Geometry::EnsureTangentSpace( mesh, "Mesh Deriver" ); !r.IsSuccess() )
+                return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: tangents: {}", asset.Name, lod,
+                                                               r.GetError() );
 
             auto transformed = Geometry::TransformMesh( mesh, SourceToEngine( asset.Import.Settings ) );
             if ( !transformed.IsSuccess() )
                 return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: import transform: {}", asset.Name, lod,
                                                                transformed.GetError() );
 
-            std::ranges::sort( built.MaterialIds );
-            built.MaterialIds.erase( std::unique( built.MaterialIds.begin(), built.MaterialIds.end() ),
-                                     built.MaterialIds.end() );
             std::vector<Common::Content::AssetGuid> slotMaterials;
             for ( const int id : built.MaterialIds )
             {

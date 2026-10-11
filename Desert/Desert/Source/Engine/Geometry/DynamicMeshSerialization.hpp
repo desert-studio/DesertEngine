@@ -10,12 +10,11 @@
 
 namespace Desert::Geometry
 {
-    // DynamicMesh3 <-> the saved mesh form a scene stores under StaticMesh.EditMesh (SavedMeshForm.hpp). The
-    // form is the one EditMeshSerialization reads and writes, unchanged, so a scene written by either core
-    // opens in the other and the scene schema does not move.
+    // DynamicMesh3 <-> the saved mesh form a scene stores under StaticMesh.EditMesh (SavedMeshForm.hpp; the
+    // stored key keeps its name, so scenes written before the core moved to DynamicMesh3 open unchanged).
     //
     // UE has no counterpart: its dynamic meshes are saved through FMeshDescription / UObject serialization,
-    // neither of which Desert has. This is the EditMesh serializer carried onto the ported core.
+    // neither of which Desert has. This is Desert's own serializer for the ported core.
     //
     // WHAT MAPS TO WHAT. Positions -> vertices (float widened to double and back, exact); PolyGroups -> the
     // mesh's triangle groups; MaterialIds -> the MaterialID attribute; Normals -> normal layer 0; Colors ->
@@ -25,8 +24,8 @@ namespace Desert::Geometry
     // TANGENTS. The form stores a tangent element as xyz + a handedness sign; DynamicMesh3 stores the
     // tangent (normal layer 1) and the bitangent (normal layer 2) as overlays of their own, the way UE does.
     // Reading makes one bitangent element per (tangent element, normal element) pair a triangle uses, valued
-    // cross(N, T) * sign - bit for bit what the EditMesh render conversion computes per render vertex, so the
-    // two cores draw the same thing. Writing recovers the sign as UE's VectorUtil::BinormalSign does:
+    // cross(N, T) * sign - bit for bit what the render conversion computes per render vertex, so a mesh draws
+    // the same before a save and after a load. Writing recovers the sign as UE's VectorUtil::BinormalSign does:
     // -1 where dot(cross(N, T), B) < 0 at the first corner (ascending triangle, saved corner order) that has
     // both a normal and a bitangent, +1 otherwise. So only a sign of exactly +1 or -1 is readable, a -1 must
     // sit on at least one corner whose frame is not degenerate (cross(N, T) != 0), and a triangle set in the
@@ -34,11 +33,11 @@ namespace Desert::Geometry
     // that would write back something different. A tangent layer without a bitangent layer (two normal
     // layers) writes every sign as +1 by the same rule.
     //
-    // WINDING. The form's triangles are front-facing counter-clockwise (as EditMesh and the render mesh are);
+    // WINDING. The form's triangles are front-facing counter-clockwise (as the render mesh is);
     // DynamicMesh3 keeps UE's clockwise front. Both directions swap corners 1 and 2 of every triangle, of
     // the mesh and of every overlay, the same boundary DynamicMeshRenderConversion keeps.
     //
-    // IDS ARE COMPACTED ON WRITE, as the EditMesh writer does: vertices, triangles and each overlay's
+    // IDS ARE COMPACTED ON WRITE: vertices, triangles and each overlay's
     // elements are numbered densely in ascending ID order; an element no live triangle uses is not written.
 
     [[nodiscard]] MeshSavedForm ToSerialized( const DynamicMesh3& mesh );

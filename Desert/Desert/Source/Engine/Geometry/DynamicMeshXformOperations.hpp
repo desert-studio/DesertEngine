@@ -198,4 +198,9 @@ namespace Desert::Geometry
     // one copy in total, more than kMaxPatternCopies, a zero spacing (copies would coincide), a Circle
     // radius <= 0 or a sweep of 0 or beyond +-360 degrees.
     [[nodiscard]] Common::ResultStr<std::vector<glm::mat4>> PatternTransforms( const PatternSettings& settings );
+
+    // LIGHTING FOLLOWS A DEFORM: after `movedVertices` were moved in place, every triangle touching one of them
+    // gives its primary normal elements its new face normal. A seam stays a seam - only element VALUES change,
+    // never which triangles share one. A mesh with no normal overlay is left as it is.
+    void RefreshFaceNormalsAround( DynamicMesh3& mesh, std::span<const int> movedVertices );
 } // namespace Desert::Geometry

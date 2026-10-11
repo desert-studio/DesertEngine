@@ -10,6 +10,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -236,21 +237,7 @@ namespace Desert::Editor::Tools
                     // Lighting follows the deform: every triangle touching a moved vertex gives its normal
                     // elements its new face normal, the rule the tool applied to render vertices before. A
                     // seam stays a seam - only element VALUES change, never which triangles share one.
-                    if ( auto* normals = next->HasAttributes() ? next->Attributes()->PrimaryNormals() : nullptr )
-                    {
-                        std::unordered_set<int> touched;
-                        for ( const int vtx : m_SelVerts )
-                            for ( const int t : next->VtxTrianglesItr( vtx ) )
-                                touched.insert( t );
-                        for ( const int t : touched )
-                            if ( normals->IsSetTriangle( t ) )
-                            {
-                                const glm::vec3         n  = glm::vec3( next->GetTriNormal( t ) );
-                                const Geometry::Index3i el = normals->GetTriangle( t );
-                                for ( int j = 0; j < 3; ++j )
-                                    normals->SetElement( el[j], n );
-                            }
-                    }
+                    Geometry::RefreshFaceNormalsAround( *next, m_SelVerts );
                     if ( auto set = ECS::SetEditableMesh( target->Mesh(), std::move( next ) ); set.IsSuccess() )
                     {
                         m_CentroidWorld += ds * wN;

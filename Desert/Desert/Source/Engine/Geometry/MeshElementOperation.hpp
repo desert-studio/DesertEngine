@@ -1,7 +1,7 @@
 #pragma once
 
 // The Select Elements verbs that are not region extrusions (MeshRegionOperation.hpp) nor plane operations
-// (MeshPlaneOperation.hpp): Delete, Offset, Bevel, Cut and Clean, on a copy of an DynamicMesh3 as UE's PolyEdit
+// (MeshPlaneOperation.hpp): Delete, Offset, Bevel, Cut and Clean, on a copy of a DynamicMesh3 as UE's PolyEdit
 // runs its verbs (EditMeshPolygonsTool.cpp ApplyDeleteFaces / UPolyEditBevelEdgeActivity / the Cut activity).
 //
 // Same contract as MeshRegionOperation.hpp: the input is not touched, the result is a NEW mesh plus the region

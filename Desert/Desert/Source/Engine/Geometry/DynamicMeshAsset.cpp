@@ -6,6 +6,7 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
 #include <array>
 #include <map>
 #include <vector>
@@ -16,9 +17,8 @@ namespace Desert::Geometry
 
     namespace
     {
-        // THE FILE'S BITANGENT IS A SIGN. Both writers put cross(N, T) * sign there (the EditMesh render
-        // conversion per render vertex, the DynamicMesh3 one through the P6 reader's bitangent elements), and
-        // the EditMesh reader keeps only the sign. Welding the stored vectors instead would merge a -0 and a +0
+        // THE FILE'S BITANGENT IS A SIGN. The writer puts cross(N, T) * sign there (through the P6
+        // reader's bitangent elements), and only the sign is meaningful on the way back. Welding the stored vectors instead would merge a -0 and a +0
         // component at one vertex (they are within any tolerance) and the file would not write back to the
         // same bytes; so the bitangent overlay is rebuilt here as the P6 reader builds it: one element per
         // (normal element, tangent element, sign) a corner uses, valued cross(N, T) * sign.
@@ -134,5 +134,62 @@ namespace Desert::Geometry
             if ( const int t = result.TriangleOfFace[k]; t != DynamicMesh3::InvalidID )
                 mesh.SetTriangleGroup( t, data.PolyGroups[k] );
         return Common::MakeSuccess( std::move( result ) );
+    }
+
+    int MaxMaterialId( const DynamicMesh3& mesh )
+    {
+        const auto* materials = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
+        int         top       = -1;
+        if ( materials )
+            for ( const int t : mesh.TriangleIndicesItr() )
+                top = std::max( top, static_cast<int>( materials->GetValue( t ) ) );
+        return top;
+    }
+
+    Common::BoolResultStr RemapMaterialIds( DynamicMesh3& mesh, std::span<const int> newIdOfOld )
+    {
+        auto* materials = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
+        if ( !materials )
+            return Common::MakeSuccess( true );
+        for ( const int t : mesh.TriangleIndicesItr() )
+            if ( const int32_t id = materials->GetValue( t );
+                 id < 0 || static_cast<size_t>( id ) >= newIdOfOld.size() )
+                return Common::MakeFormattedError<bool>(
+                     "triangle {} carries MaterialID {}, outside the {}-entry slot table", t, id, newIdOfOld.size() );
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const int32_t next = newIdOfOld[static_cast<size_t>( materials->GetValue( t ) )];
+            materials->SetValue( t, &next );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    std::vector<int> DistinctMaterialIds( const DynamicMesh3& mesh )
+    {
+        const auto* materials = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr;
+        if ( !materials )
+            return { 0 };
+        std::vector<int> ids;
+        for ( const int t : mesh.TriangleIndicesItr() )
+            ids.push_back( static_cast<int>( materials->GetValue( t ) ) );
+        std::sort( ids.begin(), ids.end() );
+        ids.erase( std::unique( ids.begin(), ids.end() ), ids.end() );
+        return ids;
+    }
+
+    Common::BoolResultStr MapMaterialIds( DynamicMesh3& mesh, const std::function<int( int )>& map )
+    {
+        DynamicMeshAttributeSet* attributes = mesh.Attributes();
+        if ( attributes == nullptr )
+            return Common::MakeError<bool>( "the mesh has no attribute set to carry its materials" );
+        if ( !attributes->HasMaterialID() )
+            attributes->EnableMaterialID();
+        auto* materials = attributes->GetMaterialID();
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const int32_t next = static_cast<int32_t>( map( static_cast<int>( materials->GetValue( t ) ) ) );
+            materials->SetValue( t, &next );
+        }
+        return Common::MakeSuccess( true );
     }
 } // namespace Desert::Geometry

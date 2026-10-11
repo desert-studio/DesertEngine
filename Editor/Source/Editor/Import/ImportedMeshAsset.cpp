@@ -147,12 +147,9 @@ namespace Desert::Editor
             Geometry::DynamicMesh3& mesh = welded.Mesh;
             // DynamicMeshFromMeshAssetData numbers materials by submesh; the source numbers them by the shared
             // slot table.
-            if ( auto* materials = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr )
-                for ( const int t : mesh.TriangleIndicesItr() )
-                {
-                    const int32_t slot = slotOfSubmesh[static_cast<size_t>( materials->GetValue( t ) )];
-                    materials->SetValue( t, &slot );
-                }
+            if ( auto remapped = Geometry::RemapMaterialIds( mesh, slotOfSubmesh ); !remapped.IsSuccess() )
+                return Common::MakeFormattedError<Result>( "'{}' LOD{} cannot become a source model: {}", name,
+                                                           level, remapped.GetError() );
             out.Source.Models.push_back( { Geometry::ToSerialized( mesh ) } );
         }
         return Common::MakeSuccess( std::move( out ) );

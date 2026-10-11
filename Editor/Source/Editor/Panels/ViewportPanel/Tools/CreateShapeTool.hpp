@@ -24,7 +24,7 @@ namespace Desert::Editor::Tools
 {
     // Modeling Mode -> Create: places a parametric shape (UE's UAddPrimitiveTool). The geometry is
     // Geometry::ShapeGenerators - the one source every primitive comes from - and the placed entity carries
-    // it as its EditMesh (SetEditableMesh), so the Model tools can edit it straight away. One click, one
+    // it as its editable mesh (SetEditableMesh), so the Model tools can edit it straight away. One click, one
     // entity, one undo step.
     class CreateShapeTool
     {
@@ -67,7 +67,7 @@ namespace Desert::Editor::Tools
         PlacementSpot( const ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
                        const Core::ModelingState::ShapeSettings& settings );
 
-        // Creates the entity at `spot` with the shape as its EditMesh, selects it and records ONE undo step.
+        // Creates the entity at `spot` with the shape as its editable mesh, selects it and records ONE undo step.
         // Refused, with nothing left in the scene, when the shape does not become a mesh.
         [[nodiscard]] static Common::ResultStr<Common::UUID>
         Place( ::Desert::Core::Scene& scene, const Core::ModelingState::ShapeSettings& settings,

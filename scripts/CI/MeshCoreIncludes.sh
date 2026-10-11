@@ -2,8 +2,8 @@
 # ONLY THE GEOMETRY ADAPTERS MAY INCLUDE Engine/Geometry/MeshCore/ FROM OUTSIDE IT.
 #
 # WHY THIS EXISTS. MeshCore is UE's GeometryCore ported into the project (GC1-GC5). The rest of the engine and
-# the editor reach it through a thin layer of adapters in Engine/Geometry/ (EditMeshBridge and the DynamicMesh*
-# files), so a change of the port's API is absorbed in one place. Before GC5 the editor's MeshElementSelection
+# the editor reach it through a thin layer of adapters in Engine/Geometry/ (the DynamicMesh*
+# files and the element/region operations), so a change of the port's API is absorbed in one place. Before GC5 the editor's MeshElementSelection
 # included two MeshCore headers directly and nothing said so.
 #
 # THE RELATION PINNED HERE is not a count. It is: every tracked source outside MeshCore/ and outside the test

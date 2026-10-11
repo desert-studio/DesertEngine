@@ -10,21 +10,20 @@
 
 namespace Desert::Geometry
 {
-    // DynamicMesh3 <-> the engine's render-mesh arrays (RenderMeshData.hpp), the same arrays and the same
-    // rules as the EditMesh conversion (EditMeshConversion.hpp), so a caller can switch cores without the
-    // render side seeing a difference.
+    // DynamicMesh3 <-> the engine's render-mesh arrays (RenderMeshData.hpp), the arrays every
+    // mesh the renderer draws is built from.
     //
     // UE's counterparts (FDynamicMeshToMeshDescription / FMeshDescriptionToDynamicMesh) convert to
     // FMeshDescription, which Desert does not have; the render side here is Desert's own Vertex / Index /
-    // Submesh, so this is the EditMesh conversion carried onto the ported core, not a port.
+    // Submesh, so this is Desert's own conversion, not a port.
     //
     // WHAT CROSSES. The primary normal overlay; the primary tangent and bitangent overlays when the mesh has a
     // tangent space (UE stores the bitangent as its own overlay, so it crosses as stored rather than being
-    // rebuilt from a handedness sign as the EditMesh layer does); ONE UV layer; the MaterialID attribute (no
+    // rebuilt from a handedness sign); ONE UV layer; the MaterialID attribute (no
     // MaterialID attribute means every triangle is material 0). A render vertex is one (vertex, normal
     // element, tangent element, bitangent element, UV element) tuple, emitted once per submesh.
     //
-    // WINDING. A render (and EditMesh) triangle is front-facing counter-clockwise; DynamicMesh3 keeps UE's
+    // WINDING. A render triangle is front-facing counter-clockwise; DynamicMesh3 keeps UE's
     // clockwise front (VectorUtil::Normal is (V2-V0)x(V1-V0)), so MeshNormals and every other ported algorithm
     // stays verbatim. Both conversions swap corners 1 and 2; a round trip restores the render order exactly.
     //

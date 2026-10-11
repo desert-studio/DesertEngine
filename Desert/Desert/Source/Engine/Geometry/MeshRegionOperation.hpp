@@ -80,6 +80,10 @@ namespace Desert::Geometry
     // as it is. Refused, naming @p name, when the mesh has tangents but no UV layer 0, or the tangents cannot be
     // written.
     [[nodiscard]] Common::BoolResultStr RecomputeTangentSpace( DynamicMesh3& mesh, const char* name );
+    // A mesh with an attribute set but no tangent space gets one, built as RecomputeTangentSpace builds it
+    // (UE's FStaticMeshBuilder computes tangents for a source without them); one that has tangents is left as
+    // it is. Refused as RecomputeTangentSpace refuses, and on a mesh with no attribute set.
+    [[nodiscard]] Common::BoolResultStr EnsureTangentSpace( DynamicMesh3& mesh, const char* name );
 
     // The Subdivide tool's settings, UE's USubdividePolyToolProperties (SubdividePolyTool.h:44-62) with its
     // defaults. Not ported: bAddExtraCorners / ExtraCornerAngleThresholdDegrees (GroupTopology here has no

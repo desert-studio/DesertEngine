@@ -255,7 +255,7 @@ namespace
 {
     // A 2 x 2-quad plane (faces 0..7) plus the three shapes an FBX export leaves behind: a degenerate face
     // (face 8), a duplicate of face 0 (face 9) and a fin on the plane's shared edge 1-3 (face 10), which
-    // EditMesh cannot share and stands on its own corner copies. Face k carries polygroup 100 + k.
+    // DynamicMesh3 cannot share and stands on its own corner copies. Face k carries polygroup 100 + k.
     Ser::MeshAssetData PlaneWithExportDebris()
     {
         Ser::MeshAssetData data;

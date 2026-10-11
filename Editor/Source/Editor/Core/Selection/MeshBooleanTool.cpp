@@ -16,6 +16,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshBooleanOperation.hpp>
 
@@ -102,27 +103,23 @@ namespace Desert::Editor::Core
             auto mesh = std::make_shared<Geometry::DynamicMesh3>( std::move( moved.ExtractValue().Mesh ) );
             if ( table )
             {
-                if ( !mesh->HasAttributes() )
-                    return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}' has no attribute set to carry its "
-                                                                       "materials",
-                                                                       name, other.Name );
-                if ( !mesh->Attributes()->HasMaterialID() )
-                    mesh->Attributes()->EnableMaterialID();
-                auto*       materials = mesh->Attributes()->GetMaterialID();
-                const auto& slots     = other.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
-                for ( const int t : mesh->TriangleIndicesItr() )
-                {
-                    // A material ID past the slots reads as the empty slot, as the renderer draws it.
-                    const int                 id     = materials->GetValue( t );
-                    const Common::AssetHandle handle = id >= 0 && static_cast<size_t>( id ) < slots.size()
-                                                            ? slots[static_cast<size_t>( id )]
-                                                            : Common::AssetHandle{};
-                    auto                      it     = std::find( table->begin(), table->end(), handle );
-                    if ( it == table->end() )
-                        it = table->insert( table->end(), handle );
-                    const int32_t slot = static_cast<int32_t>( it - table->begin() );
-                    materials->SetValue( t, &slot );
-                }
+                const auto& slots = other.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+                auto        mapped = Geometry::MapMaterialIds(
+                     *mesh,
+                     [&]( const int id )
+                     {
+                         // A material ID past the slots reads as the empty slot, as the renderer draws it.
+                         const Common::AssetHandle handle = id >= 0 && static_cast<size_t>( id ) < slots.size()
+                                                                 ? slots[static_cast<size_t>( id )]
+                                                                 : Common::AssetHandle{};
+                         auto it = std::find( table->begin(), table->end(), handle );
+                         if ( it == table->end() )
+                             it = table->insert( table->end(), handle );
+                         return static_cast<int>( it - table->begin() );
+                     } );
+                if ( !mapped.IsSuccess() )
+                    return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name,
+                                                                       mapped.GetError() );
             }
             return Common::MakeSuccess( OperandMeshPtr( std::move( mesh ) ) );
         }

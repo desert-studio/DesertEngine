@@ -15,7 +15,7 @@ namespace Desert::Core
 namespace Desert::Editor::Tools
 {
     // Modeling Mode's "Select Elements" tool: clicks pick vertices / edges / triangles / polygroups of the
-    // selected entity's EditMesh into Core::MeshElementSelection and draws that selection over the mesh.
+    // selected entity's editable mesh into Core::MeshElementSelection and draws that selection over the mesh.
     //   LMB        - replace the selection with the element under the cursor (empty space clears it)
     //   Shift+LMB  - add it
     //   Ctrl+LMB   - remove it

@@ -84,7 +84,7 @@ namespace Desert::Assets::Serialization
         // are read with rfl::DefaultIfMissing so they simply come back with an empty list.
         std::vector<MorphTargetData>   MorphTargets;
         // One polygroup per FACE of Indices, or empty (a mesh cooked before MeshBinary v2, or with no groups).
-        // What an EditMesh lifted from this mesh needs beyond the render arrays (MeshBinary.hpp, version 2).
+        // What a DynamicMesh3 lifted from this mesh needs beyond the render arrays (MeshBinary.hpp, version 2).
         std::vector<int32_t> PolyGroups;
         // THE OPTIONAL VERTEX STREAMS (MeshBinary v4, UE FColorVertexBuffer / the second UV channel): each is
         // EMPTY or holds exactly one entry per vertex of StaticVertices (or SkinnedVertices), in that array's

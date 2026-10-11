@@ -8,6 +8,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -85,10 +86,7 @@ namespace Desert::Editor::Core
         std::vector<int> RemapInto( std::vector<Common::AssetHandle>&       table,
                                     const std::vector<Common::AssetHandle>& slots, const Geometry::DynamicMesh3& mesh )
         {
-            int top = 0;
-            if ( const auto* materials = mesh.HasAttributes() ? mesh.Attributes()->GetMaterialID() : nullptr )
-                for ( const int t : mesh.TriangleIndicesItr() )
-                    top = std::max( top, static_cast<int>( materials->GetValue( t ) ) );
+            const int top = std::max( 0, Geometry::MaxMaterialId( mesh ) );
             std::vector<int> remap( std::max( slots.size(), static_cast<size_t>( top ) + 1 ) );
             for ( size_t i = 0; i < remap.size(); ++i )
             {

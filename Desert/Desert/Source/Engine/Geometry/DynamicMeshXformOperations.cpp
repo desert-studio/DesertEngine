@@ -615,4 +615,25 @@ namespace Desert::Geometry
                                                              static_cast<float>( j ) * s.SpacingB * b ) );
         return Common::MakeSuccess( std::move( out ) );
     }
+
+    void RefreshFaceNormalsAround( DynamicMesh3& mesh, std::span<const int> movedVertices )
+    {
+        auto* normals = mesh.HasAttributes() ? mesh.Attributes()->PrimaryNormals() : nullptr;
+        if ( !normals )
+            return;
+        std::vector<int> touched;
+        for ( const int vtx : movedVertices )
+            for ( const int t : mesh.VtxTrianglesItr( vtx ) )
+                touched.push_back( t );
+        std::sort( touched.begin(), touched.end() );
+        touched.erase( std::unique( touched.begin(), touched.end() ), touched.end() );
+        for ( const int t : touched )
+            if ( normals->IsSetTriangle( t ) )
+            {
+                const glm::vec3 n  = glm::vec3( mesh.GetTriNormal( t ) );
+                const Index3i   el = normals->GetTriangle( t );
+                for ( int j = 0; j < 3; ++j )
+                    normals->SetElement( el[j], n );
+            }
+    }
 } // namespace Desert::Geometry
