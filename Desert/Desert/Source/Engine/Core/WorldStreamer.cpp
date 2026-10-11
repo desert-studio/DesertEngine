@@ -231,8 +231,9 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( streamer ) );
     }
 
-    std::vector<Rules::StreamingSource>
-    WorldStreamer::GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments )
+    std::vector<Rules::StreamingSource> WorldStreamer::GatherSources( Scene&                                  scene,
+                                                                      std::span<const Rules::StreamingSource> instruments,
+                                                                      std::vector<std::uint32_t>* entities )
     {
         std::vector<Rules::StreamingSource> sources;
         entt::registry&                     registry = scene.GetRegistry();
@@ -241,15 +242,47 @@ namespace Desert::Core
             const ECS::StreamingSourceData& data = registry.get<ECS::StreamingSourceComponent>( entity ).Data;
             if ( !data.Enabled )
                 continue;
+            const glm::mat4        world = ECS::Entity( entity, registry ).GetWorldTransform();
             Rules::StreamingSource source;
-            source.Position = glm::vec3( ECS::Entity( entity, registry ).GetWorldTransform()[3] );
-            if ( data.OverrideLoadingRange )
-                source.LoadingRange = data.LoadingRange;
-            source.Priority = data.Priority;
-            sources.push_back( source );
+            source.Position = glm::vec3( world[3] );
+            // The entity's forward is its local −Z (the camera's convention), in world axes.
+            source.Facing = -glm::vec3( world[2] );
+            source.Priority              = data.Priority;
+            source.UseVelocityForSorting = data.UseVelocityForSorting;
+            // One shape, always (UE's FStreamingSourceShape on the component): with the defaults it is exactly
+            // the circle of the range a source with no shapes loads in.
+            Rules::StreamingSourceShape shape;
+            shape.UseGridLoadingRange = !data.OverrideLoadingRange;
+            shape.Radius              = data.LoadingRange;
+            shape.IsSector            = data.IsSector;
+            shape.SectorAngle         = data.SectorAngle;
+            shape.Location            = data.ShapeOffset;
+            shape.Yaw                 = data.ShapeYaw;
+            source.Shapes.push_back( shape );
+            sources.push_back( std::move( source ) );
+            if ( entities != nullptr )
+                entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
         sources.insert( sources.end(), instruments.begin(), instruments.end() );
         return sources;
+    }
+
+    void WorldStreamer::StampVelocities( std::vector<Rules::StreamingSource>& sources,
+                                         std::span<const std::uint32_t> entities, double nowSeconds )
+    {
+        // UE's UWorldPartitionSubsystem::UpdateStreamingSourcesVelocity: the distance an entity's source moved
+        // since the last Tick, over the time between them. A source new this Tick has none yet.
+        const double                                 elapsed = nowSeconds - m_SourcesAt;
+        std::unordered_map<std::uint32_t, glm::vec3> now;
+        for ( std::size_t index = 0; index < entities.size(); ++index )
+        {
+            now[entities[index]] = sources[index].Position;
+            const auto before    = m_SourcePositions.find( entities[index] );
+            if ( before != m_SourcePositions.end() && elapsed > 0.0 )
+                sources[index].Velocity = ( sources[index].Position - before->second ) / static_cast<float>( elapsed );
+        }
+        m_SourcePositions = std::move( now );
+        m_SourcesAt       = nowSeconds;
     }
 
     void WorldStreamer::UseSources( std::vector<Rules::StreamingSource> sources )
@@ -268,7 +301,10 @@ namespace Desert::Core
     Common::BoolResultStr WorldStreamer::Tick( double                                  nowSeconds,
                                                std::span<const Rules::StreamingSource> instruments )
     {
-        UseSources( GatherSources( *m_Scene, instruments ) );
+        std::vector<std::uint32_t>          entities;
+        std::vector<Rules::StreamingSource> gathered = GatherSources( *m_Scene, instruments, &entities );
+        StampVelocities( gathered, entities, nowSeconds );
+        UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
 
         m_LastTick = TickReport{};

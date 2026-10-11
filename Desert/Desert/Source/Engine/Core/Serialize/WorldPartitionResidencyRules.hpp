@@ -120,7 +120,8 @@ namespace Desert::Core::Rules
         // worse run, so a frame is not promised more than it gets; a world of heavier records (prefab
         // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
         double MsPerRecord = 0.02;
-        // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin).
+        // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin),
+        // and a sector's angle is widened by the same factor.
         float UnloadMargin = 0.25f;
         // Loads in flight at once.
         std::uint32_t MaxConcurrentLoads = 4;
@@ -337,7 +338,10 @@ namespace Desert::Core::Rules
             return Common::MakeError<ResidencyStep>( "StepResidency: " + wished.GetError() );
         std::vector<StreamingSource> widened( sources.begin(), sources.end() );
         for ( StreamingSource& source : widened )
+        {
             source.RangeScale *= 1.0f + settings.UnloadMargin;
+            source.AngleScale *= 1.0f + settings.UnloadMargin; // a sector's edge has the same band (UE's ExtraAngle)
+        }
         auto keptWish = QueryStreamingCells( plan, partition, widened );
         if ( !keptWish.IsSuccess() )
             return Common::MakeError<ResidencyStep>( "StepResidency: " + keptWish.GetError() );

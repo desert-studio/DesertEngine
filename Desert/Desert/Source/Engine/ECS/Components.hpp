@@ -1547,6 +1547,33 @@ namespace Desert::ECS
                   Tooltip( "Higher loads first when several sources want cells; it never changes which cells "
                            "load." ) )
         int Priority = 0;
+
+        // The shape the world loads within (UE's FStreamingSourceShape): a circle of the range, or a sector of
+        // it, placed in the entity's frame (Rules::StreamingSourceShape).
+        PROPERTY( DisplayName( "Sector" ), Category( "Streaming Source" ),
+                  Tooltip( "On = only a slice of the circle, Sector Angle wide around the entity's forward "
+                           "(turned by Shape Yaw), loads." ) )
+        bool IsSector = false;
+
+        PROPERTY( DisplayName( "Sector Angle" ), Category( "Streaming Source" ), Units( "deg" ),
+                  Range( 0.0f, 360.0f ), EditCondition( "IsSector" ),
+                  Tooltip( "How wide the slice is; 360 is the whole circle." ) )
+        float SectorAngle = 360.0f;
+
+        PROPERTY( DisplayName( "Shape Offset" ), Category( "Streaming Source" ), Length,
+                  Tooltip( "Where the shape's centre sits from the entity, in its own axes (cm): X right, Z "
+                           "backward. Height is ignored." ) )
+        glm::vec3 ShapeOffset = glm::vec3( 0.0f );
+
+        PROPERTY( DisplayName( "Shape Yaw" ), Category( "Streaming Source" ), Units( "deg" ),
+                  Range( -180.0f, 180.0f ),
+                  Tooltip( "How far the shape's axis is turned from the entity's forward, about its up axis." ) )
+        float ShapeYaw = 0.0f;
+
+        PROPERTY( DisplayName( "Use Velocity For Cell Sorting" ), Category( "Streaming Source" ),
+                  Tooltip( "On = cells the entity is moving toward load first (UE's "
+                           "bUseVelocityContributionToCellsSorting); it never changes which cells load." ) )
+        bool UseVelocityForSorting = false;
     };
 
     struct StreamingSourceComponent

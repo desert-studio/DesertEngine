@@ -45,9 +45,11 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <vector>
 #include <string>
 
@@ -161,10 +163,13 @@ namespace Desert::Core
             return m_LastSources;
         }
 
-        // Every enabled StreamingSourceComponent of @p scene, at its entity's world position, then @p instruments.
-        // A disabled one is not a source; an override range is the component's own.
+        // Every enabled StreamingSourceComponent of @p scene, at its entity's world position and facing its
+        // forward, with the component's one shape, then @p instruments. A disabled one is not a source; an
+        // override range is the shape's own radius. @p entities, when given, receives each component source's
+        // entity, in order. Velocity is zero here: only a Tick knows the time between two positions.
         [[nodiscard]] static std::vector<Rules::StreamingSource>
-        GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments );
+        GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments,
+                       std::vector<std::uint32_t>* entities = nullptr );
 
         // Says what streaming cost, once: the activation measurement MsPerRecord comes from.
         ~WorldStreamer() override;
@@ -190,6 +195,9 @@ namespace Desert::Core
         WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName );
         // Takes @p sources as this frame's; the first frame with none logs the one named error (THE SOURCES).
         void UseSources( std::vector<Rules::StreamingSource> sources );
+        // Gives each of the first @p entities.size() sources the velocity its entity moved at since the last Tick.
+        void StampVelocities( std::vector<Rules::StreamingSource>& sources, std::span<const std::uint32_t> entities,
+                              double nowSeconds );
 
         // One HLOD as the streamer takes it: the cell unit it stands in for and its records.
         struct CellHLOD
@@ -239,5 +247,8 @@ namespace Desert::Core
         WorldPartitionSerialized              m_Partition;
         std::vector<Rules::StreamingSource>   m_LastSources;
         bool                                  m_SaidNoSource = false;
+        // Where each entity source stood on the last Tick, and when: what its velocity is measured from.
+        std::unordered_map<std::uint32_t, glm::vec3> m_SourcePositions;
+        double                                       m_SourcesAt = 0.0;
     };
 } // namespace Desert::Core

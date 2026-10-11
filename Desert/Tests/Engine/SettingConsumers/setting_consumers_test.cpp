@@ -883,6 +883,11 @@ namespace
          { "OverrideLoadingRange", kWorldStreamer },
          { "LoadingRange", kWorldStreamer },
          { "Priority", kWorldStreamer },
+         { "IsSector", kWorldStreamer },
+         { "SectorAngle", kWorldStreamer },
+         { "ShapeOffset", kWorldStreamer },
+         { "ShapeYaw", kWorldStreamer },
+         { "UseVelocityForSorting", kWorldStreamer },
     };
 
     constexpr Row kRetargetRows[] = {
