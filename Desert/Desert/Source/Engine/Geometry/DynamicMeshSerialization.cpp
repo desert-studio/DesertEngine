@@ -288,7 +288,9 @@ namespace Desert::Geometry
             const Index3i saved = Swizzle( mesh.GetTriangle( t ) );
             for ( int j = 0; j < 3; ++j )
                 out.Triangles.push_back( denseVertex[saved[j]] );
-            out.PolyGroups.push_back( mesh.GetTriangleGroup( t ) );
+            // A mesh without triangle groups writes group 0 on every face (UE reads it as -1, which the
+            // saved form - and CheckValidity on the way back - does not accept), as DynamicMeshAsset does.
+            out.PolyGroups.push_back( mesh.HasTriangleGroups() ? mesh.GetTriangleGroup( t ) : 0 );
             out.MaterialIds.push_back( materialIds != nullptr ? materialIds->GetValue( t ) : 0 );
         }
         if ( attributes == nullptr )
@@ -413,7 +415,22 @@ namespace Desert::Geometry
                 return fail( *e );
 
         if ( !mesh.CheckValidity( {}, ValidityCheckFailMode::ReturnOnly ) )
-            return fail( prefix + "the rebuilt mesh fails DynamicMesh3::CheckValidity" );
+        {
+            // Name the part that fails: a layer when one does, the triangles and vertices otherwise.
+            constexpr auto  kQuiet = ValidityCheckFailMode::ReturnOnly;
+            std::string     part   = "the topology";
+            for ( int i = 0; i < attributes.NumNormalLayers(); ++i )
+                if ( !attributes.GetNormalLayer( i )->CheckValidity( true, kQuiet ) )
+                    part = "normal layer " + std::to_string( i );
+            for ( int i = 0; i < attributes.NumUVLayers(); ++i )
+                if ( !attributes.GetUVLayer( i )->CheckValidity( true, kQuiet ) )
+                    part = "UV layer " + std::to_string( i );
+            if ( attributes.PrimaryColors() && !attributes.PrimaryColors()->CheckValidity( true, kQuiet ) )
+                part = "the colour layer";
+            if ( attributes.GetMaterialID() && !attributes.GetMaterialID()->CheckValidity( true, kQuiet ) )
+                part = "the MaterialID attribute";
+            return fail( prefix + "the rebuilt mesh fails DynamicMesh3::CheckValidity in " + part );
+        }
         return Common::MakeSuccess( std::move( mesh ) );
     }
 } // namespace Desert::Geometry

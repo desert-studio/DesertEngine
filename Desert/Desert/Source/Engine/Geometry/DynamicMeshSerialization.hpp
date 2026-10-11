@@ -17,7 +17,7 @@ namespace Desert::Geometry
     // neither of which Desert has. This is Desert's own serializer for the ported core.
     //
     // WHAT MAPS TO WHAT. Positions -> vertices (float widened to double and back, exact); PolyGroups -> the
-    // mesh's triangle groups; MaterialIds -> the MaterialID attribute; Normals -> normal layer 0; Colors ->
+    // mesh's triangle groups (0 on every face of a mesh without them); MaterialIds -> the MaterialID attribute; Normals -> normal layer 0; Colors ->
     // the primary colour overlay; UVs[i] -> UV layer i. An absent Normals / Colors block is an absent layer, an
     // enabled-but-empty one is a layer with no elements, and the two stay different across a round trip.
     //
