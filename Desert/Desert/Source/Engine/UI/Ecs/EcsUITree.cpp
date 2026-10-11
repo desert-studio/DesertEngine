@@ -81,6 +81,8 @@ namespace Desert::UI
                     return f( Row<ECS::UIOverlayTriggerComponent, OverlayTrigger>{} );
                 case Navigation:
                     return f( Row<ECS::UINavigationComponent, Navigation>{} );
+                case Tabs:
+                    return f( Row<ECS::UITabsComponent, Tabs>{} );
                 case Count:
                     break;
             }

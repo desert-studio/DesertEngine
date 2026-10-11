@@ -339,8 +339,8 @@ TEST( UICanvasContext, ScreenNavigationBelongsToTheViewThatDidIt )
     }
     Frame( second, f, At( 900.0f, 900.0f ) );
 
-    EXPECT_EQ( viewport.CanvasState( Desert::UI::ToNode( f.Canvas ) ).Screen, "Settings" );
-    EXPECT_EQ( second.CanvasState( Desert::UI::ToNode( f.Canvas ) ).Screen, "Home" )
+    EXPECT_EQ( viewport.CanvasState( Desert::UI::ToNode( f.Canvas ) ).Screens[Desert::UI::ToNode( f.Canvas )].Screen, "Settings" );
+    EXPECT_EQ( second.CanvasState( Desert::UI::ToNode( f.Canvas ) ).Screens[Desert::UI::ToNode( f.Canvas )].Screen, "Home" )
          << "a second view of the same scene followed a navigation it never made";
 }
 
@@ -2120,13 +2120,13 @@ TEST( UICanvasContextPair, EachCanvasNavigatesItsOwnScreensInsideOneView )
         f.Frame( untouched, At( 900.0f, 900.0f, /*down=*/false ) );
     }
 
-    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( f.Lower ) ).Screen, "Settings" )
+    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( f.Lower ) ).Screens[Desert::UI::ToNode( f.Lower )].Screen, "Settings" )
          << "the navigation did not stick";
-    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screen, "Idle" )
+    EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screens[Desert::UI::ToNode( f.Upper )].Screen, "Idle" )
          << "the OTHER canvas of the same view moved, or was re-seeded by the navigating one";
-    EXPECT_EQ( untouched.CanvasState( Desert::UI::ToNode( f.Lower ) ).Screen, "Home" )
+    EXPECT_EQ( untouched.CanvasState( Desert::UI::ToNode( f.Lower ) ).Screens[Desert::UI::ToNode( f.Lower )].Screen, "Home" )
          << "a second view of the same scene followed a navigation it never made";
-    EXPECT_EQ( untouched.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screen, "Idle" );
+    EXPECT_EQ( untouched.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screens[Desert::UI::ToNode( f.Upper )].Screen, "Idle" );
 }
 
 // --- The pointer is the VIEW's: one election over every canvas of the frame ------------------------------
@@ -2170,7 +2170,7 @@ TEST( UICanvasContextPair, ACanvasThatStopsExistingTakesItsCellWithIt )
 
     f.Frame( view, At( 10.0f, 10.0f ) );
     ASSERT_EQ( view.CanvasStateCount(), 2u );
-    view.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screen = "Alert"; // something recognisable to inherit
+    view.CanvasState( Desert::UI::ToNode( f.Upper ) ).Screens[Desert::UI::ToNode( f.Upper )].Screen = "Alert"; // something recognisable to inherit
 
     const entt::entity destroyed = f.Upper;
     f.Registry.destroy( f.Upper );
@@ -2191,7 +2191,7 @@ TEST( UICanvasContextPair, ACanvasThatStopsExistingTakesItsCellWithIt )
          << "the index was not recycled, so nothing here is about recycling";
     f.MakeButton( reborn, 200.0f );
     f.Frame( view, At( 10.0f, 10.0f ) );
-    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( reborn ) ).Screen.empty() );
+    EXPECT_TRUE( view.CanvasState( Desert::UI::ToNode( reborn ) ).Screens[Desert::UI::ToNode( reborn )].Screen.empty() );
     EXPECT_EQ( view.CanvasStateCount(), 2u ) << "the retired cell came back";
 }
 

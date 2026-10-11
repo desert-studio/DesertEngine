@@ -38,6 +38,7 @@ namespace Desert::UI
         Overlay,
         OverlayTrigger,
         Navigation,
+        Tabs,
         Count
     };
 } // namespace Desert::UI

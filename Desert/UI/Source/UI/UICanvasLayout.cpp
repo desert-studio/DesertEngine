@@ -406,10 +406,8 @@ namespace Desert::UI
             // an author must be able to pick an element on a screen the game is not showing.
             if ( self == UISkipCause::None && ctx != nullptr && tree.Has<UIScreenData>( e ) )
             {
-                const std::string& name      = tree.Get<UIScreenData>( e )->Name;
-                const bool         isCurrent = ( name == ctx->Screen );
-                const bool         isLeaving = ( name == ctx->ScreenFrom && ctx->ScreenT < 1.0f );
-                if ( !isCurrent && !isLeaving )
+                const UIScreenPresence sp = ScreenPresenceOf( *ctx, tree, e ); // its own machine
+                if ( !sp.Current && !sp.Leaving )
                     self = UISkipCause::ScreenNotCurrent;
             }
             if ( self == UISkipCause::None && ( ctx != nullptr || scope.Row != nullptr ) &&

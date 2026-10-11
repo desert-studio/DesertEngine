@@ -12,6 +12,9 @@
 #include <UI/UIRichText.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <UI/UIScreenMachine.hpp>
+
+#include <utility>
 
 #include <algorithm>
 #include <span>
@@ -138,13 +141,29 @@ namespace Desert::UI::Walk
     }
 
     // --- Screens ----------------------------------------------------------------------------------
-    // A canvas can hold several UIScreen sub-trees; exactly one is current, and a ShowScreen button
-    // moves between them (BackScreen returns). Like the tweens, the live state is kept in the view's
-    // context and not in the component: navigating in the editor must not rewrite the authored scene.
-    void RequestScreen( WalkCtx& ctx, const std::string& name, bool back )
+    // A ShowScreen / BackScreen action from element @p from. The machine it drives is resolved NOW, against
+    // this frame's index (UIScreenMachine.hpp): the switcher nearest to the button for ShowScreen, the
+    // button's nearest machine with history for Back. Applied when the walk ends. Like the tweens, the live
+    // state is kept in the view's context and not in the component: navigating in the editor must not
+    // rewrite the authored scene.
+    void RequestScreen( WalkCtx& ctx, const IUITree& tree, NodeId from, const std::string& name, bool back )
     {
-        ctx.Canvas.ScreenReq     = name;
-        ctx.Canvas.ScreenReqBack = back;
+        UIScreenRequest r;
+        r.Back  = back;
+        r.Name  = name;
+        r.Owner = back ? BackScreenTarget( ctx.Canvas, tree, from ) : ShowScreenTarget( ctx.Canvas, tree, from, name );
+        if ( r.Owner == NodeId::Null )
+        {
+            if ( !back ) // Back with nowhere to go is ignored, as it always was; a missing page is an error
+                LOG_ERROR( "[UI] ShowScreen '{}': no UIScreen of that name on this canvas", name );
+            return;
+        }
+        if ( !back )
+        {
+            const NodeId tabs = TabsOf( tree, from );
+            r.PushHistory     = tabs == NodeId::Null || tree.Get<UITabsData>( tabs )->PushHistory;
+        }
+        ctx.Canvas.ScreenRequests.push_back( std::move( r ) );
     }
 
     float Ease( UIEasing e, float t )

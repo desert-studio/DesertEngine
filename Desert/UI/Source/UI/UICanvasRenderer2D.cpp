@@ -11,6 +11,7 @@
 #include <UI/UIPathGeometry.hpp>
 #include <UI/UIWalkCtx.hpp>
 #include <UI/UIRichText.hpp>
+#include <UI/UIScreenMachine.hpp>
 #include <UI/Widgets/UIWidgets.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -30,28 +31,6 @@ namespace Desert::UI
 {
     namespace Walk
     {
-        // Every non-empty UIScreen name in @p e's sub-tree, in draw order.
-        //
-        // WHY A SUB-TREE WALK AND NOT `reg.view<UIScreenComponent>()`: the seed below picks "the first screen
-        // that exists" and re-seeds when the current name does not, and a registry-wide view answers about
-        // the WHOLE SCENE. While only one canvas was ever drawn that was indistinguishable from asking the
-        // canvas; now that the canvas is named, a second canvas's screens would seed and re-seed this one's
-        // context, and a menu canvas could silently drive a HUD canvas's screen machine.
-        template <typename F>
-        void ForEachScreenName( IUITree& tree, NodeId e, F&& fn )
-        {
-            if ( !tree.Valid( e ) )
-                return;
-            if ( tree.Has<UIScreenData>( e ) )
-            {
-                const std::string& n = tree.Get<UIScreenData>( e )->Name;
-                if ( !n.empty() )
-                    fn( n );
-            }
-            for ( NodeId c : ChildrenOf( tree, e ) )
-                ForEachScreenName( tree, c, fn );
-        }
-
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
         // group — it overrides the element's own anchors for position + size.
         //
@@ -176,25 +155,26 @@ namespace Desert::UI
             glm::vec2 screenSlide( 0.0f );
             if ( tree.Has<UIScreenData>( e ) )
             {
-                const std::string& name      = tree.Get<UIScreenData>( e )->Name;
-                const bool         isCurrent = ( name == ctx.Canvas.Screen );
-                const bool         isLeaving = ( name == ctx.Canvas.ScreenFrom && ctx.Canvas.ScreenT < 1.0f );
-                if ( !isCurrent && !isLeaving )
+                // In ITS OWN machine — the nearest stack above it (UIScreenMachine.hpp), so a nested
+                // switcher's pages are gated by the switcher and not by the menu page that holds them.
+                const UIScreenPresence sp = ScreenPresenceOf( ctx.Canvas, tree, e );
+                if ( !sp.Current && !sp.Leaving )
                     return; // not on screen: skip the whole sub-tree, input included
 
-                if ( ctx.Canvas.ScreenT < 1.0f )
+                const UIScreenMachine& m = *sp.Machine;
+                if ( m.T < 1.0f )
                 {
-                    const float k   = Ease( ctx.Canvas.ScreenEasing, ctx.Canvas.ScreenT );
-                    const float dir = ctx.Canvas.ScreenBack ? -1.0f : 1.0f;
-                    if ( isCurrent )
+                    const float k   = Ease( m.Easing, m.T );
+                    const float dir = m.Back ? -1.0f : 1.0f;
+                    if ( sp.Current )
                     {
                         screenFade    = k;
-                        screenSlide.x = ( 1.0f - k ) * ctx.Canvas.ScreenSlidePx * dir;
+                        screenSlide.x = ( 1.0f - k ) * m.SlidePx * dir;
                     }
                     else // leaving: pushed out the opposite way
                     {
                         screenFade    = 1.0f - k;
-                        screenSlide.x = -k * ctx.Canvas.ScreenSlidePx * dir;
+                        screenSlide.x = -k * m.SlidePx * dir;
                     }
                 }
             }
@@ -662,99 +642,8 @@ namespace Desert::UI
         const Rect childRoot = InsetRect( canvasRect, canvasData.SafeArea.x * scale, canvasData.SafeArea.y * scale,
                                           canvasData.SafeArea.z * scale, canvasData.SafeArea.w * scale );
 
-        // --- Screen machine: seed on first use, then advance the running transition ---
-        {
-            if ( tree.Has<UIScreenStackData>( canvasEntity ) )
-            {
-                const auto& st           = *tree.Get<UIScreenStackData>( canvasEntity );
-                ctx.Canvas.ScreenTime    = st.TransitionTime;
-                ctx.Canvas.ScreenSlidePx = st.SlidePx;
-                ctx.Canvas.ScreenEasing  = st.Easing;
-                if ( ctx.Canvas.Screen.empty() )
-                    ctx.Canvas.Screen = st.InitialScreen;
-            }
-            // Seed, or re-seed when the current name doesn't exist here — otherwise a name left over from
-            // another scene would hide every screen in this one.
-            //
-            // THE STEADY STATE IS ASKED OF THE SCREENS, NOT OF THE TREE, and that is a measurement and not
-            // a tidy-up. This used to be one ForEachScreenName over the whole canvas sub-tree, EVERY FRAME
-            // — 60 001 entities visited on a canvas holding a 20 000-row list, which is 8.6 ms of a Debug
-            // frame spent deciding that a screen machine nobody is using still has the name it had. It is
-            // also precisely the residue that would have made Ю17's claim false: a container that walks a
-            // window of sixteen rows buys nothing while the frame around it still walks all of them.
-            //
-            // The question "is ctx.Canvas.Screen one of THIS canvas's screens" is answered by the screens
-            // themselves — there are a handful of UIScreenComponents in a scene, and each names its canvas
-            // by walking UP, which is the depth of the tree and not its size. The sub-tree walk survives
-            // for the RE-SEED, where the answer has to be the first screen in DRAW order and a pool's
-            // iteration order is creation order; that path runs once per canvas per view rather than once
-            // per frame.
-            //
-            // MEMBERSHIP IS ASKED THE SAME WAY THE SUB-TREE WALK ANSWERED IT — "is canvasEntity an
-            // ancestor of this screen", not "is it the screen's NEAREST canvas". The two differ for a
-            // canvas nested under another canvas, which nothing authors today; using CanvasOf here would
-            // have been a second, unrelated behaviour change smuggled into a cost fix.
-            const auto underCanvas = [&tree, canvasEntity]( NodeId e )
-            {
-                // Bounded rather than trusting the tree to be acyclic, for the reason CanvasOf states.
-                const std::size_t limit = tree.NodeBound() + 1;
-                std::size_t       steps = 0;
-                for ( NodeId cur = e; cur != NodeId::Null && tree.Valid( cur ) && steps < limit; ++steps )
-                {
-                    if ( cur == canvasEntity )
-                    {
-                        return true;
-                    }
-                    cur = tree.Parent( cur );
-                }
-                return false;
-            };
-
-            bool currentExists = false;
-            bool anyScreenHere = false;
-            for ( const NodeId s : RootsOf( tree, ArgKind::Screen ) )
-            {
-                const std::string& n = tree.Get<UIScreenData>( s )->Name;
-                if ( n.empty() || !underCanvas( s ) )
-                {
-                    continue;
-                }
-                anyScreenHere = true;
-                if ( n == ctx.Canvas.Screen )
-                {
-                    currentExists = true;
-                    break;
-                }
-            }
-            if ( anyScreenHere && !currentExists )
-            {
-                std::string firstScreen;
-                ForEachScreenName( tree, canvasEntity,
-                                   [&firstScreen]( const std::string& n )
-                                   {
-                                       if ( firstScreen.empty() )
-                                       {
-                                           firstScreen = n;
-                                       }
-                                   } );
-                if ( !firstScreen.empty() )
-                {
-                    ctx.Canvas.Screen = firstScreen;
-                    ctx.Canvas.ScreenFrom.clear();
-                    ctx.Canvas.ScreenStack.clear();
-                    ctx.Canvas.ScreenT = 1.0f;
-                }
-            }
-            if ( ctx.Canvas.ScreenT < 1.0f )
-            {
-                ctx.Canvas.ScreenT =
-                     ctx.Canvas.ScreenTime > 0.0f
-                          ? std::min( 1.0f, ctx.Canvas.ScreenT + ctx.View.FrameDt / ctx.Canvas.ScreenTime )
-                          : 1.0f;
-                if ( ctx.Canvas.ScreenT >= 1.0f )
-                    ctx.Canvas.ScreenFrom.clear(); // hand-over finished; the outgoing screen stops drawing
-            }
-        }
+        // --- Screen machines: index, seed, advance the running transitions (UIScreenMachine.hpp) ---
+        UpdateScreenMachines( ctx.Canvas, tree, canvasEntity, ctx.View.FrameDt );
 
         std::vector<PopupInfo> popups;
         // The canvas is drawn into the viewport and nowhere else, so that is the outermost clip both halves
@@ -781,30 +670,7 @@ namespace Desert::UI
 
         // A ShowScreen / BackScreen button fired during the walk: start the hand-over now, so the very
         // next frame already draws both screens mid-transition.
-        if ( !ctx.Canvas.ScreenReq.empty() || ctx.Canvas.ScreenReqBack )
-        {
-            if ( ctx.Canvas.ScreenReqBack )
-            {
-                if ( !ctx.Canvas.ScreenStack.empty() ) // at the bottom of the stack Back is simply ignored
-                {
-                    ctx.Canvas.ScreenFrom = ctx.Canvas.Screen;
-                    ctx.Canvas.Screen     = ctx.Canvas.ScreenStack.back();
-                    ctx.Canvas.ScreenStack.pop_back();
-                    ctx.Canvas.ScreenT    = 0.0f;
-                    ctx.Canvas.ScreenBack = true;
-                }
-            }
-            else if ( ctx.Canvas.ScreenReq != ctx.Canvas.Screen )
-            {
-                ctx.Canvas.ScreenStack.push_back( ctx.Canvas.Screen );
-                ctx.Canvas.ScreenFrom = ctx.Canvas.Screen;
-                ctx.Canvas.Screen     = ctx.Canvas.ScreenReq;
-                ctx.Canvas.ScreenT    = 0.0f;
-                ctx.Canvas.ScreenBack = false;
-            }
-            ctx.Canvas.ScreenReq.clear();
-            ctx.Canvas.ScreenReqBack = false;
-        }
+        ApplyScreenRequests( ctx.Canvas );
 
         // Open dropdown option lists, drawn LAST so they overlay everything.
         for ( const PopupInfo& pi : popups )
@@ -1052,7 +918,17 @@ namespace Desert::UI
             // authored (UIViewContext::AuthoringPreview) — and running a pointer machine over a pointer it
             // does not have would open menus nobody clicked.
             if ( !view.AuthoringPreview )
+            {
+                // ESCAPE IS ONE ACTION, TAKEN BY ONE OWNER: an open overlay first (UpdateOverlays closes the
+                // innermost), and only with none open the deepest active screen machine goes back
+                // (UCommonActivatableWidgetStack's back handling). Asked BEFORE the overlay machine runs, so
+                // the Escape that closes a menu does not also leave the page under it.
+                const bool overlayOpen = !view.OverlayStack.empty();
                 UpdateOverlays( view, tree, *input );
+                if ( !overlayOpen && input->Pressed( Common::KeyCode::Escape ) &&
+                     !view.KeyConsumed( Common::KeyCode::Escape ) && BackScreenOnEscape( view, tree ) )
+                    view.ConsumeKey( Common::KeyCode::Escape );
+            }
 
             view.PrevDown = input->MouseDown;
 

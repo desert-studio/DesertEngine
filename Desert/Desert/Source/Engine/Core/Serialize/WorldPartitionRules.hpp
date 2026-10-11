@@ -580,10 +580,11 @@ namespace Desert::Core::Rules
          { "UIRenderTexture", ComponentLoading::Spatial },
          { "UIRetainer", ComponentLoading::Spatial },
          { "UIScreen", ComponentLoading::Spatial },
-         { "UIScreenStack", ComponentLoading::Spatial }, // lives on a canvas entity
+         { "UIScreenStack", ComponentLoading::Spatial }, // on a canvas, or on a nested switcher element
          { "UIScrollView", ComponentLoading::Spatial },
          { "UISlider", ComponentLoading::Spatial },
          { "UIStyle", ComponentLoading::Spatial },
+         { "UITabs", ComponentLoading::Spatial }, // UI-SWITCHER: a tab bar container
          { "UIText", ComponentLoading::Spatial },
          { "UIToggle", ComponentLoading::Spatial },
          { "UITween", ComponentLoading::Spatial },

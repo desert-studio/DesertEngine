@@ -143,7 +143,7 @@ namespace Desert::UI::Walk
     ElementStyle  StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e );
     UITextData    Themed( const ElementStyle& st, UITextData t );
     float         HoverEase( WalkCtx& ctx, NodeId e, bool hovered );
-    void          RequestScreen( WalkCtx& ctx, const std::string& name, bool back );
+    void          RequestScreen( WalkCtx& ctx, const IUITree& tree, NodeId from, const std::string& name, bool back );
     float         Ease( UIEasing e, float t );
     TweenSample   SampleTween( WalkCtx& ctx, IUITree& tree, NodeId e );
     void          ApplyAnimClip( WalkCtx& ctx, NodeId e, TweenSample& out );

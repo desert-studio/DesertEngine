@@ -32,8 +32,8 @@ namespace Desert::UI
         LoadScene,
         QuitGame,
         OpenURL,
-        ShowScreen, // switch the canvas to the UIScreen named in On Click Message (pushes onto the stack)
-        BackScreen  // return to the screen underneath (does nothing at the bottom of the stack)
+        ShowScreen, // switch the nearest switcher holding the UIScreen named in On Click Message (pushes history)
+        BackScreen  // the nearest switcher with history returns to its previous screen (nothing at the bottom)
     };
 
     struct UIButtonData
@@ -77,6 +77,7 @@ namespace Desert::UI
         PROPERTY( DisplayName( "Selected" ), Category( "State" ) )
         bool Selected = false; // persistent highlight (active menu item / current tab): rests on SelectedColor
                                // and draws an accent bar, until hover/press temporarily override it
+                               // Not read on a ShowScreen button under a UITabs bar: the tab bar selects it
         PROPERTY( DisplayName( "Selected Color" ), Category( "State" ), Color )
         glm::vec3 SelectedColor = glm::vec3( 0.85f, 0.42f, 0.18f );
         PROPERTY( DisplayName( "Selected Accent" ), Category( "State" ), Color )

@@ -169,6 +169,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIOverlayTriggerComponent, D
                                      "UI Overlay Trigger" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UINavigationComponent, Data, "UINavigationData",
                                      "UI Navigation" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITabsComponent, Data, "UITabsData", "UI Tabs" )
 // Exponential Height Fog is the plain reflected one-liner: every field is a value, nothing needs the
 // scene, and the fog height deliberately is not a field (it is the entity's transform Y).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponent, Data,

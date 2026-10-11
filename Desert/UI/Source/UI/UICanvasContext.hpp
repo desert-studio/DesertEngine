@@ -11,6 +11,7 @@
 #include <UI/UILayout.hpp>
 #include <UI/UIMaterialSource.hpp>
 #include <UI/UIRenderTextureSource.hpp>
+#include <UI/UIScreenMachine.hpp>
 #include <UI/UITextEditState.hpp>
 
 #include <glm/glm.hpp>
@@ -91,30 +92,23 @@ namespace Desert::UI
         std::unordered_map<NodeId, UITextEditState> TextEdit;
 
         // --- Screens ----------------------------------------------------------------------------------
-        // Which of THIS canvas's UIScreen sub-trees is current, and the hand-over running between two of
-        // them.
+        // The screen machines of THIS canvas, one per owner (UIScreenMachine.hpp): the canvas itself, and
+        // every element below it that carries a UIScreenStack. Nested switchers each keep their own current
+        // screen, hand-over and back history.
         //
         // WHY THE PAIR AND NOT EITHER HALF. Per view, because one viewport navigating to Settings must not
         // move another view of the same scene — including the UI Editor's preview, which an author uses to
         // look at a screen the running game is not on. Per canvas, because a screen IS a sub-tree of one
-        // canvas and the machine is seeded from that canvas's own UIScreenStackComponent: two canvases in
-        // one view have disjoint screen NAMES, so a single machine cannot be current in both. The
-        // re-seed below ("the current name does not exist here") is what turns that from a shared value
-        // into an oscillation, since each canvas's walk finds the other's name foreign and overwrites it.
+        // canvas and its machine is seeded from that canvas's own UIScreenStack components: two canvases in
+        // one view have disjoint screen NAMES, so a single machine cannot be current in both. Keyed by the
+        // owner NodeId, which an entity of this canvas only ever is.
         //
         // The alternative — one screen per GAME, i.e. per process — was considered and refused: it is the
         // process-wide state this whole file exists to undo, and it cannot express the editor previewing a
         // screen while the viewport shows another, which is the ordinary authoring loop.
-        std::string              Screen;                // current screen name
-        std::string              ScreenFrom;            // the one handing over, while a transition runs
-        std::vector<std::string> ScreenStack;           // history for BackScreen
-        float                    ScreenT       = 1.0f;  // 0..1 progress of the transition (1 = idle)
-        float                    ScreenSlidePx = 60.0f; // mirrored from the canvas's UIScreenStack
-        float                    ScreenTime    = 0.25f;
-        UIEasing                 ScreenEasing  = UIEasing::CubicOut;
-        bool                     ScreenBack    = false; // a Back transition slides the other way
-        std::string              ScreenReq;             // requested by a button, applied at the walk's end
-        bool                     ScreenReqBack = false;
+        std::unordered_map<NodeId, UIScreenMachine> Screens;
+        std::vector<UIScreenEntry>                  ScreenIndex;    // this frame's named screens and owners
+        std::vector<UIScreenRequest>                ScreenRequests; // queued by buttons, applied at walk end
 
         // The background sprite this cell last refused to draw, so an unresolvable handle is reported once
         // instead of once per frame. Cleared when the handle changes or resolves.

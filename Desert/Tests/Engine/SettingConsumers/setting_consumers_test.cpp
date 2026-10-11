@@ -380,6 +380,7 @@ namespace
     constexpr const char* kUIRichText      = "Desert/UI/Source/UI/UIRichText.cpp";
     constexpr const char* kUIWalkCtx       = "Desert/UI/Source/UI/UIWalkCtx.cpp";
     constexpr const char* kUIFocus         = "Desert/UI/Source/UI/UIFocus.cpp";
+    constexpr const char* kUIScreenMachine = "Desert/UI/Source/UI/UIScreenMachine.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -992,11 +993,18 @@ namespace
          { "Name", kCanvasRenderer },
     };
 
+    // UI-SWITCHER: every stack, the canvas's and each nested switcher's, is seeded and advanced by
+    // UpdateScreenMachines.
     constexpr Row kScreenStackRows[] = {
-         { "InitialScreen", kCanvasRenderer },
-         { "TransitionTime", kCanvasRenderer },
-         { "SlidePx", kCanvasRenderer },
-         { "Easing", kCanvasRenderer },
+         { "InitialScreen", kUIScreenMachine },
+         { "TransitionTime", kUIScreenMachine },
+         { "SlidePx", kUIScreenMachine },
+         { "Easing", kUIScreenMachine },
+    };
+
+    // UI-SWITCHER: read by RequestScreen when a tab switches its switcher.
+    constexpr Row kTabsRows[] = {
+         { "PushHistory", kUIWalkCtx },
     };
 
     constexpr Row kPointerEventsRows[] = {
@@ -1129,6 +1137,7 @@ namespace
          { "UIOverlayData", "UIOverlayComponent", nullptr, CENSUS_ROWS( kOverlayRows ) },
          { "UIOverlayTriggerData", "UIOverlayTriggerComponent", nullptr, CENSUS_ROWS( kOverlayTriggerRows ) },
          { "UINavigationData", "UINavigationComponent", nullptr, CENSUS_ROWS( kNavigationRows ) },
+         { "UITabsData", "UITabsComponent", nullptr, CENSUS_ROWS( kTabsRows ) },
     };
 
 #undef CENSUS_ROWS
@@ -1323,7 +1332,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 58 with WATER-W2's WaterBodyData (kWaterBodyRows: every field read by WaterBodyGather.cpp into the
     // water body state the physics step queries).
     // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
-    EXPECT_EQ( all.size(), 59u );
+    // -> 60 with UI-SWITCHER's UITabsData (kTabsRows: PushHistory read by RequestScreen in UIWalkCtx.cpp).
+    EXPECT_EQ( all.size(), 60u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

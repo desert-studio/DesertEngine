@@ -51,6 +51,8 @@ namespace
          // UI-FW2: the walk reads an IUITree, and one element's resolve step and each widget's draw moved
          // out of UICanvasRenderer2D.cpp into UIWalkCtx.cpp and Widgets/ -- still the same walk.
          "Desert/UI/Source/UI/UIWalkCtx.cpp",
+         // UI-SWITCHER: the screen machines (UIScreenStack, UITabs) are seeded and resolved here.
+         "Desert/UI/Source/UI/UIScreenMachine.cpp",
          "Desert/UI/Source/UI/Widgets/Button.cpp",
          "Desert/UI/Source/UI/Widgets/Dropdown.cpp",
          "Desert/UI/Source/UI/Widgets/Image.cpp",
@@ -96,7 +98,10 @@ namespace
                                 "it is an invisible box" },
          { "UIScreenComponent", "the screen machine: a screen with no name is skipped by the renderer's "
                                 "seeding loop, so a menu-created one would be invisible" },
-         { "UIScreenStackComponent", "belongs on the canvas entity, not on a child element" },
+         { "UIScreenStackComponent", "the switcher of the screens below it — added in Details to the canvas "
+                                     "or to an existing container that holds a nested set of screens" },
+         { "UITabsComponent", "modifier — makes an existing container a tab bar whose ShowScreen buttons "
+                              "select themselves; added in Details" },
          // TRUE SINCE U7-2 AND NOT BEFORE IT. This row said "added in Details" while the only control that
          // added one was a button inside the Sequencer panel; the timeline is a document over this
          // component now, so a window cannot exist without it and the button moved to Details ▸ UI Layout
