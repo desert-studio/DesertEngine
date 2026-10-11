@@ -81,6 +81,10 @@ namespace Desert::UI::Walk
         // question itself (rather than the Enter below) is what makes that stale focus inert in
         // every direction at once: no activation, no focus ring, no caret.
         const bool isFocused = interactive && focused != nullptr && *focused == e;
+        // HIGHLIGHTED = the row the player is on, by pointer or by keyboard/gamepad focus. Recorded before the
+        // children draw, so their WhileHighlighted tweens (UITweenArgs.hpp) answer this frame, not the last.
+        if ( !b.Disabled && ( hover || isFocused ) )
+            ctx.Canvas.HighlightedOn[e] = ctx.View.FrameIndex;
         if ( outClicked != nullptr && input != nullptr && !b.Disabled &&
              ( ( hover && input->MouseReleased && !ctx.View.Drag.Active ) ||
                ( isFocused && input->Pressed( Common::KeyCode::Enter ) ) ) )

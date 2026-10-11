@@ -83,6 +83,9 @@ namespace Desert::UI
         std::unordered_set<NodeId>           RetainerMaskRefused;
         std::unordered_map<NodeId, float>    TweenT;    // per-element tween playhead
         std::unordered_map<NodeId, uint64_t> TweenSeen; // FrameIndex the tween was last evaluated on
+        // FrameIndex a button was last HIGHLIGHTED on (hovered, or holding focus). Written by the button
+        // before its children are drawn, read by their WhileHighlighted tweens in the same frame.
+        std::unordered_map<NodeId, uint64_t> HighlightedOn;
 
         // --- Screens ----------------------------------------------------------------------------------
         // Which of THIS canvas's UIScreen sub-trees is current, and the hand-over running between two of

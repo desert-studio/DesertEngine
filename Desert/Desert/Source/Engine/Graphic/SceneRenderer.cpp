@@ -851,17 +851,6 @@ namespace Desert::Graphic
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
         }
 
-        // The terrain's frame data, once, before any of its three passes records (the cascades in
-        // DepthPrePass, the forward pass in Geometry, the G-buffer fill after the graph).
-        {
-            DESERT_PROFILE_PASS( "Terrain: PrepareFrame" );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
-            // type
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
-            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame();
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
-
         // THE FRAME IS A GRAPH. Every GPU pass of this view from here on is one graph node (Raster, Compute or
         // Copy) that declares what it reads and writes; the graph orders them by those declarations and places
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
@@ -911,6 +900,19 @@ namespace Desert::Graphic
         };
         m_CurrentViewFrame = &frame;
         const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
+        // The terrain's frame data, once, before any of its three passes records (the cascades in
+        // DepthPrePass, the forward pass in Geometry, the G-buffer fill after the graph). AFTER the view frame
+        // is current: its TerrainUB carries the frame's ViewProjection / PrevViewProjection (velocity), and
+        // before BeginFrame GetViewFrame() is nullptr — every landscape scene crashed on its first frame.
+        {
+            DESERT_PROFILE_PASS( "Terrain: PrepareFrame" );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
+            // type
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
+            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame();
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+
         if ( const Common::BoolResultStr physical =
                   m_ViewState.History().AllocatePhysical( DeviceImageFactory{}, RendererGraphImageImporter{} );
              !physical )

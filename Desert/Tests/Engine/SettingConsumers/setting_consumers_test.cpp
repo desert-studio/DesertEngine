@@ -944,9 +944,10 @@ namespace
     };
 
     constexpr Row kTweenRows[] = {
-         { "Property", kUIWalkCtx }, { "From", kUIWalkCtx },    { "To", kUIWalkCtx },
-         { "Duration", kUIWalkCtx }, { "Delay", kUIWalkCtx },   { "Easing", kUIWalkCtx },
-         { "Loop", kUIWalkCtx },     { "Playing", kUIWalkCtx }, { "RewindOnHide", kUIWalkCtx },
+         { "Property", kUIWalkCtx },     { "From", kUIWalkCtx },  { "To", kUIWalkCtx },
+         { "Duration", kUIWalkCtx },     { "Delay", kUIWalkCtx }, { "Easing", kUIWalkCtx },
+         { "Trigger", kUIWalkCtx },      { "Loop", kUIWalkCtx },  { "Playing", kUIWalkCtx },
+         { "RewindOnHide", kUIWalkCtx },
     };
 
     constexpr Row kBindingRows[] = {

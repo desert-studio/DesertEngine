@@ -220,8 +220,9 @@ namespace Desert::Graphic::System
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
-        const auto* camera = m_SceneRenderer->GetMainCamera();
-        if ( ( camera == nullptr ) || m_Queue.empty() )
+        const auto* camera    = m_SceneRenderer->GetMainCamera();
+        const auto* viewFrame = m_SceneRenderer->GetViewFrame(); // nullptr: no view to draw for, write nothing
+        if ( ( camera == nullptr ) || ( viewFrame == nullptr ) || m_Queue.empty() )
             return;
 
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
@@ -333,7 +334,6 @@ namespace Desert::Graphic::System
         ub.View       = camera->GetViewMatrix();
         ub.Projection = camera->GetProjectionMatrix();
         GetSun( m_SceneRenderer, ub.SunDir, ub.SunColor );
-        const auto* viewFrame = m_SceneRenderer->GetViewFrame();
         ub.ViewProjection     = viewFrame->ViewProjection;
         ub.PrevViewProjection = viewFrame->PrevViewProjection;
 
