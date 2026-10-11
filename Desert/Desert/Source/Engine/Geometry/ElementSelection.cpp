@@ -1,6 +1,5 @@
 #include "ElementSelection.hpp"
 
-
 namespace Desert::Geometry
 {
     const char* ToString( ElementMode mode )

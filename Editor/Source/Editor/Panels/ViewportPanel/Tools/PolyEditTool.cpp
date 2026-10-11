@@ -85,8 +85,8 @@ namespace Desert::Editor::Tools
         m_Dragging = false;
     }
 
-    int PolyEditTool::HitTriangle( const std::shared_ptr<const Geometry::DynamicMesh3>& mesh, const glm::mat4& world,
-                                   const Common::Math::Ray& ray )
+    int PolyEditTool::HitTriangle( const std::shared_ptr<const Geometry::DynamicMesh3>& mesh,
+                                   const glm::mat4& world, const Common::Math::Ray& ray )
     {
         if ( !mesh )
             return Geometry::InvalidId;
@@ -229,7 +229,7 @@ namespace Desert::Editor::Tools
                 {
                     // The component's mesh is immutable (EditableMesh.hpp): each step of the drag is a new
                     // mesh, so the one the drag started from stays intact for the undo record.
-                    auto next = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
+                    auto             next = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
                     const glm::dvec3 deltaLocal( glm::inverse( glm::mat3( world ) ) * ( ds * wN ) );
                     for ( const int vtx : m_SelVerts )
                         next->SetVertex( vtx, next->GetVertex( vtx ) + deltaLocal );

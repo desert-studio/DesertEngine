@@ -24,8 +24,8 @@ namespace Desert::Editor::Tools
     // PolyEdit (Modeling / Model category), phase 1: click a FACE of the selected entity's mesh — the
     // coplanar polygroup under the cursor highlights green — then LMB-drag to push/pull it along its normal
     // (a DynamicMesh3 corner is one vertex, so shared edges follow). A full 3-axis gizmo + the rest of the
-    // PolyGroup-Edit operations (Extrude, Bevel, Inset, …) come next. Edits the entity's DynamicMesh3 (the source of
-    // truth, StaticMeshComponent::EditableMesh); a finished drag is one undo step.
+    // PolyGroup-Edit operations (Extrude, Bevel, Inset, …) come next. Edits the entity's DynamicMesh3 (the source
+    // of truth, StaticMeshComponent::EditableMesh); a finished drag is one undo step.
     class PolyEditTool
     {
     public:
@@ -49,7 +49,7 @@ namespace Desert::Editor::Tools
 
         // The group topology a pick runs on (PickElement), rebuilt only when the entity's mesh changes - a pick
         // runs on every mouse move. Holding the mesh keeps the topology's pointer valid.
-        std::shared_ptr<const Geometry::DynamicMesh3> m_TopologyMesh;
+        std::shared_ptr<const Geometry::DynamicMesh3>  m_TopologyMesh;
         std::shared_ptr<const Geometry::GroupTopology> m_Topology;
 
         Common::UUID     m_Entity = Common::UUID::Null(); // entity whose mesh we edit (the current selection)

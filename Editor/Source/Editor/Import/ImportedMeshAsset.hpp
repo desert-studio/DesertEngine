@@ -34,8 +34,8 @@ namespace Desert::Editor
     };
 
     // The importer's static MeshAssetData as source models: submeshes named "<base>_LOD<k>" form model k, the
-    // rest model 0, each welded back into one DynamicMesh3 (Geometry::DynamicMeshFromMeshAssetData) whose material IDs index
-    // one slot table shared by every model (first-use order, named from @p named by GUID, else by the
+    // rest model 0, each welded back into one DynamicMesh3 (Geometry::DynamicMeshFromMeshAssetData) whose material
+    // IDs index one slot table shared by every model (first-use order, named from @p named by GUID, else by the
     // submesh). Degenerate and duplicate faces are skipped and non-manifold ones detached, as UE's
     // MeshDescription conversion does, with the counts returned. Refused, naming the file and the reason,
     // where the source would lose something it holds: a skinned mesh, morph targets (the editable mesh has no

@@ -12,9 +12,9 @@
 
 namespace Desert::Geometry
 {
-    // FDYNAMICMESH3 AS A STATIC MESH ASSET, AND BACK. UE's counterpart (UE::Modeling::CreateMeshObject writing the dynamic mesh
-    // into a UStaticMesh's FMeshDescription) stands on FMeshDescription and UObject, neither of which Desert
-    // has, so this is not a port; the file side is MeshAssetArrays.hpp, so the file depends only on the
+    // FDYNAMICMESH3 AS A STATIC MESH ASSET, AND BACK. UE's counterpart (UE::Modeling::CreateMeshObject writing the
+    // dynamic mesh into a UStaticMesh's FMeshDescription) stands on FMeshDescription and UObject, neither of which
+    // Desert has, so this is not a port; the file side is MeshAssetArrays.hpp, so the file depends only on the
     // render arrays the mesh produces.
     //
     // WHAT CROSSES. What DynamicMeshRenderConversion.hpp carries (primary normals, tangent + bitangent

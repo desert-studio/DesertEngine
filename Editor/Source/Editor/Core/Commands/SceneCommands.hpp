@@ -67,13 +67,14 @@ namespace Desert::Editor::Commands
     // Rename the entity's tag undoably. No-ops on empty/unchanged names.
     void Rename( const Common::UUID& uuid, const std::string& newName );
 
-    // Record a finished edit of the entity's editable mesh (UE's FMeshReplacementChange) (a PolyEdit drag): @p before is the mesh the component
-    // held when the edit began; the component's CURRENT EditableMesh is the "after". One undo step; no-op when
-    // the two are the same object. The meshes are immutable, so both are kept by reference. @p alongside is
-    // undone / redone with the mesh as part of the SAME step (a mesh operation's selection change).
+    // Record a finished edit of the entity's editable mesh (UE's FMeshReplacementChange) (a PolyEdit drag): @p
+    // before is the mesh the component held when the edit began; the component's CURRENT EditableMesh is the
+    // "after". One undo step; no-op when the two are the same object. The meshes are immutable, so both are kept
+    // by reference. @p alongside is undone / redone with the mesh as part of the SAME step (a mesh operation's
+    // selection change).
     void RecordMeshChange( const Common::UUID& uuid, const std::string& label,
-                               std::shared_ptr<const Geometry::DynamicMesh3> before,
-                               std::unique_ptr<ICommand>                     alongside = nullptr );
+                           std::shared_ptr<const Geometry::DynamicMesh3> before,
+                           std::unique_ptr<ICommand>                     alongside = nullptr );
 
     // Record a mesh operation that SPLIT the entity in two (Plane Cut, Keep Both Halves): the entity's CURRENT
     // EditableMesh is one half; a copy of the entity alone (not its children), named "<name> Half", is created
@@ -86,8 +87,8 @@ namespace Desert::Editor::Commands
 
     // ---- XForm (Modeling): whole-entity mesh + transform edits as ONE undo step ----
 
-    // What an entity holds after an XForm operation: its mesh (by reference, like MeshReplacementCommand), its LOCAL
-    // transform, and - when set - its material slots (Merge unites the parts' slots) and its visibility.
+    // What an entity holds after an XForm operation: its mesh (by reference, like MeshReplacementCommand), its
+    // LOCAL transform, and - when set - its material slots (Merge unites the parts' slots) and its visibility.
     struct XformEntityState
     {
         Common::UUID                                    Entity;

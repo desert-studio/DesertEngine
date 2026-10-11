@@ -84,9 +84,10 @@ namespace Desert::Editor::Core
         // part k's material i becomes the index of its slot in the table. A material ID past a part's slots
         // reads as the empty slot, as the renderer draws it.
         std::vector<int> RemapInto( std::vector<Common::AssetHandle>&       table,
-                                    const std::vector<Common::AssetHandle>& slots, const Geometry::DynamicMesh3& mesh )
+                                    const std::vector<Common::AssetHandle>& slots,
+                                    const Geometry::DynamicMesh3&           mesh )
         {
-            const int top = std::max( 0, Geometry::MaxMaterialId( mesh ) );
+            const int        top = std::max( 0, Geometry::MaxMaterialId( mesh ) );
             std::vector<int> remap( std::max( slots.size(), static_cast<size_t>( top ) + 1 ) );
             for ( size_t i = 0; i < remap.size(); ++i )
             {

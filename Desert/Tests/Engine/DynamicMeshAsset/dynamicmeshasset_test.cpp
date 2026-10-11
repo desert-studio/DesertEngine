@@ -118,8 +118,8 @@ namespace
         {
             std::vector<Case> out;
             out.push_back(
-                 { "box",
-                   Shape( ShapeToDynamicMesh( MakeBox( glm::vec3( 200, 100, 50 ), glm::ivec3( 2, 1, 1 ) ) ), 1 ) } );
+                 { "box", Shape( ShapeToDynamicMesh( MakeBox( glm::vec3( 200, 100, 50 ), glm::ivec3( 2, 1, 1 ) ) ),
+                                 1 ) } );
             out.push_back(
                  { "sphere",
                    Shape( ShapeToDynamicMesh( MakeSphere( { 50.0f, SphereType::LatLong, 1, 16, 24 } ) ), 2 ) } );
@@ -279,7 +279,6 @@ TEST( DynamicMeshAsset, FileToMeshToFileIsByteStable )
         ASSERT_TRUE( third.IsSuccess() ) << c.Name;
         EXPECT_TRUE( Bytes( DynamicMeshToMeshAssetData( third.GetValue().Mesh, kSlots ), c.Name ) == second )
              << c.Name << ": the compacted file is not a fixed point";
-
     }
 }
 

@@ -104,19 +104,21 @@ namespace Desert::Editor::Core
             if ( table )
             {
                 const auto& slots = other.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
-                auto        mapped = Geometry::MapMaterialIds(
-                     *mesh,
-                     [&]( const int id )
-                     {
-                         // A material ID past the slots reads as the empty slot, as the renderer draws it.
-                         const Common::AssetHandle handle = id >= 0 && static_cast<size_t>( id ) < slots.size()
-                                                                 ? slots[static_cast<size_t>( id )]
-                                                                 : Common::AssetHandle{};
-                         auto it = std::find( table->begin(), table->end(), handle );
-                         if ( it == table->end() )
-                             it = table->insert( table->end(), handle );
-                         return static_cast<int>( it - table->begin() );
-                     } );
+                auto        mapped =
+                     Geometry::MapMaterialIds( *mesh,
+                                               [&]( const int id )
+                                               {
+                                                   // A material ID past the slots reads as the empty slot, as the
+                                                   // renderer draws it.
+                                                   const Common::AssetHandle handle =
+                                                        id >= 0 && static_cast<size_t>( id ) < slots.size()
+                                                             ? slots[static_cast<size_t>( id )]
+                                                             : Common::AssetHandle{};
+                                                   auto it = std::find( table->begin(), table->end(), handle );
+                                                   if ( it == table->end() )
+                                                       it = table->insert( table->end(), handle );
+                                                   return static_cast<int>( it - table->begin() );
+                                               } );
                 if ( !mapped.IsSuccess() )
                     return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name,
                                                                        mapped.GetError() );

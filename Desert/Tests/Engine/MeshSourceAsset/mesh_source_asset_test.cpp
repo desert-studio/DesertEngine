@@ -34,9 +34,9 @@ namespace
         m.Triangles   = { 0, 1, 2, 0, 2, 3 };
         m.PolyGroups  = { 7, 7 };
         m.MaterialIds = { 0, 1 };
-        m.Normals     = Desert::Geometry::MeshOverlaySavedForm{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
-        m.Tangents    = Desert::Geometry::MeshOverlaySavedForm{ { 1.f, 0.f, 0.f, -1.f }, { 0, 0, 0, 0, 0, 0 } };
-        m.Colors      = Desert::Geometry::MeshOverlaySavedForm{ { 1.f, 0.5f, 0.25f, 1.f }, { 0, 0, 0, -1, -1, -1 } };
+        m.Normals  = Desert::Geometry::MeshOverlaySavedForm{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
+        m.Tangents = Desert::Geometry::MeshOverlaySavedForm{ { 1.f, 0.f, 0.f, -1.f }, { 0, 0, 0, 0, 0, 0 } };
+        m.Colors   = Desert::Geometry::MeshOverlaySavedForm{ { 1.f, 0.5f, 0.25f, 1.f }, { 0, 0, 0, -1, -1, -1 } };
         m.UVs         = { { { 0.f, 0.f, 1.f, 0.f, 1.f, 1.f, 0.f, 1.f }, { 0, 1, 2, 0, 2, 3 } } };
         // Slot 2 is unassigned and slot 1 repeats A: the header names A and B once each.
         a.Source.MaterialSlots = { { "Body", kMatA }, { "Trim", kMatB }, { "Spare", {} }, { "Again", kMatA } };

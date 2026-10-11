@@ -17,9 +17,10 @@ namespace Desert::Geometry
     // neither of which Desert has. This is Desert's own serializer for the ported core.
     //
     // WHAT MAPS TO WHAT. Positions -> vertices (float widened to double and back, exact); PolyGroups -> the
-    // mesh's triangle groups (0 on every face of a mesh without them); MaterialIds -> the MaterialID attribute; Normals -> normal layer 0; Colors ->
-    // the primary colour overlay; UVs[i] -> UV layer i. An absent Normals / Colors block is an absent layer, an
-    // enabled-but-empty one is a layer with no elements, and the two stay different across a round trip.
+    // mesh's triangle groups (0 on every face of a mesh without them); MaterialIds -> the MaterialID attribute;
+    // Normals -> normal layer 0; Colors -> the primary colour overlay; UVs[i] -> UV layer i. An absent Normals /
+    // Colors block is an absent layer, an enabled-but-empty one is a layer with no elements, and the two stay
+    // different across a round trip.
     //
     // TANGENTS. The form stores a tangent element as xyz + a handedness sign; DynamicMesh3 stores the
     // tangent (normal layer 1) and the bitangent (normal layer 2) as overlays of their own, the way UE does.
@@ -49,5 +50,5 @@ namespace Desert::Geometry
     // uses, more UV layers than the core holds, and the tangent cases above. The result passes
     // DynamicMesh3::CheckValidity.
     [[nodiscard]] Common::ResultStr<DynamicMesh3> DynamicMeshFromSerialized( const MeshSavedForm& saved,
-                                                                             std::string_view   owner );
+                                                                             std::string_view     owner );
 } // namespace Desert::Geometry

@@ -352,8 +352,8 @@ namespace Desert::Editor::Core
              MeshElementSelection::MakeSelectionChange( entity, selection, outcome.Selection, label );
         if ( otherHalf )
         {
-            auto split = Commands::RecordMeshSplit( entity, label, committed, otherHalf,
-                                                        std::move( selectionChange ) );
+            auto split =
+                 Commands::RecordMeshSplit( entity, label, committed, otherHalf, std::move( selectionChange ) );
             if ( !split.IsSuccess() )
             {
                 // Nothing was recorded: the source goes back to the mesh it had. The copy's creation may have

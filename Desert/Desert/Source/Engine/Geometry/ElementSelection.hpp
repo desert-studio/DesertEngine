@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -70,7 +69,6 @@ namespace Desert::Geometry
         }
     };
 
-
     // What Prune / Remap had to drop, by reason. Nothing is dropped silently: a caller can say it out loud.
     struct PruneReport
     {
@@ -123,7 +121,6 @@ namespace Desert::Geometry
         [[nodiscard]] Common::BoolResultStr AddIn( const Mesh& mesh, int id );
         void                                Clear();
 
-
         bool operator==( const ElementSelection& other ) const
         {
             return m_Mode == other.m_Mode && m_Ids == other.m_Ids;
@@ -147,7 +144,5 @@ namespace Desert::Geometry
         std::vector<int> m_Ids;  // ascending
         std::vector<Key> m_Keys; // parallel to m_Ids
     };
-
-
 
 } // namespace Desert::Geometry

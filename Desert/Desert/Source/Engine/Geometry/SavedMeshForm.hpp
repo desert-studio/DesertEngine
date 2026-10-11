@@ -8,8 +8,8 @@ namespace Desert::Geometry
     // THE SAVED FORM OF AN EDITED MESH: what a scene (StaticMesh.EditMesh) and a prefab store for a mesh built in
     // the editor, instead of the render vertices they stored before schema v22.
     //
-    // WHY NOT THE RENDER ARRAYS. The render side is DERIVED (DynamicMeshRenderConversion.hpp): it has no topology, no
-    // polygroups, no colour layer and one UV channel, and it duplicates a vertex at every seam. A scene that
+    // WHY NOT THE RENDER ARRAYS. The render side is DERIVED (DynamicMeshRenderConversion.hpp): it has no topology,
+    // no polygroups, no colour layer and one UV channel, and it duplicates a vertex at every seam. A scene that
     // stored it lost all of that on every save and had to re-weld by distance on every load; the v21 form
     // lost even more - Position, Normal and TexCoord only, so tangents came back uninitialised, and every
     // submesh collapsed into one. Storing the DynamicMesh3 stores the source of truth, and the render mesh is

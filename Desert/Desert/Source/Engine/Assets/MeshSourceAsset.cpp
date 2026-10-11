@@ -190,8 +190,9 @@ namespace Desert::Assets
         };
 
         // ── validation (shared by encode and decode: a file this build writes is a file it reads) ─────
-        Common::BoolResultStr ValidateOverlay( const Geometry::MeshOverlaySavedForm& o, const std::string_view layer,
-                                               const size_t components, const size_t triangleCount )
+        Common::BoolResultStr ValidateOverlay( const Geometry::MeshOverlaySavedForm& o,
+                                               const std::string_view layer, const size_t components,
+                                               const size_t triangleCount )
         {
             if ( o.Values.size() % components != 0 )
                 return Common::MakeFormattedError<bool>(
@@ -220,7 +221,8 @@ namespace Desert::Assets
             return Common::MakeSuccess( true );
         }
 
-        Common::BoolResultStr ValidateModel( const Geometry::MeshSavedForm& m, const size_t lod, const size_t slots )
+        Common::BoolResultStr ValidateModel( const Geometry::MeshSavedForm& m, const size_t lod,
+                                             const size_t slots )
         {
             if ( m.Positions.size() % 3 != 0 || m.Triangles.size() % 3 != 0 )
                 return Common::MakeFormattedError<bool>( "mesh source LOD{} has {} position floats and {} "

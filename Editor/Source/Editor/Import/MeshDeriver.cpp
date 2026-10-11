@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Developer/MeshBuilder/Private/StaticMeshBuilder.cpp (FStaticMeshBuilder::Build:
 // build settings applied to the MeshDescription, tangents computed when missing, LODs reduced, render buffers
-// written), adapted: the source is our DynamicMesh3 (its saved form), the transform is Geometry::TransformMesh, the
-// reduction is meshopt (SimplifyLODLevels), the render buffers are one MeshBinary container, and authored LOD
+// written), adapted: the source is our DynamicMesh3 (its saved form), the transform is Geometry::TransformMesh,
+// the reduction is meshopt (SimplifyLODLevels), the render buffers are one MeshBinary container, and authored LOD
 // source models (UE SourceModels[k>0]) are folded as extra index sets of LOD0's sections.
 #include "MeshDeriver.hpp"
 #include "SourceToEngine.hpp"

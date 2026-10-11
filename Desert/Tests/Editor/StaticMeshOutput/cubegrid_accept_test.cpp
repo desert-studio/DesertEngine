@@ -71,7 +71,7 @@ namespace
         volume.m_Unit                                                = 100.0f;
         volume.m_Cells[Geometry::VoxelBlockout::Pack( { 0, 0, 0 } )] = {};
         volume.m_Cells[Geometry::VoxelBlockout::Pack( { 1, 0, 0 } )] = {};
-        auto edit                                                    = Geometry::DynamicMeshFromRenderMesh( volume.Bake() );
+        auto edit = Geometry::DynamicMeshFromRenderMesh( volume.Bake() );
         if ( !edit.IsSuccess() )
             return Common::MakeError<bool>( edit.GetError() );
         auto dyn = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( edit.GetValue().Mesh ), "CG1" );

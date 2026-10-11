@@ -1265,10 +1265,10 @@ namespace Desert::Editor::Tools
                 }
             }
 
-            // Output: Static Mesh (after the collider, which reads the editable mesh's render bounds): the blockout
-            // becomes a new asset before the creation is recorded. ONE undo step for the whole session, with
-            // the collider it just got: undo removes the entity (the editable mesh included, through the scene
-            // serializer), redo brings it back under the same UUID. A refused write does NOT accept: the
+            // Output: Static Mesh (after the collider, which reads the editable mesh's render bounds): the
+            // blockout becomes a new asset before the creation is recorded. ONE undo step for the whole session,
+            // with the collider it just got: undo removes the entity (the editable mesh included, through the
+            // scene serializer), redo brings it back under the same UUID. A refused write does NOT accept: the
             // session and the tool stay open with the cells, and the user is told why (BlockoutSession.hpp).
             auto accepted = AcceptBlockout(
                  m_Entity, ms, endTool,
@@ -1344,14 +1344,14 @@ namespace Desert::Editor::Tools
         // quads disagree, so a flat face renders the vertices it did before. On a Corner Mode ramp the
         // bitangent is the one thing that changes: the render side derives it as cross(N, T) * sign
         // (DynamicMeshRenderConversion.hpp), in the ramp's plane, where the old buffer kept the world UV axis.
-        auto imported  = Geometry::DynamicMeshFromRenderMesh( quads );
+        auto imported = Geometry::DynamicMeshFromRenderMesh( quads );
         if ( !imported.IsSuccess() )
         {
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
             return;
         }
-        if ( auto set = ECS::SetEditableMesh(
-                  smc, std::make_shared<const Geometry::DynamicMesh3>( std::move( imported.ExtractValue().Mesh ) ) );
+        if ( auto set = ECS::SetEditableMesh( smc, std::make_shared<const Geometry::DynamicMesh3>(
+                                                        std::move( imported.ExtractValue().Mesh ) ) );
              !set.IsSuccess() )
         {
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );

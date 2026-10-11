@@ -18,10 +18,11 @@ namespace Desert::Geometry
     namespace
     {
         // THE FILE'S BITANGENT IS A SIGN. The writer puts cross(N, T) * sign there (through the P6
-        // reader's bitangent elements), and only the sign is meaningful on the way back. Welding the stored vectors instead would merge a -0 and a +0
-        // component at one vertex (they are within any tolerance) and the file would not write back to the
-        // same bytes; so the bitangent overlay is rebuilt here as the P6 reader builds it: one element per
-        // (normal element, tangent element, sign) a corner uses, valued cross(N, T) * sign.
+        // reader's bitangent elements), and only the sign is meaningful on the way back. Welding the stored
+        // vectors instead would merge a -0 and a +0 component at one vertex (they are within any tolerance) and
+        // the file would not write back to the same bytes; so the bitangent overlay is rebuilt here as the P6
+        // reader builds it: one element per (normal element, tangent element, sign) a corner uses, valued cross(N,
+        // T) * sign.
         void RebuildBitangentsFromSigns( DynamicMesh3& mesh, const Ser::MeshAssetData& data,
                                          const std::vector<int>& triangleOfFace )
         {
@@ -155,7 +156,8 @@ namespace Desert::Geometry
             if ( const int32_t id = materials->GetValue( t );
                  id < 0 || static_cast<size_t>( id ) >= newIdOfOld.size() )
                 return Common::MakeFormattedError<bool>(
-                     "triangle {} carries MaterialID {}, outside the {}-entry slot table", t, id, newIdOfOld.size() );
+                     "triangle {} carries MaterialID {}, outside the {}-entry slot table", t, id,
+                     newIdOfOld.size() );
         for ( const int t : mesh.TriangleIndicesItr() )
         {
             const int32_t next = newIdOfOld[static_cast<size_t>( materials->GetValue( t ) )];

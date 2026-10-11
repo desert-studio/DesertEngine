@@ -52,7 +52,7 @@ namespace Desert::Geometry
         MeshOverlaySavedForm WriteOverlay( const DynamicMesh3& mesh, const OverlayT& overlay, ValueFn&& value )
         {
             const std::vector<int> dense = DenseElements( mesh, overlay );
-            MeshOverlaySavedForm     out;
+            MeshOverlaySavedForm   out;
             for ( int e = 0; e < static_cast<int>( dense.size() ); ++e )
                 if ( dense[e] >= 0 )
                     value( e, out.Values );
@@ -128,7 +128,7 @@ namespace Desert::Geometry
 
         struct Reader
         {
-            const MeshSavedForm&    Saved;
+            const MeshSavedForm&  Saved;
             std::string_view      Owner;
             DynamicMesh3&         Mesh;
             std::vector<Index3i>  SavedTriangles; // saved (counter-clockwise) vertex order per row
@@ -256,7 +256,8 @@ namespace Desert::Geometry
 
             static MeshOverlaySavedForm ToXyz( const MeshOverlaySavedForm& in )
             {
-                MeshOverlaySavedForm out; // the caller has checked the length is a whole number of 4-float elements
+                MeshOverlaySavedForm
+                     out; // the caller has checked the length is a whole number of 4-float elements
                 out.Triangles = in.Triangles;
                 for ( size_t i = 0; i < in.Values.size(); i += 4 )
                     out.Values.insert( out.Values.end(), { in.Values[i], in.Values[i + 1], in.Values[i + 2] } );
@@ -417,8 +418,8 @@ namespace Desert::Geometry
         if ( !mesh.CheckValidity( {}, ValidityCheckFailMode::ReturnOnly ) )
         {
             // Name the part that fails: a layer when one does, the triangles and vertices otherwise.
-            constexpr auto  kQuiet = ValidityCheckFailMode::ReturnOnly;
-            std::string     part   = "the topology";
+            constexpr auto kQuiet = ValidityCheckFailMode::ReturnOnly;
+            std::string    part   = "the topology";
             for ( int i = 0; i < attributes.NumNormalLayers(); ++i )
                 if ( !attributes.GetNormalLayer( i )->CheckValidity( true, kQuiet ) )
                     part = "normal layer " + std::to_string( i );

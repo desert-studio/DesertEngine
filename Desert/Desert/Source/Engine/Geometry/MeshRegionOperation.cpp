@@ -59,7 +59,8 @@ namespace Desert::Geometry
     {
         DynamicMeshAttributeSet* attributes = mesh.Attributes();
         if ( attributes == nullptr )
-            return Common::MakeFormattedError<bool>( "Mesh {}: the mesh has no attribute set to hold tangents", name );
+            return Common::MakeFormattedError<bool>( "Mesh {}: the mesh has no attribute set to hold tangents",
+                                                     name );
         if ( attributes->HasTangentSpace() )
             return Common::MakeSuccess( true );
         attributes->EnableTangents();

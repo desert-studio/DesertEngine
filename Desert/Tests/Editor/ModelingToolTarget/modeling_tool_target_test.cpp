@@ -213,9 +213,9 @@ TEST_F( ToolTarget, ASameSizeRewriteInsideOneWriteTimeTickLiftsTheNewContent )
     EXPECT_EQ( third.GetValue().Mesh, second.GetValue().Mesh ) << "the element selection tracks by identity";
 }
 
-// The undo plan, walked through the states an edit leaves: commit, undo, redo. MeshReplacementCommand, XformCommand
-// (changed and deleted entities) and the split rollback all decide through PlanMeshRestore; the commands
-// themselves upload to the device (ECS::SetEditableMesh) and are exercised in the editor frame.
+// The undo plan, walked through the states an edit leaves: commit, undo, redo. MeshReplacementCommand,
+// XformCommand (changed and deleted entities) and the split rollback all decide through PlanMeshRestore; the
+// commands themselves upload to the device (ECS::SetEditableMesh) and are exercised in the editor frame.
 TEST( ToolTargetUndo, AnEditOnALiftCommitsAnEditableMeshAndItsUndoDropsIt )
 {
     const MeshPtr edited = Box( 2 );

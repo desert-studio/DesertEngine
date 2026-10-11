@@ -155,8 +155,8 @@ namespace Desert::Geometry
             std::vector<int> vertices( static_cast<size_t>( source.MaxVertexID() ), DynamicMesh3::InvalidID );
             std::vector<std::pair<int, int>> made;
             made.reserve( triangles.size() );
-            const DynamicMeshAttributeSet* from     = source.Attributes();
-            DynamicMeshAttributeSet*       to       = result.Attributes();
+            const DynamicMeshAttributeSet*      from         = source.Attributes();
+            DynamicMeshAttributeSet*            to           = result.Attributes();
             const DynamicMeshMaterialAttribute* fromMaterial = from ? from->GetMaterialID() : nullptr;
             DynamicMeshMaterialAttribute*       toMaterial   = to ? to->GetMaterialID() : nullptr;
             for ( const int t : triangles )
@@ -196,10 +196,10 @@ namespace Desert::Geometry
             if ( from == nullptr || to == nullptr )
                 return Common::MakeSuccess( true );
 
-            auto same2  = []( const glm::vec2& v ) { return v; };
-            auto same4  = []( const glm::vec4& v ) { return v; };
-            auto normal = [&]( const glm::vec3& n ) { return SafeNormalize( linear.NormalMatrix * n ); };
-            auto frame  = [&]( const glm::vec3& v ) { return SafeNormalize( linear.Linear * v ); };
+            auto      same2  = []( const glm::vec2& v ) { return v; };
+            auto      same4  = []( const glm::vec4& v ) { return v; };
+            auto      normal = [&]( const glm::vec3& n ) { return SafeNormalize( linear.NormalMatrix * n ); };
+            auto      frame  = [&]( const glm::vec3& v ) { return SafeNormalize( linear.Linear * v ); };
             const int normalLayers = std::min( from->NumNormalLayers(), to->NumNormalLayers() );
             for ( int layer = 0; layer < normalLayers; ++layer )
             {
@@ -217,7 +217,8 @@ namespace Desert::Geometry
                     return r;
             }
             if ( from->HasPrimaryColors() && to->HasPrimaryColors() )
-                if ( auto r = CopyLayer( from->PrimaryColors(), to->PrimaryColors(), made, reverse, same4, "colour" );
+                if ( auto r =
+                          CopyLayer( from->PrimaryColors(), to->PrimaryColors(), made, reverse, same4, "colour" );
                      !r.IsSuccess() )
                     return r;
             const int uvLayers = std::min( from->NumUVLayers(), to->NumUVLayers() );
@@ -528,17 +529,18 @@ namespace Desert::Geometry
             groups[static_cast<size_t>( it - keys.begin() )].push_back( t );
         }
         if ( groups.size() < 2 )
-            return Common::MakeFormattedError<std::vector<DynamicMesh3>>( "Split ({}): the mesh is one part already",
-                                                                      ToString( method ) );
+            return Common::MakeFormattedError<std::vector<DynamicMesh3>>(
+                 "Split ({}): the mesh is one part already", ToString( method ) );
         std::vector<DynamicMesh3> out( groups.size() );
-        const LinearMap       identity;
+        const LinearMap           identity;
         for ( size_t i = 0; i < groups.size(); ++i )
         {
             bool unused = false;
             EnableLayers( out[i], LayersOf( mesh ) );
             if ( auto r = AppendPart( out[i], mesh, glm::mat4( 1.0f ), identity, groups[i], 0, {}, unused );
                  !r.IsSuccess() )
-                return Common::MakeFormattedError<std::vector<DynamicMesh3>>( "Split: part {}: {}", i, r.GetError() );
+                return Common::MakeFormattedError<std::vector<DynamicMesh3>>( "Split: part {}: {}", i,
+                                                                              r.GetError() );
         }
         return Common::MakeSuccess( std::move( out ) );
     }

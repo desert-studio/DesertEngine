@@ -253,7 +253,7 @@ TEST( DynamicMeshSerialization, BrokenDataIsRefusedByEntityName )
 {
     const MeshSavedForm good = Witness();
 
-    MeshSavedForm outOfRange  = good;
+    MeshSavedForm outOfRange = good;
     outOfRange.Triangles[4] = 99;
     EXPECT_NE( RefusalOf( outOfRange ).find( "names vertex 99 of 8" ), std::string::npos );
 
@@ -267,22 +267,22 @@ TEST( DynamicMeshSerialization, BrokenDataIsRefusedByEntityName )
         layer->Triangles.insert( layer->Triangles.end(), { -1, -1, -1 } );
     EXPECT_NE( RefusalOf( nonManifold ).find( "non-manifold" ), std::string::npos );
 
-    MeshSavedForm degenerate  = good;
+    MeshSavedForm degenerate = good;
     degenerate.Triangles[1] = degenerate.Triangles[0];
     EXPECT_NE( RefusalOf( degenerate ).find( "degenerate" ), std::string::npos );
 
-    MeshSavedForm elementOutOfRange           = good;
+    MeshSavedForm elementOutOfRange         = good;
     elementOutOfRange.Normals->Triangles[0] = 1000;
     EXPECT_NE( RefusalOf( elementOutOfRange ).find( "normals: triangle 0 names element 1000" ),
                std::string::npos );
 
     // triangle 0 is (0, 1, 2) and triangle 1 is (2, 3, 0): point triangle 1's corner at vertex 3 at the element
     // triangle 0 uses at vertex 1
-    MeshSavedForm sharedElement           = good;
+    MeshSavedForm sharedElement         = good;
     sharedElement.Normals->Triangles[4] = sharedElement.Normals->Triangles[1];
     EXPECT_NE( RefusalOf( sharedElement ).find( "is used at vertex" ), std::string::npos );
 
-    MeshSavedForm partly         = good;
+    MeshSavedForm partly       = good;
     partly.UVs[0].Triangles[5] = -1;
     EXPECT_NE( RefusalOf( partly ).find( "only partly set" ), std::string::npos );
 
@@ -290,7 +290,7 @@ TEST( DynamicMeshSerialization, BrokenDataIsRefusedByEntityName )
     unused.Normals->Values.insert( unused.Normals->Values.end(), { 0.0f, 1.0f, 0.0f } );
     EXPECT_NE( RefusalOf( unused ).find( "is used by no triangle" ), std::string::npos );
 
-    MeshSavedForm halfSign         = good;
+    MeshSavedForm halfSign       = good;
     halfSign.Tangents->Values[3] = 0.5f;
     EXPECT_NE( RefusalOf( halfSign ).find( "handedness 0.5" ), std::string::npos );
 
