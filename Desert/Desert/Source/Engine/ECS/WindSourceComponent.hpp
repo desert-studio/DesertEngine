@@ -13,7 +13,7 @@
 // Not carried over from UE: Strength / MinGust / MaxGust. UE's Strength is a unitless SpeedTree input and its
 // gusts modulate it; here the wind is a velocity in cm/s and every consumer derives its response from that.
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/glm.hpp>
 

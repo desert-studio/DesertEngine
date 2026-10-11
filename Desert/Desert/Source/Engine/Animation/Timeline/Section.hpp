@@ -108,6 +108,9 @@ namespace Desert::Animation::Timeline
         Common::Content::AssetGuid Sequence;
         FrameNumber                StartOffset; ///< in the SUBSEQUENCE's ticks
         double                     TimeScale = 1.0;
+    };
+
+    /**
      * @brief An Audio section (UE: UMovieSceneAudioSection): plays `Sound` while the playhead is inside it.
      *
      * At sequence tick t the sound is at `( t - section.Start + StartOffset ) / TickRate` seconds — one

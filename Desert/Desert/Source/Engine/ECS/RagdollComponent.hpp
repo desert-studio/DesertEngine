@@ -8,7 +8,7 @@
 
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <cstdint>
 

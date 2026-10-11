@@ -157,7 +157,7 @@ namespace Desert::ECS
                 for ( const auto& name : result.FiredEvents )
                     LOG_INFO( "[LevelSequence] '{}': event '{}'", actor->Name, name );
                 for ( const auto& clip : result.Sounds )
-                    Audio::AudioEngine::Get().PlayOneShot( clip );
+                    Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects );
 
                 if ( const auto target =
                           LevelSequenceViewTarget( actor->State, result, m_Scene->GetViewTarget() ) )

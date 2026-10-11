@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "44657365727453747564696f00e1d0a2",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 47,
             "UNIT": 1
         },
         "Dependencies": []
@@ -53,6 +53,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -109,6 +110,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -165,6 +167,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -221,6 +224,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -277,6 +281,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -311,6 +316,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             }
@@ -335,6 +341,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             }
@@ -359,6 +366,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -415,6 +423,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -471,6 +480,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -527,6 +537,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -583,6 +594,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -639,6 +651,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -688,6 +701,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -722,6 +736,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -771,6 +786,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             }
@@ -795,6 +811,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -851,6 +868,7 @@
                 "AspectRatio": 0.0,
                 "AspectMode": 1,
                 "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
             },
@@ -892,24 +910,6 @@
             "parent": 5001,
             "siblingIndex": 11,
             "Tag": "Intro",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.0, 0.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 0.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIAnim": {
                 "Sequence": {
                     "Header": {
@@ -1330,6 +1330,25 @@
                 },
                 "Loop": 0,
                 "AutoPlay": true
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             }
         },
         {
@@ -1354,6 +1373,11 @@
             "Guid": "",
             "Path": ""
         },
+        "PlayerController": {
+            "Guid": "",
+            "Path": ""
+        },
+        "RespawnDelay": 3.0,
         "SplashSprite": {
             "Guid": "",
             "Path": ""

@@ -432,13 +432,13 @@ TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZ
     EXPECT_FLOAT_EQ( projectile.GravityScale, 0.5f );
 
     Common::Json::Object socketBlock;
-    socketBlock["BoneName"] = Common::Json::Value( 3.5 );
+    socketBlock["SocketName"] = Common::Json::Value( 3.5 );
 
     ECS::SocketAttachmentComponent socket;
-    socket.BoneName = "Hand_R";
+    socket.SocketName = "Hand_R";
     ReadAt( ThroughJsonText( socketBlock ), socket );
 
-    EXPECT_EQ( socket.BoneName, "Hand_R" );
+    EXPECT_EQ( socket.SocketName, "Hand_R" );
 }
 
 // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────────

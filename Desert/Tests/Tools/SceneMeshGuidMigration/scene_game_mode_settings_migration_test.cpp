@@ -26,7 +26,7 @@ namespace
 
 TEST( GameModeSettingsMigration, AddsControllerAndDelayRightAfterTheDefaultPawn )
 {
-    static_assert( Migration::kSceneVersionGameModeSettings == Desert::Core::kSceneVersion );
+    static_assert( Migration::kSceneVersionGameModeSettings < Desert::Core::kSceneVersion );
     rfl::Generic::Object pawn;
     pawn["Guid"] = rfl::Generic( std::string() );
     pawn["Path"] = rfl::Generic( std::string() );

@@ -1576,6 +1576,9 @@ TEST( AssetHandleStability, InputActionAndMappingContextHandlesAreHandleForGuidO
          context, Desert::Assets::Serialization::InputMappingContextData{} ) );
     ExpectHeaderGuidIdentity<Desert::Assets::InputMappingContextAsset>(
          context, Common::Content::ContentKind::InputMappingContext );
+    fs::remove_all( dir );
+}
+
 // VFX-10b: a scene registers a data channel by handle, so the handle must be the file's header GUID.
 TEST( AssetHandleStability, AVFXDataChannelHandleIsHandleForGuidOfItsHeader )
 {
