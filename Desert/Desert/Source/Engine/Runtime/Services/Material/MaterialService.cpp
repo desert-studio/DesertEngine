@@ -351,9 +351,9 @@ namespace Desert::Runtime
             // One serial compare while nothing was written.
             if ( Assets::ContentRegistry::WriteSerial() != m_MissingSerial )
             {
-                const auto written =
-                     Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::Material, m_MissingSerial );
-                m_MissingSerial = written.Serial;
+                const auto written = Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::Material,
+                                                                            m_MissingSerial );
+                m_MissingSerial    = written.Serial;
                 for ( const auto& row : written.Rows )
                     m_ReportedMissing.erase( row.Handle );
             }
