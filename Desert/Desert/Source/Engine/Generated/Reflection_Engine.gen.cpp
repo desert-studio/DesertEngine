@@ -26,6 +26,7 @@
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/RagdollComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 
 namespace Desert::Reflection::Generated
@@ -458,6 +459,14 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "OverrideLoadingRange", .Type = FieldType::Bool, .Offset = offsetof( T, OverrideLoadingRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OverrideLoadingRange )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Override Loading Range", .Category = "Streaming Source", .Tooltip = "Off = the World Partition grid's Loading Range.", } } )
                     .Field( FieldInfo{ .Name = "LoadingRange", .Type = FieldType::Float, .Offset = offsetof( T, LoadingRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LoadingRange )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Loading Range", .Category = "Streaming Source", .Tooltip = "Cells within this distance of the entity load (cm).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000000.0f, .Units = "cm", .EditCondition = "OverrideLoadingRange", } } )
                     .Field( FieldInfo{ .Name = "Priority", .Type = FieldType::Int, .Offset = offsetof( T, Priority ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Priority )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Priority", .Category = "Streaming Source", .Tooltip = "Higher loads first when several sources want cells; it never changes which cells load.", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::RagdollData;
+        TypeBuilder( "RagdollData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "PhysicsAsset", .Type = FieldType::AssetHandle, .Offset = offsetof( T, PhysicsAsset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PhysicsAsset )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Physics Asset", .Category = "Ragdoll", .Tooltip = "The bodies and joints of this character (UE Physics Asset) — drag a .dephysasset authored on the mesh's skeleton. An empty slot, or one authored on another skeleton, is refused at Play by name, not simulated as nothing.", .IsAsset = true, .AssetType = "PhysicsAsset", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Mode", .Type = FieldType::Enum, .Offset = offsetof( T, Mode ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Mode )>(), .TypeName = "Physics::RagdollMotion", .Meta = PropertyMetadata{ .DisplayName = "Mode", .Category = "Ragdoll", .Tooltip = "Kinematic: the bodies follow the animation. Simulated: the bodies fall and the bones follow them. Switching keeps the pose: a simulated ragdoll starts from the animated pose and its motion, a kinematic one snaps back to the animation.", .Summary = true, }, .EnumValues = { EnumValue{ "Kinematic", 0 }, EnumValue{ "Simulated", 1 }, } } )
             .WithDefault<T>()
             .Register();
     }

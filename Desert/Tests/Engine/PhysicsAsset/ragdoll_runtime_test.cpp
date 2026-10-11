@@ -8,6 +8,8 @@
 #include <Engine/Physics/RagdollDesc.hpp>
 #include <Engine/Physics/RagdollPose.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <glm/gtc/constants.hpp>
@@ -141,7 +143,7 @@ TEST( RagdollRuntime, ChainDroppedOnAPlaneComesToRestOnIt )
     ASSERT_EQ( desc.Parts.size(), 3u );
 
     PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 981.0f ) );
+    ASSERT_TRUE( world.Init( 981.0f, Desert::TestSupport::PhysicsTestProfiles() ) );
     AddFloor( world );
     auto ragdoll = world.CreateRagdoll( desc, { 0.0f, 80.0f, 0.0f }, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ),
                                         RagdollMotion::Simulated );
@@ -176,7 +178,7 @@ TEST( RagdollRuntime, JointLimitsHoldUnderGravityAndImpacts )
     ASSERT_EQ( desc.Parts.size(), 3u );
 
     PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 981.0f ) );
+    ASSERT_TRUE( world.Init( 981.0f, Desert::TestSupport::PhysicsTestProfiles() ) );
     AddFloor( world );
     // Standing up (+Z -> +Y) on its root, then kicked: it topples and folds on the floor.
     const glm::quat up      = glm::angleAxis( -glm::half_pi<float>(), glm::vec3( 1.0f, 0.0f, 0.0f ) );
@@ -226,7 +228,7 @@ TEST( RagdollRuntime, KinematicModeReproducesTheInputPoseExactly )
     ASSERT_TRUE( targets.IsSuccess() ) << targets.GetError();
 
     PhysicsWorld world;
-    ASSERT_TRUE( world.Init( 981.0f ) );
+    ASSERT_TRUE( world.Init( 981.0f, Desert::TestSupport::PhysicsTestProfiles() ) );
     auto ragdoll =
          world.CreateRagdoll( desc, glm::vec3( entity[3] ), glm::angleAxis( 0.7f, glm::vec3( 0.0f, 1.0f, 0.0f ) ),
                               RagdollMotion::Kinematic );

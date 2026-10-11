@@ -9,6 +9,8 @@
 #include <Engine/Physics/PhysicsAssetFormat.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../../Engine/PhysicsFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <glm/gtc/constants.hpp>
@@ -147,10 +149,10 @@ TEST( PhysicsAssetEditor, SimulateRunsInAPrivateWorldAndStopResets )
     const Animation::Animator animator( rig );
 
     Physics::PhysicsWorld scene; // the level's world: Simulate must never touch it
-    ASSERT_TRUE( scene.Init( 981.0f ) );
+    ASSERT_TRUE( scene.Init( 981.0f, TestSupport::PhysicsTestProfiles() ) );
 
     Editor::PhysicsAssetPreviewSimulation sim;
-    const auto                            started = sim.Start( asset, rig, animator.GetLocalPose() );
+    const auto                            started = sim.Start( asset, rig, animator.GetLocalPose(), TestSupport::PhysicsTestProfiles() );
     ASSERT_TRUE( started.IsSuccess() ) << started.GetError();
     ASSERT_NE( sim.World(), nullptr );
     EXPECT_NE( sim.World(), &scene );
@@ -175,7 +177,7 @@ TEST( PhysicsAssetEditor, SimulateRunsInAPrivateWorldAndStopResets )
     EXPECT_FALSE( sim.Overrides( rig, animator.GetLocalPose() ).IsSuccess() );
 
     // Every Start begins from the pose, not from where the last run fell.
-    ASSERT_TRUE( sim.Start( asset, rig, animator.GetLocalPose() ).IsSuccess() );
+    ASSERT_TRUE( sim.Start( asset, rig, animator.GetLocalPose(), TestSupport::PhysicsTestProfiles() ).IsSuccess() );
     EXPECT_NEAR( sim.Parts()[0].Position.y, 100.0f, 1e-2f );
 }
 

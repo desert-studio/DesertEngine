@@ -103,7 +103,8 @@ namespace Desert::Editor
 
     Common::BoolResultStr PhysicsAssetPreviewSimulation::Start( const Physics::PhysicsAssetData& asset,
                                                                 const Animation::Skeleton&       skeleton,
-                                                                const Animation::LocalPose&      pose )
+                                                                const Animation::LocalPose&      pose,
+                                                                Physics::CollisionProfiles       profiles )
     {
         Stop();
         auto desc = Physics::BuildRagdollDesc( asset, skeleton );
@@ -111,7 +112,7 @@ namespace Desert::Editor
             return Common::MakeError<bool>( desc.GetError() );
 
         auto world = std::make_unique<Physics::PhysicsWorld>();
-        if ( !world->Init( kPreviewGravityCmPerS2 ) )
+        if ( !world->Init( kPreviewGravityCmPerS2, std::move( profiles ) ) )
             return Common::MakeError<bool>( "the preview physics world would not initialise" );
 
         Physics::BodyDesc floor;

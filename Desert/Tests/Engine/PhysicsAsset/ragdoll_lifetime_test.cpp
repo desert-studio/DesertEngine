@@ -12,6 +12,8 @@
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
@@ -119,7 +121,7 @@ namespace
 
         explicit Scene( RagdollMotion mode )
         {
-            EXPECT_TRUE( World.Init( 981.0f ) );
+            EXPECT_TRUE( World.Init( 981.0f, Desert::TestSupport::PhysicsTestProfiles() ) );
             Entity = Registry.create();
             Registry.emplace<Desert::ECS::TransformComponent>( Entity );
             auto animator = std::make_unique<Desert::Animation::Animator>( Rig );
@@ -178,8 +180,8 @@ TEST( RagdollLifetime, ComponentRoundTripsThroughTheSceneText )
 
     Desert::ECS::RagdollData read; // defaults: null asset, Kinematic — so "unchanged" cannot pass as "read"
     Common::Json::Issues     issues;
-    Desert::Reflection::DeserializeReflected(
-         *type, &read, Common::Json::Root( Common::Json::Value( parsed.GetValue() ) ), issues, nullptr );
+    const Common::Json::Value root( parsed.GetValue() );
+    Desert::Reflection::DeserializeReflected( *type, &read, Common::Json::Root( root ), issues, nullptr );
     for ( const auto& issue : issues )
         ADD_FAILURE() << Common::Json::Describe( issue );
     EXPECT_EQ( static_cast<uint64_t>( read.PhysicsAsset ), static_cast<uint64_t>( written.PhysicsAsset ) ) << text;

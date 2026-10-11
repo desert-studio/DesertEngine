@@ -716,6 +716,8 @@ namespace Desert::Physics
             for ( size_t i = 0; i < Characters.size(); ++i )
                 if ( Characters[i] )
                     PreviousCharacterPositions[i] = ToGlm( Characters[i]->GetPosition() );
+        }
+
         // A ragdoll's bodies leave the system before ~Ragdoll destroys them; the vector itself is destroyed
         // before System, which is declared before it.
         ~Impl()

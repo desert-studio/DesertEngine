@@ -13,6 +13,7 @@
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
+#include <Engine/ECS/RagdollComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
@@ -46,6 +47,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::PostProcessVolumeComponent, decltype( ::Desert::ECS::PostProcessVolumeComponent::Data )>{ "PostProcessVolume", "PostProcessVolumeData", &::Desert::ECS::PostProcessVolumeComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::ProceduralFoliageComponent, decltype( ::Desert::ECS::ProceduralFoliageComponent::Data )>{ "ProceduralFoliage", "ProceduralFoliageData", &::Desert::ECS::ProceduralFoliageComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::RadialImpulseFieldComponent, decltype( ::Desert::ECS::RadialImpulseFieldComponent::Data )>{ "RadialImpulseField", "RadialImpulseFieldData", &::Desert::ECS::RadialImpulseFieldComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<::Desert::ECS::RagdollComponent, decltype( ::Desert::ECS::RagdollComponent::Data )>{ "Ragdoll", "RagdollData", &::Desert::ECS::RagdollComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::RetargetComponent, decltype( ::Desert::ECS::RetargetComponent::Data )>{ "Retarget", "RetargetData", &::Desert::ECS::RetargetComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::RigidBodyComponent, decltype( ::Desert::ECS::RigidBodyComponent::Data )>{ "RigidBody", "RigidBodyData", &::Desert::ECS::RigidBodyComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::SkyAtmosphereComponent, decltype( ::Desert::ECS::SkyAtmosphereComponent::Data )>{ "SkyAtmosphere", "SkyAtmosphereData", &::Desert::ECS::SkyAtmosphereComponent::Data, R::SkyAndAtmosphere } );

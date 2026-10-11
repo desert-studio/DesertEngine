@@ -88,9 +88,10 @@ namespace Desert::Editor
         PhysicsAssetPreviewSimulation();
         ~PhysicsAssetPreviewSimulation();
 
-        /// Builds the ragdoll of @p asset on @p skeleton, posed as @p pose, in a new private world.
+        /// Builds the ragdoll of @p asset on @p skeleton, posed as @p pose, in a new private world whose bodies
+        /// collide by @p profiles (the project's register: the preview falls as the level's ragdoll would).
         Common::BoolResultStr Start( const Physics::PhysicsAssetData& asset, const Animation::Skeleton& skeleton,
-                                     const Animation::LocalPose& pose );
+                                     const Animation::LocalPose& pose, Physics::CollisionProfiles profiles );
         void                  Step( float dt );
         void                  Stop();
 

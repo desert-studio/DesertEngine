@@ -21,6 +21,7 @@
 #include <Engine/Physics/RagdollPose.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
@@ -337,7 +338,16 @@ namespace Desert::Editor
             Report( Common::MakeError<bool>( "the preview has not built its skeletal mesh yet" ), "Simulate" );
             return;
         }
-        Report( m_Simulation.Start( *m_Working, animator->GetSkeleton(), *m_RestPose ), "Simulate" );
+        // The project's register, as the level's Play reads it (PhysicsECSSystem): no register, no Simulate.
+        auto profiles = Physics::CollisionProfiles::Read( Common::Constants::Path::PROJECT_CONFIG_PATH /
+                                                          Physics::kCollisionProfilesFileName );
+        if ( !profiles )
+        {
+            Report( Common::MakeError<bool>( profiles.GetError() ), "Simulate" );
+            return;
+        }
+        Report( m_Simulation.Start( *m_Working, animator->GetSkeleton(), *m_RestPose, profiles.ExtractValue() ),
+                "Simulate" );
     }
 
     void PhysicsAssetEditorDocument::StopSimulation()
@@ -475,7 +485,8 @@ namespace Desert::Editor
             commit |= ImGui::IsItemDeactivatedAfterEdit();
         };
 
-        ImGui::SeparatorText( "Body" );
+        ImGui::TextDisabled( "Body" );
+        ImGui::Separator();
         int shape = static_cast<int>( m_BodyEdit.Shape );
         if ( ImGui::Combo( "Shape", &shape, kShapeNames.data(), static_cast<int>( kShapeNames.size() ) ) )
         {
@@ -527,7 +538,8 @@ namespace Desert::Editor
             active |= ImGui::IsItemActive();
             commit |= ImGui::IsItemDeactivatedAfterEdit();
         };
-        ImGui::SeparatorText( "Joint" );
+        ImGui::TextDisabled( "Joint" );
+        ImGui::Separator();
         ImGui::Text( "%s -> %s", current.ParentBone.c_str(), current.ChildBone.c_str() );
         ImGui::DragFloat( "Swing 1 (deg)", &m_JointLimitsDegrees.x, 0.5f, 0.0f, 180.0f, "%.1f" );
         track();
@@ -636,7 +648,7 @@ namespace Desert::Editor
                               std::max( avail.y, 1.0f ) );
         m_RenderSize = glm::uvec2( static_cast<uint32_t>( view.x ), static_cast<uint32_t>( view.y ) );
 
-        if ( ImGui::BeginChild( "##bonetree", ImVec2( kTreeWidth, view.y ), ImGuiChildFlags_Borders ) )
+        if ( ImGui::BeginChild( "##bonetree", ImVec2( kTreeWidth, view.y ), /*border=*/true ) )
             DrawBoneTree();
         ImGui::EndChild();
         ImGui::SameLine();

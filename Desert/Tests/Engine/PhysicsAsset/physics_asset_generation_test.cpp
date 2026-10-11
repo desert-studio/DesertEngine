@@ -110,7 +110,7 @@ namespace
         return nullptr;
     }
 
-    const Desert::Common::Content::AssetGuid kSkeletonGuid{ 0x5EE1ull, 0x0003ull };
+    const Common::Content::AssetGuid kSkeletonGuid{ 0x5EE1ull, 0x0003ull };
 } // namespace
 
 TEST( PhysicsAssetGeneration, KnownRigGetsABodyPerWeightedBoneAndTinyBonesAreSkipped )
