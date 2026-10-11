@@ -397,9 +397,8 @@ TEST( MaterialImportAdapter, EveryFbxSurfaceKeyReachesTheOrmTextureAndItsFactors
     map( aiTextureType_AMBIENT_OCCLUSION, "ao.png" );
     map( aiTextureType_SHININESS, "gloss.png" );
 
-    const SourceMaterial source = ReadSourceMaterial( mat, SourceFormatOf( "helmet.fbx" ), "M",
-                                                      FoundOnDisk )
-                                       .Material;
+    const SourceMaterial source =
+         ReadSourceMaterial( mat, SourceFormatOf( "helmet.fbx" ), "M", FoundOnDisk ).Material;
     const std::vector<ImportTemplate> templates = { Template( "Surface/StandardSurface.shader" ),
                                                     Template( "Unlit/Unlit.shader" ) };
     const auto                        choice    = ChooseImportTemplate( source, templates, "helmet.fbx" );
@@ -609,10 +608,9 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
         mat.AddProperty( &base, AI_MATKEY_TEXTURE( aiTextureType_BASE_COLOR, 0 ) );
         if ( withDiffuse )
             mat.AddProperty( &diffuse, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
-        return FillFromTemplate( ReadSourceMaterial( mat, SourceFormatOf( "chair.fbx" ), "M",
-                                                     FoundOnDisk )
-                                      .Material,
-                                 Template( "Surface/StandardSurface.shader" ) );
+        return FillFromTemplate(
+             ReadSourceMaterial( mat, SourceFormatOf( "chair.fbx" ), "M", FoundOnDisk ).Material,
+             Template( "Surface/StandardSurface.shader" ) );
     };
     const TemplateFill onlyBase = read( false );
     ASSERT_NE( Slot( onlyBase, "u_AlbedoTexture" ), nullptr ) << "an FBX base_color_map was dropped";
@@ -666,8 +664,7 @@ namespace
         const aiString specular( "Bistro_Specular.png" );
         mat.AddProperty( &albedo, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
         mat.AddProperty( &specular, AI_MATKEY_TEXTURE( aiTextureType_SPECULAR, 0 ) );
-        return ReadSourceMaterial( mat, SourceFormatOf( "BistroExterior.fbx" ), "Paris_Wall",
-                                   FoundOnDisk )
+        return ReadSourceMaterial( mat, SourceFormatOf( "BistroExterior.fbx" ), "Paris_Wall", FoundOnDisk )
              .Material;
     }
 } // namespace
