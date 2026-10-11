@@ -90,6 +90,8 @@ namespace
     constexpr const char* kSkySettings = "Desert/Desert/Source/Engine/Graphic/SkySettings.hpp";
     constexpr const char* kTimeOfDay   = "Desert/Desert/Source/Engine/ECS/System/TimeOfDayECSSystem.hpp";
     constexpr const char* kCollector   = "Desert/Desert/Source/Engine/ECS/System/SkyboxECSSystem.hpp";
+    // The one rule for which directional light is the sun (SUN-SOURCE) — every reader of the sun calls it.
+    constexpr const char* kSunPick = "Desert/Desert/Source/Engine/ECS/AtmosphereSunLight.hpp";
     constexpr const char* kSkyWidget =
          "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyAtmosphereComponent.cpp";
 
@@ -563,8 +565,8 @@ namespace
     constexpr Row kDirLightRows[] = {
          { "Color", kScene },
          { "Intensity", kScene },
-         { "AtmosphereSunLight", kCollector },
-         { "AtmosphereSunLightIndex", kCollector },
+         { "AtmosphereSunLight", kSunPick },
+         { "AtmosphereSunLightIndex", kSunPick },
          { "AffectedByAtmosphereTransmittance", kCollector },
          { "LightShaftBloom", kCollector },
          { "BloomScale", kCollector },
