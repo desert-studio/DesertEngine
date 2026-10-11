@@ -990,7 +990,7 @@ namespace
     };
 
     constexpr Row kScreenRows[] = {
-         { "Name", kCanvasRenderer },
+         { "Name", kUIScreenMachine },
     };
 
     // UI-SWITCHER: every stack, the canvas's and each nested switcher's, is seeded and advanced by

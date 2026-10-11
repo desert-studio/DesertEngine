@@ -312,9 +312,12 @@ TEST( UICanvasContext, ScreenNavigationBelongsToTheViewThatDidIt )
     canvasKids.clear();
     canvasKids.push_back( home );
     canvasKids.push_back( settings );
-    f.Registry.emplace<ECS::RelationshipComponent>( home ).Children.push_back( f.Button );
-    f.Registry.emplace<ECS::RelationshipComponent>( settings );
-    f.Registry.get<ECS::RelationshipComponent>( f.Button ).Parent = home;
+    // Both links, as the ECS hierarchy keeps them: the screen machine indexes a screen by walking UP to its owner.
+    auto& homeRel  = f.Registry.emplace<ECS::RelationshipComponent>( home );
+    homeRel.Parent = f.Canvas;
+    homeRel.Children.push_back( f.Button );
+    f.Registry.emplace<ECS::RelationshipComponent>( settings ).Parent = f.Canvas;
+    f.Registry.get<ECS::RelationshipComponent>( f.Button ).Parent     = home;
 
     auto& button          = f.Registry.get<ECS::UIButtonComponent>( f.Button ).Data;
     button.Action         = UI::UIButtonAction::ShowScreen;
