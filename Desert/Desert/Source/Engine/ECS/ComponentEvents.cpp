@@ -16,16 +16,16 @@ namespace Desert::ECS
     {
         const Reflection::TypeInfo* info = Reflection::ReflectionRegistry::Get().Find( std::string( type ) );
         if ( info == nullptr )
-            return Common::MakeError<Subscription>( std::format( "no reflected type '{}' declares events", type ) );
+            return Common::MakeError<Subscription>(
+                 std::format( "no reflected type '{}' declares events", type ) );
         const Reflection::EventInfo* found = info->FindEvent( event );
         if ( found == nullptr )
             return Common::MakeError<Subscription>( std::format( "'{}' has no event '{}'", type, event ) );
         return Subscribe( self, *found, std::move( listener ) );
     }
 
-    Common::ResultStr<ComponentEvents::Subscription> ComponentEvents::Subscribe( entt::entity                 self,
-                                                                                 const Reflection::EventInfo& event,
-                                                                                 Listener listener )
+    Common::ResultStr<ComponentEvents::Subscription>
+    ComponentEvents::Subscribe( entt::entity self, const Reflection::EventInfo& event, Listener listener )
     {
         if ( !listener )
             return Common::MakeError<Subscription>(
@@ -42,9 +42,9 @@ namespace Desert::ECS
     {
         for ( auto it = m_Bound.begin(); it != m_Bound.end(); ++it )
         {
-            auto& listeners = it->second;
-            const auto found = std::find_if( listeners.begin(), listeners.end(),
-                                             [&]( const Bound& bound ) { return bound.Id == subscription; } );
+            auto&      listeners = it->second;
+            const auto found     = std::find_if( listeners.begin(), listeners.end(),
+                                                 [&]( const Bound& bound ) { return bound.Id == subscription; } );
             if ( found == listeners.end() )
                 continue;
             listeners.erase( found );
@@ -60,7 +60,8 @@ namespace Desert::ECS
         return m_Bound.contains( Key{ self, &event } );
     }
 
-    Common::ResultStr<std::size_t> ComponentEvents::Broadcast( entt::entity self, const Reflection::EventInfo& event,
+    Common::ResultStr<std::size_t> ComponentEvents::Broadcast( entt::entity                       self,
+                                                               const Reflection::EventInfo&       event,
                                                                std::span<const Reflection::Value> payload ) const
     {
         const auto found = m_Bound.find( Key{ self, &event } );
@@ -68,7 +69,8 @@ namespace Desert::ECS
             return Common::MakeSuccess( std::size_t{ 0 } );
         if ( payload.size() != event.Params.size() )
             return Common::MakeError<std::size_t>( std::format( "{}.{}: {} values for {} parameters", event.Owner,
-                                                                event.Name, payload.size(), event.Params.size() ) );
+                                                                event.Name, payload.size(),
+                                                                event.Params.size() ) );
         for ( std::size_t i = 0; i < payload.size(); ++i )
             if ( payload[i].Type() != event.Params[i].Type )
                 return Common::MakeError<std::size_t>(

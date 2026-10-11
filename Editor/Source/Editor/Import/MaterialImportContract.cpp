@@ -203,7 +203,8 @@ namespace Desert::Editor
     {
         if ( key == kFbxSpecularMapKey )
             return "the FBX Specular map is a specular-colour image as FBX defines it, and the template has no "
-                   "Specular input; if this file packs roughness/metalness in G/B there (Lumberyard Bistro, ORCA: R "
+                   "Specular input; if this file packs roughness/metalness in G/B there (Lumberyard Bistro, ORCA: "
+                   "R "
                    "unused) or AO/roughness/metalness in R/G/B, set Import Settings > FBX Specular Map to that "
                    "Packed meaning and re-import with the .demat deleted";
         return {};

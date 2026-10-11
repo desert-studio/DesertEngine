@@ -39,8 +39,10 @@
 #include <cstddef>
 #include <filesystem>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -98,6 +100,27 @@ namespace Desert::Core::ExternalEntities
     [[nodiscard]] Common::ResultStr<WriteOutcome> WriteSceneFile( const std::filesystem::path&      scenePath,
                                                                   const Common::Json::TextDocument& scene );
 
+    // THE DELTA WRITE OF A PARTITIONED WORLD (WP17): `scene` states only the records in `changed` (any other
+    // record it states is ignored), and `listed` is every record id of the world in its order. Writes each
+    // changed record's file (only if its bytes differ), the header with the whole list, deletes the files of
+    // `removed`, and refreshes the descriptor index re-describing only `changed` - every other row is reused
+    // without reading its file. Refused, naming the id, when a changed id has no record in `scene`.
+    [[nodiscard]] Common::ResultStr<WriteOutcome> WriteSceneDelta( const std::filesystem::path&      scenePath,
+                                                                   const Common::Json::TextDocument& scene,
+                                                                   std::span<const Common::UUID>     listed,
+                                                                   std::span<const Common::UUID>     changed,
+                                                                   std::span<const Common::UUID>     removed );
+
+    // THE SAFETY NET OF A DELTA SAVE (WP17): every record of `scene` whose id is in `clean` - an entity the
+    // packages hold to be what its file says, so the delta save will not write it - must lay out as exactly the
+    // bytes of its file. One that does not was changed without Scene::MarkModified (or a recorded edit naming
+    // it), and the delta save would lose that change: refused, naming the entity's tag, its id and its file.
+    // A clean id the document states no record for is refused too. Reads one file per clean record, so the
+    // editor runs it in Debug builds only (SceneSerializer::SaveToFile).
+    [[nodiscard]] Common::BoolResultStr VerifyCleanRecords( const std::filesystem::path&      scenePath,
+                                                            const Common::Json::TextDocument& scene,
+                                                            std::span<const Common::UUID>     clean );
+
     // WriteSceneFile of a scene held as TEXT (the autosave's and the device-lost save's SerializeToJson output,
     // WorldGen's typed writer): parsed, then written the same way. Text that is not JSON is refused naming
     // `scenePath`.
@@ -112,6 +135,18 @@ namespace Desert::Core::ExternalEntities
     //   - a partitioned world that states its records INLINE: refused - that is the layout before v35, and the
     //     fix is Tools/SceneMigrator, which the message names.
     [[nodiscard]] Common::ResultStr<std::string> ReadSceneFileText( const std::filesystem::path& path );
+
+    // WP19 - THE PART OF A PARTITIONED WORLD AN EDITOR REGION HOLDS: the header at `path` joined with the files of
+    // the listed records whose id is in `wanted` only, in the header's order - the document a full read would give
+    // with every other record left out. Refused, naming the file: not a partitioned header, a wanted record whose
+    // file is missing or is not that record. An id of `wanted` the header does not list is refused too.
+    [[nodiscard]] Common::ResultStr<std::string>
+    ReadSceneRegionText( const std::filesystem::path& path, const std::unordered_set<std::uint64_t>& wanted );
+
+    // The entity list of the partitioned header at `path`, in its order, without reading an entity (the
+    // descriptor index's input, EntityDescriptorIndex.hpp). Refused, naming the file: unreadable, not JSON,
+    // not a header.
+    [[nodiscard]] Common::ResultStr<std::vector<Common::UUID>> ListedEntities( const std::filesystem::path& path );
 
     // True when `document` is a partitioned header (states ExternalEntities).
     [[nodiscard]] bool IsHeader( const Common::Json::TextDocument& document );

@@ -8,7 +8,8 @@ namespace Desert::Scripting
     {
         if ( const float* v = lua_tovector( L, first ) )
             return { v[0], v[1], v[2] };
-        return { static_cast<float>( luaL_checknumber( L, first ) ), static_cast<float>( luaL_checknumber( L, first + 1 ) ),
+        return { static_cast<float>( luaL_checknumber( L, first ) ),
+                 static_cast<float>( luaL_checknumber( L, first + 1 ) ),
                  static_cast<float>( luaL_checknumber( L, first + 2 ) ) };
     }
 
@@ -32,7 +33,8 @@ namespace Desert::Scripting
         int Valid( lua_State* L )
         {
             const std::optional<LuauEntityRef> ref = LuauBinder::ToEntity( L, 1 );
-            lua_pushboolean( L, ref && ref->Registry != nullptr && ref->Registry->valid( ref->Entity ) );
+            lua_pushboolean(
+                 L, static_cast<int>( ref && ref->Registry != nullptr && ref->Registry->valid( ref->Entity ) ) );
             return 1;
         }
 
@@ -47,9 +49,10 @@ namespace Desert::Scripting
         // Removes this entity (and its subtree) from the scene; its scripts are released once the call returns.
         int Destroy( lua_State* L )
         {
-            const std::optional<LuauEntityRef> ref = LuauBinder::ToEntity( L, 1 );
+            const std::optional<LuauEntityRef> ref  = LuauBinder::ToEntity( L, 1 );
             ScriptEngine::Impl&                host = ScriptEngine::Impl::Of( L );
-            if ( !ref || ref->Registry == nullptr || !ref->Registry->valid( ref->Entity ) || host.Scene == nullptr )
+            if ( !ref || ref->Registry == nullptr || !ref->Registry->valid( ref->Entity ) ||
+                 host.Scene == nullptr )
                 return 0;
             host.PendingRelease.push_back( static_cast<uint32_t>( ref->Entity ) );
             host.Scene->DestroyEntity( ECS::Entity{ ref->Entity, *ref->Registry } );
@@ -68,11 +71,12 @@ namespace Desert::Scripting
                 return 0;
             const std::vector<LuauSlot> slots = found->second; // the callee may change the map
             const int                   count = lua_gettop( L ) - 2;
-            for ( LuauSlot slot : slots )
+            for ( LuauSlot const slot : slots )
             {
                 if ( slot == 0 || !host.Runtime->Defines( slot, function ) )
                     continue;
-                if ( Common::BoolResultStr r = host.Runtime->CallFrom( slot, function, L, 3, count ); !r.IsSuccess() )
+                if ( Common::BoolResultStr const r = host.Runtime->CallFrom( slot, function, L, 3, count );
+                     !r.IsSuccess() )
                     LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
             }
             return 0;
@@ -158,21 +162,22 @@ namespace Desert::Scripting
         {
             const ECS::TransformComponent* a = Transform( L, 1 );
             const ECS::TransformComponent* b = Transform( L, 2 );
-            lua_pushnumber( L, ( a != nullptr && b != nullptr ) ? glm::distance( a->Translation, b->Translation ) : -1.0 );
+            lua_pushnumber( L, ( a != nullptr && b != nullptr ) ? glm::distance( a->Translation, b->Translation )
+                                                                : -1.0 );
             return 1;
         }
     } // namespace
 
     void RegisterEntityCoreBindings( lua_State* L )
     {
-        for ( const luaL_Reg& method : { luaL_Reg{ "valid", &Valid }, luaL_Reg{ "name", &Name },
-                                         luaL_Reg{ "destroy", &Destroy }, luaL_Reg{ "call", &Call },
-                                         luaL_Reg{ "attachTo", &AttachTo }, luaL_Reg{ "detach", &Detach },
-                                         luaL_Reg{ "getPosition", &GetPosition }, luaL_Reg{ "setPosition", &SetPosition },
-                                         luaL_Reg{ "translate", &Translate }, luaL_Reg{ "getRotation", &GetRotation },
-                                         luaL_Reg{ "setRotation", &SetRotation }, luaL_Reg{ "getScale", &GetScale },
-                                         luaL_Reg{ "setScale", &SetScale }, luaL_Reg{ "forward", &Forward },
-                                         luaL_Reg{ "right", &Right }, luaL_Reg{ "distanceTo", &DistanceTo } } )
+        for ( const luaL_Reg& method :
+              { luaL_Reg{ "valid", &Valid }, luaL_Reg{ "name", &Name }, luaL_Reg{ "destroy", &Destroy },
+                luaL_Reg{ "call", &Call }, luaL_Reg{ "attachTo", &AttachTo }, luaL_Reg{ "detach", &Detach },
+                luaL_Reg{ "getPosition", &GetPosition }, luaL_Reg{ "setPosition", &SetPosition },
+                luaL_Reg{ "translate", &Translate }, luaL_Reg{ "getRotation", &GetRotation },
+                luaL_Reg{ "setRotation", &SetRotation }, luaL_Reg{ "getScale", &GetScale },
+                luaL_Reg{ "setScale", &SetScale }, luaL_Reg{ "forward", &Forward }, luaL_Reg{ "right", &Right },
+                luaL_Reg{ "distanceTo", &DistanceTo } } )
             LuauBinder::SetEntityMethod( L, method.name, method.func );
     }
 } // namespace Desert::Scripting

@@ -8,6 +8,7 @@
 
 #include <ComponentBlocks.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 

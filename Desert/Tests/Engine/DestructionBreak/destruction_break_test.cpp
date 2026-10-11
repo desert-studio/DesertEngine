@@ -187,7 +187,7 @@ TEST( DestructionBreak, BreakIsNamedByItsEntity )
     const auto     entity       = registry.create();
     auto&          destructible = registry.emplace<ECS::DestructibleComponent>( entity );
     destructible.RuntimeObject  = added.GetValue();
-    ECS::DestructibleLifetime owner( *f.destruction );
+    ECS::DestructibleLifetime const owner( *f.destruction );
 
     f.Run( 5 );
     owner.PublishEvents( registry );

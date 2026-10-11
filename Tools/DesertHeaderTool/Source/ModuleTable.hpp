@@ -36,28 +36,28 @@ namespace Desert::HeaderTool
         // placement row naming an unknown module is the error, with the table's own message.
         static Common::ResultStr<ModuleTable> Load( const std::filesystem::path& tableFile );
 
-        const std::vector<ModuleInfo>& Modules() const
+        [[nodiscard]] const std::vector<ModuleInfo>& Modules() const
         {
             return m_Modules;
         }
-        const std::vector<ModulePlacement>& Placement() const
+        [[nodiscard]] const std::vector<ModulePlacement>& Placement() const
         {
             return m_Placement;
         }
-        const std::string& LegacyRoot() const
+        [[nodiscard]] const std::string& LegacyRoot() const
         {
             return m_LegacyRoot;
         }
 
-        const ModuleInfo* Find( std::string_view name ) const;
+        [[nodiscard]] const ModuleInfo* Find( std::string_view name ) const;
         // Every module `name` may include (direct dependencies, transitively); not `name` itself.
-        std::set<std::string> Closure( std::string_view name ) const;
+        [[nodiscard]] std::set<std::string> Closure( std::string_view name ) const;
 
         // The module of a repo-relative, '/'-separated path: the module whose Folder holds it, else the first
         // placement row matching it when it lives under the legacy root; empty when it belongs to no module.
-        std::string ModuleOf( std::string_view repoRelative ) const;
+        [[nodiscard]] std::string ModuleOf( std::string_view repoRelative ) const;
         // The placement rows alone, for a path already relative to the legacy root ("Engine/ECS/Scene.hpp").
-        std::string ModuleOfLegacy( std::string_view legacyRelative ) const;
+        [[nodiscard]] std::string ModuleOfLegacy( std::string_view legacyRelative ) const;
 
     private:
         std::vector<ModuleInfo>      m_Modules;

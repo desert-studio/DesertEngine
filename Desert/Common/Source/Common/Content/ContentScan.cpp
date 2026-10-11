@@ -13,6 +13,8 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <format>
+#include <iterator>
 #include <array>
 #include <cstring>
 #include <fstream>
@@ -159,6 +161,18 @@ namespace Common::Content
             quoted += "'";
             return quoted;
 #endif
+        }
+
+        // The checkout's root as git states it, or empty when `directory` is in no checkout (or git did not
+        // run). TrackedContent and TranslatedCheckouts both ask it before listing, for TrackedContent's reason.
+        std::string RepositoryToplevel( const std::filesystem::path& directory )
+        {
+            std::string toplevel = RunAndCapture(
+                 std::format( "git -C {} rev-parse --show-toplevel 2>{}",
+                              QuoteForShell( WithoutTrailingSeparator( directory.string() ) ), kNullDevice ) );
+            while ( !toplevel.empty() && ( toplevel.back() == '\n' || toplevel.back() == '\r' ) )
+                toplevel.pop_back();
+            return toplevel;
         }
 
         // The remedy, spelled once. Every disagreement below ends with it, because a gate that names a
@@ -755,19 +769,15 @@ namespace Common::Content
         // is about, committed once more inside its own repair: an instrument answered a different
         // question and had nothing in its output to say so. Hence: resolve the root, and let the caller
         // pass any directory inside the checkout.
-        const std::string toplevelCommand = "git -C " +
-                                            QuoteForShell( WithoutTrailingSeparator( repoRoot.string() ) ) +
-                                            " rev-parse --show-toplevel 2>" + std::string( kNullDevice );
-        std::string toplevel = RunAndCapture( toplevelCommand );
-        while ( !toplevel.empty() && ( toplevel.back() == '\n' || toplevel.back() == '\r' ) )
-            toplevel.pop_back();
+        const std::string toplevel = RepositoryToplevel( repoRoot );
         if ( toplevel.empty() )
             return std::nullopt;
 
         const std::filesystem::path root = std::filesystem::path( toplevel ).lexically_normal();
 
-        const std::string command = "git -C " + QuoteForShell( WithoutTrailingSeparator( root.string() ) ) +
-                                    " ls-files -z --full-name 2>" + std::string( kNullDevice );
+        const std::string command =
+             std::format( "git -C {} ls-files -z --full-name 2>{}",
+                          QuoteForShell( WithoutTrailingSeparator( root.string() ) ), kNullDevice );
 
         const std::string output = RunAndCapture( command );
         if ( output.empty() )
@@ -856,20 +866,15 @@ namespace Common::Content
     {
         // The toplevel is resolved first for TrackedContent's reason: an empty listing must mean "these
         // pathspecs track nothing", which only a command that is known to run can say.
-        const std::string toplevelCommand = "git -C " +
-                                            QuoteForShell( WithoutTrailingSeparator( repoRoot.string() ) ) +
-                                            " rev-parse --show-toplevel 2>" + std::string( kNullDevice );
-        std::string toplevel = RunAndCapture( toplevelCommand );
-        while ( !toplevel.empty() && ( toplevel.back() == '\n' || toplevel.back() == '\r' ) )
-            toplevel.pop_back();
+        const std::string toplevel = RepositoryToplevel( repoRoot );
         if ( toplevel.empty() )
             return std::nullopt;
 
-        std::string command = "git -C " + QuoteForShell( WithoutTrailingSeparator( toplevel ) ) +
-                              " ls-files --eol -z --full-name --";
+        std::string command = std::format( "git -C {} ls-files --eol -z --full-name --",
+                                           QuoteForShell( WithoutTrailingSeparator( toplevel ) ) );
         for ( const std::string& spec : pathspecs )
-            command += " " + QuoteForShell( spec );
-        command += " 2>" + std::string( kNullDevice );
+            std::format_to( std::back_inserter( command ), " {}", QuoteForShell( spec ) );
+        std::format_to( std::back_inserter( command ), " 2>{}", kNullDevice );
         return TranslatedInEolListing( RunAndCapture( command ) );
     }
 

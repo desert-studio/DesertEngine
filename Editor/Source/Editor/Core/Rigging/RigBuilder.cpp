@@ -206,6 +206,7 @@ namespace Desert::Editor
         // Swap the component. Materials are left to the default skinned lit material (a static lit instance is
         // bound to the wrong vertex/pipeline layout) — the user re-assigns skinned materials afterward.
         entity.RemoveComponent<ECS::StaticMeshComponent>();
+        scene.MarkModified( s_Target );
         auto& out           = entity.AddComponent<ECS::SkinnedMeshComponent>();
         out.RuntimeSkeleton = skeleton;
         out.RuntimeMesh     = skinnedMesh;

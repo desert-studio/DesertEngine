@@ -55,7 +55,7 @@ namespace Desert::Editor
                 if ( const auto* submeshes = primitives( *mesh.Primitive ) )
                     Include( bounds, entity, submeshes );
             }
-            else if ( mesh.MeshHandle )
+            else if ( mesh.MeshHandle != 0u )
                 Include( bounds, entity, AssetSubmeshes( mesh.MeshHandle ) );
         }
         for ( const auto handle : registry.view<ECS::TransformComponent, ECS::SkinnedMeshComponent>() )
@@ -64,7 +64,7 @@ namespace Desert::Editor
             const auto&       mesh = registry.get<ECS::SkinnedMeshComponent>( handle );
             if ( mesh.RuntimeMesh )
                 Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
-            else if ( mesh.MeshHandle )
+            else if ( mesh.MeshHandle != 0u )
                 Include( bounds, entity, AssetSubmeshes( mesh.MeshHandle ) );
         }
         return bounds;

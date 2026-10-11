@@ -6,7 +6,8 @@ namespace Desert::Scripting
 {
     namespace
     {
-        // level.open([name]) -> true | false, why. Queues the travel (Core::OpenLevel); no name = the default level.
+        // level.open([name]) -> true | false, why. Queues the travel (Core::OpenLevel); no name = the default
+        // level.
         int Open( lua_State* L )
         {
             const auto opened = Core::OpenLevel( luaL_optstring( L, 1, "" ) );

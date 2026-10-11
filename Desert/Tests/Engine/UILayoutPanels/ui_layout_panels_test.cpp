@@ -161,10 +161,10 @@ TEST( UILayoutPanels, ScaleBoxScalesTheContentAsOnePicture )
 // child with Shrink 0 keeps its size.
 TEST( UILayoutPanels, FlexShrinkTakesTheOverflowBackByWeightAndStopsAtMin )
 {
-    LayoutGroupParams p = Params( LayoutGroupType::Horizontal );
-    auto              s = Slots( { { 200, 10 }, { 100, 10 }, { 100, 10 } } );
-    s[0].Shrink         = 1.0f;
-    s[1].Shrink         = 1.0f;
+    LayoutGroupParams const p = Params( LayoutGroupType::Horizontal );
+    auto                    s = Slots( { { 200, 10 }, { 100, 10 }, { 100, 10 } } );
+    s[0].Shrink               = 1.0f;
+    s[1].Shrink               = 1.0f;
     // 400 into 250: overflow 150 split 2:1 by Shrink*basis -> 100 and 50.
     auto a = UI::ArrangeLayoutGroup( { 0, 0, 250, 10 }, p, s );
     EXPECT_FLOAT_EQ( a[0].R.W, 100.0f );
@@ -199,8 +199,8 @@ namespace
         const auto parsed = Common::Json::Read<Common::Json::Object>( Common::Json::Write( object ) );
         EXPECT_TRUE( parsed.IsSuccess() );
         const Common::Json::Value value( parsed.GetValue() ); // Root() refuses a temporary
-        T                    read;
-        Common::Json::Issues issues;
+        T                         read;
+        Common::Json::Issues      issues;
         Desert::Reflection::DeserializeReflected( Type( typeName ), &read, Common::Json::Root( value ), issues,
                                                   nullptr );
         for ( const auto& issue : issues )

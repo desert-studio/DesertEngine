@@ -513,18 +513,19 @@ TEST( NodeMeshSplit, APlacedSplitSourceStandsEveryNodeWhereTheFilePutIt )
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     const auto record = Ser::ReadImportRecord( project.Source );
     ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
-    if ( !record.GetValue() || !record.GetValue()->Nodes )
+    const auto& recordValue = record.GetValue();
+    if ( !recordValue.has_value() || !recordValue->Nodes.has_value() )
         FAIL() << "a split import recorded no nodes";
-    const auto& recorded = *record.GetValue()->Nodes;
+    const auto& recorded = *recordValue->Nodes;
     ASSERT_EQ( recorded.size(), written.GetValue().size() );
 
     std::vector<Editor::PlacedNodeMesh> placed;
     for ( const auto& node : recorded )
         placed.push_back( { node.Name, Assets::AssetHandle( Common::UUID() ),
                             glm::vec3( node.Placement[0], node.Placement[1], node.Placement[2] ) } );
-    Core::Scene scene( "Placed", nullptr );
-    ECS::Entity root     = scene.CreateNewEntity( "Grass" );
-    const auto  children = Editor::PlaceNodeActors( scene, root, placed );
+    Core::Scene       scene( "Placed", nullptr );
+    const ECS::Entity root     = scene.CreateNewEntity( "Grass" );
+    const auto        children = Editor::PlaceNodeActors( scene, root, placed );
     ASSERT_EQ( children.size(), recorded.size() ) << "one entity per node mesh";
     EXPECT_EQ( root.GetComponent<ECS::RelationshipComponent>().Children.size(), recorded.size() );
 

@@ -26,6 +26,7 @@ project "GamePackager"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp", -- a partitioned world is read joined (WP16)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
@@ -73,11 +74,11 @@ project "GamePackager"
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 
-    for name, path in pairs(deps.DesertSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.DesertSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 
@@ -108,7 +109,7 @@ project "GamePackager"
     filter "configurations:Debug"
         defines { "DESERT_CONFIG_DEBUG" }
         symbols "On"
-        for name, path in pairs(deps.DesertSpecific.Libraries.Debug) do
+        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Debug) do
             links { path }
         end
 
@@ -118,7 +119,7 @@ project "GamePackager"
     -- unresolved shaderc symbols -- which is exactly how the 257 test scripts failed that build.
     filter "configurations:Release or Shipping"
         optimize "On"
-        for name, path in pairs(deps.DesertSpecific.Libraries.Release) do
+        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Release) do
             links { path }
         end
 

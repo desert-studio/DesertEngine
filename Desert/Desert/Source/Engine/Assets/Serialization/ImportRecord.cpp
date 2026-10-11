@@ -270,13 +270,16 @@ namespace Desert::Assets::Serialization
                  "'{}' has no import record '{}': its mesh has no identity until it is imported (the import "
                  "writes the record)",
                  source.string(), record.string() );
-        if ( !held->Data )
+        const std::optional<ImportRecordData>& stored = held->Data;
+        if ( !stored )
             return Common::MakeFormattedError<AssetGuid>( "{}", held->Error );
-        const ImportRecordData& data = *held->Data;
+        const ImportRecordData& data = *stored;
         if ( data.Source != source.filename().string() )
             return Common::MakeFormattedError<AssetGuid>( "'{}' is the record of '{}', not of '{}'",
                                                           record.string(), data.Source,
                                                           source.filename().string() );
+        if ( !data.Header )
+            return Common::MakeFormattedError<AssetGuid>( "'{}' states no header", record.string() );
         const auto guid = Common::Content::AssetGuidFromText( data.Header->Guid );
         if ( !guid || guid.GetValue().IsNull() )
             return Common::MakeFormattedError<AssetGuid>( "'{}' states no usable GUID", record.string() );
@@ -287,13 +290,15 @@ namespace Desert::Assets::Serialization
     {
         using Result    = Assets::SourceImportSettings;
         const auto held = HeldRecordFor( Common::Content::ImportRecordPathFor( source ) );
-        if ( held && !held->Data )
+        if ( !held ) // the first import: UE's defaults
+            return Common::MakeSuccess( Result{} );
+        const std::optional<ImportRecordData>& stored = held->Data;
+        if ( !stored )
             return Common::MakeFormattedError<Result>( "{}", held->Error );
-        const ImportRecordData* stored = held ? &*held->Data : nullptr;
-        if ( stored == nullptr || !stored->Settings.has_value() )
-            return Common::MakeSuccess(
-                 Result{} ); // the first import, or a record from before THM1l: UE's defaults
-        auto settings = ImportSettingsFromText( *stored->Settings );
+        const auto& text = stored->Settings;
+        if ( !text ) // a record from before THM1l: UE's defaults
+            return Common::MakeSuccess( Result{} );
+        auto settings = ImportSettingsFromText( *text );
         if ( !settings )
             return Common::MakeFormattedError<Result>(
                  "'{}': {}", Common::Content::ImportRecordPathFor( source ).string(), settings.GetError() );
@@ -307,12 +312,13 @@ namespace Desert::Assets::Serialization
         const auto        held   = HeldRecordFor( Common::Content::ImportRecordPathFor( source ) );
         if ( !held )
             return Common::MakeFormattedError<ContentKind>( "'{}' does not exist", record );
-        if ( !held->Data )
+        const std::optional<ImportRecordData>& stored = held->Data;
+        if ( !stored )
             return Common::MakeFormattedError<ContentKind>( "{}", held->Error );
-        const ImportRecordData* stored = &*held->Data;
-        if ( !stored->Header.has_value() )
+        const auto& header = stored->Header;
+        if ( !header )
             return Common::MakeFormattedError<ContentKind>( "'{}' states no header", record );
-        const std::string& name = stored->Header->Kind;
+        const std::string& name = header->Kind;
         const auto         kind = Common::Content::ContentKindNamed( name );
         if ( !kind || !IsImportRecordKind( *kind ) )
             return Common::MakeFormattedError<ContentKind>( "'{}' states Kind '{}', which no import writes",
@@ -343,9 +349,10 @@ namespace Desert::Assets::Serialization
             if ( !held )
                 return Common::MakeFormattedError<AssetGuid>( "'{}' was removed while it was read",
                                                               record.string() );
-            if ( !held->Data )
+            const std::optional<ImportRecordData>& stored = held->Data;
+            if ( !stored )
                 return Common::MakeFormattedError<AssetGuid>( "{}", held->Error );
-            data = *held->Data;
+            data = *stored;
             // No Settings key IS UE's defaults (ReadImportRecordSettings), so a default import matches it.
             bool sameSettings = !data.Settings && settings == Assets::SourceImportSettings{};
             if ( data.Settings )
@@ -384,7 +391,7 @@ namespace Desert::Assets::Serialization
             return Common::MakeSuccess( Result{} );
         if ( !held->Data )
             return Common::MakeFormattedError<Result>( "{}", held->Error );
-        return Common::MakeSuccess( Result{ *held->Data } );
+        return Common::MakeSuccess( Result{ held->Data } );
     }
 
     Common::ResultStr<ThumbnailOrbit> ReadImportRecordThumbnail( const std::filesystem::path& source,
@@ -394,9 +401,9 @@ namespace Desert::Assets::Serialization
         if ( !held )
             return Common::MakeFormattedError<ThumbnailOrbit>(
                  "'{}' has no import record, so the orbit of '{}' has no home", source.string(), meshFile );
-        if ( !held->Data )
+        const std::optional<ImportRecordData>& stored = held->Data;
+        if ( !stored )
             return Common::MakeFormattedError<ThumbnailOrbit>( "{}", held->Error );
-        const ImportRecordData* stored    = &*held->Data;
         const auto& thumbnail = stored->Thumbnail;
         if ( !thumbnail )
             return Common::MakeSuccess( ThumbnailOrbit{} );

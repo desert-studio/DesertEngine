@@ -11,10 +11,10 @@ namespace Desert::Editor
     /// kind — the shape in which Material came to have a name but no colour and no icon.
     struct FileTypeInfo
     {
-        FileType    Type;
-        const char* Name;   ///< the tooltip's type line
-        ImVec4      Colour; ///< the tile's class stripe
-        const char* Icon;   ///< the type glyph drawn when the kind has no picture
+        FileType    Type{};
+        const char* Name = nullptr; ///< the tooltip's type line
+        ImVec4      Colour;         ///< the tile's class stripe
+        const char* Icon = nullptr; ///< the type glyph drawn when the kind has no picture
     };
 
     /// The row of @p type. Every enumerator up to kLastFileType has one.

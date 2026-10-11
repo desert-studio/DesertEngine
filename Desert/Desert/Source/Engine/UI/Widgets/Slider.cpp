@@ -28,18 +28,18 @@ namespace Desert::UI::Walk
 {
     void DrawSliderWidget( ElementFrame& frame )
     {
-        auto& ctx       = frame.Ctx;
-        auto& tree       = frame.Tree;
-        auto& e         = frame.E;
-        auto& dl        = frame.Dl;
-        auto& input     = frame.Input;
-        auto& st        = frame.St;
-        auto& rect      = frame.ElementRect;
-        auto& pointerPx = frame.PointerPx;
-        auto& mn        = frame.Mn;
-        auto& mx        = frame.Mx;
-        auto& hot       = frame.Hot;
-        auto& focused    = frame.Focused;
+        auto&       ctx       = frame.Ctx;
+        auto&       tree      = frame.Tree;
+        auto&       e         = frame.E;
+        auto&       dl        = frame.Dl;
+        auto&       input     = frame.Input;
+        const auto& st        = frame.St;
+        auto&       rect      = frame.ElementRect;
+        const auto& pointerPx = frame.PointerPx;
+        auto&       mn        = frame.Mn;
+        auto&       mx        = frame.Mx;
+        auto&       hot       = frame.Hot;
+        auto&       focused   = frame.Focused;
 
         auto&       sl    = *tree.GetState<UISliderData>( e );
         const float range = std::max( 0.0001f, sl.MaxValue - sl.MinValue );
@@ -58,7 +58,7 @@ namespace Desert::UI::Walk
 
         // Keyboard (SSlider::OnKeyDown): Left / Right step the focused slider by StepSize, and the keys are
         // the slider's — consumed, so they do not also move focus.
-        if ( input && frame.Interactive && focused && *focused == e )
+        if ( input != nullptr && frame.Interactive && focused != nullptr && *focused == e )
             for ( const UIKeyEvent& k : input->Keys )
                 if ( k.Key == Common::KeyCode::Left || k.Key == Common::KeyCode::Right )
                 {
@@ -67,7 +67,7 @@ namespace Desert::UI::Walk
                     ctx.View.ConsumeKey( k.Key );
                 }
 
-        const bool hover = input && hot;
+        const bool hover = input != nullptr && hot;
         if ( hover && input->MouseDown )
         {
             // The slider's fraction is measured along ITS OWN track, so it takes the undone

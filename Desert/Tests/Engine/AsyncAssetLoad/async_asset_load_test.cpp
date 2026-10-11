@@ -27,6 +27,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <format>
 #include <string>
 #include <thread>
 #include <vector>
@@ -727,7 +728,7 @@ TEST_F( AsyncAssetLoad, TheLoadingCountClimbsToItsTotalAndEqualsTheReadsThatRan 
     std::vector<LoadRequest>                 requests;
     for ( int i = 0; i < kAssets; ++i )
     {
-        assets.push_back( std::make_shared<ProbeAsset>( "probe_" + std::to_string( i ) + ".probe" ) );
+        assets.push_back( std::make_shared<ProbeAsset>( std::format( "probe_{}.probe", i ) ) );
         if ( i == 0 )
             assets.back()->HoldInsideRead.store( true );
         requests.push_back( AsyncAssetLoader::Get().Request(
@@ -785,7 +786,7 @@ TEST_F( AsyncAssetLoad, AWaitReportsEveryReadThatLandsExactlyOnceAndEndsAtTheTot
         std::vector<LoadRequest>                 requests;
         for ( int i = 0; i < kAssets; ++i )
         {
-            assets.push_back( std::make_shared<ProbeAsset>( "waited_" + std::to_string( i ) + ".probe" ) );
+            assets.push_back( std::make_shared<ProbeAsset>( std::format( "waited_{}.probe", i ) ) );
             requests.push_back( AsyncAssetLoader::Get().Request(
                  assets.back(), []( const auto&, LoadOutcome, const std::string& ) {}, [] {} ) );
         }
@@ -815,7 +816,7 @@ TEST_F( AsyncAssetLoad, TheLoadingLineSaysPipelinesOnceTheReadsAreDoneAndIsEmpty
     EXPECT_TRUE( none.Item.empty() ) << "nothing was read and the loading line names something";
 
     const auto pipelines = Desert::Assets::ContentProgressSince( AsyncAssetLoader::Get().Progress(), 0, 3 );
-    EXPECT_NE( pipelines.Item.find( "3" ), std::string::npos ) << pipelines.Item;
+    EXPECT_NE( pipelines.Item.find( '3' ), std::string::npos ) << pipelines.Item;
 }
 
 namespace

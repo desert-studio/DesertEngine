@@ -188,3 +188,7 @@ __pycache__/
 
 # ShadingModelRegistry writes this header from ShadingModels/*.shadingmodel at startup; it is never committed.
 Editor/Resources/Shaders/ShadingModels/ShadingModels.generated.glslh
+
+# The descriptor index of a partitioned world (WP18) is DERIVED from the entity files beside it and rebuilt by
+# every save and cook. Committed, git's line-ending conversion on Windows would make every row stale.
+*.dedesc

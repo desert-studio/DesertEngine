@@ -38,7 +38,7 @@ namespace Desert::Editor
         // After an unclean exit, hands the newest autosave this build can open to the dock's recovery
         // pop-up (copies at another scene schema are named in the log and left alone); then writes this
         // session's lock. A lock that could not be written is said in a toast: recovery is off.
-        void OfferAndArm( DockLayout& dock ) const;
+        static void OfferAndArm( DockLayout& dock );
 
         // The timed autosave: Edit mode only, every EditorPreferences::AutosaveMinutes of wall-clock time,
         // and only when the command revision moved since the last autosave that LANDED.

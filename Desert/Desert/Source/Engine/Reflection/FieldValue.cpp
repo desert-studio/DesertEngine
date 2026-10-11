@@ -146,21 +146,21 @@ namespace Desert::Reflection
                 return Common::MakeSuccess( Value::Bool( Load<bool>( at ) ) );
             case FieldType::Int:
             {
-                Common::ResultStr<std::int64_t> bits = LoadSigned( field, at );
+                Common::ResultStr<std::int64_t> const bits = LoadSigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::Int( bits.GetValue() ) );
             }
             case FieldType::Enum:
             {
-                Common::ResultStr<std::int64_t> bits = LoadSigned( field, at );
+                Common::ResultStr<std::int64_t> const bits = LoadSigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::Enum( bits.GetValue() ) );
             }
             case FieldType::UInt:
             {
-                Common::ResultStr<std::uint64_t> bits = LoadUnsigned( field, at );
+                Common::ResultStr<std::uint64_t> const bits = LoadUnsigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::UInt( bits.GetValue() ) );
@@ -170,6 +170,9 @@ namespace Desert::Reflection
             case FieldType::Double:
                 return Common::MakeSuccess( Value::Double( Load<double>( at ) ) );
             case FieldType::String:
+                // The reflected offset addresses a live std::string member of `object`: reinterpret_cast is the
+                // cast that states it (a string is not trivially copyable, so Load's memcpy cannot carry it).
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                 return Common::MakeSuccess( Value::String( *reinterpret_cast<const std::string*>( at ) ) );
             case FieldType::Vec2:
                 return LoadFloats<Value::Float2>( field, at, &Value::Vec2 );
@@ -181,7 +184,7 @@ namespace Desert::Reflection
             {
                 // The 64-bit handle id as a UInt Value — the form the serializer stores and a container element
                 // of handles travels as (ContainerAccess.hpp).
-                Common::ResultStr<std::uint64_t> bits = LoadUnsigned( field, at );
+                Common::ResultStr<std::uint64_t> const bits = LoadUnsigned( field, at );
                 if ( !bits.IsSuccess() )
                     return Common::MakeError<Value>( bits.GetError() );
                 return Common::MakeSuccess( Value::UInt( bits.GetValue() ) );
@@ -227,6 +230,8 @@ namespace Desert::Reflection
                 Store<double>( at, *value.Get<double>() );
                 return Common::MakeSuccess( true );
             case FieldType::String:
+                // As in the load above: the offset addresses a live std::string member, assigned in place.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                 *reinterpret_cast<std::string*>( at ) = *value.Get<std::string>();
                 return Common::MakeSuccess( true );
             case FieldType::Vec2:

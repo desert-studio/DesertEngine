@@ -32,7 +32,7 @@ namespace Desert::Editor
         if ( dir == nullptr )
             return;
         for ( auto* child : dir->Children )
-            if ( child )
+            if ( child != nullptr )
                 m_Directories.erase( child->AssetPath );
         dir->Children.clear();
         dir->Opened = false;
@@ -85,6 +85,8 @@ namespace Desert::Editor
         return files;
     }
 
+    // A directory tree is walked by its own depth, which the file system bounds.
+    // NOLINTNEXTLINE(misc-no-recursion)
     std::string ContentDirectoryModel::Process( const std::string& directoryPath, DirectoryInformation* parent,
                                                 bool processChildren )
     {
@@ -97,7 +99,7 @@ namespace Desert::Editor
         // what its row in Tests/Common/ContentScanners records with the measurement behind it.
         const std::filesystem::path stdPath( directoryPath );
 
-        std::shared_ptr<DirectoryInformation> directoryInfo =
+        const std::shared_ptr<DirectoryInformation> directoryInfo =
              directory ? directory
                        : std::make_shared<DirectoryInformation>( directoryPath,
                                                                  !std::filesystem::is_directory( stdPath ) );

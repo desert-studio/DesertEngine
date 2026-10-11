@@ -171,8 +171,8 @@ namespace Desert::Editor
         void AppendViewLayoutCommands( std::vector<PaletteCommand>& commands ); // Four-Up, presets, closes
 
     private:
-        Common::BoolResultStr TickWorld( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
-                                         const Common::Timestep& ts, PlaySession& play, bool shotCounting );
+        static Common::BoolResultStr TickWorld( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
+                                                const Common::Timestep& ts, PlaySession& play, bool shotCounting );
         // EditorPreferences::CameraSpeed reaches the editor camera once, on the first tick: Scene::Init makes the
         // camera and the first Init is deferred to the first scene load (SceneInitDeferral).
         void ApplyCameraSpeedOnce();

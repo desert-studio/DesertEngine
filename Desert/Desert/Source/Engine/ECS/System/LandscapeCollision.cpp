@@ -130,8 +130,9 @@ namespace Desert::ECS
             DecodeHeights( heights, frame.ZScale, m_HeightsCm );
             auto desc = DescFor( heights, frame, m_HeightsCm );
             // UE's landscape preset; Build guarantees the register has every engine profile.
-            const auto engineProfile = m_World->GetCollisionProfiles().Resolve( Physics::EngineProfiles::kBlockAll );
-            desc.Profile             = engineProfile.GetValue();
+            const auto engineProfile =
+                 m_World->GetCollisionProfiles().Resolve( Physics::EngineProfiles::kBlockAll );
+            desc.Profile    = engineProfile.GetValue();
             const auto body = m_World->CreateHeightField( desc );
             if ( !body.IsSuccess() )
                 LOG_WARN( "[Landscape] tile ({}, {}) has no collision: {}", component.TileX, component.TileZ,

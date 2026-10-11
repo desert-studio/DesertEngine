@@ -169,7 +169,8 @@ TEST( StoredAssetForm, AMeshIsStoredAsItsStableKeyAndCarriesNoCheckoutDirectory 
     ASSERT_EQ( key, "assets:Meshes/Skinned/Probe.skmesh" );
 
     const auto form = StoredFormFor( "SkinnedMeshAsset" );
-    ASSERT_TRUE( form.has_value() );
+    if ( !form.has_value() )
+        FAIL() << "SkinnedMeshAsset has no stored form";
     const std::string stored = RenderStoredForm( *form, key );
     EXPECT_EQ( stored, key );
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( stored ).lexically_normal(), mesh );

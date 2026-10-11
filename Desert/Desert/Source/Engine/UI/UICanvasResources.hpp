@@ -60,9 +60,9 @@ namespace Desert::UI
     // layers or a null atlas = the icon draws nothing.
     struct IconRef
     {
-        const void*                     Atlas  = nullptr;
+        const void*                      Atlas = nullptr;
         std::span<const Text::IconLayer> Layers;
-        float                           Aspect = 1.0f; // source viewBox width / height
+        float                            Aspect = 1.0f; // source viewBox width / height
     };
 
     class IUICanvasResources

@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <regex>
 #include <set>
@@ -413,7 +414,7 @@ namespace
     // makes the engine's tests depend on the layers built on top of it.
     std::vector<std::string> RunnerFiles( const std::string& premake, const std::string& layer )
     {
-        const std::string opener = "    " + layer + " = function(deps)";
+        const std::string opener = std::format( "    {} = function(deps)", layer );
         const size_t      begin  = premake.find( opener );
         EXPECT_NE( begin, std::string::npos )
              << "kRunners has no entry '" << layer << "' in Desert/Tests/premake5.lua";
@@ -427,7 +428,7 @@ namespace
         std::string        code;
         std::istringstream lines( body );
         for ( std::string line; std::getline( lines, line ); )
-            code += line.substr( 0, line.find( "--" ) ) + "\n";
+            std::format_to( std::back_inserter( code ), "{}\n", line.substr( 0, line.find( "--" ) ) );
 
         std::vector<std::string> files;
         static const std::regex  kQuoted( R"re("([^"]*)")re" );

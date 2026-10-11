@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <system_error>
 #include <Engine/Core/Scene.hpp>
+#include <Editor/Core/CommandHistory.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -151,6 +152,9 @@ namespace Desert::Editor
 
         const auto& selectedEntity = selectedEntityOpt.value().get();
 
+        // Every reflected field edit drawn below belongs to this entity: only its file is rewritten (WP17).
+        const CommandHistory::FieldSubject fieldSubject( selectedOpt.value() );
+
         // --- Header row: [ ] [icon] [Name (bold, editable)]      [save] [tune] ---
         // Visible toggle -> VisibilityComponent.Visible (added on demand). Render systems skip invisible.
         bool active = !selectedEntity.HasComponent<ECS::VisibilityComponent>() ||
@@ -173,7 +177,10 @@ namespace Desert::Editor
             ImGui::TextUnformatted( locked ? ICON_MDI_LOCK : ICON_MDI_LOCK_OPEN_OUTLINE );
             ImGui::PopStyleColor();
             if ( ImGui::IsItemClicked() )
+            {
                 ECS::SetLockedRecursive( *selectedEntity.GetRegistry(), selectedEntity.GetHandle(), !locked );
+                m_Scene->MarkModifiedSubtree( selectedEntity );
+            }
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( locked ? "Locked: the viewport will not pick this and the gizmo will not "
                                             "move it. Click to unlock."
@@ -199,6 +206,7 @@ namespace Desert::Editor
                     entity.RemoveComponent<ECS::AlwaysLoadedComponent>();
                 else
                     entity.AddComponent<ECS::AlwaysLoadedComponent>();
+                m_Scene->MarkModified( selectedOpt.value() );
             }
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip(
@@ -219,8 +227,7 @@ namespace Desert::Editor
         ImGui::PushItemWidth( ImGui::GetContentRegionAvail().x - ImGui::GetFontSize() * 4.5f );
         ImGui::PushFont( EditorResources::GetBoldFont() );
         if ( Utils::ImGuiUtilities::InputText( tag, "##InspectorNameChange" ) )
-        {
-        }
+            m_Scene->MarkModified( selectedOpt.value() );
         ImGui::PopFont();
         ImGui::PopItemWidth();
         ImGui::SameLine();

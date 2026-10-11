@@ -284,7 +284,7 @@ namespace Desert::Assets
         /// -- which is why it was a free static in the first place -- without making the object a
         /// decoration.
         std::unique_ptr<State> m_State;
-        WaitFeedback           m_WaitFeedback; // main thread only (SetWaitFeedback)
+        WaitFeedback           m_WaitFeedback;     // main thread only (SetWaitFeedback)
         uint64_t               m_WaitReported = 0; // the last `Finished` m_WaitFeedback was called with
     };
 

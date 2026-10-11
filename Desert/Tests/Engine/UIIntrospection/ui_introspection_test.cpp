@@ -314,7 +314,8 @@ TEST( UIIntrospectionWalk, OwnAndInheritedAreDifferentAnswers )
     EXPECT_EQ( root->Cause, UISkipCause::SelfHidden );
     EXPECT_EQ( UI::ToEntity( root->CauseBy ), scene.Panels[0] );
     EXPECT_EQ( mid->Cause, UISkipCause::AncestorSkipped );
-    EXPECT_EQ( UI::ToEntity( mid->CauseBy ), scene.Panels[0] ) << "the blame must name the ancestor that stopped, not the parent";
+    EXPECT_EQ( UI::ToEntity( mid->CauseBy ), scene.Panels[0] )
+         << "the blame must name the ancestor that stopped, not the parent";
     EXPECT_EQ( leaf->Cause, UISkipCause::AncestorSkipped );
     EXPECT_EQ( UI::ToEntity( leaf->CauseBy ), scene.Panels[0] );
 }
@@ -389,9 +390,9 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
     {
         if ( n.Drawn || !scene.Registry.has<ECS::UILayoutComponent>( UI::ToEntity( n.Entity ) ) )
             continue;
-        auto&                   field = scene.Layout( UI::ToEntity( n.Entity ) ).Visibility;
-        const UI::UIVisibility  prev  = field;
-        field                         = UI::UIVisibility::Hidden;
+        auto&                  field = scene.Layout( UI::ToEntity( n.Entity ) ).Visibility;
+        const UI::UIVisibility prev  = field;
+        field                        = UI::UIVisibility::Hidden;
 
         R2D::DrawList2D again;
         UIViewContext   ctx2{ s_Resources };
