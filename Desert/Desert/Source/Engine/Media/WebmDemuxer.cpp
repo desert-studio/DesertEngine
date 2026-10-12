@@ -551,10 +551,19 @@ namespace Desert::Media
             m_Error = std::format( "{}: no Cues, so no keyframe index to seek by", m_Path.string() );
             return false;
         }
-        uint64_t clusterOffset = m_Cues.front().ClusterOffset;
-        for ( const CueEntry& cue : m_Cues )
-            if ( cue.TimeNs <= targetNs )
-                clusterOffset = cue.ClusterOffset;
+        // Matroska SeekPreRoll: after its reset the audio decoder needs that much sound before the target to
+        // converge (Opus: 80 ms, RFC 7845 §4.6), so decoding restarts at the last keyframe at or before
+        // target − SeekPreRoll; the lead is decoded and dropped (OpusAudioDecoder::Reset). No keyframe that
+        // early: the stream's own start, which needs none.
+        const int64_t restartNs = targetNs - ( m_Audio.Present ? m_Audio.SeekPreRollNs : 0 );
+        const auto    cue       = std::find_if( m_Cues.rbegin(), m_Cues.rend(),
+                                                [&]( const CueEntry& c ) { return c.TimeNs <= restartNs; } );
+        if ( restartNs <= 0 || cue == m_Cues.rend() )
+        {
+            m_NextCluster = 0;
+            return true;
+        }
+        const uint64_t clusterOffset = cue->ClusterOffset;
         const auto it = std::find( m_ClusterElementOffsets.begin(), m_ClusterElementOffsets.end(), clusterOffset );
         if ( it == m_ClusterElementOffsets.end() )
         {

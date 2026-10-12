@@ -43,15 +43,16 @@ namespace Desert::Media
         std::string          CodecId; // "A_OPUS"
         uint32_t             SampleRate    = 0;
         uint32_t             Channels      = 0;
-        int64_t              CodecDelayNs  = 0; // Opus pre-skip, in time
-        int64_t              SeekPreRollNs = 0;
+        int64_t              CodecDelayNs  = 0; // THE Opus pre-skip, in time: subtracted from every block time
+        int64_t              SeekPreRollNs = 0; // how long before a seek target decoding restarts (Opus: 80 ms)
         std::vector<uint8_t> CodecPrivate; // OpusHead
     };
 
     // WebM (the Matroska subset: EBML header, Segment → Info / Tracks / Cues / Cluster) read as a STREAM
     // from the file: Open() reads the headers and indexes the clusters (offset + timecode, bodies skipped),
     // NextPacket() then loads one cluster at a time. Seek() goes through Cues — the container's own
-    // keyframe index — to the cluster that holds the last video keyframe at or before the target.
+    // keyframe index — to the cluster that holds the last video keyframe at or before the target less the
+    // audio track's SeekPreRoll, so the sound decoder has converged by the target.
     //
     // WHY A PARSER OF OUR OWN AND NOT libwebm: what playback needs from Matroska is ~15 element ids, the
     // three lacing modes and the vint grammar. libwebm's mkvparser is a 10k-line C++ parser of the whole
