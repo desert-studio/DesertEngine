@@ -59,7 +59,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 21> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 20> kEntityTables{ {
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( doomedEntity )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },

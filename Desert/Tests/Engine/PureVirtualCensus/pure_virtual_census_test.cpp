@@ -926,7 +926,7 @@ TEST( PureVirtualCensus, InterfacesDeclaredAheadOfImplementationAreStillUnimplem
              << "): delete its k_AheadOfImplementation row so the two census rules hold it like any other base.";
     }
     // Stated so growth is visible, as the count below is.
-    EXPECT_EQ( k_AheadOfImplementation.size(), 7u );
+    EXPECT_EQ( k_AheadOfImplementation.size(), 6u );
 }
 
 TEST( PureVirtualCensus, TheNumberIsStatedSoAShrinkageIsVisible )
