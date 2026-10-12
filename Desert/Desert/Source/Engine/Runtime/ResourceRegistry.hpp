@@ -76,7 +76,7 @@ namespace Desert::Runtime
         // against the mesh's skeleton by GUID.
         static PhysicsAssetService* GetPhysicsAssetService();
         // The `.dfx` VFX systems VFX components name (VFX-HOST): read on demand, one compiled system per file.
-        static VFXSystemService*  GetVFXSystemService();
+        static VFXSystemService* GetVFXSystemService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,

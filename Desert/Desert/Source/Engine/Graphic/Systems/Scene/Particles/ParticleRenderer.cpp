@@ -334,7 +334,7 @@ namespace Desert::Graphic::System
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
                 const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
-                Common::BoolResultStr stack = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
+                Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
                 if ( stack )
                     stack = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
                 if ( stack )
@@ -343,19 +343,19 @@ namespace Desert::Graphic::System
                     stack = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
                 if ( !steps || !args || !chan || !stack )
                 {
-                    LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table, dispatch arguments or "
-                               "channel spawns are not in the frame graph: {}",
-                               i,
-                               !steps ? steps.GetError()
-                                      : ( !args ? args.GetError() : ( !chan ? chan.GetError() : stack.GetError() ) ) );
+                    LOG_ERROR(
+                         "[Particles] emitter {} sits out this frame, its step table, dispatch arguments or "
+                         "channel spawns are not in the frame graph: {}",
+                         i,
+                         !steps ? steps.GetError()
+                                : ( !args ? args.GetError() : ( !chan ? chan.GetError() : stack.GetError() ) ) );
                     continue;
                 }
                 ve.ChannelRef =
                      graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
-                ve.StepsRef = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
-                ve.ArgsRef  = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
-                ve.FloatsRef =
-                     graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
+                ve.StepsRef  = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
+                ve.ArgsRef   = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
+                ve.FloatsRef = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
                 ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );

@@ -1,9 +1,9 @@
 #pragma once
 
 // The element-selection algorithms, written over a MESH VIEW: the ported core reads them through
-// DynamicMeshElements (DynamicMeshSelection.cpp). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
-// Max*Id, GetPosition, GetTriangle, GetTriangleEdges, GetEdgeVertices, GetVertexNeighbours and
-// Attributes().GetPolyGroup. Included by DynamicMeshSelection.cpp only.
+// DynamicMeshElements (DynamicMeshSelection.cpp). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex /
+// IsEdge / IsTriangle, Max*Id, GetPosition, GetTriangle, GetTriangleEdges, GetEdgeVertices, GetVertexNeighbours
+// and Attributes().GetPolyGroup. Included by DynamicMeshSelection.cpp only.
 
 #include "Engine/Geometry/ElementSelection.hpp"
 

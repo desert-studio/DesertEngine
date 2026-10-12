@@ -259,8 +259,8 @@ namespace Desert::Migration
     //       has no WorldPartition block.
     inline constexpr int kSceneVersionHLODLayers = 50;
 
-    //  51 - THE PARTICLE EMITTER IS A VFX SYSTEM (VFX-HOST). Every ParticleEmitter block becomes a `.dfx` system of
-    //       one emitter whose module stack reproduces it, played by `VFX { System, AutoActivate: true }`
+    //  51 - THE PARTICLE EMITTER IS A VFX SYSTEM (VFX-HOST). Every ParticleEmitter block becomes a `.dfx`
+    //       system of one emitter whose module stack reproduces it, played by `VFX { System, AutoActivate: true }`
     //       (MigrateParticleEmittersToVFX); the component is deleted. A prefab override stating ParticleEmitter
     //       keys refuses the file. Scenes and prefabs alike.
     inline constexpr int kSceneVersionParticleEmittersToVFX = 51;
@@ -444,8 +444,8 @@ namespace Desert::Migration
     MigrateParticleSpriteMaterialsV46ToV47( std::vector<Assets::EntityData>& entities );
 
     // The v51 step (kSceneVersionParticleEmittersToVFX). A ParticleEmitter block becomes a `.dfx` system of ONE
-    // emitter whose module stack reproduces it, and the
-    // block becomes `VFX { System: {Guid, Path}, AutoActivate: true }`. The file is written next to the owner
+    // emitter whose module stack reproduces it, and the block becomes `VFX { System: <assets-relative path>,
+    // AutoActivate: true }`. The file is written next to the owner
     // under VFX/<owner>_<entity uuid>.dfx (relative to the assets root), its GUID MigrationGuidForPath of that
     // path, so a rerun writes the same bytes; emitters of one file with the same numbers share the first's file.
     // System seed 0: VFXWorld seeds an emitter from (system seed, entity uuid, emitter index), and the old
@@ -735,7 +735,7 @@ namespace Desert::Migration
         bool               SSRDefaultOnRaised = false; // below kSceneVersionSSRDefaultOn
         SSRDefaultOnReport SSRDefaultOn;
 
-        bool                        ParticleEmittersToVFXRaised = false; // below kSceneVersionParticleEmittersToVFX
+        bool ParticleEmittersToVFXRaised = false; // below kSceneVersionParticleEmittersToVFX
         ParticleEmittersToVFXReport ParticleEmittersToVFX;
 
         bool        ShadowBiasCentimetresRaised = false; // below kSceneVersionShadowBiasCentimetres

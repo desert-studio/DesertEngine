@@ -342,7 +342,7 @@ TEST( EntityDestroy, DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRin
     const auto addEmitter = [&]( bool enabled )
     {
         const entt::entity e                                         = Make( reg, index );
-        reg.emplace<ECS::VFXComponent>( e ).Data.AutoActivate = enabled;
+        reg.emplace<ECS::VFXComponent>( e ).Data.AutoActivate        = enabled;
         emitters[static_cast<uint32_t>( e )]                         = { std::make_shared<int>( 0 ) };
         return e;
     };

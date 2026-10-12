@@ -199,17 +199,17 @@ namespace Desert::Graphic::System
         SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
                                    EmitterMaterial& material );
 
-        std::shared_ptr<ComputePipeline>  m_CompactPipeline;
-        std::shared_ptr<ComputePipeline>  m_ArgsPipeline;
-        std::shared_ptr<ComputePipeline>  m_SortPipeline;
-        mutable ShaderBindingLayoutCache  m_SortLayout;
-        RDG::BufferRef                    m_SortKeysRef;
-        RDG::BufferRef                    m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
+        std::shared_ptr<ComputePipeline> m_CompactPipeline;
+        std::shared_ptr<ComputePipeline> m_ArgsPipeline;
+        std::shared_ptr<ComputePipeline> m_SortPipeline;
+        mutable ShaderBindingLayoutCache m_SortLayout;
+        RDG::BufferRef                   m_SortKeysRef;
+        RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;
-        mutable ShaderBindingLayoutCache m_CompactLayout;
-        mutable ShaderBindingLayoutCache m_ArgsLayout;
+        mutable ShaderBindingLayoutCache                                             m_CompactLayout;
+        mutable ShaderBindingLayoutCache                                             m_ArgsLayout;
 
         // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
         std::string m_DefaultCell;

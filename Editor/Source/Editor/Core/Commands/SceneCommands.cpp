@@ -1135,10 +1135,10 @@ namespace Desert::Editor::Commands
              e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
         if ( after == before )
             return;
-        CommandHistory::Get().PushEntityEdit( std::make_unique<MeshReplacementCommand>( uuid, label, std::move( before ),
-                                                                                        std::move( after ),
-                                                                                        std::move( alongside ) ),
-                                              { uuid } );
+        CommandHistory::Get().PushEntityEdit(
+             std::make_unique<MeshReplacementCommand>( uuid, label, std::move( before ), std::move( after ),
+                                                       std::move( alongside ) ),
+             { uuid } );
     }
 
     Common::ResultStr<Common::UUID> RecordMeshSplit( const Common::UUID& uuid, const std::string& label,

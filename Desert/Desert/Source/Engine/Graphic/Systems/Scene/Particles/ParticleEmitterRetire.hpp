@@ -29,8 +29,7 @@ namespace Desert::Graphic::System
                               [&registry]( const auto& entry )
                               {
                                   const auto entity = static_cast<entt::entity>( entry.first );
-                                  return !registry.valid( entity ) ||
-                                         !registry.has<ECS::VFXComponent>( entity );
+                                  return !registry.valid( entity ) || !registry.has<ECS::VFXComponent>( entity );
                               } );
     }
 } // namespace Desert::Graphic::System

@@ -104,10 +104,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> Curves;
         std::vector<glm::vec4>                          ParamRows;
         std::vector<float>                              CurveFloats;
-        uint32_t                                        Capacity    = 0;
+        uint32_t                                        Capacity     = 0;
         uint32_t                                        FloatColumns = 0;
         uint32_t                                        IntColumns   = 0;
-        bool                                            Local       = false;
+        bool                                            Local        = false;
 
         ParticlePoolRange Range;
         uint32_t          StepCapacity    = 0;
@@ -172,12 +172,13 @@ namespace Desert::Graphic::System
 
     private:
         // Grows the pool to hold @p particles (recreating it: every emitter restarts); false when it failed.
-        bool                EnsurePoolCapacity( uint32_t particles );
+        bool EnsurePoolCapacity( uint32_t particles );
         // Uploads emitter @p emitter's tick into @p gpu and adds its frame emitter; false = it sits out this tick.
         bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
                              const ParticlePoolRange& range, uint32_t entityId, const glm::vec3& worldPos,
                              float stepSeconds, uint32_t stepSerial );
-        // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits out.
+        // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits
+        // out.
         static bool EnsureTickBuffers( ParticleEmitterGpu& gpu, uint32_t stepCapacity );
         // Compiles emitter @p index of @p system into @p gpu (program, columns, parameters, curves).
         void BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
@@ -188,9 +189,9 @@ namespace Desert::Graphic::System
 
         std::unordered_map<uint32_t, ParticleSystemGpu>                m_Systems;
         std::unordered_map<uint64_t, std::shared_ptr<ComputePipeline>> m_Programs;
-        std::vector<ParticleFrameEmitter>                m_FrameEmitters;
-        ParticlePoolRanges                               m_Ranges;
-        ParticlePoolBuffers                              m_Pool;
-        ParticleTickClaim                                m_Claim;
+        std::vector<ParticleFrameEmitter>                              m_FrameEmitters;
+        ParticlePoolRanges                                             m_Ranges;
+        ParticlePoolBuffers                                            m_Pool;
+        ParticleTickClaim                                              m_Claim;
     };
 } // namespace Desert::Graphic::System

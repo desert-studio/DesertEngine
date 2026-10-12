@@ -152,13 +152,7 @@ TEST( ParticleEmitterToVFX, IdenticalEmittersShareOneSystem )
     EXPECT_EQ( report.Shared, 1u );
     EXPECT_EQ( report.NewSystems.size(), 2u );
     const auto path = []( const EntityData& e )
-    {
-        return e.Components.get( "VFX" )
-             .value()
-             .to_object()
-             .value()
-             .get( "System" );
-    };
+    { return e.Components.get( "VFX" ).value().to_object().value().get( "System" ); };
     EXPECT_EQ( path( entities[0] ).value().to_string().value(), path( entities[1] ).value().to_string().value() );
     EXPECT_NE( path( entities[0] ).value().to_string().value(), path( entities[2] ).value().to_string().value() );
 }

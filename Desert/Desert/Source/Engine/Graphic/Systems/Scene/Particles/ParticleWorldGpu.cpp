@@ -32,11 +32,12 @@ namespace Desert::Graphic::System
 
     namespace
     {
-        // The attributes the host draws from, each with the one type it reads it as (Generated/VFXEmitterStack.glslh).
+        // The attributes the host draws from, each with the one type it reads it as
+        // (Generated/VFXEmitterStack.glslh).
         struct DrawnAttribute
         {
-            std::string_view Name;
-            std::string_view Define;
+            std::string_view  Name;
+            std::string_view  Define;
             VFX::VFXValueType Type;
         };
         constexpr DrawnAttribute kDrawnAttributes[] = {
@@ -96,12 +97,12 @@ namespace Desert::Graphic::System
     }
 
     std::shared_ptr<ComputePipeline> ParticleWorldGpu::ProgramFor( const uint64_t key, const std::string& name,
-                                                                    const std::string& hostSource )
+                                                                   const std::string& hostSource )
     {
         if ( const auto found = m_Programs.find( key ); found != m_Programs.end() )
             return found->second;
         std::shared_ptr<ComputePipeline>& program = m_Programs[key];
-        auto* shaders = Runtime::ResourceRegistry::GetShaderService();
+        auto*                             shaders = Runtime::ResourceRegistry::GetShaderService();
         if ( shaders == nullptr )
             return nullptr;
         Core::ShaderVariant variant;
@@ -122,7 +123,8 @@ namespace Desert::Graphic::System
         return program;
     }
 
-    void ParticleWorldGpu::BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
+    void ParticleWorldGpu::BuildEmitter( ParticleEmitterGpu&                         gpu,
+                                         const Assets::Serialization::VFXSystemData& system,
                                          const std::size_t index, const uint32_t entityId )
     {
         const auto& emitter = system.Emitters[index];
@@ -132,7 +134,8 @@ namespace Desert::Graphic::System
             return;
         const auto refuse = [&]( const std::string& why )
         {
-            LOG_ERROR( "[VFX] entity {} emitter {} '{}' does not simulate: {}", entityId, index, emitter.Name, why );
+            LOG_ERROR( "[VFX] entity {} emitter {} '{}' does not simulate: {}", entityId, index, emitter.Name,
+                       why );
             gpu.Capacity = 0;
             gpu.Pipeline = nullptr;
         };
@@ -275,109 +278,105 @@ namespace Desert::Graphic::System
                                            const uint32_t stepSerial )
     {
         const VFX::EmitterInstance* instance = &emitter;
-                 // The emitter's range of the pool; a new or moved range starts dead.
-                 if ( range.Base != gpu.Range.Base || range.Count != gpu.Range.Count )
-                     gpu.NeedsReset = true;
-                 gpu.Range = range;
-                 // A state whose VFXWorld generation was moved past (seek, restart) restarts.
-                 if ( gpu.Generation != instance->Generation )
-                 {
-                     gpu.NeedsReset = true;
-                     gpu.Generation = instance->Generation;
-                 }
+        // The emitter's range of the pool; a new or moved range starts dead.
+        if ( range.Base != gpu.Range.Base || range.Count != gpu.Range.Count )
+            gpu.NeedsReset = true;
+        gpu.Range = range;
+        // A state whose VFXWorld generation was moved past (seek, restart) restarts.
+        if ( gpu.Generation != instance->Generation )
+        {
+            gpu.NeedsReset = true;
+            gpu.Generation = instance->Generation;
+        }
 
-                 uint32_t stepCount =
-                      std::min( static_cast<uint32_t>( instance->Steps.size() ), gpu.StepCapacity );
-                 if ( stepCount > 0 )
-                 {
-                     std::vector<ParticleStepGpu> table( stepCount );
-                     for ( uint32_t s = 0; s < stepCount; ++s )
-                         table[s] = { instance->Steps[s].IdBase, instance->Seed, instance->Steps[s].Budget,
-                                      instance->Steps[s].ChannelFirst, instance->Steps[s].ChannelCount };
-                     const auto uploaded = gpu.Steps->SetData(
-                          table.data(), stepCount * static_cast<uint32_t>( sizeof( ParticleStepGpu ) ) );
-                     const auto params = gpu.Params->SetData(
-                          gpu.ParamRows.data(), static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ) );
-                     const auto curves = gpu.Curves->SetData(
-                          gpu.CurveFloats.data(), static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ) );
-                     if ( !uploaded.IsSuccess() || !params.IsSuccess() || !curves.IsSuccess() )
-                     {
-                         LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its step table, parameters "
-                                    "or curves did not upload: {}",
-                                    entityId,
-                                    !uploaded.IsSuccess() ? uploaded.GetError()
-                                                          : ( !params.IsSuccess() ? params.GetError()
-                                                                                  : curves.GetError() ) );
-                         stepCount = 0;
-                     }
-                 }
+        uint32_t stepCount = std::min( static_cast<uint32_t>( instance->Steps.size() ), gpu.StepCapacity );
+        if ( stepCount > 0 )
+        {
+            std::vector<ParticleStepGpu> table( stepCount );
+            for ( uint32_t s = 0; s < stepCount; ++s )
+                table[s] = { instance->Steps[s].IdBase, instance->Seed, instance->Steps[s].Budget,
+                             instance->Steps[s].ChannelFirst, instance->Steps[s].ChannelCount };
+            const auto uploaded = gpu.Steps->SetData(
+                 table.data(), stepCount * static_cast<uint32_t>( sizeof( ParticleStepGpu ) ) );
+            const auto params = gpu.Params->SetData(
+                 gpu.ParamRows.data(), static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ) );
+            const auto curves = gpu.Curves->SetData(
+                 gpu.CurveFloats.data(), static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ) );
+            if ( !uploaded.IsSuccess() || !params.IsSuccess() || !curves.IsSuccess() )
+            {
+                LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its step table, parameters "
+                           "or curves did not upload: {}",
+                           entityId,
+                           !uploaded.IsSuccess()
+                                ? uploaded.GetError()
+                                : ( !params.IsSuccess() ? params.GetError() : curves.GetError() ) );
+                stepCount = 0;
+            }
+        }
 
-                 // This tick's Spawn from Channel particles, one record per particle (VFX-10): step s's spawn t <
-                 // ChannelCount reads record ChannelFirst + t. Grown x2 when a tick brings more.
-                 std::vector<ParticleChannelSpawnGpu> channel;
-                 for ( const VFX::VFXChannelSpawnRequest& r : instance->ChannelSpawns )
-                     for ( uint32_t k = 0; k < r.Count; ++k )
-                         channel.push_back(
-                              { glm::vec4( r.Position, r.HasPosition ? 1.0f : 0.0f ),
-                                glm::vec4( r.Direction, r.HasDirection ? 1.0f : 0.0f ),
-                                r.HasColor ? r.Color : glm::vec4( 1.0f ),
-                                glm::vec4( r.Lifetime, r.HasSize ? r.Size : 1.0f, r.HasColor ? 1.0f : 0.0f,
-                                           r.HasLifetime ? 1.0f : 0.0f ) } );
-                 if ( stepCount > 0 && !channel.empty() )
-                 {
-                     const auto needed = static_cast<uint32_t>( channel.size() );
-                     if ( needed > gpu.ChannelCapacity )
-                     {
-                         gpu.ChannelCapacity = std::max( needed, gpu.ChannelCapacity * 2u );
-                         gpu.ChannelSpawns   = ShaderResources::StorageBuffer::Create(
-                              "ParticleChannelSpawns", gpu.ChannelCapacity * kParticleChannelSpawnStride, 1 );
-                     }
-                     if ( !gpu.ChannelSpawns )
-                     {
-                         LOG_ERROR(
-                              "[Particles] emitter {} sits out this tick, the buffer of its {} channel spawns "
-                              "was not created",
-                              entityId, needed );
-                         return false;
-                     }
-                     const auto uploaded =
-                          gpu.ChannelSpawns->SetData( channel.data(), needed * kParticleChannelSpawnStride );
-                     if ( !uploaded.IsSuccess() )
-                     {
-                         LOG_ERROR(
-                              "[Particles] emitter {} does not simulate this tick, its {} channel spawns did "
-                              "not upload: {}",
-                              entityId, needed, uploaded.GetError() );
-                         stepCount = 0;
-                     }
-                 }
-                 if ( !gpu.ChannelSpawns )
-                     return false;
+        // This tick's Spawn from Channel particles, one record per particle (VFX-10): step s's spawn t <
+        // ChannelCount reads record ChannelFirst + t. Grown x2 when a tick brings more.
+        std::vector<ParticleChannelSpawnGpu> channel;
+        for ( const VFX::VFXChannelSpawnRequest& r : instance->ChannelSpawns )
+            for ( uint32_t k = 0; k < r.Count; ++k )
+                channel.push_back( { glm::vec4( r.Position, r.HasPosition ? 1.0f : 0.0f ),
+                                     glm::vec4( r.Direction, r.HasDirection ? 1.0f : 0.0f ),
+                                     r.HasColor ? r.Color : glm::vec4( 1.0f ),
+                                     glm::vec4( r.Lifetime, r.HasSize ? r.Size : 1.0f, r.HasColor ? 1.0f : 0.0f,
+                                                r.HasLifetime ? 1.0f : 0.0f ) } );
+        if ( stepCount > 0 && !channel.empty() )
+        {
+            const auto needed = static_cast<uint32_t>( channel.size() );
+            if ( needed > gpu.ChannelCapacity )
+            {
+                gpu.ChannelCapacity = std::max( needed, gpu.ChannelCapacity * 2u );
+                gpu.ChannelSpawns   = ShaderResources::StorageBuffer::Create(
+                     "ParticleChannelSpawns", gpu.ChannelCapacity * kParticleChannelSpawnStride, 1 );
+            }
+            if ( !gpu.ChannelSpawns )
+            {
+                LOG_ERROR( "[Particles] emitter {} sits out this tick, the buffer of its {} channel spawns "
+                           "was not created",
+                           entityId, needed );
+                return false;
+            }
+            const auto uploaded =
+                 gpu.ChannelSpawns->SetData( channel.data(), needed * kParticleChannelSpawnStride );
+            if ( !uploaded.IsSuccess() )
+            {
+                LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its {} channel spawns did "
+                           "not upload: {}",
+                           entityId, needed, uploaded.GetError() );
+                stepCount = 0;
+            }
+        }
+        if ( !gpu.ChannelSpawns )
+            return false;
 
-                 // Both draw slots start empty: compact 0 fills slot 0 from the pool, so the counters need no
-                 // history (ParticleCompact). Slot h draws alive half h: six vertices per entry from 6 x its
-                 // start.
-                 ParticleDrawSlotGpu slots[kParticleDrawSlots];
-                 for ( uint32_t h = 0; h < kParticleDrawSlots; ++h )
-                     slots[h].FirstVertex = ( 2u * range.Base + h * range.Count ) * 6u;
-                 const auto counted = gpu.Counters->SetData( slots, static_cast<uint32_t>( sizeof( slots ) ) );
-                 if ( !counted.IsSuccess() )
-                 {
-                     LOG_ERROR( "[Particles] emitter {} sits out this tick, its counters did not upload: {}",
-                                entityId, counted.GetError() );
-                     return false;
-                 }
+        // Both draw slots start empty: compact 0 fills slot 0 from the pool, so the counters need no
+        // history (ParticleCompact). Slot h draws alive half h: six vertices per entry from 6 x its
+        // start.
+        ParticleDrawSlotGpu slots[kParticleDrawSlots];
+        for ( uint32_t h = 0; h < kParticleDrawSlots; ++h )
+            slots[h].FirstVertex = ( 2u * range.Base + h * range.Count ) * 6u;
+        const auto counted = gpu.Counters->SetData( slots, static_cast<uint32_t>( sizeof( slots ) ) );
+        if ( !counted.IsSuccess() )
+        {
+            LOG_ERROR( "[Particles] emitter {} sits out this tick, its counters did not upload: {}", entityId,
+                       counted.GetError() );
+            return false;
+        }
 
-                 ParticleFrameEmitter fe;
-                 fe.EntityId     = entityId;
-                 fe.Gpu          = &gpu;
-                 fe.Pipeline     = gpu.Pipeline.get();
-                 fe.StepCount    = stepCount;
-                 fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
-                 fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
-                 fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
-                 m_FrameEmitters.push_back( fe );
-                 return true;
+        ParticleFrameEmitter fe;
+        fe.EntityId        = entityId;
+        fe.Gpu             = &gpu;
+        fe.Pipeline        = gpu.Pipeline.get();
+        fe.StepCount       = stepCount;
+        fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
+        fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
+        fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
+        m_FrameEmitters.push_back( fe );
+        return true;
     }
 
 } // namespace Desert::Graphic::System

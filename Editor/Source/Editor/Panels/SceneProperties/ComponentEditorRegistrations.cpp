@@ -653,7 +653,8 @@ namespace Desert::Editor
             if ( !ctx.FieldFilter )
             {
                 const float w = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
-                if ( ImGui::Button( c.Data.AutoActivate ? ICON_MDI_PAUSE "  Deactivate" : ICON_MDI_PLAY "  Activate",
+                if ( ImGui::Button( c.Data.AutoActivate ? ICON_MDI_PAUSE "  Deactivate"
+                                                        : ICON_MDI_PLAY "  Activate",
                                     ImVec2( w, 0.0f ) ) )
                     c.Data.AutoActivate = !c.Data.AutoActivate;
                 ImGui::SameLine();

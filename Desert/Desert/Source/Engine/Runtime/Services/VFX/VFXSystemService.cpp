@@ -11,8 +11,8 @@ namespace Desert::Runtime
         m_Assets = assets;
     }
 
-    void VFXSystemService::Adopt( const Assets::AssetHandle&                    handle,
-                                   const Assets::Asset<Assets::VFXSystemAsset>& asset )
+    void VFXSystemService::Adopt( const Assets::AssetHandle&                   handle,
+                                  const Assets::Asset<Assets::VFXSystemAsset>& asset )
     {
         m_Ready[handle] = std::make_shared<const Assets::Serialization::VFXSystemData>( asset->GetData() );
     }
