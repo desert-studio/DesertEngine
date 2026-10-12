@@ -1242,7 +1242,9 @@ namespace Desert::Graphic
         const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
+#if DESERT_DEV_INSTRUMENTS
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+#endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
         // The engine's debug lines (bounding boxes), the first overlay.
