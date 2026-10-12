@@ -118,6 +118,19 @@ namespace Desert::Graphic
         ShadowDebugMode   ShadowDebug   = ShadowDebugMode::Off;
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
 
+        // The view modes are ONE choice: every channel off, so the one the caller sets next is the only one
+        // on. Shared by the View Mode dropdown and the palette's "View mode: ..." entries, so the two cannot
+        // disagree on what leaving a mode resets. LightingDebug is a channel like the others: left out,
+        // "Lighting" would be the one mode you could not leave.
+        void ClearViewMode()
+        {
+            WireframeMode = false;
+            ShowNormals   = false;
+            LightingDebug = false;
+            DeferredDebug = DeferredDebugMode::Off;
+            ShadowDebug   = ShadowDebugMode::Off;
+        }
+
         // Render-graph pass culling off (RDG::Builder::SetPassCulling, set on the view's graph every frame).
         // Every pass then executes, including those whose output nothing reads: a frame that looks different
         // with this on names a pass whose effect the graph cannot see - it needs a declaration or NeverCull.
