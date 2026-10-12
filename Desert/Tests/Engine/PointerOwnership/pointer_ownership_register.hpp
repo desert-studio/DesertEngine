@@ -2000,14 +2000,6 @@ namespace Desert::Tests::PointerCensus
           "RegionWrite", "Bytes", Guard::CallScoped,
           "an argument pack of Image3D region writes: built at the call site over the caller's bytes and consumed "
           "inside that call" },
-        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
-          "ViewEmitter", "Program", Guard::FrameScoped,
-          "m_ViewEmitters is cleared and rebuilt every frame; the StackProgram lives in the renderer's own "
-          "m_StackPrograms (unique_ptr per stack key), which outlives the frame" },
-        { "Desert/Desert/Source/Engine/VFX/VFXWorld.hpp",
-          "CompiledStack", "Source", Guard::IdentityOnly,
-          "only compared against the system data the lookup hands this tick to decide a recompile; never "
-          "dereferenced after the compile that read it" },
         { "Desert/Desert/Source/Engine/ECS/System/PhysicsECSSystem.hpp",
           "PhysicsECSSystem", "m_Scene", Guard::ObservedContainsUs,
           "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this" },

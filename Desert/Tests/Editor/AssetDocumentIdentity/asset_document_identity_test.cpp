@@ -309,8 +309,7 @@ TEST( AssetDocumentIdentity, AnEntitysComponentIsAWindowOfItsOwn )
     OpenDocuments well;
     well.Open(
          std::make_unique<FakeDocument>( "Hero \xc2\xb7 Anim Graph", Component( 88, "AnimationComponent" ) ) );
-    well.Open( std::make_unique<FakeDocument>( "Hero \xc2\xb7 UI Canvas",
-                                               Component( 88, "UICanvasComponent" ) ) );
+    well.Open( std::make_unique<FakeDocument>( "Hero \xc2\xb7 UI Canvas", Component( 88, "UICanvasComponent" ) ) );
 
     // ONE ENTITY, TWO DOCUMENTS. Both subjects carry owner 88; only the facet differs. A seam keyed on the
     // owner alone would make these one window, and ImGui would draw the second into the first.
