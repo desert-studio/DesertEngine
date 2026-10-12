@@ -247,7 +247,7 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     EXPECT_TRUE( v.Post.AutoExposure );
     EXPECT_EQ( v.Post.BloomThreshold, Core::PostProcessSettings{}.BloomThreshold ) << "unstated = old default";
     EXPECT_FALSE( v.Shadows.Enabled );
-    EXPECT_EQ( v.Shadows.Bias, 0.0125f );
+    EXPECT_EQ( v.Shadows.Bias.BiasCm, Migration::kShadowBiasCentimetresDefault );
     EXPECT_EQ( v.Shadows.CascadeSplitLambda, 0.85f );
 }
 
