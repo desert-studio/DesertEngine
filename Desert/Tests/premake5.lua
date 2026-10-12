@@ -261,7 +261,9 @@ local kRunners = {
         -- from a list of editor sources compiled here a second time (BLD-EDITORCORE; the list was 67 files).
         -- Named before DesertRunnerSettings so the link line has it ahead of Desert and the libraries it uses:
         -- gmake resolves static libraries left to right.
+        -- Whole, as the Editor links it: a suite reading the component-editor registry sees the editor's.
         links { "EditorCore" }
+        DesertPlatform.LinkWholeArchive( "EditorCore" )
         DesertRunnerSettings(deps)
         files {
             -- PackagedContent: the player's packaged-content resolution (the Runtime executable's source).

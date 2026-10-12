@@ -192,9 +192,3 @@ namespace
     const int _desert_sky_atmosphere_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeSkyAtmosphereEntry() );
 } // namespace
-
-// This file's link anchor (ComponentWidgetRegistry.hpp, ComponentEditorLink): its registrations above are
-// referenced by nothing else, so without it the static library's linker would leave the file out.
-void Desert::Editor::ComponentEditorLink::SkyAtmosphereWidget()
-{
-}

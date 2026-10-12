@@ -40,3 +40,24 @@ end
 function DesertPlatform.BuiltToolPath( name )
     return '"' .. _MAIN_SCRIPT_DIR .. '/build/Bin/%{cfg.buildcfg}/' .. name .. DesertPlatform.ExeExt .. '"'
 end
+
+-- LINKS EVERY OBJECT OF A STATIC LIBRARY, NOT ONLY THE ONES SOMETHING REFERENCES (BLD-EDITORCORE). A linker
+-- takes an object out of a static library only to resolve a symbol, so a file whose one job is a static
+-- initialiser -- a self-registration (DESERT_REGISTER_REFLECTED_COMPONENT, a component editor's registrar) --
+-- is referenced by nothing and silently left out of the binary: no build error, the registry is just short.
+-- Linking the whole archive makes "compiled into the library" mean "in the binary", so a new registering file
+-- needs nothing named anywhere. Unreal's UnrealEd gets the same from its DLL in a modular build.
+--   macOS ld64: -force_load <archive>; GNU ld / lld: --whole-archive ... --no-whole-archive; MSVC:
+--   /WHOLEARCHIVE:<lib> (matched against the library the project reference puts on the link line).
+-- The library stays in `links` as well, for the build order and the project reference; loading it whole first
+-- leaves the later plain reference nothing to resolve. Call at project scope, with no filter active.
+function DesertPlatform.LinkWholeArchive( name )
+    local archive = _MAIN_SCRIPT_DIR .. "/build/Bin/%{cfg.buildcfg}/lib" .. name .. ".a"
+    filter "system:macosx"
+        linkoptions { '-Wl,-force_load,"' .. archive .. '"' }
+    filter "system:linux"
+        linkoptions { '-Wl,--whole-archive "' .. archive .. '" -Wl,--no-whole-archive' }
+    filter "system:windows"
+        linkoptions { "/WHOLEARCHIVE:" .. name .. ".lib" }
+    filter {}
+end

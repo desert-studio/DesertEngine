@@ -152,9 +152,3 @@ namespace Desert::Editor
                                             const ComponentEditContext& ctx )
                                         { PrefabComponentWidget( ctx.AssetMgr() ).Render( e, s ); } ) )
 } // namespace Desert::Editor
-
-// This file's link anchor (ComponentWidgetRegistry.hpp, ComponentEditorLink): its registrations above are
-// referenced by nothing else, so without it the static library's linker would leave the file out.
-void Desert::Editor::ComponentEditorLink::PrefabWidget()
-{
-}

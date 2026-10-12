@@ -8,7 +8,7 @@ local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 -- LINK it. Before, Editor was an executable and nothing could link it, so Desert/Tests/premake5.lua kept a
 -- hand-written list of the editor sources its suites test and compiled them a second time (67 TUs, each a
 -- list entry somebody had to remember). Editor is now Sandbox.cpp -- CreateApplication and the engine's
--- main (Engine/EntryPoint.hpp) -- plus the link: the linker pulls from EditorCore what that reaches.
+-- main (Engine/EntryPoint.hpp) -- plus the link, which takes EditorCore WHOLE (DesertPlatform.LinkWholeArchive).
 --
 -- Compiling a translation unit that includes editor headers takes the same paths and macros in both
 -- projects, so they are written once, here.
@@ -177,6 +177,9 @@ project "Editor"
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",
     }
+    -- ALL of EditorCore, not what Sandbox.cpp happens to reach: the component editors register from static
+    -- initialisers nothing references (BuildScripts/Platform.lua, LinkWholeArchive).
+    DesertPlatform.LinkWholeArchive( "EditorCore" )
 
     if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
         links       { "Dlib" }

@@ -17,17 +17,6 @@ namespace Desert::Editor
 {
     ComponentWidgetRegistry& ComponentWidgetRegistry::Get()
     {
-        // The registering files' link anchors (ComponentWidgetRegistry.hpp): named here so a binary that
-        // reads the registry links the files that fill it.
-        ComponentEditorLink::Registrations();
-        ComponentEditorLink::AnimationWidget();
-        ComponentEditorLink::PrefabWidget();
-        ComponentEditorLink::SkinnedMeshWidget();
-        ComponentEditorLink::SkyAtmosphereWidget();
-        ComponentEditorLink::SkyboxWidget();
-        ComponentEditorLink::StaticMeshWidget();
-        ComponentEditorLink::TransformWidget();
-
         static ComponentWidgetRegistry instance;
         return instance;
     }
