@@ -394,6 +394,17 @@
             "parent": 1008,
             "siblingIndex": 0,
             "Tag": "Btn_PLAY",
+            "UINavigation": {
+                "Up": 0,
+                "UpTarget": "",
+                "Down": 0,
+                "DownTarget": "",
+                "Left": 0,
+                "LeftTarget": "",
+                "Right": 0,
+                "RightTarget": "",
+                "InitialFocus": true
+            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
