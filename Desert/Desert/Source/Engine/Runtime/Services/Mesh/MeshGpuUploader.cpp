@@ -6,8 +6,7 @@ namespace Desert::Runtime
 {
     namespace
     {
-        // The two device buffers a mesh IS, named as the asset's. A procedural mesh is claimed differently
-        // in UploadProcedural: it has no file, so nothing may ever release it. See ResourceLedger.hpp.
+        // The two device buffers a mesh IS, named as the asset's. See ResourceLedger.hpp.
         void ClaimMeshBuffers( const std::shared_ptr<Mesh>& mesh, const Graphic::ResourceOwner owner,
                                const Assets::AssetHandle& asset )
         {
@@ -33,20 +32,6 @@ namespace Desert::Runtime
                 auto mesh = Graphic::MeshFactory::Create( asset );
                 ClaimMeshBuffers( mesh, Graphic::ResourceOwner::AssetService, asset->GetMetadata().Handle );
                 return mesh;
-            }
-
-            Common::BoolResultStr UploadProcedural( const std::shared_ptr<Mesh>& mesh,
-                                                    const Assets::AssetHandle&   handle ) override
-            {
-                // `Procedural`, NOT `AssetService`, and the distinction is load-bearing rather than cosmetic:
-                // this mesh was built from no file, so there is no recipe to rebuild it from and releasing it
-                // is data loss. The ledger's owner category is what asset eviction reads to know it must not
-                // touch this. Claimed even when the upload failed, as before: the ledger names what exists.
-                const auto uploaded = mesh->Invalidate();
-                ClaimMeshBuffers( mesh, Graphic::ResourceOwner::Procedural, handle );
-                if ( !uploaded.IsSuccess() )
-                    return Common::MakeError( uploaded.GetError() );
-                return BOOLSUCCESS;
             }
         };
     } // namespace

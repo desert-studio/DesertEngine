@@ -27,7 +27,6 @@
 
 #include <ImGui/imgui_internal.h>
 
-#include <Editor/Builtin/BuiltinMeshRegistry.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 

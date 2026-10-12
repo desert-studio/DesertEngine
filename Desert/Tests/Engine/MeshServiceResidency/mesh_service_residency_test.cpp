@@ -127,10 +127,6 @@ namespace
                 ++*UploadsOfShells;
             return std::make_shared<FakeMesh>( asset->GetSubmeshes().size() + *SubmeshSkew );
         }
-        Common::BoolResultStr UploadProcedural( const std::shared_ptr<Mesh>&, const Assets::AssetHandle& ) override
-        {
-            return BOOLSUCCESS;
-        }
     };
 
     class MeshServiceResidency : public ::testing::Test
