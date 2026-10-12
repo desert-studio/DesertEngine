@@ -33,7 +33,7 @@ namespace
         door.Sequence.Host  = T::SequenceHost::LevelSequence;
         door.Sequence.Start = A::FrameNumber{ 0 };
         door.Sequence.End   = A::FrameNumber{ 100 };
-        const auto binding = ECS::AddEntityBinding( door.Sequence, Desert::Common::UUID( 0x5E01C0DEULL ), "Door" );
+        const auto binding = ECS::AddEntityBinding( door.Sequence, Common::UUID( 0x5E01C0DEULL ), "Door" );
         EXPECT_TRUE( binding.IsSuccess() );
         door.Binding = binding.GetValue();
         ECS::TransformComponent pose;
