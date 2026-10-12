@@ -66,7 +66,7 @@ namespace Desert::Editor
         }
         panels.Add<Editor::ModelingPanel>( workspace.ActiveScene() );
         panels.Add<Editor::LandscapePanel>( workspace.ActiveScene() );
-        panels.Add<Editor::WorldSettingsPanel>( workspace.ActiveScene() );
+        panels.Add<Editor::WorldSettingsPanel>( workspace.ActiveScene(), assetManager );
         panels.Add<Editor::ScalabilityPanel>( workspace.ActiveScene() );
         panels.Add<Editor::ProjectSettingsPanel>();
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through

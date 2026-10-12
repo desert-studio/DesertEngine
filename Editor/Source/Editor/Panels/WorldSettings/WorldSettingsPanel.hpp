@@ -5,6 +5,11 @@
 
 #include <memory>
 
+namespace Desert::Assets
+{
+    class AssetManager;
+}
+
 namespace Desert::Core
 {
     class Scene;
@@ -12,29 +17,20 @@ namespace Desert::Core
 
 namespace Desert::Editor
 {
-    // Live editor for the LEVEL's own policy — the render path, its screen-space effects, shadows, the
-    // grade, the lens, wind — plus the handful of MACHINE quality knobs that sit next to them because a
-    // person tuning a picture reaches for both in one sitting. Edits are in place and take effect on the
-    // next BeginScene; nothing here has an apply step.
+    // UE's World Settings (SLevelEditor.cpp:1246-1265): a Details view on the level's own settings
+    // object. Every field of Core::SceneSettings is drawn by ONE PropertyEditorBuilder pass over its
+    // reflection, grouped by the fields' Category — so a field added to SceneSettings with a PROPERTY
+    // appears here with its range, its asset picker and its undo, and nothing in this panel names it.
+    // The AssetManager is what the asset slots (Splash Sprite, Default Pawn, Player Controller) pick
+    // and resolve through; without it they draw as bare handles.
     //
-    // TWO STORES ARE REACHED FROM THIS ONE PANEL, AND EVERY CONTROL SAYS WHICH.
-    //   * "(scene)"        — Core::SceneSettings, on the mutable reference below. Saved when the LEVEL is.
-    //   * "(this machine)" — Common::Settings::MachineSettings, committed to that file on the click, the
-    //                        way the viewport's Show flags commit to editor.json.
-    // The suffix is not decoration: this panel drew the two next to each other for a long time with only
-    // the AA pair labelled, and the unlabelled ones were where К3 found five machine settings living in
-    // the level file. A control here without a suffix is one whose owner nobody could plausibly doubt
-    // (a bloom threshold, a wind direction); a quality knob without one is a bug.
-    //
-    // WHAT THIS HEADER USED TO CLAIM AND THE PANEL NO LONGER HOLDS: "outline" and "debug". К2 moved the
-    // selection outline to Editor::EditorPreferences and the ten debug-visualization flags to
-    // Graphic::DebugViewState, and the Shadow Maps section that survived is an INSPECTOR (it reads GPU
-    // images and writes nothing) rather than settings. A comment promising what the tree does not hold is
-    // the same defect as dead code.
+    // The one section that is not a setting is "Shadow Maps": an INSPECTOR that reads the renderer's
+    // cascade images and writes nothing (К2 moved the shadow debug flag to the viewport's View Mode).
     class WorldSettingsPanel final : public IPanel
     {
     public:
-        explicit WorldSettingsPanel( std::shared_ptr<::Desert::Core::Scene> scene );
+        WorldSettingsPanel( std::shared_ptr<::Desert::Core::Scene>             scene,
+                            std::shared_ptr<::Desert::Assets::AssetManager> assetManager );
 
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override
@@ -43,7 +39,8 @@ namespace Desert::Editor
         }
 
     private:
-        std::shared_ptr<::Desert::Core::Scene> m_Scene;
-        std::unique_ptr<UI::UIHelper>          m_UIHelper; // for the CSM cascade depth-map thumbnails
+        std::shared_ptr<::Desert::Core::Scene>          m_Scene;
+        std::shared_ptr<::Desert::Assets::AssetManager> m_AssetManager;
+        std::unique_ptr<UI::UIHelper> m_UIHelper; // texture-slot thumbnails + the CSM cascade depth maps
     };
 } // namespace Desert::Editor
