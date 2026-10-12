@@ -113,8 +113,12 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Render Path" ), Category( "Rendering" ) )
         RenderPath RenderingPath = RenderPath::Deferred;
 
-        PROPERTY( DisplayName( "Gravity" ), Category( "Physics" ), Range( 0.0f, 5000.0f ) )
-        float Gravity = 981.0f; // For physics simulation (cm/s^2 — 1 unit = 1 cm)
+        // UE AWorldSettings::GlobalGravityZ: the ONE downward acceleration of the level. The physics world is
+        // built with it (PhysicsECSSystem), and every consumer reads it back from there, never a literal of its
+        // own: PhysicsWorld::GetGravity() times the consumer's Gravity Scale (character, projectile), the same
+        // value as a vector for cloth/hair (ClothStepContext/GroomStepContext/LeaderPose::Gravity).
+        PROPERTY( DisplayName( "Gravity" ), Category( "Physics" ), Range( 0.0f, 5000.0f ), Units( "cm/s2" ) )
+        float Gravity = 981.0f; // downward magnitude, cm/s^2 (1 unit = 1 cm)
         // "Pause Simulation" used to sit here. It was reflected, serialized and shown beside Gravity, and
         // read by NOTHING — the editor's transport owns pausing, as runtime state rather than scene data.
         // Sixteen probe scenes had authored it `true` and got nothing, which is the exact defect §1.3

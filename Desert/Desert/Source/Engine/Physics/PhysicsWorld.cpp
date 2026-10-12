@@ -1525,7 +1525,8 @@ namespace Desert::Physics
         m_Impl->Characters[handle] = nullptr; // Ref release; slot kept so other handles stay valid
     }
 
-    void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float dt )
+    void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2,
+                                        float dt )
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] || dt <= 0.0f )
             return;
@@ -1534,7 +1535,7 @@ namespace Desert::Physics
         const CollisionProfileId  profile   = m_Impl->CharacterProfiles[handle];
         const BlockingLayerFilter blockedBy( m_Impl->Profiles, profile );
         character->SetLinearVelocity( ToJolt( velocity ) );
-        character->Update( dt, m_Impl->System.GetGravity(),
+        character->Update( dt, JPH::Vec3( 0.0f, -gravityCmPerS2, 0.0f ),
                            m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ), blockedBy,
                            {}, {}, *m_Impl->TempAllocator );
     }

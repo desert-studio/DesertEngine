@@ -404,8 +404,10 @@ namespace Desert::Physics
         void            RemoveCharacter( CharacterHandle handle );
         // Set the character's velocity (incl. caller-integrated gravity/jump) and advance it by dt — Jolt
         // resolves collisions/slopes/steps. Called from the pre-step callback with the fixed step, so a
-        // character moves at the world's rate, not the frame's.
-        void            UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float dt );
+        // character moves at the world's rate, not the frame's. @p gravityCmPerS2 is the DOWNWARD magnitude the
+        // caller integrated into @p velocity (GetGravity() times its Gravity Scale, UE
+        // UCharacterMovementComponent::GetGravityZ): Jolt presses the floor's bodies with that same value.
+        void UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2, float dt );
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body), in the
         /// character's profile: what a trigger sees of it, and the body its contact events name. Queries

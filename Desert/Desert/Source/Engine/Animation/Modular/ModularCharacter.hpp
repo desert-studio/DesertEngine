@@ -78,8 +78,10 @@ namespace Desert::Animation
     {
         std::span<const glm::mat4> BoneModelTransforms; // leader's bone index space
         glm::mat4                  ComponentToWorld = glm::mat4( 1.0f );
-        glm::vec3                  Gravity          = { 0.0f, -980.0f, 0.0f }; // cm/s^2, for cloth
-        glm::vec3                  WindVelocity     = { 0.0f, 0.0f, 0.0f };    // cm/s, ECS::WindAt, for cloth
+        // cm/s^2, for cloth. No value of its own: the caller fills it with (0, -PhysicsWorld::GetGravity(), 0),
+        // the scene's one gravity (SceneSettings::Gravity); zero until filled.
+        glm::vec3 Gravity      = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 WindVelocity = { 0.0f, 0.0f, 0.0f }; // cm/s, ECS::WindAt, for cloth
     };
 
     // One character: a leader skinned mesh (the body) plus whatever the script attached to it.
