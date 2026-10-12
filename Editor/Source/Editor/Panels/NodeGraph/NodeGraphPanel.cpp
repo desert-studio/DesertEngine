@@ -153,17 +153,9 @@ namespace Desert::Editor
             m_Path = asset->GetMetadata().Filepath;
             m_Doc  = asset->GetData();
 
-            // A migration is never silent (contract §4.7): it says which file, and how many pins moved.
-            // The graph is NOT written back here — a load that rewrites the artist's file before they
-            // have looked at it is worse than one that waits for Save, and the document in memory is
-            // already the new form, so nothing downstream sees the old one.
-            if ( const int migrated = SG::MigrateToCatalogue( m_Doc ); migrated > 0 )
-            {
-                LOG_INFO( "[ShaderGraph] '{}' was written against an older node catalogue: {} pin(s) "
-                          "appended to bring it up to date. Save the graph to persist them.",
-                          m_Path.string(), migrated );
-                m_Status = std::format( "+{} new pin(s) from the current catalogue", migrated );
-            }
+            // The asset is the bytes; its pins are rebuilt against the editor's node catalogue on every
+            // open, as UE reconstructs a graph's nodes on load. Nothing is written back.
+            SG::ReconstructNodes( m_Doc );
         }
 
         // A graph that was just opened has not been EDITED, so it must not look dirty to the auto-compile.

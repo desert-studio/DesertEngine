@@ -63,7 +63,7 @@ namespace Desert::Editor
     //     — the argument and both ends of the wiring are asserted in ConfigOwnership §8.
     //
     // `asset_favorites.txt` was a FIFTH and was the one that had no argument. К5 closed it: the pinned
-    // folders are `FavouriteFolders` below, and the file is deleted by the migration that reads it. A new
+    // folders are `FavouriteFolders` below, and nothing reads the old file. A new
     // per-user setting goes in this struct — or in machine.json if the shipped game needs it too; a new
     // per-user FILE is a conversation with the owner.
     struct EditorPreferences
@@ -75,9 +75,7 @@ namespace Desert::Editor
         // a step chosen from a toolbar never reached this file at all. К6 deleted the second copy rather
         // than adding a fourth Save() call; Desert/Tests/Editor/PreferenceOwnership holds the line.
         //
-        // World units, and 1 world unit is 1 CENTIMETRE project-wide. TranslateSnap was 0.5f with the
-        // comment "world units" from the metre era, which is how the shipped grid snap ended up at half
-        // a centimetre; Load() migrates any stored value below 1 cm once.
+        // World units, and 1 world unit is 1 CENTIMETRE project-wide.
         float TranslateSnap   = 50.0f; // cm — half a metre
         float RotateSnapDeg   = 15.0f; // degrees
         float ScaleSnap       = 0.1f;
@@ -97,9 +95,7 @@ namespace Desert::Editor
         // ladder is per machine — but because the FILE was. It reached the renderer through
         // Graphic::RenderConfig, whose only writer was this struct, and the packaged Runtime never opens
         // this file: a shipped game therefore ran MSAA nailed to 1 with no reader and no dial. It is in
-        // Common::Settings::MachineSettings now, beside the post-AA mode it is half a question with. Its
-        // key is dropped from existing files by MigrateLoaded()'s retired list — without that, UnknownKeys
-        // below would preserve it in every user's editor.json for ever.
+        // Common::Settings::MachineSettings now, beside the post-AA mode it is half a question with.
 
         // Selection outline (Jump Flood) — an editor-only viewport visualization, not a scene property.
         // Pushed to the renderer each frame via SceneRenderer::SetOutlineSettings. Width/smoothness in px.
@@ -149,12 +145,6 @@ namespace Desert::Editor
         // documented was never implemented (the panel writes frames itself), and the Object/Face preset
         // switch the second one documented does not exist. They were §1.3 dead settings, invisible because
         // this file had no readership census at all; Desert/Tests/Engine/ConfigOwnership is now that census.
-        //
-        // THEY ARE ALSO WHY THE RETIRED-KEY LIST EXISTS. Until К9 they needed no migration, because a key
-        // the struct had lost was dropped by the next save on its own. UnknownKeys below stops that
-        // happening to anybody's keys, so it would have preserved these two for ever as well — a deletion
-        // that never finishes. They are named in MigrateLoaded()'s retired list instead, which drops them
-        // once, says so, and writes the file back without them.
         std::string PhotogrammetryCommand    = "meshroom_batch --input {input} --output {outdir}";
         std::string PhotogrammetryPhotosDir  = "";
         std::string PhotogrammetryOutputMesh = "Cooked/Photogrammetry/model.obj";
@@ -261,11 +251,11 @@ namespace Desert::Editor
         // Desert/Tests/Editor/PreferenceOwnership §7 states the relation this member enforces:
         // "saving does not delete a key the writer does not know".)
         //
-        // IT IS NOT A COMPATIBILITY SHIM AND DOES NOT KEEP LEGACY ALIVE (contract §4). A key this
-        // project DELETED on purpose is not unknown, it is retired: MigrateLoaded() drops it by name,
-        // says so in the log and writes the file back without it. Preservation is for keys another
-        // BUILD owns, and it is the deletion path that decides a key is dead — never the accident of
-        // which binary saved last.
+        // IT IS NOT A COMPATIBILITY SHIM AND DOES NOT KEEP LEGACY ALIVE (contract §4). No load-time
+        // migration rewrites this file and no list of retired keys is kept: every key the struct does not
+        // declare lands here, Load() names it in a WARN, and a save carries it unchanged. Removing a key
+        // nobody owns any more is the user's edit of their own file, never the accident of which binary
+        // saved last.
         Common::Json::KeyedValues UnknownKeys;
 
         static EditorPreferences& Get();
@@ -315,46 +305,9 @@ namespace Desert::Editor
         // Reads editor.json into Get() (keeps defaults when the file is missing/corrupt). The camera
         // speed is applied by EditorLayer once a camera exists.
         //
-        // IT WRITES THE FILE IN EXACTLY ONE CASE, and the case is named: when MigrateLoaded() below
-        // raises a stored value, the new form is written back so the migration fires once instead of
-        // every launch (contract §4.3). That write goes through SaveMigrated(), NOT through Save(), and
-        // the difference is the point — a load that calls "save" is a reader that can write, and its log
-        // line then claims a save the user never made. Nothing else in Load() touches the file.
+        // IT NEVER WRITES THE FILE. There is no load-time migration: a value is read as stored, a key
+        // this build does not declare is carried in UnknownKeys and named in one WARN.
         static void Load();
-
-        // THE MIGRATIONS THIS FILE CARRIES, AS ONE PURE FUNCTION. In: a preference set as it was read
-        // from disk. Out: the same set in this build's form, plus one line per thing it changed (empty =
-        // there was nothing to do, which is what Load() tests before it writes anything). No file, no
-        // globals, no logging — contract §4.4 asks a migration to be pure and tested, and
-        // Desert/Tests/Editor/PreferenceOwnership calls this directly rather than through the file.
-        //
-        // TWO KINDS, and they are opposite halves of one rule about who may delete a key. It RAISES a
-        // stored value this build's units no longer match, and it DROPS the keys this project retired by
-        // name. Everything else the file happens to hold is somebody else's and survives untouched — see
-        // UnknownKeys above. A deletion is a decision, so it is spelled out here; it is never the
-        // side effect of one binary saving before another.
-        static std::vector<std::string> MigrateLoaded( EditorPreferences& p );
-
-        // THE OTHER MIGRATION, AND IT IS A DIFFERENT SHAPE BECAUSE IT COMES FROM A DIFFERENT FILE (К5).
-        // MigrateLoaded() raises editor.json's own stored values; this folds the retired
-        // `~/.desertengine/asset_favorites.txt` into FavouriteFolders. In: the lines that file held, the
-        // project they are being read for, and that project's assets root. Out: one line per thing it did,
-        // empty when there was nothing to do. Pure on the same terms as MigrateLoaded — no file, no
-        // globals, no logging — so the rules below are testable without a home directory:
-        //
-        //   * a line INSIDE `assetsRoot` becomes a path relative to it, appended in file order and never
-        //     duplicated (the legacy file could hold the same folder twice; nothing deduplicated it);
-        //   * a line OUTSIDE it is DROPPED AND NAMED. It is a folder of some other project, and this
-        //     build cannot say which: the file recorded no project, which is the defect being migrated
-        //     away from. Carrying it into the open project's list would be inventing an answer;
-        //   * `assetsRoot` itself becomes ".".
-        //
-        // §4 AND NOT A COMPATIBILITY PATH: it runs once, the caller then deletes the file, and no reader
-        // of the pinned folders ever looks at the old location again. Two stores for one value is what
-        // К5 was.
-        static std::vector<std::string> MigrateFavouritesFile( EditorPreferences& p, const std::string& project,
-                                                               const std::filesystem::path&    assetsRoot,
-                                                               const std::vector<std::string>& lines );
 
         // THE USER JUST CHANGED SOMETHING. Called by every control that edits this struct, at the moment
         // the edit finishes (ImGui::IsItemDeactivatedAfterEdit for a slider or a drag, the click for a
@@ -385,11 +338,10 @@ namespace Desert::Editor
         // values are live in this session only.
         static bool Save();
 
-        // THE EDITOR, NOT THE USER, RAISED A STORED VALUE TO THIS BUILD'S FORM — a migration write-back,
-        // and the only legitimate reason to write this file without a user action behind it. `what` is
-        // the sentence that reaches the log in place of the changed-field list Save() derives, because a
-        // migration is not a field the user moved and reporting it as one is how "[Prefs] Saved ..." came
-        // to mean nothing. Same deduplication and same return meaning as Save().
+        // THE EDITOR, NOT THE USER, CHANGED A VALUE — the dock layout raising DockLayoutVersion after it
+        // reset the layout to this build's default (UE's layout-version check). `what` is the sentence
+        // that reaches the log in place of the changed-field list Save() derives, because that write is not
+        // a field the user moved. Same deduplication and same return meaning as Save().
         static bool SaveMigrated( const std::string& what );
     };
 } // namespace Desert::Editor
