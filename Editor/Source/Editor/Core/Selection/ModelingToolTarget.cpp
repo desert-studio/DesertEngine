@@ -29,7 +29,7 @@ namespace Desert::Editor
             return Common::MakeFormattedError<MeshPtr>( "{}: {}", whatFor, lifted.GetError() );
         Geometry::ImportedDynamicMesh imported = lifted.ExtractValue();
         // The skipped faces are gone from the mesh the tool edits, so a commit writes the file without them:
-        // said out loud here, with the same counts the importer reports for the EditMesh core.
+        // said out loud here, with the same counts the importer reports.
         if ( imported.DroppedDegenerate != 0 || imported.DroppedDuplicate != 0 || imported.DetachedTriangles != 0 )
             LOG_WARN( "[Modeling] '{}': skipped {} degenerate and {} duplicate face(s), and detached {} "
                       "non-manifold face(s) onto their own vertices",

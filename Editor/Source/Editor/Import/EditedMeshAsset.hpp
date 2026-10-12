@@ -2,7 +2,7 @@
 
 // Ported from UE 5.8 Engine/Plugins/Runtime/MeshModelingToolset/Source/ModelingComponents/Private/
 // ModelingToolTargetUtil.cpp:453-500 (CommitDynamicMeshUpdate -> UStaticMesh source model), adapted: the
-// target asset is our MeshSourceAsset envelope; the edit replaces LOD0's EditMeshSer and nothing else of the
+// target asset is our MeshSourceAsset envelope; the edit replaces LOD0's MeshSavedForm and nothing else of the
 // asset's identity, and an imported mesh's file lands at its asset path beside the raw source (P9b).
 //
 // WHERE THE EDITED GEOMETRY OF AN IMPORTED MESH LIVES. UE writes a tool's result into the UStaticMesh; the

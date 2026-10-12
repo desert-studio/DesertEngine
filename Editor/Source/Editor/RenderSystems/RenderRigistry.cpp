@@ -18,6 +18,13 @@ namespace Desert::Editor::Render
             m_ColliderPass.reset();
         }
 
+        m_ToolPreviewPass = std::make_unique<EditorToolPreviewPass>();
+        if ( const auto result = m_ToolPreviewPass->Install( scene ); !result )
+        {
+            LOG_WARN( "[RenderRegistry] {}", result.GetError() );
+            m_ToolPreviewPass.reset();
+        }
+
         m_UIPass = std::make_unique<EditorUIPass>();
         if ( const auto result = m_UIPass->Install( scene ); !result )
         {

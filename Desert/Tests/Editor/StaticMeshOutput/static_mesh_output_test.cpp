@@ -1,8 +1,5 @@
-// A modeling result written as a .stmesh and read back (M7). The relation pinned is the round trip:
-// EditMesh -> MeshAssetData -> MeshBinary bytes -> MeshAssetData -> EditMesh keeps every polygroup, corner,
-// normal, tangent, UV and material - judged by rendering both meshes and comparing the render arrays, which
-// is what a frame of the entity before and after the conversion would compare. Around it: the registry row
-// the write leaves (with its box), and the name that is never overwritten.
+// A modeling result written as a .stmesh (M7): the registry row the write leaves (with its box), and the name
+// that is never overwritten. The mesh <-> file round trip itself is the DynamicMeshAsset suite's.
 
 #include <Editor/Import/StaticMeshOutput.hpp>
 
@@ -10,10 +7,8 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
-#include <Engine/Geometry/EditMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <gtest/gtest.h>
@@ -38,26 +33,27 @@ using namespace Desert;
 
 namespace
 {
-    // The writer takes the component's core; the fixtures are built on EditMesh and cross through the saved
-    // form (what EditMeshBridge does, without linking the bridge's ECS half into a GPU-free suite).
-    std::shared_ptr<const Geometry::DynamicMesh3> Dyn( const Geometry::EditMesh& mesh )
+    // The writer takes the component's mesh, shared and immutable as the component holds it.
+    std::shared_ptr<const Geometry::DynamicMesh3> Dyn( const Geometry::DynamicMesh3& mesh )
     {
-        auto converted = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( mesh ), "StaticMeshOutput" );
-        EXPECT_TRUE( converted.IsSuccess() ) << ( converted.IsSuccess() ? "" : converted.GetError() );
-        return std::make_shared<const Geometry::DynamicMesh3>( converted.IsSuccess() ? converted.ExtractValue()
-                                                                                     : Geometry::DynamicMesh3{} );
+        return std::make_shared<const Geometry::DynamicMesh3>( mesh );
+    }
+
+    void SetMaterial( Geometry::DynamicMesh3& mesh, int t, int32_t material )
+    {
+        mesh.Attributes()->GetMaterialID()->SetValue( t, &material );
     }
 
     // A box with one polygroup per face and two materials (odd faces on slot 1), so a round trip that loses
     // groups, reorders faces or collapses submeshes has something to lose.
-    Geometry::EditMesh TwoMaterialBox()
+    Geometry::DynamicMesh3 TwoMaterialBox()
     {
         auto shape = Geometry::MakeBox( glm::vec3( 200.0f, 100.0f, 50.0f ), glm::ivec3( 2, 1, 1 ) );
-        auto mesh  = Geometry::ShapeToEditMesh( shape );
+        auto mesh  = Geometry::ShapeToDynamicMesh( shape );
         EXPECT_TRUE( mesh.IsSuccess() ) << ( mesh.IsSuccess() ? "" : mesh.GetError() );
-        Geometry::EditMesh out = mesh.ExtractValue();
-        for ( const int t : out.TriangleIds() )
-            out.Attributes().SetMaterialId( t, out.Attributes().GetPolyGroup( t ) % 2 );
+        Geometry::DynamicMesh3 out = mesh.ExtractValue();
+        for ( const int t : out.TriangleIndicesItr() )
+            SetMaterial( out, t, out.GetTriangleGroup( t ) % 2 );
         return out;
     }
 
@@ -88,149 +84,6 @@ namespace
         fs::path                                  m_Dir;
     };
 } // namespace
-
-TEST( StaticMeshOutput, TheRoundTripThroughTheFileKeepsGroupsCornersAndMaterials )
-{
-    const Geometry::EditMesh original = TwoMaterialBox();
-
-    auto data = Geometry::ToMeshAssetData( original, kSlots );
-    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
-    const std::string bytes   = Assets::Serialization::EncodeMeshBinary( data.GetValue() );
-    auto              decoded = Assets::Serialization::DecodeMeshBinary( bytes, "round trip" );
-    ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
-    const auto& file = decoded.GetValue();
-
-    ASSERT_EQ( file.Submeshes.size(), 2u );
-    EXPECT_EQ( file.Submeshes[0].MaterialGuid, kSlots[0] );
-    EXPECT_EQ( file.Submeshes[1].MaterialGuid, kSlots[1] );
-    ASSERT_EQ( file.PolyGroups.size(), file.Indices.size() ) << "the PolyGroups section was not filled";
-
-    auto lifted = Geometry::FromMeshAssetData( file );
-    ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    const Geometry::EditMesh& back = lifted.GetValue().Mesh;
-    ASSERT_EQ( back.TriangleCount(), original.TriangleCount() );
-    ASSERT_EQ( back.VertexCount(), original.VertexCount() ) << "the weld did not close the shell again";
-
-    // Face k of the file came from original triangle SourceTriangles[k] and is triangle k of the lifted mesh.
-    auto before = Geometry::ToRenderMesh( original );
-    auto after  = Geometry::ToRenderMesh( back );
-    ASSERT_TRUE( before.IsSuccess() && after.IsSuccess() );
-    const auto&   a = before.GetValue();
-    const auto&   b = after.GetValue();
-    std::set<int> groups;
-    for ( size_t k = 0; k < a.SourceTriangles.size(); ++k )
-    {
-        const int from = a.SourceTriangles[k];
-        EXPECT_EQ( back.Attributes().GetPolyGroup( static_cast<int>( k ) ),
-                   original.Attributes().GetPolyGroup( from ) )
-             << "face " << k;
-        EXPECT_EQ( back.Attributes().GetMaterialId( static_cast<int>( k ) ),
-                   original.Attributes().GetMaterialId( from ) )
-             << "face " << k;
-        groups.insert( original.Attributes().GetPolyGroup( from ) );
-    }
-    EXPECT_EQ( groups.size(), 6u ) << "the box should carry one group per face";
-
-    // What the entity draws: the same render arrays, corner for corner, bit for bit.
-    ASSERT_EQ( a.Vertices.size(), b.Vertices.size() );
-    ASSERT_EQ( a.Indices.size(), b.Indices.size() );
-    ASSERT_EQ( a.Submeshes.size(), b.Submeshes.size() );
-    for ( size_t i = 0; i < a.Vertices.size(); ++i )
-    {
-        EXPECT_EQ( a.Vertices[i].Position, b.Vertices[i].Position ) << "vertex " << i;
-        EXPECT_EQ( a.Vertices[i].Normal, b.Vertices[i].Normal ) << "vertex " << i;
-        EXPECT_EQ( a.Vertices[i].Tangent, b.Vertices[i].Tangent ) << "vertex " << i;
-        EXPECT_EQ( a.Vertices[i].Bitangent, b.Vertices[i].Bitangent ) << "vertex " << i;
-        EXPECT_EQ( a.Vertices[i].TexCoord, b.Vertices[i].TexCoord ) << "vertex " << i;
-    }
-    for ( size_t i = 0; i < a.Indices.size(); ++i )
-        EXPECT_TRUE( a.Indices[i].V1 == b.Indices[i].V1 && a.Indices[i].V2 == b.Indices[i].V2 &&
-                     a.Indices[i].V3 == b.Indices[i].V3 )
-             << "face " << i;
-}
-
-TEST( StaticMeshOutput, AFileWithoutGroupsLiftsWithEveryFaceInGroupZero )
-{
-    auto data = Geometry::ToMeshAssetData( TwoMaterialBox(), kSlots );
-    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
-    auto v1Shape       = data.ExtractValue();
-    v1Shape.PolyGroups = {};
-    auto lifted        = Geometry::FromMeshAssetData( v1Shape );
-    ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    for ( const int t : lifted.GetValue().Mesh.TriangleIds() )
-        EXPECT_EQ( lifted.GetValue().Mesh.Attributes().GetPolyGroup( t ), 0 );
-}
-
-TEST( StaticMeshOutput, ALayerTheFileCannotHoldIsRefusedByName )
-{
-    Geometry::EditMesh threeUV = TwoMaterialBox();
-    ASSERT_TRUE( threeUV.Attributes().SetUVLayerCount( 3 ) );
-    auto refusedUV = Geometry::ToMeshAssetData( threeUV, kSlots );
-    ASSERT_FALSE( refusedUV.IsSuccess() );
-    EXPECT_NE( refusedUV.GetError().find( "3 UV layers" ), std::string::npos ) << refusedUV.GetError();
-}
-
-// MAT1v: the colour layer and UV layer 1 are the file's optional streams, so they go out and come back.
-TEST( StaticMeshOutput, TheColourLayerAndUVOneTravelAsStreams )
-{
-    Geometry::EditMesh mesh = TwoMaterialBox();
-    mesh.Attributes().EnableColors();
-    ASSERT_TRUE( mesh.Attributes().SetUVLayerCount( 2 ) );
-    Geometry::ColorOverlay& colors = *mesh.Attributes().Colors();
-    Geometry::UVOverlay&    uv1    = *mesh.Attributes().UV( 1 );
-    std::vector<int>        colourOf( static_cast<size_t>( mesh.MaxVertexId() ), -1 );
-    std::vector<int>        uvOf( static_cast<size_t>( mesh.MaxVertexId() ), -1 );
-    // Per vertex, values exact in 8 bits (k / 255) so the RGBA8 stream round-trips them bit for bit.
-    const auto ColourOf = []( int v )
-    { return glm::vec4( glm::vec3( static_cast<float>( v * 20 % 256 ), 51.0f, 255.0f ), 102.0f ) / 255.0f; };
-    const auto UVOf = []( int v )
-    { return glm::vec2( 0.25f * static_cast<float>( v ), 1.0f - 0.5f * static_cast<float>( v ) ); };
-    for ( const int v : mesh.VertexIds() )
-    {
-        colourOf[static_cast<size_t>( v )] = colors.AppendElement( ColourOf( v ) );
-        uvOf[static_cast<size_t>( v )]     = uv1.AppendElement( UVOf( v ) );
-    }
-    for ( const int t : mesh.TriangleIds() )
-    {
-        const auto& tri = mesh.GetTriangle( t );
-        ASSERT_EQ( colors.SetTriangle(
-                        mesh, t,
-                        { colourOf[size_t( tri[0] )], colourOf[size_t( tri[1] )], colourOf[size_t( tri[2] )] } ),
-                   Geometry::EditResult::Ok );
-        ASSERT_EQ( uv1.SetTriangle( mesh, t,
-                                    { uvOf[size_t( tri[0] )], uvOf[size_t( tri[1] )], uvOf[size_t( tri[2] )] } ),
-                   Geometry::EditResult::Ok );
-    }
-
-    auto data = Geometry::ToMeshAssetData( mesh, kSlots );
-    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
-    const auto& asset = data.GetValue();
-    ASSERT_EQ( asset.Colors.size(), asset.StaticVertices.size() );
-    ASSERT_EQ( asset.UV1.size(), asset.StaticVertices.size() );
-
-    auto lifted = Geometry::FromMeshAssetData( asset );
-    ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    const Geometry::EditMesh& back = lifted.GetValue().Mesh;
-    ASSERT_NE( back.Attributes().Colors(), nullptr );
-    ASSERT_EQ( back.Attributes().UVLayerCount(), 2 );
-    // Positions identify the corner: the lifted mesh numbers its vertices anew.
-    for ( const int t : back.TriangleIds() )
-        for ( int j = 0; j < 3; ++j )
-        {
-            const glm::vec3 p     = back.GetPosition( back.GetTriangle( t )[j] );
-            int             match = -1;
-            for ( const int v : mesh.VertexIds() )
-                if ( glm::all( glm::equal( mesh.GetPosition( v ), p ) ) )
-                    match = v;
-            ASSERT_NE( match, -1 );
-            const glm::vec4 c =
-                 back.Attributes().Colors()->GetElement( back.Attributes().Colors()->GetTriangle( t )[j] );
-            const glm::vec2 u =
-                 back.Attributes().UV( 1 )->GetElement( back.Attributes().UV( 1 )->GetTriangle( t )[j] );
-            EXPECT_LT( glm::length( c - ColourOf( match ) ), 1e-6f );
-            EXPECT_EQ( u, UVOf( match ) );
-        }
-}
 
 TEST_F( ScratchProject, TheWriteLeavesARegistryRowWithTheMeshBox )
 {
@@ -282,9 +135,9 @@ TEST_F( ScratchProject, ATakenNameGetsASuffixAndTheFirstFileIsUntouched )
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
     const auto firstTime = fs::last_write_time( first.GetValue() );
 
-    Geometry::EditMesh other = TwoMaterialBox();
-    for ( const int t : other.TriangleIds() )
-        other.Attributes().SetMaterialId( t, 0 );
+    Geometry::DynamicMesh3 other = TwoMaterialBox();
+    for ( const int t : other.TriangleIndicesItr() )
+        SetMaterial( other, t, 0 );
     auto second = Editor::WriteStaticMeshAsset( *Dyn( other ), kSlots, folder, "Box" );
     ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
     auto third = Editor::WriteStaticMeshAsset( *Dyn( other ), kSlots, folder, "Box" );
@@ -309,8 +162,8 @@ TEST_F( ScratchProject, ANameAndAFolderAreTakenAsGivenOrRefused )
     EXPECT_FALSE( Editor::StaticMeshOutputFolder( "/abs" ).IsSuccess() );
 
     // A refused mesh writes nothing.
-    Geometry::EditMesh coloured = TwoMaterialBox();
-    coloured.Attributes().EnableColors();
+    Geometry::DynamicMesh3 coloured = TwoMaterialBox();
+    coloured.Attributes()->EnablePrimaryColors();
     auto target = Editor::StaticMeshOutputFolder( "Modeling" );
     ASSERT_TRUE( target.IsSuccess() ) << target.GetError();
     const fs::path& folder = target.GetValue();

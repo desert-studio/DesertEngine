@@ -370,7 +370,12 @@ namespace Desert::Graphic::API::Vulkan
              .polygonMode             = ConvertVkPolygonMode( m_Specification.PolygonMode ),
              .cullMode                = ConvertCullMode( m_Specification.CullMode ),
              .frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-             .depthBiasEnable         = VK_FALSE,
+             .depthBiasEnable = m_Specification.DepthBiasConstant != 0.0F || m_Specification.DepthBiasSlope != 0.0F
+                                     ? VK_TRUE
+                                     : VK_FALSE,
+             .depthBiasConstantFactor = m_Specification.DepthBiasConstant,
+             .depthBiasClamp          = 0.0F,
+             .depthBiasSlopeFactor    = m_Specification.DepthBiasSlope,
              .lineWidth               = m_Specification.LineWidth };
     }
 

@@ -9,7 +9,6 @@
 
 #include <gtest/gtest.h>
 
-#include <Engine/Geometry/EditMesh.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
@@ -189,14 +188,14 @@ TEST( ShapeGenerators, EveryShapeInEveryModeIsOneOutwardShell )
             ASSERT_FALSE( m.Indices.empty() );
             ASSERT_EQ( m.Groups.size(), m.Indices.size() );
 
-            auto converted = ShapeToEditMesh( m );
+            auto converted = ShapeToDynamicMesh( m );
             ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
-            const EditMesh& mesh = converted.GetValue();
-            EXPECT_TRUE( mesh.IsManifold() );
+            const DynamicMesh3& mesh = converted.GetValue();
+            EXPECT_TRUE( mesh.CheckValidity( {}, ValidityCheckFailMode::ReturnOnly ) );
             EXPECT_EQ( mesh.TriangleCount(), static_cast<int>( m.Indices.size() ) );
 
             int boundary = 0;
-            for ( int e = 0; e < mesh.MaxEdgeId(); ++e )
+            for ( int e = 0; e < mesh.MaxEdgeID(); ++e )
                 if ( mesh.IsEdge( e ) && mesh.IsBoundaryEdge( e ) )
                     ++boundary;
             EXPECT_EQ( boundary, c.Boundary ) << "open edges: the rim of an open shape, none on a closed one";
@@ -234,7 +233,7 @@ TEST( ShapeGenerators, EveryShapeInEveryModeIsOneOutwardShell )
     }
 }
 
-// The group count is the formula's, the ids are dense, and the EditMesh carries them triangle for triangle.
+// The group count is the formula's, the ids are dense, and the DynamicMesh3 carries them triangle for triangle.
 TEST( ShapeGenerators, PolygroupsFollowTheModeFormula )
 {
     for ( const ShapeCase& c : Cases() )
@@ -247,23 +246,23 @@ TEST( ShapeGenerators, PolygroupsFollowTheModeFormula )
             const std::set<int> used( m.Groups.begin(), m.Groups.end() );
             EXPECT_EQ( static_cast<int>( used.size() ), m.GroupCount() ) << "group ids are not dense";
 
-            auto converted = ShapeToEditMesh( m );
+            auto converted = ShapeToDynamicMesh( m );
             ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
             for ( size_t k = 0; k < m.Groups.size(); ++k )
-                ASSERT_EQ( converted.GetValue().Attributes().GetPolyGroup( static_cast<int>( k ) ), m.Groups[k] );
+                ASSERT_EQ( converted.GetValue().GetTriangleGroup( static_cast<int>( k ) ), m.Groups[k] );
         }
     }
 }
 
-// What the entity draws is the same outward shell: the render mesh SetEditableMesh builds from the EditMesh
+// What the entity draws is the same outward shell: the render mesh SetEditableMesh builds from the DynamicMesh3
 // (ToRenderMesh) has the shape's triangle count and its signed volume.
-TEST( ShapeGenerators, TheEditMeshRendersTheSameShell )
+TEST( ShapeGenerators, TheDynamicMeshRendersTheSameShell )
 {
     for ( const ShapeCase& c : Cases() )
     {
         SCOPED_TRACE( c.Name );
         const ShapeMesh m         = c.Make( {} );
-        auto            converted = ShapeToEditMesh( m );
+        auto            converted = ShapeToDynamicMesh( m );
         ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
         auto render = ToRenderMesh( converted.GetValue() );
         ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
@@ -286,7 +285,7 @@ TEST( ShapeGenerators, TheEditMeshRendersTheSameShell )
 
 // Base puts the bottom on Y = 0, Centre the middle, Top the top; X and Z stay centred.
 // UE clamps Box Subdivisions at 500 (AddPrimitiveTool.h), and the panel lets a typed value reach it: the
-// generator and the EditMesh the Create tool builds from it must both carry a box that dense, whole.
+// generator and the DynamicMesh3 the Create tool builds from it must both carry a box that dense, whole.
 TEST( ShapeGenerators, ABoxAtUEsSubdivisionCeilingIsWhole )
 {
     constexpr int   n     = 500;
@@ -297,7 +296,7 @@ TEST( ShapeGenerators, ABoxAtUEsSubdivisionCeilingIsWhole )
     for ( const Index& t : m.Indices )
         ASSERT_TRUE( t.V1 < m.Vertices.size() && t.V2 < m.Vertices.size() && t.V3 < m.Vertices.size() );
     EXPECT_NEAR( SignedVolume( m ), 100.0 * 100.0 * 100.0, 1.0 );
-    auto converted = ShapeToEditMesh( m );
+    auto converted = ShapeToDynamicMesh( m );
     ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
     auto render = ToRenderMesh( converted.GetValue() );
     ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
@@ -362,7 +361,7 @@ TEST( ShapeGenerators, WeldedVertexCountsAreUEs )
 {
     const auto count = []( const ShapeMesh& m )
     {
-        auto converted = ShapeToEditMesh( m );
+        auto converted = ShapeToDynamicMesh( m );
         return converted.IsSuccess() ? converted.GetValue().VertexCount() : -1;
     };
     // FSphereGenerator: (NumPhi - 2) * NumTheta + 2, NumPhi = HorizontalSlices + 1.
@@ -530,11 +529,11 @@ TEST( ShapeGenerators, PolygroupsAreUEs )
 }
 
 // UE does not stop a tube from reaching the axis or a head as narrow as the shaft; the mesh it makes then
-// folds onto itself, and ShapeToEditMesh refuses it by name rather than hand the scene a broken shell.
+// folds onto itself, and ShapeToDynamicMesh refuses it by name rather than hand the scene a broken shell.
 TEST( ShapeGenerators, UEsDegenerateSettingsAreRefusedNotPlaced )
 {
-    EXPECT_FALSE( ShapeToEditMesh( MakeTorus( { 10.0f, 10.0f, 16, 12 } ) ).IsSuccess() );
-    EXPECT_FALSE( ShapeToEditMesh( MakeArrow( { 20.0f, 200.0f, 20.0f, 60.0f, 12, 1 } ) ).IsSuccess() );
+    EXPECT_FALSE( ShapeToDynamicMesh( MakeTorus( { 10.0f, 10.0f, 16, 12 } ) ).IsSuccess() );
+    EXPECT_FALSE( ShapeToDynamicMesh( MakeArrow( { 20.0f, 200.0f, 20.0f, 60.0f, 12, 1 } ) ).IsSuccess() );
 }
 
 // A zero or negative size and silly segment counts are clamped to UE's ranges and still give a shell.
@@ -556,7 +555,7 @@ TEST( ShapeGenerators, DegenerateInputsAreClampedIntoAShell )
          MakeTorus( { 1.0f, 0.0f, 0, 0 } ) };
     for ( const ShapeMesh& m : shapes )
     {
-        auto converted = ShapeToEditMesh( m );
+        auto converted = ShapeToDynamicMesh( m );
         ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
         EXPECT_GT( SignedVolume( m ), 0.0 );
     }
@@ -695,7 +694,7 @@ TEST( ShapeGenerators, EveryAuthorablePrimitiveIsDrawn )
         SCOPED_TRACE( PrimitiveTypeName( type ) );
         const auto shape = MakePrimitive( type );
         ASSERT_TRUE( shape.has_value() );
-        auto converted = ShapeToEditMesh( *shape ); // NOLINT(bugprone-unchecked-optional-access)
+        auto converted = ShapeToDynamicMesh( *shape ); // NOLINT(bugprone-unchecked-optional-access)
         ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
         if ( type != PrimitiveType::Plane )
             EXPECT_GT( SignedVolume( *shape ), 0.0 );

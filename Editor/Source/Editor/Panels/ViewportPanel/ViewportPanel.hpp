@@ -29,6 +29,7 @@
 #include "Tools/ActiveToolBar.hpp"
 #include "Tools/ElementSelectTool.hpp"
 #include "Tools/PolyEditTool.hpp"
+#include "Tools/ToolCursor.hpp"
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
 
@@ -87,6 +88,10 @@ namespace Desert::Editor
         Common::BoolResultStr StrokeFoliageAtCentre();
         // The same on the viewport the user is working in (ActiveViewport); an error when there is none.
         static Common::BoolResultStr StrokeFoliageInActiveViewport();
+        // Create Shape's click at the viewport centre (the palette's placement): the active tool's shape where
+        // the centre ray meets the scene or the ground, or the refusal saying why nothing was placed.
+        static Common::BoolResultStr PlaceShapeInActiveViewport();
+        Common::BoolResultStr        PlaceShapeAtCentre();
         // FO-UI1: the brush footprint preview aimed at the viewport centre (where a hand would hover), so the
         // preview is reachable without a cursor. An error when the centre ray meets no surface.
         static Common::BoolResultStr PreviewFoliageInActiveViewport();
@@ -272,6 +277,8 @@ namespace Desert::Editor
         // Corner XYZ orientation gizmo (a small triad tracking the camera's rotation) so you always know
         // which way world X/Y/Z point in the current view. Overlay only — pure ImGui, no scene interaction.
         void DrawViewAxisGizmo( const glm::vec2& viewportPos, const glm::vec2& viewportSize );
+        // The cursor the running Modeling tool reports (ToolCursor::None with no tool running).
+        [[nodiscard]] Tools::ToolCursor ActiveModelingToolCursor() const;
 
         // "Piloting: <name>" + Eject, top-left of the image, while m_Pilot is active.
         void DrawPilotOverlay();

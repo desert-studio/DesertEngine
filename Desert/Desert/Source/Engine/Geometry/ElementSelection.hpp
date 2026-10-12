@@ -1,7 +1,5 @@
 #pragma once
 
-#include "EditMesh.hpp"
-
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -15,14 +13,17 @@ namespace Desert::Geometry
 {
     class DynamicMesh3;
 
+    // "No element": a miss, an unset ID.
+    inline constexpr int InvalidId = -1;
+
     // MESH ELEMENT SELECTION - UE's Modeling Mode selection (UPolygonSelectionMechanic over a
     // GroupTopologySelection / FDynamicMeshSelection): which vertices, edges, triangles or polygroups of ONE
-    // EditMesh the next operation works on. Plain CPU data - no ECS, no ImGui, no camera: a pick is given its
+    // DynamicMesh3 the next operation works on. Plain CPU data - no ECS, no ImGui, no camera: a pick is given its
     // view (PickView) by the caller.
     //
     // Why not UE's shape: GroupTopologySelection keeps corners, group edges and groups side by side in ONE
     // object, because UE's group topology derives polygroup corners/edges from the triangles. We keep one mode
-    // and one ID set - the element kinds the EditMesh itself numbers, plus polygroups - so every operation
+    // and one ID set - the element kinds the DynamicMesh3 itself numbers, plus polygroups - so every operation
     // below has one input kind and one output kind, and a conversion is an explicit call, not a side of the
     // object that silently goes stale. Group corners/edges become their own modes when a tool needs them.
 
@@ -68,14 +69,6 @@ namespace Desert::Geometry
         }
     };
 
-    // The element under the cursor:
-    //   Triangle / PolyGroup - the nearest triangle the ray crosses (either side), or its polygroup;
-    //   Vertex / Edge        - the one whose projection is nearest the cursor within TolerancePixels (ties: the
-    //                          nearer along the ray), among those the mesh itself does not hide: a triangle
-    //                          crossing the line from the ray origin to the element, in front of it, hides it.
-    // An edge with an endpoint behind the camera is not pickable (its projection is undefined).
-    [[nodiscard]] ElementHit PickElement( const EditMesh& mesh, ElementMode mode, const PickView& view );
-
     // What Prune / Remap had to drop, by reason. Nothing is dropped silently: a caller can say it out loud.
     struct PruneReport
     {
@@ -115,14 +108,11 @@ namespace Desert::Geometry
         }
         [[nodiscard]] bool Contains( int id ) const;
 
-        // Refused, naming the ID and the mode, when the mesh has no such element; nothing changes then.
-        [[nodiscard]] Common::BoolResultStr Add( const EditMesh& mesh, int id );
         // False when the ID was not selected.
         bool Remove( int id );
-        // Removes a selected ID, adds an unselected one (refused like Add).
-        [[nodiscard]] Common::BoolResultStr Toggle( const EditMesh& mesh, int id );
-        // The same three on the ported core (DynamicMeshSelection.cpp): what the editor's selection runs on since
-        // P10. The EditMesh overloads serve the operations still on the bridge and go with it in P8b.
+        // Refused, naming the ID and the mode, when the mesh has no such element; nothing changes then. Toggle
+        // removes a selected ID and adds an unselected one (refused like Add); Prune drops every ID the (edited)
+        // mesh no longer has, or has as a different element, and says how many (DynamicMeshSelection.cpp).
         [[nodiscard]] Common::BoolResultStr Add( const DynamicMesh3& mesh, int id );
         [[nodiscard]] Common::BoolResultStr Toggle( const DynamicMesh3& mesh, int id );
         PruneReport                         Prune( const DynamicMesh3& mesh );
@@ -130,12 +120,6 @@ namespace Desert::Geometry
         template <class Mesh>
         [[nodiscard]] Common::BoolResultStr AddIn( const Mesh& mesh, int id );
         void                                Clear();
-
-        // Drops every ID the (edited) mesh no longer has, or has as a different element, and says how many.
-        PruneReport Prune( const EditMesh& mesh );
-        // Renumbers through EditMesh::Compact()'s maps; an ID the compaction removed is counted as Missing.
-        // Polygroup IDs are not renumbered by a compaction and pass through unchanged.
-        PruneReport Remap( const CompactMaps& maps );
 
         bool operator==( const ElementSelection& other ) const
         {
@@ -161,24 +145,4 @@ namespace Desert::Geometry
         std::vector<Key> m_Keys; // parallel to m_Ids
     };
 
-    // The same part of the mesh in another mode. Towards a FINER mode every part of a selected element is
-    // selected (a polygroup's triangles, a triangle's edges, an edge's vertices). Towards a COARSER mode an
-    // element is selected only when ALL its parts are (a triangle needs its three edges, a polygroup all its
-    // triangles) - so Triangle -> Vertex -> Triangle gives back the triangles, and never grows by the
-    // neighbours that merely touch a selected vertex.
-    [[nodiscard]] ElementSelection ConvertSelection( const EditMesh& mesh, const ElementSelection& selection,
-                                                     ElementMode target );
-
-    // Every element of the connected pieces (across shared edges) the selection touches, same mode.
-    [[nodiscard]] ElementSelection SelectConnected( const EditMesh& mesh, const ElementSelection& selection );
-
-    // One ring out: vertices gain their edge neighbours; edges, triangles and polygroups gain every element
-    // that shares a vertex with the selection.
-    [[nodiscard]] ElementSelection GrowSelection( const EditMesh& mesh, const ElementSelection& selection );
-    // One ring in, the inverse: an element stays only when no vertex of it is shared with an UNselected
-    // element (a vertex: when all its edge neighbours are selected). A selection with no unselected
-    // neighbour - the whole of a closed mesh - does not shrink.
-    [[nodiscard]] ElementSelection ShrinkSelection( const EditMesh& mesh, const ElementSelection& selection );
-    // Every element of the selection's mode that is not selected (UE's Selection > Invert).
-    [[nodiscard]] ElementSelection InvertSelection( const EditMesh& mesh, const ElementSelection& selection );
 } // namespace Desert::Geometry

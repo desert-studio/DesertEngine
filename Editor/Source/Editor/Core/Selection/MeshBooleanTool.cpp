@@ -16,7 +16,8 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshBooleanOperation.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -91,38 +92,38 @@ namespace Desert::Editor::Core
         Common::ResultStr<OperandMeshPtr> BakeInto( const Input& operated, const Input& other,
                                                     std::vector<Common::AssetHandle>* table, const char* name )
         {
-            auto view = Geometry::Bridge::EditMeshView( other.Mesh );
-            if ( !view.IsSuccess() )
-                return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name,
-                                                                   view.GetError() );
+            if ( !other.Mesh )
+                return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}' has no mesh", name, other.Name );
             const glm::mat4 toOperated =
                  glm::inverse( operated.Entity.GetWorldTransform() ) * other.Entity.GetWorldTransform();
-            auto moved = Geometry::TransformMesh( *view.GetValue(), toOperated );
+            auto moved = Geometry::TransformMesh( *other.Mesh, toOperated );
             if ( !moved.IsSuccess() )
                 return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}' into the space of '{}': {}", name,
                                                                    other.Name, operated.Name, moved.GetError() );
-            Geometry::EditMesh mesh = std::move( moved.ExtractValue().Mesh );
+            auto mesh = std::make_shared<Geometry::DynamicMesh3>( std::move( moved.ExtractValue().Mesh ) );
             if ( table )
             {
                 const auto& slots = other.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
-                for ( const int t : mesh.TriangleIds() )
-                {
-                    // A material ID past the slots reads as the empty slot, as the renderer draws it.
-                    const int                 id     = mesh.Attributes().GetMaterialId( t );
-                    const Common::AssetHandle handle = id >= 0 && static_cast<size_t>( id ) < slots.size()
-                                                            ? slots[static_cast<size_t>( id )]
-                                                            : Common::AssetHandle{};
-                    auto                      it     = std::find( table->begin(), table->end(), handle );
-                    if ( it == table->end() )
-                        it = table->insert( table->end(), handle );
-                    mesh.Attributes().SetMaterialId( t, static_cast<int>( it - table->begin() ) );
-                }
+                auto        mapped =
+                     Geometry::MapMaterialIds( *mesh,
+                                               [&]( const int id )
+                                               {
+                                                   // A material ID past the slots reads as the empty slot, as the
+                                                   // renderer draws it.
+                                                   const Common::AssetHandle handle =
+                                                        id >= 0 && static_cast<size_t>( id ) < slots.size()
+                                                             ? slots[static_cast<size_t>( id )]
+                                                             : Common::AssetHandle{};
+                                                   auto it = std::find( table->begin(), table->end(), handle );
+                                                   if ( it == table->end() )
+                                                       it = table->insert( table->end(), handle );
+                                                   return static_cast<int>( it - table->begin() );
+                                               } );
+                if ( !mapped.IsSuccess() )
+                    return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name,
+                                                                       mapped.GetError() );
             }
-            auto shared = Geometry::Bridge::FromEditMesh( std::move( mesh ) );
-            if ( !shared.IsSuccess() )
-                return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name,
-                                                                   shared.GetError() );
-            return Common::MakeSuccess( OperandMeshPtr( shared.ExtractValue() ) );
+            return Common::MakeSuccess( OperandMeshPtr( std::move( mesh ) ) );
         }
     } // namespace
 
