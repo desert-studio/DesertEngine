@@ -872,6 +872,37 @@ namespace Desert::Assets
         return run < softness ? run / ( softness > 1e-4f ? softness : 1e-4f ) : 1.0f;
     }
 
+    /// HOW MANY TIMES THE BODIES ONE PATCH NEEDS AT THE MARGIN IT DRAWS (FIELD-FILL), so that Coverage 1 under
+    /// W = 1 is a solid deck. A patch's bodies are a Boolean model: at a unit fill they cover 1 - e^-1 of it
+    /// whatever survives the slider, so a slider that only THINNED them topped out at 0.69 of the sky for a
+    /// stratus deck. The patch draws kCloudBodyRankDepth times that fill and the slider keeps the share
+    /// CloudBodyRankThreshold says, so the kept bodies' intensity is -ln(1 - Coverage (1 - e^-K)) fills: the
+    /// slider at the margin (Coverage) and the sky at one. EIGHT, MEASURED: a stratus deck's bodies cover the
+    /// sky at about three quarters of a unit body's efficiency (their profile taper and the eroding share), so
+    /// at five the deck at Coverage 1 was 0.976 of the sky; at eight it is 1 - e^-(8 * 0.75) past 0.99.
+    inline constexpr float kCloudBodyRankDepth = 8.0f;
+
+    /// The share of a patch's drawn bodies the slider keeps at @p coverage: -ln(1 - c (1 - e^-K)) / K.
+    inline float CloudBodyRankThreshold( float coverage )
+    {
+        const float c    = coverage < 0.0f ? 0.0f : ( coverage > 1.0f ? 1.0f : coverage );
+        const float full = 1.0f - std::exp( -kCloudBodyRankDepth );
+        return -std::log( 1.0f - c * full ) / kCloudBodyRankDepth;
+    }
+
+    /// A BODY'S REACH past the slider (CloudProceduralClusterReach) from its uniform @p rank: kept when the
+    /// rank is under CloudBodyRankThreshold, and the kept ranks spread over [0, Coverage) so the same share
+    /// of the kept bodies erodes towards its core at every Coverage as when the slider thinned one fill.
+    inline float CloudProceduralBodyReach( const CloudProceduralFieldParams& params, float rank )
+    {
+        const float threshold = CloudBodyRankThreshold( params.Coverage );
+        if ( rank >= threshold || threshold <= 0.0f )
+            return 0.0f;
+        const float coverage = params.Coverage < 1.0f ? params.Coverage : 1.0f;
+        return CloudProceduralClusterReach( coverage * rank / threshold, coverage,
+                                            CloudProceduralRankSoftness( params ) );
+    }
+
     /// NUBIS'S COVERAGE REMAP, ValueRemap(profile, 1 - reach, 1, 0, 1) * reach = max(0, profile - (1 - reach))
     /// (Schneider, "Nubis" 2017: `remap(base, 1 - coverage, 1, 0, 1) * coverage`) — the one remap both halves
     /// make: the bake on each cluster's own profile with its CloudProceduralClusterReach, the march on the
@@ -944,7 +975,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001bULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001cULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
