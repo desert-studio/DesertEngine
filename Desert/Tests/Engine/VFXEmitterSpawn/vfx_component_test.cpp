@@ -130,8 +130,8 @@ TEST( VFXComponent, TheSystemIsStoredByGuidAndComesBackThroughIt )
 
     ECS::VFXData         read;
     Common::Json::Issues issues;
-    R::DeserializeReflected( *type, &read, Common::Json::Root( Common::Json::Value( parsed.GetValue() ) ), issues,
-                             &resolver );
+    const Common::Json::Value root( parsed.GetValue() );
+    R::DeserializeReflected( *type, &read, Common::Json::Root( root ), issues, &resolver );
     for ( const auto& issue : issues )
         ADD_FAILURE() << Common::Json::Describe( issue );
     EXPECT_EQ( static_cast<std::uint64_t>( read.System ), kSystemHandle ) << text;

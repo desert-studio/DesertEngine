@@ -144,8 +144,7 @@ namespace
         if ( spirv.IsSuccess() )
             return {};
         const auto source = VFX::SimulationComputeSource( compiled );
-        return std::format( "{}
-{}", spirv.GetError(), source.IsSuccess() ? source.GetValue() : source.GetError() );
+        return std::format( "{}\n{}", spirv.GetError(), source.IsSuccess() ? source.GetValue() : source.GetError() );
     }
 
     std::string Refusal( const S::VFXSystemData& system )

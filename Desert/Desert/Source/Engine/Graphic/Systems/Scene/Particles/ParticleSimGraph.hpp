@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <cstdint>
 #include <memory>

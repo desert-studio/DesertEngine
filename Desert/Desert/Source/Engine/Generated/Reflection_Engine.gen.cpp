@@ -386,6 +386,14 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
+        using T = ::Desert::ECS::VFXData;
+        TypeBuilder( "VFXData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "System", .Type = FieldType::AssetHandle, .Offset = offsetof( T, System ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::System )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "System", .Category = "VFX", .IsAsset = true, .AssetType = "VFXSystemAsset", } } )
+                    .Field( FieldInfo{ .Name = "AutoActivate", .Type = FieldType::Bool, .Offset = offsetof( T, AutoActivate ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoActivate )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Auto Activate", .Category = "VFX", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::ECS::SkyboxComponent;
         TypeBuilder( "SkyboxComponent", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "SkyboxHandle", .Type = FieldType::AssetHandle, .Offset = offsetof( T, SkyboxHandle ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SkyboxHandle )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Skybox", .Category = "Skybox", .IsAsset = true, .AssetType = "SkyboxAsset", .Hidden = true, } } )
