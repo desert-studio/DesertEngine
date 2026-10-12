@@ -30,6 +30,7 @@
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
@@ -3089,6 +3090,15 @@ namespace Desert::Migration
         return report;
     }
 
+    bool MigrateHLODLayersV47ToV48( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || scene.WorldPartition->HLODLayers.has_value() ||
+             scene.WorldPartition->DefaultHLODLayer.has_value() )
+            return false;
+        Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
+        return true;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -3159,6 +3169,13 @@ namespace Desert::Migration
                                  report.InstanceTransforms.UnknownNames.front();
                 return report; // unstamped, as every refusal
             }
+        }
+
+        // Scene-only: the WorldPartition block is a scene's (WP-FAR-7).
+        if ( statedSceneVersion < kSceneVersionHLODLayers )
+        {
+            report.HLODLayersRaised = true;
+            report.HLODLayerStated  = MigrateHLODLayersV47ToV48( scene );
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

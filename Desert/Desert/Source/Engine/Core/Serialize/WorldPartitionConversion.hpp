@@ -20,6 +20,8 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <optional>
+#include <string>
+#include <utility>
 #include <string_view>
 
 namespace Desert::Core::Rules
@@ -33,10 +35,27 @@ namespace Desert::Core::Rules
     /// EXACTLY ONE GRID, and not a copy of the numbers. The defaults live in the struct, which is the
     /// single place that states what a fresh grid is; restating 12800 here would be the second source
     /// of truth that makes a default change silently stop applying to new worlds.
+    /// The HLOD layer a world gets when nobody chose one (WP-FAR-7): one Instancing layer, and it is the
+    /// default - the HLOD every partitioned world had before layers existed, now stated rather than implied.
+    /// What a new world, WorldGen's worlds and the v43 scene migration all write, from this one place.
+    inline constexpr std::string_view kInstancingHLODLayerName = "Instancing";
+
+    inline void StateInstancingHLODLayer( WorldPartitionSerialized& partition )
+    {
+        HLODLayerSerialized layer;
+        layer.Name = std::string( kInstancingHLODLayerName );
+        layer.Type = HLODLayerType::Instancing;
+        if ( !partition.HLODLayers.has_value() )
+            partition.HLODLayers.emplace();
+        partition.HLODLayers->push_back( std::move( layer ) );
+        partition.DefaultHLODLayer = std::string( kInstancingHLODLayerName );
+    }
+
     [[nodiscard]] inline WorldPartitionSerialized DefaultWorldPartition()
     {
         WorldPartitionSerialized partition;
         partition.Grids.emplace_back();
+        StateInstancingHLODLayer( partition );
         return partition;
     }
 

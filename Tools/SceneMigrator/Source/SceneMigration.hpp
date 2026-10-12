@@ -234,7 +234,15 @@ namespace Desert::Migration
     inline constexpr const char* kParticleAdditiveMaterialPath =
          "engine:Engine/Materials/M_ParticleAdditive.demat";
 
-    static_assert( kSceneVersionParticleSpriteMaterial == kSceneVersion,
+    //  48 - A WORLD STATES ITS HLOD LAYERS (WP-FAR-7). WorldPartition gains HLODLayers (UE UHLODLayer: Name, Type
+    //       Instancing / MeshMerge / MeshSimplify, ParentLayer) and DefaultHLODLayer, the layer every cell's HLOD
+    //       is built with; absent = no HLOD. Every v47 partitioned world built an Instancing HLOD for every cell
+    //       with nothing stated, so it now STATES that layer as its default (MigrateHLODLayersV47ToV48, through
+    //       Rules::StateInstancingHLODLayer). A world that already states layers keeps them. Scenes only: a prefab
+    //       has no WorldPartition block.
+    inline constexpr int kSceneVersionHLODLayers = 48;
+
+    static_assert( kSceneVersionHLODLayers == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -468,6 +476,10 @@ namespace Desert::Migration
                                                               const std::string&               ownerName,
                                                               const std::filesystem::path&     assetsRoot );
 
+    // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
+    // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
+    bool MigrateHLODLayersV47ToV48( SceneSerialized& scene );
+
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
     {
@@ -682,6 +694,9 @@ namespace Desert::Migration
         bool ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
         ParticleSpriteMaterialsReport ParticleSpriteMaterials;
 
+        bool HLODLayersRaised = false; // below kSceneVersionHLODLayers
+        bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -693,7 +708,7 @@ namespace Desert::Migration
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
-                   ParticleSpriteMaterialsRaised;
+                   ParticleSpriteMaterialsRaised || HLODLayersRaised;
         }
     };
 

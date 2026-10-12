@@ -192,7 +192,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionTimeOfDayComponent, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionGameModeSettings, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionSoundAssets, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionParticleSpriteMaterial );
+    EXPECT_LT( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionHLODLayers );
 }
 
 namespace
