@@ -17,7 +17,6 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <Engine/Core/Scene.hpp>
 
@@ -194,7 +193,7 @@ namespace Desert::Graphic::System
             if ( !RunsCompact( ve, compact ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
-                 .Storage( "Slots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
+                 .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
                  .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageWrite )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
@@ -254,26 +253,13 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( ve, step ) )
                 continue;
+            ParticleSimPush push = ve.Frame->Push;
+            push.Counts.y        = step;
             RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-            if ( ve.Program != nullptr )
-            {
-                // A compiled stack: Time = (step length, the emitter's age at this step), Counts.y = the step.
-                VFXStackSimPush push = ve.Frame->StackPush;
-                push.Counts.y        = step;
-                push.Time.y += static_cast<float>( step ) * push.Time.x;
-                bindings.PushConstants( &push, sizeof( push ) );
-            }
-            else
-            {
-                ParticleSimPush push = ve.Frame->Push;
-                push.Counts.y        = step;
-                bindings.PushConstants( &push, sizeof( push ) );
-            }
-            // As many groups as the step's Dispatch Args wrote: max(alive, spawned) threads (both programs run
-            // LocalSize 64).
-            const ComputePipeline&      pipeline = ve.Program != nullptr ? *ve.Program->Pipeline : *m_SimPipeline;
-            const Common::BoolResultStr dispatched =
-                 Renderer::DispatchComputeIndirect( bindings, pipeline, ve.ArgsRef, kParticleSimulateArgsOffset );
+            bindings.PushConstants( &push, sizeof( push ) );
+            // As many groups as the step's Dispatch Args wrote: max(alive, spawned) threads.
+            const Common::BoolResultStr dispatched = Renderer::DispatchComputeIndirect(
+                 bindings, *m_SimPipeline, ve.ArgsRef, kParticleSimulateArgsOffset );
             if ( !dispatched )
                 return dispatched;
         }
@@ -284,82 +270,21 @@ namespace Desert::Graphic::System
     {
         if ( !m_SimPipeline )
             return; // Simulate dispatches nothing either
-        std::vector<ParticleSimEmitterRefs> running;
+        const auto& layout = m_SimLayout.Get( m_SimPipeline->GetSpecification().Shader );
         for ( const ViewEmitter& ve : m_ViewEmitters )
-            if ( RunsStep( ve, step ) ) // Simulate skips the others the same way
-                running.push_back( SimulateRefs( ve ) );
-        (void)DeclareParticleSimulateStep( pass, PoolRefs(), running );
-    }
-
-    ParticlePoolRefs ParticleRenderer::PoolRefs() const
-    {
-        return { m_Pool.ParticlesRef, m_Pool.SlotsRef, m_Pool.FloatsRef,
-                 m_Pool.IntsRef,      m_Pool.FreeRef,  m_Pool.AliveRef };
-    }
-
-    ParticleSimEmitterRefs ParticleRenderer::SimulateRefs( const ViewEmitter& ve ) const
-    {
-        ParticleSimEmitterRefs refs;
-        refs.Steps    = ve.StepsRef;
-        refs.Counters = ve.CountersRef;
-        refs.Args     = ve.ArgsRef;
-        refs.Channel  = ve.ChannelRef;
-        refs.Params   = ve.ParamsRef;
-        refs.Curves   = ve.CurvesRef;
-        refs.Stack    = ve.Program != nullptr;
-        if ( ve.Program != nullptr )
         {
-            refs.Layout    = ve.Program->Layout.Get( ve.Program->Pipeline->GetSpecification().Shader );
-            refs.Fill      = Renderer::GetPipelineRouteFill( *ve.Program->Pipeline );
-            refs.PushBytes = static_cast<uint32_t>( sizeof( VFXStackSimPush ) );
+            if ( !RunsStep( ve, step ) )
+                continue; // Simulate skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_SimPipeline ) )
+                 .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
+                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
+                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
+                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
+                 .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
+            pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
-        else
-        {
-            refs.Layout    = m_SimLayout.Get( m_SimPipeline->GetSpecification().Shader );
-            refs.Fill      = Renderer::GetPipelineRouteFill( *m_SimPipeline );
-            refs.PushBytes = static_cast<uint32_t>( sizeof( ParticleSimPush ) );
-        }
-        return refs;
-    }
-
-    const ParticleRenderer::StackProgram* ParticleRenderer::StackProgramFor( const VFX::VFXCompiledEmitter& stack )
-    {
-        const auto [found, inserted] = m_StackPrograms.try_emplace( stack.Key );
-        if ( !inserted )
-            return found->second.get(); // null = refused before (said once, below)
-        auto service = Runtime::ResourceRegistry::GetShaderService();
-        if ( !service )
-        {
-            LOG_ERROR( "[Particles] the emitters playing stack {} sit out: no shader service", stack.ShaderName );
-            return nullptr;
-        }
-        const std::shared_ptr<Shader> shader = service->AcquireSimulationProgram( stack );
-        if ( !shader )
-        {
-            LOG_ERROR( "[Particles] the emitters playing stack {} sit out: its simulation program did not compose",
-                       stack.ShaderName );
-            return nullptr;
-        }
-        const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = stack.ShaderName } );
-        if ( !made )
-        {
-            LOG_ERROR( "[Particles] the emitters playing stack {} sit out: {}", stack.ShaderName,
-                       made.GetError() );
-            return nullptr;
-        }
-        found->second           = std::make_unique<StackProgram>();
-        found->second->Pipeline = made.GetValue();
-        // The sprite renderer's bindings to this layout; an attribute it lacks draws with the renderer default,
-        // said here, once per stack.
-        found->second->Sprite = ResolveParticleSpriteBindings( stack.Layout );
-        for ( const std::string& unbound : found->second->Sprite.Unbound )
-            LOG_WARN( "[Particles] stack {} draws its sprites with the renderer default for {}", stack.ShaderName,
-                      unbound );
-        LOG_ERROR(
-             "[Particles] stack {} simulates, its sprites are not drawn: the sprite vertex path reads the legacy "
-             "particle records, not the stack's layout (IsDrawn)",
-             stack.ShaderName );
-        return found->second.get();
     }
 
     void ParticleRenderer::ImportFrameBuffers( RDG::Builder& graph )
@@ -375,7 +300,6 @@ namespace Desert::Graphic::System
         const ParticlePoolBuffers& pool = m_World->Pool();
         for ( const auto& [buffer, import, name] :
               { std::tuple{ &pool.Particles, &m_Pool.ParticlesImport, "ParticlePool" },
-                std::tuple{ &pool.Slots, &m_Pool.SlotsImport, "ParticleSlots" },
                 std::tuple{ &pool.FreeList, &m_Pool.FreeImport, "ParticleFreeList" },
                 std::tuple{ &pool.AliveList, &m_Pool.AliveImport, "ParticleAliveList" } } )
         {
@@ -388,41 +312,13 @@ namespace Desert::Graphic::System
             }
         }
         m_Pool.ParticlesRef = graph.RegisterExternal( m_Pool.ParticlesImport, "ParticlePool" );
-        m_Pool.SlotsRef     = graph.RegisterExternal( m_Pool.SlotsImport, "ParticleSlots" );
         m_Pool.FreeRef      = graph.RegisterExternal( m_Pool.FreeImport, "ParticleFreeList" );
         m_Pool.AliveRef     = graph.RegisterExternal( m_Pool.AliveImport, "ParticleAliveList" );
-        m_Pool.FloatsRef    = {};
-        m_Pool.IntsRef      = {};
-        // The compiled stacks' SoA components exist once a stack has played in this scene.
-        bool attributes = false;
-        if ( pool.Floats && pool.Ints )
-        {
-            const Common::BoolResultStr floats = Renderer::ImportBuffer( pool.Floats, m_Pool.FloatsImport );
-            const Common::BoolResultStr ints   = Renderer::ImportBuffer( pool.Ints, m_Pool.IntsImport );
-            if ( floats && ints )
-            {
-                m_Pool.FloatsRef = graph.RegisterExternal( m_Pool.FloatsImport, "ParticleFloats" );
-                m_Pool.IntsRef   = graph.RegisterExternal( m_Pool.IntsImport, "ParticleInts" );
-                attributes       = true;
-            }
-            else
-                LOG_ERROR( "[Particles] the compiled stacks sit out this frame, the pool's components are not in "
-                           "the frame graph: {}",
-                           !floats ? floats.GetError() : ints.GetError() );
-        }
-        m_Pool.Declared = true;
+        m_Pool.Declared     = true;
 
         for ( size_t i = 0; i < m_ViewEmitters.size(); ++i )
         {
-            ViewEmitter& ve = m_ViewEmitters[i];
-            ve.Program      = nullptr;
-            if ( ve.Frame->Stack )
-            {
-                // Its own program (by stack key) over the pool's Floats / Ints and its Params / Curves.
-                ve.Program = StackProgramFor( *ve.Frame->Stack );
-                if ( ve.Program == nullptr || !attributes )
-                    continue; // said once per stack key (StackProgramFor) / once this frame (above)
-            }
+            ViewEmitter&                ve       = m_ViewEmitters[i];
             const ParticleEmitterGpu&   gpu      = *ve.Frame->Gpu;
             const Common::BoolResultStr counters = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
             if ( !counters )
@@ -437,36 +333,16 @@ namespace Desert::Graphic::System
             {
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
-                // The legacy program reads its Spawn from Channel particles; a compiled stack its parameter rows
-                // and curve atlas.
-                const bool            stack  = ve.Program != nullptr;
-                Common::BoolResultStr extra  = BOOLSUCCESS;
-                Common::BoolResultStr curves = BOOLSUCCESS;
-                if ( stack )
+                const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
+                if ( !steps || !args || !chan )
                 {
-                    extra  = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
-                    curves = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
-                }
-                else
-                    extra = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
-                if ( !steps || !args || !extra || !curves )
-                {
-                    LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table, dispatch arguments, "
-                               "channel spawns or parameter rows / curves are not in the frame graph: {}",
-                               i,
-                               !steps ? steps.GetError()
-                                      : ( !args ? args.GetError()
-                                                : ( !extra ? extra.GetError() : curves.GetError() ) ) );
+                    LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table, dispatch arguments or "
+                               "channel spawns are not in the frame graph: {}",
+                               i, !steps ? steps.GetError() : ( !args ? args.GetError() : chan.GetError() ) );
                     continue;
                 }
-                if ( stack )
-                {
-                    ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "ParticleParams{}", i ) );
-                    ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "ParticleCurves{}", i ) );
-                }
-                else
-                    ve.ChannelRef =
-                         graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
+                ve.ChannelRef =
+                     graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
                 ve.StepsRef = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
                 ve.ArgsRef  = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
             }
@@ -540,10 +416,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        // A compiled stack's particles live in the pool's SoA components (ve.Program->Sprite says where); the
-        // sprite cell reads the legacy AoS Particles, so a stack emitter is simulated but not drawn until the
-        // vertex path reads the bindings (REMAINDER-VFX-03g).
-        return ve.Declared && ve.Sprite != nullptr && ve.Program == nullptr;
+        return ve.Declared && ve.Sprite != nullptr;
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )

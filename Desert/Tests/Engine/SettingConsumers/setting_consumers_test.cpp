@@ -649,12 +649,6 @@ namespace
          { "Material", kParticles },
     };
 
-    // VFX-03b: the VFXWorld plans the played system's emitters (System) and plans none when not activated.
-    constexpr Row kVFXRows[] = {
-         { "System", kVFXWorld },
-         { "AutoActivate", kVFXWorld },
-    };
-
     // All three reach the frame the same way: SkyboxECSSystem packs them into a Graphic::SkyLook on the
     // SkyboxCommand, and every reader of the environment cubes applies it where it samples them. Naming the
     // COLLECTOR is right for all three — it is the file that would have to change for a knob to stop being read.
@@ -1202,7 +1196,6 @@ namespace
          { "PointLightData", "PointLightComponent", nullptr, CENSUS_ROWS( kPointLightRows ) },
          { "SpotLightData", "SpotLightComponent", nullptr, CENSUS_ROWS( kSpotLightRows ) },
          { "ParticleEmitterData", "ParticleEmitterComponent", nullptr, CENSUS_ROWS( kParticleRows ) },
-         { "VFXData", "VFXComponent", nullptr, CENSUS_ROWS( kVFXRows ) },
          // The one component whose reflected type IS the component: there is no `Data` member to hop
          // through, so it anchors on its own name.
          { "SkyboxComponent", nullptr, nullptr, CENSUS_ROWS( kSkyboxRows ) },
@@ -1463,8 +1456,7 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 66 with WATER-W6's WaterZoneData (kWaterZoneRows: every field read by WaterZoneECSSystem.hpp).
     // -> 67 with UI-SWITCHER's UITabsData (kTabsRows: PushHistory read by RequestScreen in UIWalkCtx.cpp).
     // -> 69 with UI-LIST+'s UITileViewData and UITreeViewData (kTileViewRows, kTreeViewRows).
-    // -> 70 with VFX-03b's VFXData (kVFXRows: both fields read by VFXWorld.cpp).
-    EXPECT_EQ( all.size(), 70u );
+    EXPECT_EQ( all.size(), 69u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
