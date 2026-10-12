@@ -758,6 +758,7 @@ TEST( CloudPlacementSpectrum, TheAnvilShrinksWithTheClusterItCaps )
         shape.AnvilAltitudeKm                  = 9.5f;
         shape.AnvilThicknessKm                 = 1.8f;
         shape.AnvilStrength                    = 0.85f;
+        shape.BodyDiameterKm                   = 6.0f; // the shipped cumulonimbus' storm, FIELD-GRAIN
 
         params.LayerBottomKm     = 0.9f;
         params.LayerThicknessKm  = 10.4f;
@@ -826,6 +827,7 @@ TEST( CloudPlacementSpectrum, TheAnvilIsDrawnOutDownwindWithTheTowerItCaps )
     shape.AnvilAltitudeKm                  = 9.5f;
     shape.AnvilThicknessKm                 = 1.8f;
     shape.AnvilStrength                    = 0.85f;
+    shape.BodyDiameterKm                   = 6.0f; // the shipped cumulonimbus' storm, FIELD-GRAIN
 
     params.LayerBottomKm     = 0.9f;
     params.LayerThicknessKm  = 10.4f;
@@ -912,6 +914,7 @@ namespace
         shape.AnvilAltitudeKm                  = 9.5f;
         shape.AnvilThicknessKm                 = 1.8f;
         shape.AnvilStrength                    = 0.85f;
+        shape.BodyDiameterKm                   = 6.0f; // the shipped cumulonimbus' storm, FIELD-GRAIN
 
         params.LayerBottomKm     = 0.9f;
         params.LayerThicknessKm  = 10.4f;
@@ -1765,8 +1768,10 @@ TEST( CloudPlacementSpectrum, ASpanReachesOverAGapAndAChordStopsAtIt )
 }
 
 // THE RELATION, AND IT IS THE ONE §2.3.1 ASKS FOR: the two chords are set by two DIFFERENT numbers, and a
-// change to one must move one of them and not the other. The horizontal chord follows the placement cell —
-// the cluster's radius is a fraction of it — and the vertical chord follows the type's own band. Sizing the
+// change to one must move one of them and not the other. The horizontal chord follows the type's Body
+// Diameter — the cluster's radius is a draw around it (FIELD-GRAIN; it was a fraction of the placement cell
+// until a cell became a PATCH of bodies, and halving the cell since only moves how many bodies merge) — and
+// the vertical chord follows the type's own band. Sizing the
 // cluster off the band, or the stack off the cell, would tie them together and this test is what would say
 // so.
 //
@@ -1851,19 +1856,20 @@ TEST( CloudPlacementSpectrum, TheBodysWidthFollowsTheCellAndItsHeightFollowsTheB
     // HALVE THE CELL AND THE BODY NARROWS; THE BAND IS UNTOUCHED AND SO IS THE HEIGHT. Anything else means
     // the two have been tied to one number.
     CloudProceduralFieldParams narrow = ShippedParams();
-    narrow.Species[0].CellKm *= 0.5f;
+    narrow.Species[0].Shape.BodyDiameterKm *= 0.5f;
 
     double narrowWide = 0.0;
     double narrowTall = 0.0;
     double narrowSpan = 0.0;
     measure( narrow, narrowWide, narrowTall, narrowSpan );
 
-    std::printf( "[CloudPlacementSpectrum] at half the cell: chord %.3f km across, %.3f km up, span %.3f km\n",
-                 narrowWide, narrowTall, narrowSpan );
+    std::printf(
+         "[CloudPlacementSpectrum] at half the body diameter: chord %.3f km across, %.3f km up, span %.3f km\n",
+         narrowWide, narrowTall, narrowSpan );
 
     EXPECT_LT( narrowWide, shippedWide * 0.90 )
-         << "halving the placement cell left the bodies as wide as before, so the cluster's width no "
-            "longer follows the cell it is placed in";
+         << "halving the Body Diameter left the bodies as wide as before, so the cluster's width no "
+            "longer follows the type's Body Diameter";
 
     // AND THE LUMP NARROWS WITH IT ON BOTH AXES, WHICH IS §SIL'S DECISION STATED ON THE BAKE. §RW2's
     // version of this test demanded the opposite — that halving the cell leave the vertical chord alone —
@@ -1872,11 +1878,11 @@ TEST( CloudPlacementSpectrum, TheBodysWidthFollowsTheCellAndItsHeightFollowsTheB
     // at 2.1 to 2.5 to one, and a lump with ONE size cannot satisfy the old assertion. What must still
     // hold, and does, is the relation one level up: the BODY's height is the type's band.
     EXPECT_LT( narrowTall, shippedTall * 0.90 )
-         << "halving the placement cell left the LUMPS as tall as before, so a lump's two radii have been "
+         << "halving the Body Diameter left the LUMPS as tall as before, so a lump's two radii have been "
             "untied from one another again — the defect §SIL exists to remove";
     EXPECT_NEAR( narrowSpan, shippedSpan, shippedSpan * 0.25 )
-         << "halving the placement cell changed how tall the BODY stands, so the stack has been tied to "
-            "the cell instead of to the type's own band";
+         << "halving the Body Diameter changed how tall the BODY stands, so the stack has been tied to "
+            "the body's width instead of to the type's own band";
 }
 
 // A LUMP HAS ONE SIZE — the decision §SIL records, asserted on the lumps the generator emits rather than on

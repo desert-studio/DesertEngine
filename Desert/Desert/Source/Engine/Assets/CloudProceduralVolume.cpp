@@ -512,17 +512,39 @@ namespace Desert::Assets
         constexpr float kLobeRimNear = 0.45f;
         constexpr float kLobeRimFar  = 0.95f;
 
+        /// A LUMP'S HORIZONTAL RADII, FLOORED IN AREA AND NOT PER AXIS: @p alongKm and @p acrossKm are already
+        /// drawn out by the lattice, and when the radius of the circle of their area is under @p floorKm both
+        /// grow by the same factor until it is not. The floor is what keeps a lump findable in the volume, and
+        /// what the volume resolves is an AREA of voxels; flooring each axis on its own instead (which stood
+        /// at every lump) rounded a small lump of a stretched lattice off — the tower's lumps came out 2.80
+        /// times long at anisotropy 4 under a canopy 4.44 times long, a band with a round lid — and inflated
+        /// its area by the stretch, so a cirrus' sky outgrew its slider as the anisotropy rose.
+        glm::vec3 CloudStretchedRadiiKm( float alongKm, float verticalKm, float acrossKm, float floorKm )
+        {
+            const float meanKm = std::sqrt( std::max( alongKm * acrossKm, 1e-12f ) );
+            const float grow   = std::max( 1.0f, floorKm / meanKm );
+            return glm::vec3( alongKm * grow, verticalKm, acrossKm * grow );
+        }
+
         /// IS A BODY OF THIS SIZE A LOBE OF A LARGER ONE RATHER THAN A CLOUD OF ITS OWN (FIELD-GRAIN-c)?
         ///
         /// THE HIERARCHY OF A CUMULUS FIELD: the small members of the size law are not scattered over the
         /// clear sky as independent cells, they are the young turrets and the decaying fragments on the
         /// flanks of the large ones (Nubis builds a cloud as a large shape eroded and lobed at its edge; a
         /// field of independent smooth bodies drawn from Plank's law is a swarm of peas, which is what the
-        /// Demo showed). A body under the type's mean is a lobe with probability `variety`: at zero every body
-        /// is the mean size and its own cloud, exactly as before; at one every sub-mean body hangs on a massif.
-        bool CloudBodyIsLobe( float variety, float size, float unit )
+        /// Demo showed). A body is a lobe with probability `variety (1 - e^-1)`: at zero every body is the mean
+        /// size and its own cloud, exactly as before; at one as many bodies hang on a massif as there are
+        /// sub-mean ones in the law (1 - e^-1 of them).
+        ///
+        /// WHATEVER ITS SIZE, and that is the size law's promise kept. Taking the lobes from the SMALL bodies
+        /// only (FIELD-GRAIN-c's first form) emptied the small end of the clouds that stay clouds: the median
+        /// cloud of the shipped sky grew past the median of a sky with no spread at all, so the law no longer
+        /// had many small clouds (CloudPlacementSpectrum's size-law test). A share drawn independently of size
+        /// thins the law without bending it, and a lobe is still never larger than its massif — the patch
+        /// is placed largest first and a lobe takes a massif already placed.
+        bool CloudBodyIsLobe( float variety, float unit )
         {
-            return size < 1.0f && unit < std::clamp( variety, 0.0f, 1.0f );
+            return unit < std::clamp( variety, 0.0f, 1.0f ) * ( 1.0f - 0.36787944f );
         }
     } // namespace
 
@@ -1218,10 +1240,17 @@ namespace Desert::Assets
         //
         // ABOVE THE MARCH'S FLOOR, still: the floor is what keeps a cluster findable by the ray, and a
         // compensation that pushed a body under it would trade a lying slider for speckle.
+        //
+        // SINCE FIELD-GRAIN THE CLUSTER IS A BODY AND NOT THE PATCH, so the canopy's price is paid where the
+        // canopy is drawn: every BODY is the type's size over the gain (bodyMeanKm below), the canopy over it
+        // is therefore the bare tower's footprint whatever the strength, and the patch's disc and its body
+        // count stay the bare type's — so a storm's sky is the sky the same type without a canopy makes.
+        // Dividing the patch's disc instead (which is what this line did after FIELD-GRAIN) left every body
+        // and its canopy full size, and the canopy added 0.08 of the sky.
         const float cellMeanKm    = std::sqrt( extent.x * extent.y );
         const float footprintGain = CloudClusterFootprintGain( shape );
         const float baseRadiusKm =
-             std::max( kClusterFootprintCells * cellMeanKm / footprintGain, 0.5f * params.ResolvableChordKm );
+             std::max( kClusterFootprintCells * cellMeanKm, 0.5f * params.ResolvableChordKm );
 
         // AND THE STRETCH THE CELL NO LONGER SPENDS ON ITS AREA IS SPENT ON THE CLUSTER'S SHAPE. A cluster
         // is drawn out along the wind by the same factor its cell is, so a cluster covers the same fraction
@@ -1251,8 +1280,9 @@ namespace Desert::Assets
         // it is two of the volume's lump floors: a body narrower than that is lumps the floor has already
         // widened. Floored before the shrink, a dense patch of a small type still came out below it.
         const float densityShrinkSq = std::max( params.PlacementDensity, 1e-3f );
-        const float bodyMeanKm      = std::max( shape.BodyDiameterKm / std::sqrt( densityShrinkSq ),
+        const float bareBodyMeanKm  = std::max( shape.BodyDiameterKm / std::sqrt( densityShrinkSq ),
                                                 2.0f * CloudProceduralLumpFloorKm( params ) );
+        const float bodyMeanKm      = bareBodyMeanKm / footprintGain;
 
         const float scatter = std::max( params.PlacementScatter, 0.0f );
         const float variety = std::clamp( params.PlacementSizeVariety, 0.0f, 1.0f );
@@ -1318,10 +1348,14 @@ namespace Desert::Assets
                 // come many to a cell and its large ones few, at the same cover. The density multiplies the
                 // count and shrinks each body by its square root, so it redistributes matter instead of
                 // adding it — for bodies placed independently the cover depends on the summed area alone.
+                //
+                // COUNTED ON THE BARE BODY, because a storm's body is shrunk by its canopy's gain and the canopy
+                // over it is what covers the sky; and DRAWN kCloudBodyRankDepth DEEP, the slider keeping the
+                // share CloudBodyRankThreshold says (FIELD-FILL), so Coverage 1 under W = 1 fills the sky.
                 const float meanBodyRadiusSqKm =
-                     0.25f * bodyMeanKm * bodyMeanKm * CloudBodyDiameterMeanSquare( variety );
-                const float meanBodies =
-                     kBodyFillOfPatch * baseRadiusKm * baseRadiusKm / std::max( meanBodyRadiusSqKm, 1e-6f );
+                     0.25f * bareBodyMeanKm * bareBodyMeanKm * CloudBodyDiameterMeanSquare( variety );
+                const float meanBodies = kCloudBodyRankDepth * kBodyFillOfPatch * baseRadiusKm * baseRadiusKm /
+                                         std::max( meanBodyRadiusSqKm, 1e-6f );
                 const uint32_t bodies = CloudBodyCount( cellSeed, meanBodies );
 
                 // THE PATCH IS DRAWN BEFORE IT IS EMITTED, BECAUSE A SMALL BODY IS PLACED BY A LARGE ONE
@@ -1351,11 +1385,16 @@ namespace Desert::Assets
                     body.RadiusKm        = 0.5f * bodyMeanKm * body.Size;
 
                     if ( massifs.empty() ||
-                         !CloudBodyIsLobe( variety, body.Size, HashUnit( HashCombine( body.Seed, 0x6u ) ) ) )
+                         !CloudBodyIsLobe( variety, HashUnit( HashCombine( body.Seed, 0x6u ) ) ) )
                     {
                         // A MASSIF: uniform over the patch's disc, drawn out along the wind by the cell's own
                         // stretch, so the patch covers the same fraction of its cell at every anisotropy.
-                        const float discR = baseRadiusKm * std::sqrt( HashUnit( HashCombine( body.Seed, 0x1u ) ) );
+                        //
+                        // SCATTERED BY THE SCATTER, like the patch's site: PlacementScatter is how far a cluster
+                        // may wander from its lattice site, so at zero every massif stands on it and the lattice
+                        // the confinement makes is the lattice of the clusters, not of their patches' centroids.
+                        const float discR = baseRadiusKm * std::min( scatter, 1.0f ) *
+                                            std::sqrt( HashUnit( HashCombine( body.Seed, 0x1u ) ) );
                         const float discAngle = HashUnit( HashCombine( body.Seed, 0x2u ) ) * 6.2831853f;
                         body.CentreKm         = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
                                         across * ( std::sin( discAngle ) * discR / stretch );
@@ -1394,8 +1433,7 @@ namespace Desert::Assets
                     // ITS RANK AGAINST THE SLIDER — its own for a massif, its massif's for a lobe.
                     const float bodyRank = body.Rank;
                     if ( set == CloudProceduralLumpSet::KeptCells &&
-                         CloudProceduralClusterReach( bodyRank, params.Coverage,
-                                                      CloudProceduralRankSoftness( params ) ) <= 0.0f )
+                         CloudProceduralBodyReach( params, bodyRank ) <= 0.0f )
                         continue;
 
                     // WHERE THE BODY STANDS, and the cluster it belongs to: its massif's site.
@@ -1607,9 +1645,9 @@ namespace Desert::Assets
                         // read off the emitted lumps.
                         const float floorKm = lumpFloorKm;
 
-                        blob.RadiiKm = glm::vec3( std::max( radius * lumpWobbleAlong[step] * stretch, floorKm ),
-                                                  lumpVerticalKm[step],
-                                                  std::max( radius * lumpWobbleAcross[step] / stretch, floorKm ) );
+                        blob.RadiiKm =
+                             CloudStretchedRadiiKm( radius * lumpWobbleAlong[step] * stretch, lumpVerticalKm[step],
+                                                    radius * lumpWobbleAcross[step] / stretch, floorKm );
 
                         blob.RotationDeg  = glm::vec3( 0.0f, yawDeg, 0.0f );
                         blob.Weight       = 1.0f;
@@ -1676,10 +1714,10 @@ namespace Desert::Assets
                         const float offsetAlong  = std::cos( angle ) * reach * stretch;
                         const float offsetAcross = std::sin( angle ) * reach / stretch;
 
-                        const glm::vec3 turretRadii( std::max( turretRadiusKm * wobble * stretch, lumpFloorKm ),
-                                                     turretVerticalKm,
-                                                     std::max( turretRadiusKm * wobble / stretch, lumpFloorKm ) );
-                        const float     turretY =
+                        const glm::vec3 turretRadii =
+                             CloudStretchedRadiiKm( turretRadiusKm * wobble * stretch, turretVerticalKm,
+                                                    turretRadiusKm * wobble / stretch, lumpFloorKm );
+                        const float turretY =
                              crownCentreKm.y + capHeight( crownRadiiKm, offsetAlong, offsetAcross );
                         const glm::vec3 turretCentre =
                              worldOf( crownCentreKm, offsetAlong, offsetAcross, turretY );
@@ -1710,9 +1748,8 @@ namespace Desert::Assets
                             const float bAcross      = std::sin( billowAngle ) * out / stretch;
                             pushLump(
                                  worldOf( turretCentre, bAlong, bAcross, turretY + rise ),
-                                 glm::vec3( std::max( billowRadiusKm * billowWobble * stretch, lumpFloorKm ),
-                                            billowVerticalKm,
-                                            std::max( billowRadiusKm * billowWobble / stretch, lumpFloorKm ) ) );
+                                 CloudStretchedRadiiKm( billowRadiusKm * billowWobble * stretch, billowVerticalKm,
+                                                        billowRadiusKm * billowWobble / stretch, lumpFloorKm ) );
                         }
                     }
 
@@ -1750,10 +1787,9 @@ namespace Desert::Assets
                         // THE CANOPY IS DRAWN OUT WITH THE CLUSTER IT CAPS, by the same `stretch`. A storm in
                         // an anisotropic lattice whose tower was a band and whose anvil was a circle would be
                         // two bodies, and the anvil's own thickness is the one radius it authors itself.
-                        anvil.RadiiKm =
-                             glm::vec3( std::max( spread * stretch, lumpFloorKm ),
-                                        std::max( shape.AnvilThicknessKm, marchFloorKm ),
-                                        std::max( spread * kAnvilAcrossOverAlong / stretch, lumpFloorKm ) );
+                        anvil.RadiiKm = CloudStretchedRadiiKm(
+                             spread * stretch, std::max( shape.AnvilThicknessKm, marchFloorKm ),
+                             spread * kAnvilAcrossOverAlong / stretch, lumpFloorKm );
 
                         anvil.RotationDeg = glm::vec3( 0.0f, yawDeg, 0.0f );
                         anvil.Weight      = 1.0f;
@@ -1986,7 +2022,6 @@ namespace Desert::Assets
         // EVERY LUMP IT IS HANDED, where the bake asks the bin — the set differs, the voxel does not. A
         // cluster is its exact site (the lattice site plus its scatter, shared by its lumps), as the bake's
         // clusterOf decides; a caller that hands wrapped copies shifts their ClusterKm with them.
-        const float       softness = CloudProceduralRankSoftness( params );
         CloudClusterSites sites;
         CloudClusterBodyDepths( params, lumps, sites );
 
@@ -2001,7 +2036,7 @@ namespace Desert::Assets
             candidates.push_back( CloudClusterCandidate{
                  CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ) +
                       CloudProceduralShapeReachKm( lump.Blob ) * shape,
-                 lump.Blob.Weight, cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ),
+                 lump.Blob.Weight, cluster, CloudProceduralBodyReach( params, lump.Rank ),
                  sites.InvDepths[cluster] } );
         }
 
@@ -2167,8 +2202,7 @@ namespace Desert::Assets
 
             for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
             {
-                const std::vector<CloudProceduralLump> blobs    = lumpsOf( slot );
-                const float                            softness = CloudProceduralRankSoftness( params );
+                const std::vector<CloudProceduralLump> blobs = lumpsOf( slot );
 
                 if ( blobs.empty() )
                 {
@@ -2220,10 +2254,10 @@ namespace Desert::Assets
 
                 for ( const CloudProceduralLump& lump : blobs )
                 {
-                    const CloudModellingBlob& blob = lump.Blob;
-                    const float    reach    = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
-                    const uint32_t site     = depthSites.Of( lump.ClusterKm );
-                    const float    invDepth = depthSites.InvDepths[site];
+                    const CloudModellingBlob& blob     = lump.Blob;
+                    const float               reach    = CloudProceduralBodyReach( params, lump.Rank );
+                    const uint32_t            site     = depthSites.Of( lump.ClusterKm );
+                    const float               invDepth = depthSites.InvDepths[site];
                     // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
                     // reaches that much past its own ellipsoid (SHAPE-NOISE).
                     const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
