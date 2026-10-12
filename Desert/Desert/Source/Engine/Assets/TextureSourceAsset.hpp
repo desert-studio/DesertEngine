@@ -157,8 +157,8 @@ namespace Desert::Assets
 
     // The one sentence every refusal of a legacy sidecar ends with: what it is and what replaces it.
     inline constexpr std::string_view kLegacyTextureIntentSidecarRefusal =
-         "a pre-asset JSON intent sidecar ({\"Intent\": ...}), which this build does not read; delete it, "
-         "import the image beside it, and set Intent in the texture asset's Details";
+         "a pre-asset JSON intent sidecar (an object with one Intent key), which this build does not read; "
+         "delete it, import the image beside it, and set Intent in the texture asset's Details";
 
     // ── THE DERIVED DATA KEY ─────────────────────────────────────────────────────────────────────────
     // UE: TEXTURE_DERIVEDDATA_VER (TextureDerivedData.cpp:68). Change it whenever the platform data the

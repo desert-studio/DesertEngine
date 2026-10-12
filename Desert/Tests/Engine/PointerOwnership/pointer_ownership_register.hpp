@@ -1039,6 +1039,9 @@ namespace Desert::Tests::PointerCensus
         // one is a fact about the editor's own construction order, and a panel's lifetime is tangled
         // with the six renderer slots (a preview must be DESTROYED to give its slot back).
         // ------------------------------------------------------------------------------------------
+        { "Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
+          "MeshPlacement", "Source", Guard::CallScoped,
+          "a function-local struct of ProcessScene(const aiScene* scene, ...): the node a mesh placement came from, pointing into scene->mRootNode's tree, which the caller's Assimp::Importer owns and keeps alive across the whole ProcessScene call; the placements vector is a local of that call and is gone before the importer is (IMPORT-RIG-SCALE reads it for the rigid part's bone)" },
         { "Editor/Source/Editor/Import/TextureImporter.cpp",
           "ExrMemoryStream", "Bytes", Guard::CallScoped,
           "an argument pack built inside DecodeExr(const std::string& bytes) as ExrMemoryStream{ &bytes, {} } and handed to OpenEXRCore as the context userdata; the context is started and destroyed inside that same call, so the read callbacks run only while the caller's source string is alive" },

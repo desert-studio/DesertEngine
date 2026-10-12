@@ -713,8 +713,7 @@ namespace Desert::Migration
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
-                   ParticleSpriteMaterialsRaised ||
-                   ShadowBiasCentimetresRaised;
+                   ParticleSpriteMaterialsRaised || ShadowBiasCentimetresRaised;
         }
     };
 

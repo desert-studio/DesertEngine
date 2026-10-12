@@ -724,6 +724,8 @@ namespace Desert::Core
         // so a level with no foliage field would otherwise create this pool inside the parallel phase.
         r.prepare<ECS::FoliageComponent>();
         r.prepare<ECS::MaterialComponent>();
+        // MeshECSSystem asks `has<MorphComponent>` of every skinned mesh with morph targets (LEG-MORPH).
+        r.prepare<ECS::MorphComponent>();
         r.prepare<ECS::AnimationComponent>();
         // Skeletal controls. AnimationECSSystem asks `has<TwoBoneIKComponent>` for every animated entity,
         // and the ask itself is a first touch — so a rig with no IK on it would have created this pool from

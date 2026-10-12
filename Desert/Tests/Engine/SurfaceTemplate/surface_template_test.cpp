@@ -314,18 +314,19 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
     // MaterialShadow* and MeshRenderer's cascade pipelines bind against: the light's CameraUB at 0, the
     // skinned path's Bones at 1 and the instanced path's InstanceTransforms at 17, the transform push block
     // (plus BoneOffset for skinned, plus the wind for instanced), no varyings and one R32F-bound output.
-    // Type 6 = uniform buffer, 7 = storage buffer; stages 0x1 = vertex.
+    // The fragment stage reads CameraUB too: the caster's slope depth bias (SHADOW-BIAS, Pass_ShadowDepth).
+    // Type 6 = uniform buffer, 7 = storage buffer; stages 0x1 = vertex, 0x11 = vertex + fragment.
     const std::map<std::string, std::vector<std::string>> shadow = {
          { "Static.ShadowDepth",
-           { "fragment out location 0", "push 64 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x1",
+           { "fragment out location 0", "push 64 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x11",
              "vertex in location 0", "vertex in location 1", "vertex in location 2", "vertex in location 3",
              "vertex in location 4" } },
          { "Instanced.ShadowDepth",
-           { "fragment out location 0", "push 112 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x1",
+           { "fragment out location 0", "push 120 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x11",
              "set 0 binding 17 type 7 count 1 stages 0x1", "vertex in location 0", "vertex in location 1",
              "vertex in location 2", "vertex in location 3", "vertex in location 4" } },
          { "Skinned.ShadowDepth",
-           { "fragment out location 0", "push 68 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x1",
+           { "fragment out location 0", "push 68 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x11",
              "set 0 binding 1 type 7 count 1 stages 0x1", "vertex in location 0", "vertex in location 1",
              "vertex in location 2", "vertex in location 3", "vertex in location 4", "vertex in location 5",
              "vertex in location 6" } },
@@ -377,7 +378,6 @@ TEST_F( SurfaceTemplateFixture, ASurfaceReadsTheViewBlocksTimeAndCameraPositionW
 }
 )";
     const std::string                             kFragmentRead = "set 0 binding 0 type 6 count 1 stages 0x11";
-    const std::string                             kVertexOnly   = "set 0 binding 0 type 6 count 1 stages 0x1";
     for ( const auto& cell : ExpectedCells() )
     {
         const auto built = Desert::Core::BuildShaderMap( { kViewTemplate,
@@ -391,11 +391,10 @@ TEST_F( SurfaceTemplateFixture, ASurfaceReadsTheViewBlocksTimeAndCameraPositionW
         for ( const auto& error : reconciled.Errors )
             ADD_FAILURE() << cell << ": " << error;
 
-        // An opaque depth cell evaluates no surface, so its fragment stage declares nothing (the casters' layout).
-        const bool                     evaluates = !cell.ends_with( ".ShadowDepth" );
-        const std::vector<std::string> layout    = DescribeProgramLayout( built.GetValue().Stages );
-        EXPECT_NE( std::find( layout.begin(), layout.end(), evaluates ? kFragmentRead : kVertexOnly ),
-                   layout.end() )
+        // Every cell's fragment stage reads the view block: a surface cell for the surface, a depth cell for
+        // the caster's slope depth bias (SHADOW-BIAS, Pass_ShadowDepth) even when it evaluates no surface.
+        const std::vector<std::string> layout = DescribeProgramLayout( built.GetValue().Stages );
+        EXPECT_NE( std::find( layout.begin(), layout.end(), kFragmentRead ), layout.end() )
              << cell << ": the view block is not where the surface reads it";
     }
 }

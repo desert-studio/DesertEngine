@@ -209,6 +209,10 @@ namespace
               "it hands the physics step the water bodies buoyancy floats against (UE: the solver-safe "
               "water body data); same argument as PhysicsECSSystem: hiding a lake in the outliner must "
               "not sink every boat on it." },
+         Row{ "ProjectileMovement.hpp", Verdict::MustNot,
+              "UE ProjectileMovement (LEG-PROJECTILE): a hidden projectile still flies and still hits, as a "
+              "hidden body still collides (PhysicsECSSystem's verdict); UE's ProjectileMovementComponent has no "
+              "visibility test either, and freezing a bullet because the outliner hid it would change gameplay." },
          Row{ "CharacterMovement.hpp", Verdict::MustNot,
               "the playable character's walking/falling model on its Jolt CharacterVirtual (GP2a); a hidden "
               "character is still in the simulation (PhysicsECSSystem's verdict), so hiding it must not freeze "
