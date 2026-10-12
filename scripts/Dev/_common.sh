@@ -37,11 +37,15 @@ dev_help() {
 
 # A merge can add sources to a project without touching its premake5.lua (files are globbed): after the AF7 merge
 # Common.make listed none of TextAssetHeader.cpp and every link failed. Regenerate the makefiles when a premake
-# script or the set of tracked sources changed since they were written. $1 = log dir.
+# script or the set of tracked sources changed since they were written. $1 = log dir; $2... = extra premake options
+# (suite.sh --dev-suites passes --dev-suites=A,B). The options are part of the stamp: a generation with them differs
+# from one without, so the next plain call regenerates and DevTests leaves the workspace again.
 dev_regen_makefiles() {
-    local sums; sums=$(git -C "$DEV_ROOT" ls-files '*.cpp' '*.mm' '*.c' 'premake5.lua' '*/premake5.lua' | md5)
+    local logdir="$1"; shift
+    local sums; sums="$(git -C "$DEV_ROOT" ls-files '*.cpp' '*.mm' '*.c' 'premake5.lua' '*/premake5.lua' | md5) $*"
     [ "$sums" = "$(cat "$DEV_ROOT/build/DevLogs/.sources.md5" 2>/dev/null)" ] && \
         [ -z "$(find "$DEV_ROOT" -maxdepth 4 -name premake5.lua -newer "$DEV_PROJECTS/Common.make" 2>/dev/null | head -1)" ] && return 0
-    (cd "$DEV_ROOT" && CI=true premake5 gmake) >"$1/premake.log" 2>&1 || { echo "premake5 gmake FAILED; log $1/premake.log"; return 1; }
+    (cd "$DEV_ROOT" && CI=true premake5 gmake "$@") >"$logdir/premake.log" 2>&1 ||
+        { echo "premake5 gmake $* FAILED; log $logdir/premake.log"; tail -3 "$logdir/premake.log"; return 1; }
     mkdir -p "$DEV_ROOT/build/DevLogs" && echo "$sums" >"$DEV_ROOT/build/DevLogs/.sources.md5"
 }

@@ -122,6 +122,10 @@ namespace Desert::Editor
     // the Details "Add Component" popup AND the scene-outliner context menu, so the buckets live in one place.
     void DrawAddComponentMenu( ECS::Entity& entity, ImGuiTextFilter& filter );
 
+    // The registrations below run from static initialisers in files nothing else references. They reach the
+    // binary because every binary that links EditorCore links it WHOLE (DesertPlatform.LinkWholeArchive in
+    // BuildScripts/Platform.lua); a new registering file needs nothing named anywhere.
+
     // Reflected component: ZERO UI code — the panel is auto-built from the data block's REFLECT() metadata.
     // When several entities are selected, edits broadcast to all of them (multi-select Details).
     template <class ComponentT, class DataT>

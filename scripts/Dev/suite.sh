@@ -6,15 +6,30 @@
 # Prints one line per suite: `Suite: N passed / M failed` plus up to 5 failed test names; exit 1 on any red.
 # The .make files exist only after `CI=true premake5 gmake`. Logs: build/DevLogs/suite-*/.
 # Each run is capped at 300 s (SUITE_TIMEOUT overrides).
+# --dev-suites: build ONE runner, DevTests, of only the named suites (premake --dev-suites) instead of their layers'
+# runners: no other suite's TU is compiled and there is one link. The CI runners are untouched.
 set -u
 source "$(dirname "$0")/_common.sh"
 case "${1:-}" in -h|--help|"") dev_help "$0"; exit 0 ;; esac
-build_only=""; [ "${1:-}" = --build-only ] && { build_only=1; shift; }  # handoff_check builds first, runs itself
+build_only=""; dev=""
+while :; do
+    case "${1:-}" in
+        --build-only) build_only=1; shift ;;  # handoff_check builds first, runs itself
+        --dev-suites) dev=1; shift ;;
+        *) break ;;
+    esac
+done
+[ $# -gt 0 ] || { echo "suite.sh: no suite named"; exit 2; }
 cd "$DEV_ROOT" || exit 2
 LOG=$(dev_logdir suite)
-dev_regen_makefiles "$LOG" || exit 2
 MANIFEST="$DEV_ROOT/build/TestManifest.txt"
-exe_of() { awk -v s="$1" '$2 == s { print $1 }' "$MANIFEST"; }
+if [ -n "$dev" ]; then
+    dev_regen_makefiles "$LOG" "--dev-suites=$(IFS=,; echo "$*")" || exit 2
+    exe_of() { awk -v s="$1" '$2 == s { print "DevTests" }' "$MANIFEST"; }
+else
+    dev_regen_makefiles "$LOG" || exit 2
+    exe_of() { awk -v s="$1" '$2 == s { print $1 }' "$MANIFEST"; }
+fi
 targets=()
 for s in "$@"; do
     e=$(exe_of "$s")
