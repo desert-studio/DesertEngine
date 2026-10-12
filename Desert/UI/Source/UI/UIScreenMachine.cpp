@@ -11,7 +11,7 @@ namespace Desert::UI
     namespace
     {
         // Is @p ancestor @p e itself or above it? Bounded: a Parent cycle is authorable (see IUITree).
-        bool IsSelfOrAncestor( const IUITree& tree, NodeId ancestor, NodeId e )
+        bool IsInSubtreeOf( const IUITree& tree, NodeId ancestor, NodeId e )
         {
             const std::size_t limit = tree.NodeBound() + 1;
             std::size_t       steps = 0;
@@ -143,7 +143,7 @@ namespace Desert::UI
         for ( const NodeId s : RootsOf( tree, ArgKind::Screen ) )
         {
             const std::string& n = tree.Get<UIScreenData>( s )->Name;
-            if ( n.empty() || !IsSelfOrAncestor( tree, canvas, s ) )
+            if ( n.empty() || !IsInSubtreeOf( tree, canvas, s ) )
                 continue;
             const NodeId owner = ScreenOwnerOf( tree, s );
             if ( owner == NodeId::Null )
@@ -213,7 +213,7 @@ namespace Desert::UI
               ++steps, a = tree.Parent( a ) )
         {
             for ( const UIScreenEntry& x : cell.ScreenIndex )
-                if ( x.Name == name && IsSelfOrAncestor( tree, a, x.Owner ) )
+                if ( x.Name == name && IsInSubtreeOf( tree, a, x.Owner ) )
                     return x.Owner;
         }
         return NodeId::Null;
