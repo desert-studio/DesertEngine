@@ -7,7 +7,6 @@
 #include <vector>
 #include <optional>
 
-// TODO: move to Uniforms global dir
 namespace Desert::ShaderResources::ShaderLayout
 {
     struct ShaderFieldLayout

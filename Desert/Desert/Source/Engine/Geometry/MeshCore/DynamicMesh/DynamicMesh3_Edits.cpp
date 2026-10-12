@@ -766,7 +766,7 @@ MeshResult DynamicMesh3::SetTriangle( int TriangleID, const Index3i& newv, bool 
         return MeshResult::Failed_BrokenTopology;
     }
 
-    // [TODO] check that we are not going to create invalid stuff...
+    // UE: check that we are not going to create invalid stuff...
 
     // Remove triangle from its edges. if edge has no triangles left, then it is removed.
     for ( int j = 0; j < 3; ++j )
@@ -975,7 +975,7 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double Sp
     }
 
     // look up edges that we are going to need to update
-    // [TODO OPT] could use ordering to reduce # of compares here
+    // UE (optimisation note): could use ordering to reduce # of compares here
     Index3i   T0te = GetTriEdges( t0 );
     int const ebc  = T0te[IndexUtil::FindEdgeIndexInTri( b, c, T0tv )];
     Index3i   T1te = GetTriEdges( t1 );
@@ -1542,7 +1542,7 @@ MeshResult DynamicMesh3::CollapseEdge( int KeepVertID, int RemoveVertID, double 
             }
         }
 
-        // [TODO] perhaps we can already have unique tri list because of the manifold-nbrhood check we need to
+        // UE: perhaps we can already have unique tri list because of the manifold-nbrhood check we need to
         // do...
         const Edge Edge = m_Edges[eid];
         for ( int j = 0; j < 2; ++j )
@@ -1904,7 +1904,7 @@ MeshResult DynamicMesh3::MergeEdges( int KeepEdgeID, int DiscardEdgeID, double I
         }
     };
 
-    // [TODO] this acts on each interior tri twice. could avoid using vtx-tri iterator?
+    // UE: this acts on each interior tri twice. could avoid using vtx-tri iterator?
     if ( a != c )
     {
         if ( InterpolationT != 0 )

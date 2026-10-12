@@ -721,20 +721,9 @@ namespace Desert::Editor
                     }
                 }
 
-                //// (optional) normalize weights
-                // for ( auto& v : tempVertices )
-                //{
-                //     float sum = v.BoneWeights[0] + v.BoneWeights[1] + v.BoneWeights[2] + v.BoneWeights[3];
-
-                //    if ( sum > 0.0f )
-                //    {
-                //        for ( int i = 0; i < 4; ++i )
-                //        {
-                //            v.BoneWeights[i] /= sum;
-                //        }
-                //    }
-                //}
-
+                // No renormalisation here: the read flags carry aiProcess_LimitBoneWeights, which cuts every
+                // vertex with more than four influences to its four strongest and rescales those to sum to one
+                // (LimitBoneWeightsProcess.cpp); a vertex with four or fewer keeps the file's own weights.
                 for ( auto& v : tempVertices )
                 {
                     meshData.SkinnedVertices.push_back( v );
